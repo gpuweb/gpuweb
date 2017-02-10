@@ -1,4 +1,4 @@
-# W3C GPU for the Web Community Group
+# W3C _GPU on the Web_ Community Group
 
 This is the repository for the W3C's [GPU on the Web](https://www.w3.org/community/gpu/)
 Community Group.
