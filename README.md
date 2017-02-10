@@ -25,3 +25,7 @@ However, you are not required to be a member of the group in order to
 [file issues](https://github.com/gpuweb/gpuweb/issues), errors, fixes or make suggestions.
 Just a github account. We simply require that any significant contribution of technology
 come from members, so that we can ensure no IP complications down the line.
+
+## Code of Conduct
+
+This group operates under [W3C's Code of Conduct Policy](http://www.w3.org/Consortium/cepc/).
