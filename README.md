@@ -1,6 +1,6 @@
-# W3C _GPU on the Web_ Community Group
+# W3C _GPU for the Web_ Community Group
 
-This is the repository for the W3C's [GPU on the Web](https://www.w3.org/community/gpu/)
+This is the repository for the W3C's [GPU for the Web](https://www.w3.org/community/gpu/)
 Community Group.
 
 We'll use the [wiki](https://github.com/gpuweb/gpuweb/wiki) as the main source of information
