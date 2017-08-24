@@ -40,12 +40,14 @@ Render pipelines need ```ShaderModule``` and a ```PipelineLayout``` like compute
  - All the fixed-function state
 
 For simplicity we assume most fixed-function state is created in separate object.
-For example a ```DepthStencilState``` object would be allocated and a pointer to it would be stored in the ```RenderPipelineDescriptor```.
+For example a ```DepthStencilState``` object would be allocated and a pointer to it would be stored in the ```RenderPipelineDescriptor```. This is part of the UX of the API and could be replaced with chained structure like Vulkan or member structure like D3D12.
 
 Mismatch:
- - Metal doesn’t have primitive restart.
+ - Metal has primitive restart always enabled.
+ - D3D12 needs to know whether the primitive restart index is ```0xFFFF``` or ```0xFFFFFFFF``` at pipeline creation time.
  - Metal doesn’t have a sample mask.
  - Vulkan can have some state like scissor and viewport set on the pipeline as an optimization on some GPUs.
+ - Vulkan allows creating pipelines in bulk, this is not only a UX things but allows reusing some results for faster creation.
 
 ```cpp
 struct RenderPipelineDescriptor {
@@ -73,9 +75,11 @@ RenderPipeline CreateRenderPipeline(Device device, const RenderPipelineDescripto
 ```
 
 Translation to the backing APIs would be the following:
- - **D3D12**: Translates to ```ID3D12::CreateComputePipelineState```
+ - **D3D12**: Translates to ```ID3D12::CreateGraphicsPipelineState```. ```IBStripCutValue``` will always be set.
  - **Metal**: Translates to ```MTLDevice::makeRenderPipelineState```
- - **Vulkan**: Translates to ```vkCreateGraphicsPipelines```
+ - **Vulkan**: Translates to ```vkCreateGraphicsPipelines```. ```VkPipelineInputAssemblyStateCreateInfo```'s ```primitiveRestartEnable``` is always set to true. All dynamic states are set on all pipelines.
+
+Open question: should the type of the indices be set in ```RenderPipelineDescriptor```? If not, how is the D3D12 ```IBStripCutValue``` chosen?
 
 The translation of individual members of RenderPipelineDescriptor is described below.
 
@@ -119,6 +123,7 @@ Translation to the backing APIs would be the following:
    Each enabled attribute corresponds to a ```D3D12_INPUT_ELEMENT_DESC``` with ```InputSlot``` being the index of the attribute.
    Other members of the ```D3D12_INPUT_ELEMENT_DESC``` are translated trivially.
    The stride is looked up in the pipeline state before calls to ```ID3D12GraphicsCommandList::IASetVertexBuffers```.
+   ```IASetVertexBuffers``` might be deferred until before a draw and vertex buffers might be invalidated by pipeline changes.
  - **Metal**: Translates to a ```MTLVertexDescriptor```, with attributes corresponding to ```MTLVertexDescriptor::attributes``` and buffers corresponding to ```MTLVertexDescriptor::layouts```.
    Attributes translate trivially to ```MTLVertexAttributeDescriptor``` structures and buffers to ```MTLVertexBufferLayoutDescriptor``` structures.
    Extra care only needs to be taken to translate a zero stride to a constant step rate.
@@ -273,5 +278,5 @@ Translation to backing APIs would be the following:
    ```depthTestEnable``` would be set to ```depthCompare != Always```.
 
 Open question:
-what about Vulkan’s ```VkPipelineDepthStencilStateCreateInfo::depthBoundTestEnable```?
+what about Vulkan’s ```VkPipelineDepthStencilStateCreateInfo::depthBoundTestEnable``` and D3D12's ```D3D12_DEPTH_STENCIL_DESC1::DepthBoundsTestEnable```?
 Should “depth test enable” be implicit or explicit?
