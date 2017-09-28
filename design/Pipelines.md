@@ -28,9 +28,9 @@ Translation to the backing APIs would be the following:
  - **Metal**: Translates to `MTLDevice::makeComputePipelineState`, the `MTLFunction` is created from the `(module, entryPoint, layout)` tuple by adapting the generated MSL to the resource slot allocation done in `layout`.
  - **Vulkan**: Translates to `vkCreateComputePipelines` with one pipeline. The `vkShaderStageInfo` corresponds to `(module, entryPoint)` and the `vkPipelineLayout` corresponds to `layout`.
 
-Open questions:
-How do we take advantage of the pipeline caching present in D3D12 and Vulkan?
-Do we expose it to the application or is it done magically in the WebGPU implementation?
+Question: How do we take advantage of the pipeline caching present in D3D12 and Vulkan? Do we expose it to the application or is it done magically in the WebGPU implementation?
+
+Answer: deferred to post-MVP.
 
 ## Render pipeline creation
 
@@ -50,6 +50,11 @@ Mismatch:
  - Vulkan allows creating pipelines in bulk, this is not only a UX things but allows reusing some results for faster creation.
 
 ```cpp
+enum IndexFormat {
+    IndexFormatUint16,
+    IndexFormatUint32,
+};
+
 struct RenderPipelineDescriptor {
     // Same translation as for compute pipelines
     ShaderModule vsModule;
@@ -60,6 +65,7 @@ struct RenderPipelineDescriptor {
 
     // Pipeline input / outputs
     InputState* inputState;
+    IndexFormat indexFormat;
     RenderPass* renderPass;
     int subpassIndex;
 
@@ -75,11 +81,13 @@ RenderPipeline CreateRenderPipeline(Device device, const RenderPipelineDescripto
 ```
 
 Translation to the backing APIs would be the following:
- - **D3D12**: Translates to `ID3D12::CreateGraphicsPipelineState`. `IBStripCutValue` will always be set.
+ - **D3D12**: Translates to `ID3D12::CreateGraphicsPipelineState`. `IBStripCutValue` will always be set with its value being chosen depending on `indexFormat`.
  - **Metal**: Translates to `MTLDevice::makeRenderPipelineState`
  - **Vulkan**: Translates to `vkCreateGraphicsPipelines`. `VkPipelineInputAssemblyStateCreateInfo`'s `primitiveRestartEnable` is always set to true. All dynamic states are set on all pipelines.
 
-Open question: should the type of the indices be set in `RenderPipelineDescriptor`? If not, how is the D3D12 `IBStripCutValue` chosen?
+Question: Should the type of the indices be set in `RenderPipelineDescriptor`? If not, how is the D3D12 `IBStripCutValue` chosen?
+
+Answer: While `indexFormat` isn't necessary in any of the three APIs, we chose to include it in the pipeline state because primitive restart must always be  enabled (because of Metal) and a D3D12 needs to choose the correct `IBStripCutValue`. The alternative would have been to compile two D3D12 pipelines for every WebGPU pipelines, or defer compilation.
 
 The translation of individual members of RenderPipelineDescriptor is described below.
 
@@ -130,8 +138,9 @@ Translation to the backing APIs would be the following:
  - **Vulkan**: Translates to a `VkPipelineVertexInputStateCreateInfo`.
    Buffers translate trivially to `VkVertexInputBindingDescription` and attributes to `VkVertexInputAttributeDescription`.
 
-Open questions:
-Should the vertex attributes somehow be included in the `PipelineLayout` so vertex buffers are treated as other resources and changed in bulk with them?
+Question: Should the vertex attributes somehow be included in the PipelineLayout so vertex buffers are treated as other resources and changed in bulk with them?
+
+Answer: We decided against innovating in this area.
 
 ### Render pass / render target format
 
@@ -141,8 +150,9 @@ Information from the `RenderPass` is used to fill the following:
  - **Metal**: `colorAttachments[N].pixelFormat`, `depthAttachmentPixelFormat` and `stencilAttachmentPixelFormat` in `MTLRenderPipelineDescriptor`.
  - **Vulkan**: `renderPass` and `subpass` in `VkGraphicsPipelineCreateInfo`.
 
-Open question:
-does the sample count of the pipeline state come from the RenderPass too?
+Question: does the sample count of the pipeline state come from the RenderPass too?
+
+Answer: deferred post-MVP.
 
 ### Primitive topology
 
@@ -219,8 +229,9 @@ Translation to backing APIs would be the following:
  - **Vulkan**: the `BlendStates` will be translated to elements of `pAttachments` in the `VkPipelineColorBlendStateCreateInfo`.
    Translation of individual members is trivial.
 
-Open question:
-should enablement of independent attachment blend state be explicit like in D3D12 or explicit? Should alpha to coverage be part of the multisample state or the blend state?
+Open question: Should enablement of independent attachment blend state be explicit like in D3D12 or explicit?
+
+Open question: Should alpha to coverage be part of the multisample state or the blend state?
 
 ### Depth stencil state
 
@@ -277,6 +288,8 @@ Translation to backing APIs would be the following:
  - **Vulkan**: `DepthStencilState` translates trivially to `VkPipelineDepthStencilStateCreateInfoxcept` except that front and back stencil masks have to be set to the single stencil mask value from WebGPU.
    `depthTestEnable` would be set to `depthCompare != Always`.
 
-Open question:
-what about Vulkan’s `VkPipelineDepthStencilStateCreateInfo::depthBoundTestEnable` and D3D12's `D3D12_DEPTH_STENCIL_DESC1::DepthBoundsTestEnable`?
-Should “depth test enable” be implicit or explicit?
+Question: What about Vulkan’s `VkPipelineDepthStencilStateCreateInfo::depthBoundTestEnable` and D3D12's `D3D12_DEPTH_STENCIL_DESC1::DepthBoundsTestEnable`?
+
+Answer: deferred post-MVP.
+
+Open question: Should “depth test enable” be implicit or explicit?
