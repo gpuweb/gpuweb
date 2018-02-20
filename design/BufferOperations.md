@@ -24,24 +24,28 @@ We want the status of a map operation to act as both a promise, and something th
 The mapping operations for `WebGPUBuffer` are:
 
 ```
-WebGPUMappedMemory WebGPUBuffer::mapWrite(u32 offset, u32 size);
-WebGPUMappedMemory WebGPUBuffer::mapRead(u32 offset, u32 size);
+partial interface WebGPUBuffer {
+    WebGPUMappedMemory mapWrite(u32 offset, u32 size);
+    WebGPUMappedMemory mapRead(u32 offset, u32 size);
+};
 ```
 
 These operations return new `WebGPUMappedMemory` objects representing the current range of the buffer for writing or mapping.
 The results are initialized in the "pending" state and transition at Javascript task boundary to the "available" state when the implementation can determine the GPU is done using the buffer.
 The mapping operations put the buffer in the mapped state, when a buffer is in the mapped state, only the mapping and unmapping operations on it are allowed.
-In particular a mapped buffer cannot be used in a `WebGPUCommandBuffer` given to `WebGPUQueue::submit`.
+In particular a mapped buffer cannot be used in a `WebGPUCommandBuffer` given to `WebGPUQueue.submit`.
 The following must be true or a validation error occurs for mapWrite (resp. mapRead):
 
- - The buffer must have been created with the `WebGPUBufferUsage::MAP_WRITE` (resp. `WebGPUBufferUsage::MAP_READ`) usage.
+ - The buffer must have been created with the `WebGPUBufferUsage.MAP_WRITE` (resp. `WebGPUBufferUsage.MAP_READ`) usage.
  - `offset + size` must not overflow and be at most the size of the buffer
- - Depending on the design of memory barriers, the buffer must be, or allowed to be in the `WebGPUBufferUsage::MAP_WRITE` (resp. `WebGPUBufferUsage::MAP_READ`) usage.
+ - Depending on the design of memory barriers, the buffer must be, or allowed to be in the `WebGPUBufferUsage.MAP_WRITE` (resp. `WebGPUBufferUsage.MAP_READ`) usage.
 
 The a mapped buffer can be unmapped with:
 
 ```
-void WebGPUBuffer::unmap();
+partial interface WebGPUBuffer {
+    void unmap();
+};
 ```
 
 This operation invalidates all the `WebGPUMappedMemory` created from the buffer and puts the buffer in the unmapped state.
@@ -56,8 +60,10 @@ It can be in one of three states: pending, available and invalidated.
 The pollable interface is:
 
 ```
-bool WebGPUMappedMemory::isPending();
-ArrayBuffer WebGPUMappedMemory::getPointer();
+partial interface WebGPUMappedMemory {
+    bool isPending();
+    ArrayBuffer getPointer();
+};
 ```
 
 `isPending` return true if the object is in the pending state, false otherwise.
@@ -66,15 +72,17 @@ ArrayBuffer WebGPUMappedMemory::getPointer();
 `WebGPUMappedMemory` is acts like a promise as in that it is then-able:
 
 ```
-void WebGPUMappedMemory::then(WebGPUMappedMemorySuccessCallback success,
-                              optional WebGPUMappedMemoryErrorCallback error);
+partial interface WebGPUMappedMemory {
+    void then(WebGPUMappedMemorySuccessCallback success,
+              optional WebGPUMappedMemoryErrorCallback error);
+};
 ```
 
-This acts like a `Promise<ArrayBuffer>::then` that is resolved on the Javascript task boundary in which the implementation detects the GPU is done with the buffer.
+This acts like a `Promise<ArrayBuffer>.then` that is resolved on the Javascript task boundary in which the implementation detects the GPU is done with the buffer.
 On that boundary:
 
  - The `WebGPUMappedMemory` goes in the available state.
- - If the `WebGPUMappedMemory` was created via `WebGPUBuffer::mapWrite`, its content is cleared to 0.
+ - If the `WebGPUMappedMemory` was created via `WebGPUBuffer.mapWrite`, its content is cleared to 0.
  - `success` is called with the content of the memory as an argument.
 
 If `success` hasn't been called when the WebGPUMappedMemory gets invalidated (meaning the object is still in the pending state), `error` is called instead.
@@ -87,17 +95,19 @@ Buffer mapping is the path with the least number of copies but it is often usefu
 A `WebGPUBuffer` operation is provided that takes an ArrayBuffer and copies its content at an offset in the buffer.
 
 ```
-void WebGPUBuffer::setSubData(ArrayBuffer data, u32 offset);
+partial interface WebGPUBuffer {
+    void setSubData(ArrayBuffer data, u32 offset);
+}
 ```
 
 This operation acts as if it was done after all previous "device-level" commands and before all subsequent "device-level" commands.
-"Device level" commands are all commands not buffered in a `WebGPUCommandBuffer`, and include `WebGPUQueue::submit`.
+"Device level" commands are all commands not buffered in a `WebGPUCommandBuffer`, and include `WebGPUQueue.submit`.
 The content of `data` is only read during the call and can be modified by the application afterwards.
 The following must be true or a validation error occurs:
 
- - The buffer must have been created with the `WebGPUBufferUsage::TRANSFER_DST` usage flag.
+ - The buffer must have been created with the `WebGPUBufferUsage.TRANSFER_DST` usage flag.
  - `offset + data.length` must not overflow and be at most the size of the buffer.
- - Depending on the design of memory barriers, the buffer must be, or allowed to be in the `WebGPUBufferUsage::TRANSFER_DST` usage.
+ - Depending on the design of memory barriers, the buffer must be, or allowed to be in the `WebGPUBufferUsage.TRANSFER_DST` usage.
    - In particuler the buffer must not be currently mapped.
 
 ## Unused designs
@@ -105,8 +115,8 @@ The following must be true or a validation error occurs:
 ### Persistently mapped buffer
 
 Persistently mapped buffer are when the result of mapping the buffer can be kept by the application while the buffer is in use by the GPU.
-We didn't find a way to have persistently mapped buffers and at the same time keep DRF between the CPU and GPU.
-DRF could be possible if ArrayBuffer could be unneutered but this is not the case.
+We didn't find a way to have persistently mapped buffers and at the same time keep things data race free between the CPU and GPU.
+Being data race free would be possible if ArrayBuffer could be unneutered but this is not the case.
 
 ### Promise<ArrayBuffer> readback();
 
@@ -129,7 +139,9 @@ The `WebGPUMappedMemory` design makes each mapped region create two grabage coll
 
 ### Side effects between mapped memory regions
 
-What happens when `WebGPUMappedMemory` object's region in the buffer overlap? Are write from one visiable from the other?
+What happens when `WebGPUMappedMemory` object's region in the buffer overlap?
+Are write from one visiable from the other?
+If they are, maybe `WebGPUMappedMemory.getPointer` should return an `ArrayBufferView` instead.
 
 ### Interactions with workers
 
