@@ -1,7 +1,7 @@
 # Buffer operations
 
 This describes operations that are done on `WebGPUBuffer` objects directly and are not buffered inside a `WebGPUCommandBuffer`.
-The two primitives we need to support are the CPU writing data inside the buffer for use by the GPU (uplaod) and the CPU reading data produced by the GPU (readback).
+The two primitives we need to support are the CPU writing data inside the buffer for use by the GPU (upload) and the CPU reading data produced by the GPU (readback).
 
 Design constraints are:
 
@@ -18,8 +18,8 @@ The way to have the minimal number of copies for upload and readback is to provi
 This mechanism has to be asynchronous to ensure the GPU is done using the buffer before the application can look into the ArrayBuffer.
 Otherwise on implementation where the ArrayBuffer is directly a pointer to the buffer memory, data races between the CPU and the GPU could occur.
 
-We want the status of a map operation to act as both a promise, and something that's pollable as there advantages to both.
-`WebGPUMappedMemory` is an object that is then-able like a Promise but is pollable at the same time.
+We want the status of a map operation to act as both a promise, and something that's pollable as there are advantages to both.
+`WebGPUMappedMemory` is an object that is `then`-able, meaning that it acts like a Javascript `Promise` but is pollable at the same time.
 
 The mapping operations for `WebGPUBuffer` are:
 
@@ -32,15 +32,16 @@ partial interface WebGPUBuffer {
 
 These operations return new `WebGPUMappedMemory` objects representing the current range of the buffer for writing or mapping.
 The results are initialized in the "pending" state and transition at Javascript task boundary to the "available" state when the implementation can determine the GPU is done using the buffer.
-The mapping operations put the buffer in the mapped state, when a buffer is in the mapped state, only the mapping and unmapping operations on it are allowed.
+Calling `mapRead` or `mapWrite` puts the buffer in the mapped state.
+No operations are allowed in a buffer in that state except additional calls to `mapRead` or `mapWrite` and calls to `unmap`.
 In particular a mapped buffer cannot be used in a `WebGPUCommandBuffer` given to `WebGPUQueue.submit`.
-The following must be true or a validation error occurs for mapWrite (resp. mapRead):
+The following must be true or a validation error occurs for `mapWrite` (resp. `mapRead`):
 
  - The buffer must have been created with the `WebGPUBufferUsage.MAP_WRITE` (resp. `WebGPUBufferUsage.MAP_READ`) usage.
  - `offset + size` must not overflow and be at most the size of the buffer
  - Depending on the design of memory barriers, the buffer must be, or allowed to be in the `WebGPUBufferUsage.MAP_WRITE` (resp. `WebGPUBufferUsage.MAP_READ`) usage.
 
-The a mapped buffer can be unmapped with:
+Then a mapped buffer can be unmapped with:
 
 ```
 partial interface WebGPUBuffer {
@@ -69,12 +70,12 @@ partial interface WebGPUMappedMemory {
 `isPending` return true if the object is in the pending state, false otherwise.
 `getPointer` returns an ArrayBuffer representing the buffer data if the object is in the available state, null otherwise.
 
-`WebGPUMappedMemory` is acts like a promise as in that it is then-able:
+`WebGPUMappedMemory` is also `then`-able, meaning that it acts like a Javascript `Promise`:
 
 ```
 partial interface WebGPUMappedMemory {
-    void then(WebGPUMappedMemorySuccessCallback success,
-              optional WebGPUMappedMemoryErrorCallback error);
+    Promise then(WebGPUMappedMemorySuccessCallback success,
+                 optional WebGPUMappedMemoryErrorCallback error);
 };
 ```
 
@@ -85,9 +86,7 @@ On that boundary:
  - If the `WebGPUMappedMemory` was created via `WebGPUBuffer.mapWrite`, its content is cleared to 0.
  - `success` is called with the content of the memory as an argument.
 
-If `success` hasn't been called when the WebGPUMappedMemory gets invalidated (meaning the object is still in the pending state), `error` is called instead.
-
-When `WebGPUMappedMemory` goes from the available state to the invalidated state, the `ArrayBuffer` for its content gets neutered.
+If `success` hasn't been called when the WebGPUMappedMemory gets invalidated (meaning the object is still in the pending state), `error` is called instead. When `WebGPUMappedMemory` goes from the available state to the invalidated state, the `ArrayBuffer` for its content gets neutered. The return value of `then` acts like the return value of `Promise.then`.
 
 ## Immediate data upload
 
@@ -108,7 +107,7 @@ The following must be true or a validation error occurs:
  - The buffer must have been created with the `WebGPUBufferUsage.TRANSFER_DST` usage flag.
  - `offset + data.length` must not overflow and be at most the size of the buffer.
  - Depending on the design of memory barriers, the buffer must be, or allowed to be in the `WebGPUBufferUsage.TRANSFER_DST` usage.
-   - In particuler the buffer must not be currently mapped.
+   - In particular the buffer must not be currently mapped.
 
 ## Unused designs
 
@@ -135,12 +134,12 @@ The simple answer is that the `WebGPUMappedMemory` objects get invalidated but t
 
 ### GC pressure
 
-The `WebGPUMappedMemory` design makes each mapped region create two grabage collected objects. This could lead to some GC pressure.
+The `WebGPUMappedMemory` design makes each mapped region create two garbage collected objects. This could lead to some GC pressure.
 
 ### Side effects between mapped memory regions
 
 What happens when `WebGPUMappedMemory` object's region in the buffer overlap?
-Are write from one visiable from the other?
+Are write from one visible from the other?
 If they are, maybe `WebGPUMappedMemory.getPointer` should return an `ArrayBufferView` instead.
 
 ### Interactions with workers

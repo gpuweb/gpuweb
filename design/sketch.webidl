@@ -7,13 +7,13 @@ typedef long u32;
 // Buffer
 
 callback WebGPUMappedMemorySuccessCallback = void (ArrayBuffer);
-callback WebGPUMappedMemoryErrorCallback = void (DOMString);
+callback WebGPUMappedMemoryErrorCallback = void (Error);
 interface WebGPUMappedMemory {
     bool isPending();
-    ArrayBuffer getPointer();
+    ArrayBuffer? getPointer();
 
-    void then(WebGPUMappedMemorySuccessCallback success,
-              optional WebGPUMappedMemoryErrorCallback error);
+    Promise then(WebGPUMappedMemorySuccessCallback success,
+                 optional WebGPUMappedMemoryErrorCallback error);
 };
 
 typedef u32 WebGPUBufferUsageFlags;
