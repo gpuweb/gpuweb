@@ -88,6 +88,8 @@ On that boundary:
 
 If `success` hasn't been called when the WebGPUMappedMemory gets invalidated (meaning the object is still in the pending state), `error` is called instead. When `WebGPUMappedMemory` goes from the available state to the invalidated state, the `ArrayBuffer` for its content gets neutered. The return value of `then` acts like the return value of `Promise.then`.
 
+The `ArrayBuffer` of a `WebGPUMappedMemory` created from a `mapWrite` is where the application should write the data and its content is made available to the buffer when the `WebGPUMappedMemory` is invalidated (i.e. `WebGPUBuffer.unmap` is called).
+
 ## Immediate data upload
 
 Buffer mapping is the path with the least number of copies but it is often useful to upload data to a buffer *right now*, if only for debugging.
