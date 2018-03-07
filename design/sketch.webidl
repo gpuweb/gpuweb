@@ -5,6 +5,17 @@ typedef long u32;
 // ****************************************************************************
 
 // Buffer
+
+callback WebGPUMappedMemorySuccessCallback = void (ArrayBuffer arrayBuffer);
+callback WebGPUMappedMemoryErrorCallback = void (Error error);
+interface WebGPUMappedMemory {
+    boolean isPending();
+    ArrayBuffer? getPointer();
+
+    Promise<any> then(WebGPUMappedMemorySuccessCallback success,
+                       optional WebGPUMappedMemoryErrorCallback error);
+};
+
 typedef u32 WebGPUBufferUsageFlags;
 interface WebGPUBufferUsage {
     const u32 NONE = 0;
@@ -25,7 +36,11 @@ dictionary WebGPUBufferDescriptor {
 
 interface WebGPUBuffer {
     void setSubData(ArrayBuffer data, u32 offset);
-    Promise<ArrayBuffer> readbackAsync(u32 offset, u32 size);
+
+    WebGPUMappedMemory mapWrite(u32 offset, u32 size);
+    WebGPUMappedMemory mapRead(u32 offset, u32 size);
+
+    void unmap();
 };
 
 // Texture view
