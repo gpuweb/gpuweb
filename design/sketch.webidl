@@ -1,4 +1,5 @@
-typedef long u32;
+typedef unsigned long u32;
+typedef unsigned long long u64;
 
 // ****************************************************************************
 // SHADER RESOURCES (buffer, textures, texture views, samples)
@@ -18,23 +19,13 @@ interface WebGPUBufferUsage {
     const u32 STORAGE = 128;
 };
 
-interface WebGPUMapFlags {
-    const u32 READ = 1;
-    const u32 WRITE = 2;
-    const u32 DISCARD = 4;
-};
-
 dictionary WebGPUBufferDescriptor {
     u32 size;
     WebGPUBufferUsageFlags usage;
 };
 
 interface WebGPUBuffer {
-    ArrayBuffer? map(WebGPUMapFlags flags);
-    void unmap();
-
-    // For ease of use, maybe:
-    readonly attribute bool readyToMap;
+    readonly attribute ArrayBuffer? mapping;
 };
 
 // Texture view
@@ -428,6 +419,8 @@ interface WebGPUCommandEncoder {
     void copyTextureToTexture();
     void blit();
 
+    void transitionBuffer(WebGPUBuffer b, WebGPUBufferUsageFlags f);
+
     // Allowed in both compute and render passes
     void setPushConstants(WebGPUShaderStageFlags stage,
                           u32 offset,
@@ -462,12 +455,14 @@ interface WebGPUCommandEncoder {
 
 // Fence
 interface WebGPUFence {
-    readonly attribute bool complete;
+    bool wait(u64 timeout);
+    Promise then();
 };
 
 // Queue
 interface WebGPUQueue {
-    void submit(sequence<WebGPUCommandBuffer> buffers, WebGPUFence? fence);
+    void submit(sequence<WebGPUCommandBuffer> buffers);
+    WebGPUFence insertFence();
 };
 
 // SwapChain / RenderingContext
