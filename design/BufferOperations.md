@@ -147,4 +147,4 @@ If they are, maybe `WebGPUMappedMemory.getPointer` should return an `ArrayBuffer
 ### Interactions with workers
 
 Can a buffer be mapped in multiple different workers?
-If that's the case, the pointer should be represented with a `SharedArrayBufer`.
+If that's the case, the pointer should be represented with a `SharedArrayBuffer`.
