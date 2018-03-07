@@ -18,14 +18,23 @@ interface WebGPUBufferUsage {
     const u32 STORAGE = 128;
 };
 
+interface WebGPUMapFlags {
+    const u32 READ = 1;
+    const u32 WRITE = 2;
+    const u32 DISCARD = 4;
+};
+
 dictionary WebGPUBufferDescriptor {
     u32 size;
     WebGPUBufferUsageFlags usage;
 };
 
 interface WebGPUBuffer {
-    void setSubData(ArrayBuffer data, u32 offset);
-    Promise<ArrayBuffer> readbackAsync(u32 offset, u32 size);
+    ArrayBuffer? map(WebGPUMapFlags flags);
+    void unmap();
+
+    // For ease of use, maybe:
+    readonly attribute bool readyToMap;
 };
 
 // Texture view
@@ -156,7 +165,7 @@ dictionary WebGPUBinding {
 
 dictionary WebGPUBindGroupDescriptor {
     WebGPUBindGroupLayout layout;
-    sequence<WebGPUBinding> bindings; 
+    sequence<WebGPUBinding> bindings;
 };
 
 interface WebGPUBindGroup {
@@ -257,7 +266,7 @@ dictionary WebGPUDepthStencilStateDescriptor {
 
     WebGPUStencilStateFaceDescriptor front;
     WebGPUStencilStateFaceDescriptor back;
-    
+
     u32 stencilReadMask;
     u32 stencilWriteMask;
 };
@@ -453,13 +462,12 @@ interface WebGPUCommandEncoder {
 
 // Fence
 interface WebGPUFence {
-    u32 getValue();
+    readonly attribute bool complete;
 };
 
 // Queue
 interface WebGPUQueue {
-    void submit(sequence<WebGPUCommandBuffer> buffers);
-    void updateFence(WebGPUFence fence, u32 value);
+    void submit(sequence<WebGPUCommandBuffer> buffers, WebGPUFence? fence);
 };
 
 // SwapChain / RenderingContext
