@@ -16,11 +16,13 @@ Fences are one-shot, where the CPU waits for the GPU/server/API to 'signal'
 a fence as passed. They are created with WebGPUQueue.insertFence().
 
 Apps can establish whether a buffer has completed its transition to
-MAP_READ/MAP_WRITE by waiting on fences, polling with wait(0), or using `.then()`.
+MAP_READ/MAP_WRITE by using `.then()`.
 
-## WebGPUBuffer.mapping
+## WebGPUBuffer.mapping and unmap()
 
 Once the app has established that the transition to MAP_READ/MAP_WRITE is
 complete, `mapping` is changed from `null` to an `ArrayBuffer` backed by the
-mapped data. Submitting a transition of a buffer away from MAP_READ/MAP_WRITE
-neuters the ArrayBuffer, and nulls `mapping`
+mapped data.
+
+When done with the mapping, the app relinquishes control of the mapped bytes
+with `WebGPUBuffer.unmap()`, which neuters the ArrayBuffer, and nulls `mapping`.

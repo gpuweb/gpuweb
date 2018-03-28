@@ -26,6 +26,7 @@ dictionary WebGPUBufferDescriptor {
 
 interface WebGPUBuffer {
     readonly attribute ArrayBuffer? mapping;
+    void unmap();
 };
 
 // Texture view
@@ -455,7 +456,6 @@ interface WebGPUCommandEncoder {
 
 // Fence
 interface WebGPUFence {
-    bool wait(u64 timeout);
     Promise then();
 };
 
