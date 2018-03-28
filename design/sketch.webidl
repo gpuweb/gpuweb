@@ -456,7 +456,7 @@ interface WebGPUCommandEncoder {
 
 // Fence
 interface WebGPUFence {
-    Promise then();
+    readonly attribute Promise<void> promise;
 };
 
 // Queue
