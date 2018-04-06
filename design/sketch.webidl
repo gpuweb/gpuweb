@@ -1,4 +1,5 @@
-typedef long u32;
+typedef unsigned long u32;
+typedef unsigned long long u64;
 
 // ****************************************************************************
 // SHADER RESOURCES (buffer, textures, texture views, samples)
@@ -24,8 +25,8 @@ dictionary WebGPUBufferDescriptor {
 };
 
 interface WebGPUBuffer {
-    void setSubData(ArrayBuffer data, u32 offset);
-    Promise<ArrayBuffer> readbackAsync(u32 offset, u32 size);
+    readonly attribute ArrayBuffer? mapping;
+    void unmap();
 };
 
 // Texture view
@@ -156,7 +157,7 @@ dictionary WebGPUBinding {
 
 dictionary WebGPUBindGroupDescriptor {
     WebGPUBindGroupLayout layout;
-    sequence<WebGPUBinding> bindings; 
+    sequence<WebGPUBinding> bindings;
 };
 
 interface WebGPUBindGroup {
@@ -257,7 +258,7 @@ dictionary WebGPUDepthStencilStateDescriptor {
 
     WebGPUStencilStateFaceDescriptor front;
     WebGPUStencilStateFaceDescriptor back;
-    
+
     u32 stencilReadMask;
     u32 stencilWriteMask;
 };
@@ -419,6 +420,8 @@ interface WebGPUCommandEncoder {
     void copyTextureToTexture();
     void blit();
 
+    void transitionBuffer(WebGPUBuffer b, WebGPUBufferUsageFlags f);
+
     // Allowed in both compute and render passes
     void setPushConstants(WebGPUShaderStageFlags stage,
                           u32 offset,
@@ -453,13 +456,13 @@ interface WebGPUCommandEncoder {
 
 // Fence
 interface WebGPUFence {
-    u32 getValue();
+    readonly attribute Promise<void> promise;
 };
 
 // Queue
 interface WebGPUQueue {
     void submit(sequence<WebGPUCommandBuffer> buffers);
-    void updateFence(WebGPUFence fence, u32 value);
+    WebGPUFence insertFence();
 };
 
 // SwapChain / RenderingContext
