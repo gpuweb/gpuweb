@@ -2,6 +2,26 @@ typedef unsigned long u32;
 typedef unsigned long long u64;
 
 // ****************************************************************************
+// BASE OBJECTS (error handling)
+// ****************************************************************************
+
+enum WebGPUStatusType {
+    "success",
+    "validation-error",
+    "context-lost",
+    "out-of-memory",
+};
+
+interface WebGPUStatus {
+    WebGPUStatusType type;
+    DOMString? reason;
+};
+
+interface WebGPUObjectBase {
+    Promise<WebGPUStatus> attribute status;
+};
+
+// ****************************************************************************
 // SHADER RESOURCES (buffer, textures, texture views, samples)
 // ****************************************************************************
 
@@ -24,7 +44,7 @@ dictionary WebGPUBufferDescriptor {
     WebGPUBufferUsageFlags usage;
 };
 
-interface WebGPUBuffer {
+interface WebGPUBuffer: WebGPUObjectBase {
     readonly attribute ArrayBuffer? mapping;
     void unmap();
 };
@@ -34,7 +54,7 @@ dictionary WebGPUTextureViewDescriptor {
     // TODO Investigate what goes in there.
 };
 
-interface WebGPUTextureView {
+interface WebGPUTextureView: WebGPUObjectBase {
 };
 
 // Texture
@@ -76,7 +96,7 @@ dictionary WebGPUTextureDescriptor {
     WebGPUTextureUsageFlags usage;
 };
 
-interface WebGPUTexture {
+interface WebGPUTexture: WebGPUObjectBase {
     WebGPUTextureView createTextureView(WebGPUTextureViewDescriptor desc);
 };
 
@@ -93,7 +113,7 @@ dictionary WebGPUSamplerDescriptor {
     WebGPUFilterModeEnum mipmapFilter;
 };
 
-interface WebGPUSampler {
+interface WebGPUSampler: WebGPUObjectBase {
 };
 
 // ****************************************************************************
@@ -129,7 +149,7 @@ dictionary WebGPUBindGroupLayoutDescriptor {
     sequence<WebGPUBindGroupBinding> bindingTypes;
 };
 
-interface WebGPUBindGroupLayout {
+interface WebGPUBindGroupLayout: WebGPUObjectBase {
 };
 
 // PipelineLayout
@@ -137,7 +157,7 @@ dictionary WebGPUPipelineLayoutDescriptor {
     sequence<WebGPUBindGroupLayout> bindGroupLayouts;
 };
 
-interface WebGPUPipelineLayout {
+interface WebGPUPipelineLayout: WebGPUObjectBase {
 };
 
 // BindGroup
@@ -160,7 +180,7 @@ dictionary WebGPUBindGroupDescriptor {
     sequence<WebGPUBinding> bindings;
 };
 
-interface WebGPUBindGroup {
+interface WebGPUBindGroup: WebGPUObjectBase {
 };
 
 // ****************************************************************************
@@ -217,7 +237,7 @@ dictionary WebGPUBlendStateDescriptor {
     WebGPUColorWriteFlags writeMask;
 };
 
-interface WebGPUBlendState {
+interface WebGPUBlendState: WebGPUObjectBase {
 };
 
 // DepthStencilState
@@ -263,7 +283,7 @@ dictionary WebGPUDepthStencilStateDescriptor {
     u32 stencilWriteMask;
 };
 
-interface WebGPUDepthStencilState {
+interface WebGPUDepthStencilState: WebGPUObjectBase {
 };
 
 // InputState
@@ -308,7 +328,7 @@ dictionary WebGPUInputStateDescriptor {
     sequence<WebGPUVertexInputDescriptor> inputs;
 };
 
-interface WebGPUInputState {
+interface WebGPUInputState: WebGPUObjectBase {
 };
 
 // ShaderModule
@@ -316,7 +336,7 @@ dictionary WebGPUShaderModuleDescriptor {
     ArrayBuffer code;
 };
 
-interface WebGPUShaderModule {
+interface WebGPUShaderModule: WebGPUObjectBase {
 };
 
 // AttachmentState
@@ -325,7 +345,7 @@ dictionary WebGPUAttachmentStateDescriptor {
     // TODO other stuff like sample count etc.
 };
 
-interface WebGPUAttachmentState {
+interface WebGPUAttachmentState: WebGPUObjectBase {
 };
 
 // Common stuff for ComputePipeline and RenderPipeline
@@ -352,7 +372,7 @@ dictionary WebGPUPipelineDescriptorBase {
 dictionary WebGPUComputePipelineDescriptor : WebGPUPipelineDescriptorBase{
 };
 
-interface WebGPUComputePipeline {
+interface WebGPUComputePipeline: WebGPUObjectBase {
 };
 
 // WebGPURenderPipeline
@@ -374,7 +394,7 @@ dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase{
     // TODO other properties
 };
 
-interface WebGPURenderPipeline {
+interface WebGPURenderPipeline: WebGPUObjectBase {
 };
 // ****************************************************************************
 // COMMAND RECORDING (Command buffer and all relevant structures)
@@ -402,7 +422,7 @@ dictionary WebGPURenderPassDescriptor {
     WebGPURenderPassAttachmentDescriptor depthStencilAttachmaent;
 };
 
-interface WebGPUCommandBuffer {
+interface WebGPUCommandBuffer: WebGPUObjectBase {
 };
 
 interface WebGPUCommandEncoder {
@@ -460,7 +480,7 @@ interface WebGPUFence {
 };
 
 // Queue
-interface WebGPUQueue {
+interface WebGPUQueue: WebGPUObjectBase {
     void submit(sequence<WebGPUCommandBuffer> buffers);
     WebGPUFence insertFence();
 };
@@ -473,7 +493,7 @@ dictionary WebGPUSwapChainDescriptor {
     u32 height;
 };
 
-interface WebGPUSwapChain {
+interface WebGPUSwapChain: WebGPUObjectBase {
     void configure(WebGPUSwapChainDescriptor descriptor);
     WebGPUTexture getNextTexture();
     void present();
@@ -504,6 +524,8 @@ interface WebGPUDevice {
     WebGPUFence createFence(WebGPUFenceDescriptor descriptor);
 
     WebGPUQueue getQueue();
+
+    Promise<WebGPUStatus> getCurrentStatus();
 };
 
 // WebGPU "namespace" used for device creation
