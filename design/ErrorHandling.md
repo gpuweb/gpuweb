@@ -13,7 +13,7 @@ There are a number of cases that applications care about:
 There are several types of WebGPU calls that get their error handled differently:
 
  - WebGPU Object creation.
- - Recording of GPU commands in `WebGPUCommandDecoder`.
+ - Recording of GPU commands in `WebGPUCommandEncoder`.
  - Other commands such as `WebGPUQueue.submit`
 
 ## Status objects
@@ -36,7 +36,7 @@ interface WebGPUStatus {
 };
 ```
 
-`WebGPUStatusType` makes difference between several error causes (in addition to success):
+`WebGPUStatusType` makes a distinction between several error causes (in addition to success):
 
  - Validation errors because the application did something wrong.
  - Out of memory cases that are recoverable.
@@ -45,6 +45,7 @@ interface WebGPUStatus {
 ## Error handling in object creation
 
 WebGPU objects the application uses are handles that either represent a successfully created object, or an error that occured during creation.
+Successfully created objects are called "valid objects" and "invalid objects" otherwise.
 It is possible to get a `WebGPUStatus` for an object that contains whether it is an error or a success.
 This is done through `WebGPUObjectBase` from which most WebGPU objects inherit.
 
@@ -67,13 +68,14 @@ partial interface WebGPUDevice {
 };
 ```
 
-## Error propagation of error objects
+## Error propagation of invalid objects
 
-There is a general validation rule that using any error object in a WebGPU call is a validation error.
+There is a general validation rule that using any invalid object in a WebGPU call is a validation error.
 The effect of an error depends on the type of a call:
 
- - For object creation, the call produces an error object
- - For `WebGPUCommandEncoder` method, the `WebGPUCommandEncoder.finishEncoding` method will return an error
+ - For object creation, the call produces an invalid object
+ - For `WebGPUCommandEncoder` method, the `WebGPUCommandEncoder.finishEncoding` method will return an invalid object.
+   This is like other object creation except that `WebGPUCommandEncoder` is a builder pattern
  - For other WebGPU calls, the call is a noop, and an error is recorded for this worker on the `WebGPUDevice`
 
 Effectively this puts WebGPU in the "Maybe Monad".
@@ -88,3 +90,14 @@ If this is true, then the only synchronous API that needs special casing is buff
 
 Should WebGPU propagate all creation errors to the `WebGPUDevice` (unless the application explicitly chooses against it, for example for OOM)?
 This would help application centralize telemetry in a single place.
+
+To help developers, `WebGPUStatus.reason` could contain some sort of "stack trace" and could take advantage of debug name of objects if that's something that's present in WebGPU.
+For example:
+
+```
+Failed <myQueue>.submit because commands[0] (<mainColorPass>) is invalid:
+- <mainColorPass> is invalid because in setIndexBuffer, indexBuffer (<mesh3.indexBuffer>) is invalid
+- <mesh3.indexBuffer> is invalid because it got an unsupported usage flag (0x89)
+```
+
+Also the exact shape of `WebGPUStatus` and how it is returned will piggy-back on the decision taken for `WebGPUFence`.
