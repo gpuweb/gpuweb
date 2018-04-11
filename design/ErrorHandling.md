@@ -8,6 +8,7 @@ There are a number of cases that developers or applications need to detect:
  - *Debugging*: Getting errors synchronously during development, to break in to the debugger.
  - *Telemetry*: Collecting error logs in deployment, for bug reporting and telemetry.
  - *Recovery*: Recovering from recoverable errors (like out-of-memory on resource creation).
+ - *Fallback*: Tearing down the application and falling back, e.g. to WebGL, 2D Canvas, or static content.
 
 Meanwhile, error handling should not make the API clunky to use.
 
@@ -133,6 +134,7 @@ It is up to the application to avoid using the invalid object `B1`.
    If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for error `WebGPUBuffer`.
    
  - Should there be a mode which causes OOM errors to trigger context loss?
+   Probably not necessary, since an application could manually kill the context if it sees errors in the error log.
 
  - Should an object creation error immediately log an error to the error log?
    Or should it only log if the error propagates to a device-level operation?
