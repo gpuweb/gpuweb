@@ -1,9 +1,9 @@
 # Error Handling
 
 The simplest design for error handling would be to do it synchronously, for example with Javascript exceptions and object creation returning `null`.
-However, this would introduce a lot of synchronization points for multi-threaded/multi-process WebGPU implementations, making it infeasible.
+However, this would introduce a lot of synchronization points for multi-threaded/multi-process WebGPU implementations, making too slow to be useful.
 
-There are a number of cases that developers or applications need to detect:
+There are a number of cases that developers or applications need error handling for:
 
  - *Debugging*: Getting errors synchronously during development, to break in to the debugger.
  - *Telemetry*: Collecting error logs in deployment, for bug reporting and telemetry.
@@ -20,7 +20,7 @@ There are several types of WebGPU calls that get their error handled differently
 
 ## *Telemetry*: Error Logging
 
-The error log is a stream of log entries, which are reported to the application asynchronously.
+`WebGPUDevice` keeps a log of errors that happened on each WebWorker which the application can query asynchronously.
 These errors are not directly associated with the objects or operations that produced them.
 They should not be used by applications to recover from expected errors.
 Instead, they are used for handling unexpected errors in deployment, for bug reporting and telemetry.
@@ -38,24 +38,29 @@ interface WebGPULogEntry {
 };
 
 partial interface WebGPUDevice {
-    // TODO: This is probably not the best design. It is just a strawman.
-    WebGPULogEntry getNextLogEntryFromStream();
+    Promise<sequence<WebGPULogEntry>> getCurrentErrorLog();
 };
 ```
 
 `WebGPUStatusType` makes a distinction between several error types:
 
- - `"validation-error"`: validation of arguments failed - including if an argument was an "invalid object".
+ - `"validation-error"`: validation of some WebGPU call failed - including if an argument was an "invalid object".
    (Either the application did something wrong, or it chose not to recover from a recoverable error.)
  - `"device-lost"`: things went horribly wrong, and the `WebGPUDevice` cannot be used anymore.
    (An application may request a new device.)
- - `"recoverable-out-of-memory": an allocation failed in a recoverable way. This is logged regardless of whether the application actually recovers from the condition.
+ - `"out-of-memory": an allocation failed because too much memory was used by the application (CPU or GPU).
+   This includes recoverable out of memory errors that aren't opt-ed in to be handled by the application when the resource was created.
 
 The `reason` is human-readable text, provided for debugging/reporting/telemetry.
 
+The result of `WebGPUDevice.getCurrentErrorLog()` is a list of errors that happened since the last call to the same function.
+A `"context-lost"` is always last in the sequence and after the first `"context-lost"`, `WebGPUDevice.getCurrentErrorLog()` will always return a sequence containing exactly a `"context-lost"`.
+An empty result means no error occured and all is good.
+The WebGPU implementation may choose to not log an error is an error of the same type is already present in the log.
+
 ## Object Creation
 
-WebGPU objects, im JS, are handles that either represent a successfully created object, or an error that occured during creation.
+WebGPU objects, are handles that either represent a successfully created object, or an error that occured during creation.
 Successfully created objects are called "valid objects"; unsuccessfully created objects are called "invalid objects".
 
 ### Error propagation of invalid objects
@@ -64,36 +69,39 @@ Using any invalid object in a WebGPU call produces a validation error.
 The effect of an error depends on the type of a call:
 
  - For object creation, the call produces an invalid object.
- - For `WebGPUCommandEncoder` method, the `WebGPUCommandEncoder.finishEncoding` method will return an invalid object.
-   (This is like any other object creation: a `WebGPUCommandDecoder` is created from a `WebGPUCommandEncoder` builder object.)
+ - For `WebGPUCommandEncoder` methods, the `WebGPUCommandEncoder.finishEncoding` method will return an invalid object.
+   (This is like any other object creation: a `WebGPUCommandBuffer` is created from a `WebGPUCommandEncoder` builder object.)
  - For other WebGPU calls, the call is a no-op.
 
 In each case, an error is logged to the error log.
 
-Error propagation effectively wraps every WebGPU object type in the "Maybe Monad".
+Error propagation effectively make WebGPU operations happen in the "Maybe Monad".
 
 ## *Recovery*: Recoverable Errors
 
 Recoverable errors are produced only by object creation.
 A recoverable error is exposed asynchronously by the handle which was synchronously created.
 
-`WebGPUStatus` is an enum indicating either that the object is valid, or the type of recoverable error that occurred.
+`WebGPUObjectStatus` is an enum indicating either that the object is valid, invalid because of an out of memory, or for another reason.
+Application can use the `"out-of-memory"` status as a signal to scale back resource usage if it is possible.
 
 ```
-enum WebGPUStatus {
+enum WebGPUObjectStatus {
     "valid",
     "out-of-memory",
+    "invalid",
 };
 ```
 
-Non-recoverable errors are not exposed via this mechanism; they are only logged via the Error Logging mechanism.
+Errors on object creation are added to the `WebGPUDevice` error log, unless they are `"out-of-memory"` and opt-ed in to be handled by the application.
+An application opts into handling the recoverable errors itself by specifying `logRecoverableErrror = true` in the `WebGPUBufferDescriptor` and `WebGPUTextureDescriptor`.
 
 ### Recoverable errors in object creation
 
 A recoverable error is exposed as a `Promise<WebGPUStatus>`.
 
 (The final design may use a different object other than `Promise<WebGPUStatus>`.
-That decision isn't at the core of this proposal.)
+This part isn't at the core of this proposal.)
 
 ```
 partial interface WebGPUBuffer {
@@ -109,21 +117,20 @@ partial interface WebGPUTexture {
 
 When creating a buffer, the following logic applies:
 
- - `createBuffer` returns a `WebGPUBuffer` object `B1` immediately.
+ - `createBuffer` returns a `WebGPUBuffer` object immediately.
  - A `Promise<WebGPUStatus>` can be obtained from the `WebGPUBuffer` object.
-   At a later time, that promise either:
-    - Rejects, if creation failed due to an unrecoverable error, or
-    - Resolves to a `WebGPUStatus`. It resolves if either:
+   At a later time, that promise resolves to a `WebGPUStatus` that is:
        - Creation succeeded (`"valid"`), or
        - Creation encountered a recoverable error (`"out-of-memory"`).
-         The application can then choose to retry a smaller allocation.
+         The application can then choose to retry a smaller allocation, or
+       - Creation encountered another type of error out of the control of the application (`invalid`)
 
 Regardless of any recovery efforts the application makes, if creation fails,
 `B1` is an invalid object, subject to error propagation.
 
 Checking the `status` of a `WebGPUBuffer` or `WebGPUTexture` is **not** required.
-It is only necessary if an application wishes to recover from recoverable errors.
-It is up to the application to avoid using the invalid object `B1`.
+It is only necessary if an application wishes to recover from recoverable errors such as out of memory.
+It is up to the application to avoid using the invalid object.
 
 ## Other considerations
 
@@ -131,7 +138,7 @@ It is up to the application to avoid using the invalid object `B1`.
    The extra CPU overhead should be acceptable for debugging purposes.
 
  - WebGPU could guarantee that objects such as `WebGPUQueue` and `WebGPUFence` can never be errors.
-   If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for error `WebGPUBuffer`.
+   If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for invalid `WebGPUBuffer`.
    
  - Should there be a mode which causes OOM errors to trigger context loss?
    Probably not necessary, since an application could manually kill the context if it sees errors in the error log.
@@ -139,14 +146,14 @@ It is up to the application to avoid using the invalid object `B1`.
  - Should an object creation error immediately log an error to the error log?
    Or should it only log if the error propagates to a device-level operation?
 
-    - To help developers, `WebGPULogEntry.reason` could contain some sort of "stack trace" and could take advantage of debug name of objects if that's something that's present in WebGPU.
-      For example:
+ - To help developers, `WebGPULogEntry.reason` could contain some sort of "stack trace" and could take advantage of debug name of objects if that's something that's present in WebGPU.
+   For example:
 
-      ```
-      Failed <myQueue>.submit because commands[0] (<mainColorPass>) is invalid:
-      - <mainColorPass> is invalid because in setIndexBuffer, indexBuffer (<mesh3.indexBuffer>) is invalid
-      - <mesh3.indexBuffer> is invalid because it got an unsupported usage flag (0x89)
-      ```
+   ```
+   Failed <myQueue>.submit because commands[0] (<mainColorPass>) is invalid:
+   - <mainColorPass> is invalid because in setIndexBuffer, indexBuffer (<mesh3.indexBuffer>) is invalid
+   - <mesh3.indexBuffer> is invalid because it got an unsupported usage flag (0x89)
+   ```
 
  - In a world with persistent object "usage" state:
    If an invalid command buffer is submitted, and its transitions becomes no-ops, the usage state won't update.

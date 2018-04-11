@@ -17,13 +17,13 @@ interface WebGPULogEntry {
 };
 
 partial interface WebGPUDevice {
-    // TODO: This is probably not the best design. It is just a strawman.
-    WebGPULogEntry getNextLogEntryFromStream();
+    Promise<sequence<WebGPULogEntry>> getCurrentErrorLog();
 };
 
-enum WebGPUStatus {
+enum WebGPUObjectStatus {
     "valid",
     "out-of-memory",
+    "invalid",
 };
 
 // ****************************************************************************
@@ -47,10 +47,11 @@ interface WebGPUBufferUsage {
 dictionary WebGPUBufferDescriptor {
     u32 size;
     WebGPUBufferUsageFlags usage;
+    bool logRecoverableError = false;
 };
 
 interface WebGPUBuffer {
-    readonly attribute Promise<WebGPUStatus> status;
+    readonly attribute Promise<WebGPUObjectStatus> status;
     readonly attribute ArrayBuffer? mapping;
     void unmap();
 };
@@ -100,6 +101,7 @@ dictionary WebGPUTextureDescriptor {
     WebGPUTextureDimensionEnum dimension;
     WebGPUTextureFormatEnum format;
     WebGPUTextureUsageFlags usage;
+    bool logRecoverableError = false;
 };
 
 interface WebGPUTexture {
@@ -532,7 +534,7 @@ interface WebGPUDevice {
 
     WebGPUQueue getQueue();
 
-    Promise<WebGPUStatus> getCurrentStatus();
+    Promise<sequence<WebGPULogEntry>> getCurrentErrorLog();
 };
 
 // WebGPU "namespace" used for device creation
