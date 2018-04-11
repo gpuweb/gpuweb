@@ -12,8 +12,8 @@ enum WebGPULogEntryType {
 };
 
 interface WebGPULogEntry {
-    WebGPULogEntryType type;
-    DOMString? reason;
+    readonly attribute WebGPULogEntryType type;
+    readonly attribute DOMString? reason;
 };
 
 partial interface WebGPUDevice {
@@ -50,7 +50,7 @@ dictionary WebGPUBufferDescriptor {
 };
 
 interface WebGPUBuffer {
-    Promise<WebGPUStatus> attribute status;
+    readonly attribute Promise<WebGPUStatus> status;
     readonly attribute ArrayBuffer? mapping;
     void unmap();
 };
@@ -103,7 +103,7 @@ dictionary WebGPUTextureDescriptor {
 };
 
 interface WebGPUTexture {
-    Promise<WebGPUStatus> attribute status;
+    readonly attribute Promise<WebGPUStatus> status;
     WebGPUTextureView createTextureView(WebGPUTextureViewDescriptor desc);
 };
 
@@ -422,7 +422,7 @@ dictionary WebGPURenderPassAttachmentDescriptor {
     WebGPUTextureView attachment;
     WebGPULoadOp loadOp;
     WebGPUStoreOp storeOp;
-}
+};
 
 dictionary WebGPURenderPassDescriptor {
     sequence<WebGPURenderPassAttachmentDescriptor> colorAttachments;

@@ -31,8 +31,8 @@ enum WebGPULogEntryType {
 };
 
 interface WebGPULogEntry {
-    WebGPULogEntryType type;
-    DOMString? reason;
+    readonly attribute WebGPULogEntryType type;
+    readonly attribute DOMString? reason;
 };
 
 partial interface WebGPUDevice {
@@ -91,11 +91,11 @@ That decision isn't at the core of this proposal.)
 
 ```
 partial interface WebGPUBuffer {
-    Promise<WebGPUStatus> attribute status;
+    readonly attribute Promise<WebGPUStatus> status;
 };
 
 partial interface WebGPUTexture {
-    Promise<WebGPUStatus> attribute status;
+    readonly attribute Promise<WebGPUStatus> status;
 };
 ```
 
