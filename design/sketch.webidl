@@ -456,6 +456,7 @@ interface WebGPUCommandEncoder {
 
 // Fence
 interface WebGPUFence {
+    bool wait(Number milliseconds);
     readonly attribute Promise<void> promise;
 };
 
