@@ -16,10 +16,6 @@ interface WebGPULogEntry {
     readonly attribute DOMString? reason;
 };
 
-partial interface WebGPUDevice {
-    Promise<sequence<WebGPULogEntry>> getCurrentErrorLog();
-};
-
 enum WebGPUObjectStatus {
     "valid",
     "out-of-memory",
@@ -105,7 +101,7 @@ dictionary WebGPUTextureDescriptor {
 };
 
 interface WebGPUTexture {
-    readonly attribute Promise<WebGPUStatus> status;
+    readonly attribute Promise<WebGPUObjectStatus> status;
     WebGPUTextureView createTextureView(WebGPUTextureViewDescriptor desc);
 };
 
