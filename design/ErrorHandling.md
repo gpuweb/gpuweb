@@ -1,103 +1,146 @@
 # Error Handling
 
 The simplest design for error handling would be to do it synchronously, for example with Javascript exceptions and object creation returning `null`.
-However this would introduce a lot of synchronization point for multi-threaded WebGPU implementations (or multi-process in the case of Chromium).
+However, this would introduce a lot of synchronization points for multi-threaded/multi-process WebGPU implementations, making it infeasible.
 
-There are a number of cases that applications care about:
+There are a number of cases that developers or applications care about:
 
- - Getting errors synchronously during development, to breakin to the debugger
- - Getting notified that some error occured in deployed applications for telemetry
- - Being able to handle out-of-memory errors on resource creation
- - Ideally not have error handling make the API clunky to use
+ - *Debugging*: Getting errors synchronously during development, to break in to the debugger.
+ - *Telemetry*: Collecting error logs in deployment, for bug reporting and telemetry.
+ - *Recovery*: Recovering from recoverable errors (like out-of-memory on resource creation).
+
+Meanwhile, error handling should not make the API clunky to use.
 
 There are several types of WebGPU calls that get their error handled differently:
 
- - WebGPU Object creation.
- - Recording of GPU commands in `WebGPUCommandEncoder`.
- - Other commands such as `WebGPUQueue.submit`
+ - *Creation*: WebGPU Object creation.
+ - *Encoding*: Recording of GPU commands in `WebGPUCommandEncoder`.
+ - *Operations*: Other commands, such as `WebGPUQueue.submit`.
 
-## Status objects
+## *Telemetry*: Error Logging
 
-The error status of WebGPU is provided to the application through a `WebGPUStatus` object, that contains both the `type` of the error (or success) as well as a text `reason` for debugging and telemetry.
-The asynchronous error handling is done via WebGPU returning `Promise<WebGPUStatus>`.
-(Alternatively the API could return a `WebGPUStatus` that's promisable / pollable / callbackable).
+The error log is a stream of error objects which are reported to the application asynchronously.
+These errors are not directly associated with the objects or operations that produced them.
+Instead, they are used for handling unexpected errors in deployment, for bug reporting and telemetry.
 
 ```
-enum WebGPUStatusType {
-    "success",
+enum WebGPULogEntryType {
+    "device-lost",
     "validation-error",
-    "context-lost",
-    "out-of-memory",
+    "recoverable-out-of-memory",
 };
 
-interface WebGPUStatus {
-    WebGPUStatusType type;
+interface WebGPULogEntry {
+    WebGPULogEntryType type;
     DOMString? reason;
 };
+
+partial interface WebGPUDevice {
+    // TODO: This is probably not the best design. It is just a strawman.
+    WebGPULogEntry getNextLogEntryFromStream();
+};
 ```
 
-`WebGPUStatusType` makes a distinction between several error causes (in addition to success):
+`WebGPUStatusType` makes a distinction between several `WebGPULogEntryType`s:
 
- - Validation errors because the application did something wrong.
- - Out of memory cases that are recoverable.
- - Context loss where things went horribly wrong and the `WebGPUDevice` cannot be used anymore.
+ - `"validation-error"`: either the application did something wrong, or it chose not to recover from a recoverable error.
+ - `"device-lost"`: things went horribly wrong and the `WebGPUDevice` cannot be used anymore. (Applications can choose to try making a new device.)
+ - `"recoverable-out-of-memory": an allocation failed in a recoverable way. This is logged regardless of whether the application actually recovers from the condition.
 
-## Error handling in object creation
+The `reason` is human-readable text, provided for debugging/reporting/telemetry.
+
+## Object Creation
 
 WebGPU objects the application uses are handles that either represent a successfully created object, or an error that occured during creation.
 Successfully created objects are called "valid objects" and "invalid objects" otherwise.
-It is possible to get a `WebGPUStatus` for an object that contains whether it is an error or a success.
-This is done through `WebGPUObjectBase` from which most WebGPU objects inherit.
+
+### Error propagation of invalid objects
+
+Using any invalid object in a WebGPU call produces a validation error.
+The effect of an error depends on the type of a call:
+
+ - For object creation, the call produces an invalid object.
+ - For `WebGPUCommandEncoder` method, the `WebGPUCommandEncoder.finishEncoding` method will return an invalid object.
+   (This is like any other object creation except that `WebGPUCommandEncoder` a builder object.)
+ - For other WebGPU calls, the call is a no-op, and an error is logged to the error log.
+
+Effectively this puts every WebGPU object type in the "Maybe Monad".
+
+## *Recovery*: Recoverable Errors
+
+Recoverable errors are produced only by object creation.
+A recoverable error is exposed asynchronously by the object which was created.
+
+`WebGPUStatus` is an enum indicating either that the object is valid, or the type of recoverable error that occurred.
 
 ```
-interface WebGPUObjectBase {
+enum WebGPUStatus {
+    "valid",
+    "out-of-memory",
+};
+```
+
+Non-recoverable errors are not exposed via this mechanism; they are only logged via the Error Logging mechanism.
+
+### Recoverable errors in object creation
+
+A recoverable error is exposed as a `Promise<WebGPUStatus>`.
+
+(The final design may use a different object other than `Promise<WebGPUStatus>`.
+That decision isn't at the core of this proposal.)
+
+```
+partial interface WebGPUBuffer {
+    Promise<WebGPUStatus> attribute status;
+};
+
+partial interface WebGPUTexture {
     Promise<WebGPUStatus> attribute status;
 };
 ```
 
-## Error handling in other operations
+(In the future, the same attribute can be added to any object which is determined to require recoverable errors.)
 
-When a call other than object creation triggers an error, an error is recorded on the `WebGPUDevice`.
-The current error status for this worker can be queried with `WebGPUDevice.getCurrentStatus`.
-`getCurrentStatus` works like `glGetError` in that it returns the first error that happened after the last `getCurrentStatus` or success if none.
-Unlike `glGetError` it is asynchronous, and stores one error status per Worker (so that middleware can do its own tracking without interference from other workers, for example).
+When creating a buffer, the following logic applies:
 
-```
-partial interface WebGPUDevice {
-    Promise<WebGPUStatus> getCurrentStatus();
-};
-```
+ - `createBuffer` returns a `WebGPUBuffer` object `B1` immediately.
+ - A `Promise<WebGPUStatus>` can be obtained from the `WebGPUBuffer` object.
+   At a later time, that promise either:
+    - Rejects, if creation failed due to an unrecoverable error, or
+    - Resolves to a `WebGPUStatus`. It resolves if either:
+       - Creation succeeded (`"valid"`), or
+       - Creation encountered a recoverable error (`"out-of-memory"`).
+         The application can then choose to retry a smaller allocation.
 
-## Error propagation of invalid objects
+Regardless of any recovery efforts the application makes, if creation fails,
+`B1` is an invalid object, subject to error propagation.
 
-There is a general validation rule that using any invalid object in a WebGPU call is a validation error.
-The effect of an error depends on the type of a call:
-
- - For object creation, the call produces an invalid object
- - For `WebGPUCommandEncoder` method, the `WebGPUCommandEncoder.finishEncoding` method will return an invalid object.
-   This is like other object creation except that `WebGPUCommandEncoder` is a builder pattern
- - For other WebGPU calls, the call is a noop, and an error is recorded for this worker on the `WebGPUDevice`
-
-Effectively this puts WebGPU in the "Maybe Monad".
+Checking the `status` of a `WebGPUBuffer` or `WebGPUTexture` is **not** required.
+It is only necessary if an application wishes to recover from recoverable errors.
+It is up to the application to avoid using the invalid object `B1`.
 
 ## Other considerations
 
-Implementation will provide a way to enable synchronous validation, for example via the devtools.
-The extra CPU overhead should be ok with development purpose.
+ - Implementations should provide a way to enable synchronous validation, for example via the devtools.
+   The extra CPU overhead should be acceptable for debugging purposes.
 
-WebGPU could guarantee that objects such as `WebGPUQueue` and `WebGPUFence` can never be errors.
-If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for error `WebGPUBuffer`.
+ - WebGPU could guarantee that objects such as `WebGPUQueue` and `WebGPUFence` can never be errors.
+   If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for error `WebGPUBuffer`.
 
-Should WebGPU propagate all creation errors to the `WebGPUDevice` (unless the application explicitly chooses against it, for example for OOM)?
-This would help application centralize telemetry in a single place.
+ - Should an object creation error immediately log an error to the error log?
+   Or should it only log if the error propagates to a device-level operation?
 
-To help developers, `WebGPUStatus.reason` could contain some sort of "stack trace" and could take advantage of debug name of objects if that's something that's present in WebGPU.
-For example:
+    - To help developers, `WebGPULogEntry.reason` could contain some sort of "stack trace" and could take advantage of debug name of objects if that's something that's present in WebGPU.
+      For example:
 
-```
-Failed <myQueue>.submit because commands[0] (<mainColorPass>) is invalid:
-- <mainColorPass> is invalid because in setIndexBuffer, indexBuffer (<mesh3.indexBuffer>) is invalid
-- <mesh3.indexBuffer> is invalid because it got an unsupported usage flag (0x89)
-```
+      ```
+      Failed <myQueue>.submit because commands[0] (<mainColorPass>) is invalid:
+      - <mainColorPass> is invalid because in setIndexBuffer, indexBuffer (<mesh3.indexBuffer>) is invalid
+      - <mesh3.indexBuffer> is invalid because it got an unsupported usage flag (0x89)
+      ```
 
-Also the exact shape of `WebGPUStatus` and how it is returned will piggy-back on the decision taken for `WebGPUFence`.
+ - In a world with persistent object "usage" state:
+   If an invalid command buffer is submitted, and its transitions becomes no-ops, the usage state won't update.
+   Will this cause future command buffer submits to become invalid because of a usage validation error?
+
+ - The exact shape of `Promise<WebGPUStatus>` will piggy-back on the decision taken for `WebGPUFence`.
