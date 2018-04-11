@@ -19,8 +19,9 @@ There are several types of WebGPU calls that get their error handled differently
 
 ## *Telemetry*: Error Logging
 
-The error log is a stream of error objects which are reported to the application asynchronously.
+The error log is a stream of log entries, which are reported to the application asynchronously.
 These errors are not directly associated with the objects or operations that produced them.
+They should not be used by applications to recover from expected errors.
 Instead, they are used for handling unexpected errors in deployment, for bug reporting and telemetry.
 
 ```
@@ -41,20 +42,20 @@ partial interface WebGPUDevice {
 };
 ```
 
-`WebGPUStatusType` makes a distinction between several `WebGPULogEntryType`s:
+`WebGPUStatusType` makes a distinction between several error types:
 
  - `"validation-error"`: validation of arguments failed - including if an argument was an "invalid object".
    (Either the application did something wrong, or it chose not to recover from a recoverable error.)
- - `"device-lost"`: things went horribly wrong and the `WebGPUDevice` cannot be used anymore.
-   (Applications can choose to try making a new device.)
+ - `"device-lost"`: things went horribly wrong, and the `WebGPUDevice` cannot be used anymore.
+   (An application may request a new device.)
  - `"recoverable-out-of-memory": an allocation failed in a recoverable way. This is logged regardless of whether the application actually recovers from the condition.
 
 The `reason` is human-readable text, provided for debugging/reporting/telemetry.
 
 ## Object Creation
 
-WebGPU objects the application uses are handles that either represent a successfully created object, or an error that occured during creation.
-Successfully created objects are called "valid objects" and "invalid objects" otherwise.
+WebGPU objects, im JS, are handles that either represent a successfully created object, or an error that occured during creation.
+Successfully created objects are called "valid objects"; unsuccessfully created objects are called "invalid objects".
 
 ### Error propagation of invalid objects
 
@@ -73,7 +74,7 @@ Error propagation effectively wraps every WebGPU object type in the "Maybe Monad
 ## *Recovery*: Recoverable Errors
 
 Recoverable errors are produced only by object creation.
-A recoverable error is exposed asynchronously by the object which was created.
+A recoverable error is exposed asynchronously by the handle which was synchronously created.
 
 `WebGPUStatus` is an enum indicating either that the object is valid, or the type of recoverable error that occurred.
 
@@ -130,6 +131,8 @@ It is up to the application to avoid using the invalid object `B1`.
 
  - WebGPU could guarantee that objects such as `WebGPUQueue` and `WebGPUFence` can never be errors.
    If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for error `WebGPUBuffer`.
+   
+ - Should there be a mode which causes OOM errors to trigger context loss?
 
  - Should an object creation error immediately log an error to the error log?
    Or should it only log if the error propagates to a device-level operation?
