@@ -3,7 +3,7 @@
 The simplest design for error handling would be to do it synchronously, for example with Javascript exceptions and object creation returning `null`.
 However, this would introduce a lot of synchronization points for multi-threaded/multi-process WebGPU implementations, making it infeasible.
 
-There are a number of cases that developers or applications care about:
+There are a number of cases that developers or applications need to detect:
 
  - *Debugging*: Getting errors synchronously during development, to break in to the debugger.
  - *Telemetry*: Collecting error logs in deployment, for bug reporting and telemetry.
@@ -43,8 +43,10 @@ partial interface WebGPUDevice {
 
 `WebGPUStatusType` makes a distinction between several `WebGPULogEntryType`s:
 
- - `"validation-error"`: either the application did something wrong, or it chose not to recover from a recoverable error.
- - `"device-lost"`: things went horribly wrong and the `WebGPUDevice` cannot be used anymore. (Applications can choose to try making a new device.)
+ - `"validation-error"`: validation of arguments failed - including if an argument was an "invalid object".
+   (Either the application did something wrong, or it chose not to recover from a recoverable error.)
+ - `"device-lost"`: things went horribly wrong and the `WebGPUDevice` cannot be used anymore.
+   (Applications can choose to try making a new device.)
  - `"recoverable-out-of-memory": an allocation failed in a recoverable way. This is logged regardless of whether the application actually recovers from the condition.
 
 The `reason` is human-readable text, provided for debugging/reporting/telemetry.
@@ -61,10 +63,12 @@ The effect of an error depends on the type of a call:
 
  - For object creation, the call produces an invalid object.
  - For `WebGPUCommandEncoder` method, the `WebGPUCommandEncoder.finishEncoding` method will return an invalid object.
-   (This is like any other object creation except that `WebGPUCommandEncoder` a builder object.)
- - For other WebGPU calls, the call is a no-op, and an error is logged to the error log.
+   (This is like any other object creation: a `WebGPUCommandDecoder` is created from a `WebGPUCommandEncoder` builder object.)
+ - For other WebGPU calls, the call is a no-op.
 
-Effectively this puts every WebGPU object type in the "Maybe Monad".
+In each case, an error is logged to the error log.
+
+Error propagation effectively wraps every WebGPU object type in the "Maybe Monad".
 
 ## *Recovery*: Recoverable Errors
 
