@@ -117,11 +117,11 @@ When creating a buffer, the following logic applies:
 
  - `createBuffer` returns a `WebGPUBuffer` object immediately.
  - A `Promise<WebGPUObjectStatus>` can be obtained from the `WebGPUBuffer` object.
-   At a later time, that promise resolves to a `WebGPUObjectStatus` that is:
-       - Creation succeeded (`"valid"`), or
+   At a later time, that promise resolves to a `WebGPUObjectStatus` that is one of:
+       - Creation succeeded (`"valid"`).
        - Creation encountered a recoverable error (`"out-of-memory"`).
-         The application can then choose to retry a smaller allocation, or
-       - Creation encountered another type of error out of the control of the application (`invalid`)
+         (The application can then choose to retry a smaller allocation.)
+       - Creation encountered another type of error out of the control of the application (`"invalid"`).
 
 Regardless of any recovery efforts the application makes, if creation fails,
 `B1` is an invalid object, subject to error propagation.
