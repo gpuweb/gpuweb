@@ -15,8 +15,15 @@ inserts a fence into the queue. (either immediately, or coalescing later)
 Fences are one-shot, where the CPU waits for the GPU/server/API to 'signal'
 a fence as passed. They are created with WebGPUQueue.insertFence().
 
+WebGPUFences start in the unsignaled state and transition once from unsignaled to signaled.
+This transition can be detected with `WebGPUFence.promise.then()`.
+Alternatively `WebGPUFence.wait()` can be used, it waits (potentially no time) for the fence to be in the signaled state and return true.
+If the WebGPUFence is still unsignaled after the specified timeout, `WebGPUFence.wait()` returns 0, implementation might not wait for the whole specified timeout.
+On the UI thread, the `milliseconds` argument is always clamped to 0, and the status of the fence can only change at micro-task boundary.
+WebGPUFences are not shareable.
+
 Apps can establish whether a buffer has completed its transition to
-MAP_READ/MAP_WRITE by using `.promise.then()`.
+MAP_READ/MAP_WRITE by waiting for a WebGPU fence to be signaled.
 
 ## WebGPUBuffer.mapping and unmap()
 
