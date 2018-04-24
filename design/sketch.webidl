@@ -22,6 +22,8 @@ enum WebGPUObjectStatus {
     "invalid",
 };
 
+callback WebGPULogCallback = void (WebGPULogEntry error);
+
 // ****************************************************************************
 // SHADER RESOURCES (buffer, textures, texture views, samples)
 // ****************************************************************************
@@ -530,7 +532,7 @@ interface WebGPUDevice {
 
     WebGPUQueue getQueue();
 
-    Promise<sequence<WebGPULogEntry>> getCurrentErrorLog();
+    attribute WebGPULogCallback onLog;
 };
 
 // WebGPU "namespace" used for device creation

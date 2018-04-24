@@ -37,8 +37,10 @@ interface WebGPULogEntry {
     readonly attribute DOMString? reason;
 };
 
+callback WebGPULogCallback = void (WebGPULogEntry error);
+
 partial interface WebGPUDevice {
-    Promise<sequence<WebGPULogEntry>> getCurrentErrorLog();
+    attribute WebGPULogCallback onLog;
 };
 ```
 
