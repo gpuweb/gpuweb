@@ -483,8 +483,25 @@ interface WebGPUSwapChain {
 interface WebGPURenderingContext : WebGPUSwapChain {
 };
 
+// WebGPU "namespace" used for device creation
+dictionary WebGPUExtensions {
+    bool anisotropicFiltering;
+};
+
+dictionary WebGPUFeatures {
+    bool logicOp;
+};
+
+dictionary WebGPULimits {
+    u32 maxBindGroups;
+};
+
 // Device
 interface WebGPUDevice {
+    attribute readonly WebGPUExtensions extensions;
+    attribute readonly WebGPUFeatures features;
+    attribute readonly WebGPULimits limits;
+
     WebGPUBuffer createBuffer(WebGPUBufferDescriptor descriptor);
     WebGPUTexture createTexture(WebGPUTextureDescriptor descriptor);
     WebGPUSampler createSampler(WebGPUSamplerDescriptor descriptor);
@@ -507,33 +524,19 @@ interface WebGPUDevice {
     WebGPUQueue getQueue();
 };
 
-// WebGPU "namespace" used for device creation
-dictionary WebGPUExtensions {
-    bool anisotropicFiltering;
-};
-
-dictionary WebGPUFeatures {
-    bool logicOp;
-};
-
-dictionary WebGPULimits {
-    u32 maxBindGroups;
-};
-
-dictionary WebGPUCapabilities {
-    WebGPUExtensions extensions;
-    WebGPULimits limits;
-    WebGPUFeatures features;
-};
-
 dictionary WebGPUDeviceDescriptor {
-    WebGPUCapabilities caps;
+    WebGPUExtensions extensions;
+    WebGPUFeatures features;
+    //WebGPULimits limits; Don't expose higher limits for now.
+
     // TODO are other things configurable like queues?
 };
 
 interface WebGPUAdapter {
     attribute readonly DOMString name;
-    attribute readonly WebGPUCapabilities caps;
+    attribute readonly WebGPUExtensions extensions;
+    attribute readonly WebGPUFeatures features;
+    //attribute readonly WebGPULimits limits; Don't expose higher limits for now.
 
     static WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
 };
