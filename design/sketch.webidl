@@ -520,17 +520,30 @@ dictionary WebGPULimits {
     u32 maxBindGroups;
 };
 
-dictionary WebGPUDeviceDescriptor {
+dictionary WebGPUCapabilities {
     WebGPUExtensions extensions;
     WebGPULimits limits;
     WebGPUFeatures features;
+};
+
+dictionary WebGPUDeviceDescriptor {
+    WebGPUCapabilities caps;
     // TODO are other things configurable like queues?
 };
 
-interface WebGPU {
-    static WebGPUExtensions getExtensions();
-    static WebGPUFeatures getFeatures();
-    static WebGPULimits getLimits();
+interface WebGPUAdapter {
+    attribute readonly DOMString name;
+    attribute readonly WebGPUCapabilities caps;
 
     static WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
+};
+
+enum WebGPUPowerPreference { "default", "low-power", "high-performance" };
+
+dictionary WebGPUAdapterDescriptor {
+    WebGPUPowerPreference powerPreference;
+};
+
+interface WebGPU {
+    static WebGPUAdapter getAdapter(WebGPUAdapterDescriptor desc);
 };
