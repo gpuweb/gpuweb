@@ -55,10 +55,13 @@ partial interface WebGPUDevice {
 
 The `reason` is human-readable text, provided for debugging/reporting/telemetry.
 
-The result of `WebGPUDevice.getCurrentErrorLog()` is a list of errors that happened since the last call to the same function.
-A `"context-lost"` is always last in the sequence and after the first `"context-lost"`, `WebGPUDevice.getCurrentErrorLog()` will always return a sequence containing exactly a `"context-lost"`.
-An empty result means no error occured and all is good.
-The WebGPU implementation may choose to not log an error if an error of the same type is already present in the log.
+When an error is reported by the WebGPU implementation, the `onLog` attribute, if set, receives this error (asynchronously).
+`onLog` is called once per error log entry.
+
+`onLog` may be called with a `"context-lost"`.
+If a `"context-lost"` error is logged, no other errors will be subsequently logged.
+
+The WebGPU implementation may choose to not log an error if too many errors, or too many errors of the same kind, have been logged.
 
 ## Object Creation
 
