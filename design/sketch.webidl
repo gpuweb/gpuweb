@@ -465,11 +465,6 @@ interface WebGPUQueue {
     WebGPUFence insertFence();
 };
 
-interface WebGPUSwapChain {
-    WebGPUTexture getNextTexture();
-    void present();
-};
-
 // Parameter structure to initialize a swapchain,
 // to be provided to `HTMLCanvasElement.getContext()`.
 dictionary WebGPUSwapChainDescriptor {
@@ -478,11 +473,10 @@ dictionary WebGPUSwapChainDescriptor {
     WebGPUTextureFormatEnum format;
 };
 
-// The context returned by `HTMLCanvasElement.getContext`.
-//
-// Note: the relationship to `WebGPUSwapChain` may be revised
-// and changed from "is a" into "has a" in the future.
-interface WebGPUSCanvasContext: WebGPUSwapChain {
+// The swapchain that is returned by `HTMLCanvasElement.getContext`.
+interface WebGPUSwapChain {
+    WebGPUTexture getNextTexture();
+    void commit();
 };
 
 // Device
