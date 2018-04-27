@@ -34,6 +34,7 @@ enum WebGPULogEntryType {
 
 interface WebGPULogEntry {
     readonly attribute WebGPULogEntryType type;
+    readonly attribute any object;
     readonly attribute DOMString? reason;
 };
 
@@ -52,6 +53,9 @@ partial interface WebGPUDevice {
    (An application may request a new device.)
  - `"out-of-memory": an allocation failed because too much memory was used by the application (CPU or GPU).
    This includes recoverable out of memory errors that aren't opt-ed in to be handled by the application when the resource was created.
+
+For creation errors, `object` attribute holds the object handle that was created. (It will point to an "invalid" object.)
+It preserves the JavaScript object wrapper of that handle - that is, any extra JavaScript properties attached to the handle are preserved.
 
 The `reason` is human-readable text, provided for debugging/reporting/telemetry.
 
@@ -96,8 +100,11 @@ enum WebGPUObjectStatus {
 };
 ```
 
-Errors on object creation are added to the `WebGPUDevice` error log, unless they are `"out-of-memory"` and opt-ed in to be handled by the application.
-An application opts into handling the recoverable errors itself by specifying `logRecoverableError = false` in the `WebGPUBufferDescriptor` and `WebGPUTextureDescriptor`.
+If object creation produces an invalid object, it will also send an error to the error log.
+
+If an application uses recoverable allocation, the implementation will generate error log entries - a `"recoverable-out-of-memory"` error for the object creation, and `"validation-error"`s for any subsequent uses of the invalid object.
+The application may need to understand whether such error log entries were part of a recovered allocation (e.g. to avoid sending telemetry logs for those errors).
+To facilitate this, the invalid object (including "expando" JavaScript properties) is attached to the error log entry.
 
 ### Recoverable errors in object creation
 
@@ -107,12 +114,10 @@ A recoverable error is exposed as a `Promise<WebGPUObjectStatus>`.
 This part isn't at the core of this proposal.)
 
 ```
-partial interface WebGPUBuffer {
-    readonly attribute Promise<WebGPUObjectStatus> status;
-};
+typedef (WebGPUBuffer or WebGPUTexture) StatusableObject;
 
-partial interface WebGPUTexture {
-    readonly attribute Promise<WebGPUObjectStatus> status;
+partial interface WebGPUDevice {
+    Promise<WebGPUObjectStatus> getObjectStatus(StatusableObject object);
 };
 ```
 
@@ -121,7 +126,7 @@ partial interface WebGPUTexture {
 When creating a buffer, the following logic applies:
 
  - `createBuffer` returns a `WebGPUBuffer` object immediately.
- - A `Promise<WebGPUObjectStatus>` can be obtained from the `WebGPUBuffer` object.
+ - A `Promise<WebGPUObjectStatus>` can be obtained by calling `WebGPUDevice`'s `getObjectStatus` with the buffer object.
    At a later time, that promise resolves to a `WebGPUObjectStatus` that is one of:
        - Creation succeeded (`"valid"`).
        - Creation encountered a recoverable error (`"out-of-memory"`).
@@ -129,11 +134,11 @@ When creating a buffer, the following logic applies:
        - Creation encountered another type of error out of the control of the application (`"invalid"`).
 
 Regardless of any recovery efforts the application makes, if creation fails,
-`B1` is an invalid object, subject to error propagation.
+the resulting object is invalid (and subject to error propagation).
 
-Checking the `status` of a `WebGPUBuffer` or `WebGPUTexture` is **not** required.
+Checking the status of a `WebGPUBuffer` or `WebGPUTexture` is **not** required.
 It is only necessary if an application wishes to recover from recoverable errors such as out of memory.
-It is up to the application to avoid using the invalid object.
+(If it does, it is responsible for avoiding using the invalid object.)
 
 ## Other considerations
 

@@ -13,6 +13,7 @@ enum WebGPULogEntryType {
 
 interface WebGPULogEntry {
     readonly attribute WebGPULogEntryType type;
+    readonly attribute any object;
     readonly attribute DOMString? reason;
 };
 
@@ -21,6 +22,8 @@ enum WebGPUObjectStatus {
     "out-of-memory",
     "invalid",
 };
+
+typedef (WebGPUBuffer or WebGPUTexture) StatusableObject;
 
 callback WebGPULogCallback = void (WebGPULogEntry error);
 
@@ -45,7 +48,6 @@ interface WebGPUBufferUsage {
 dictionary WebGPUBufferDescriptor {
     u32 size;
     WebGPUBufferUsageFlags usage;
-    bool logRecoverableError = false;
 };
 
 interface WebGPUBuffer {
@@ -99,7 +101,6 @@ dictionary WebGPUTextureDescriptor {
     WebGPUTextureDimensionEnum dimension;
     WebGPUTextureFormatEnum format;
     WebGPUTextureUsageFlags usage;
-    bool logRecoverableError = false;
 };
 
 interface WebGPUTexture {
@@ -533,6 +534,7 @@ interface WebGPUDevice {
     WebGPUQueue getQueue();
 
     attribute WebGPULogCallback onLog;
+    Promise<WebGPUObjectStatus> getObjectStatus(StatusableObject object);
 };
 
 // WebGPU "namespace" used for device creation
