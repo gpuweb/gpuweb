@@ -23,6 +23,8 @@ enum WebGPUObjectStatus {
     "invalid",
 };
 
+typedef Promise<WebGPUObjectStatus> WebGPUObjectStatusQuery;
+
 typedef (WebGPUBuffer or WebGPUTexture) StatusableObject;
 
 callback WebGPULogCallback = void (WebGPULogEntry error);
@@ -51,7 +53,6 @@ dictionary WebGPUBufferDescriptor {
 };
 
 interface WebGPUBuffer {
-    readonly attribute Promise<WebGPUObjectStatus> status;
     readonly attribute ArrayBuffer? mapping;
     void unmap();
 };
@@ -104,7 +105,6 @@ dictionary WebGPUTextureDescriptor {
 };
 
 interface WebGPUTexture {
-    readonly attribute Promise<WebGPUObjectStatus> status;
     WebGPUTextureView createTextureView(WebGPUTextureViewDescriptor desc);
 };
 
@@ -534,7 +534,7 @@ interface WebGPUDevice {
     WebGPUQueue getQueue();
 
     attribute WebGPULogCallback onLog;
-    Promise<WebGPUObjectStatus> getObjectStatus(StatusableObject object);
+    WebGPUObjectStatusQuery getObjectStatus(StatusableObject object);
 };
 
 // WebGPU "namespace" used for device creation
