@@ -2,6 +2,34 @@ typedef unsigned long u32;
 typedef unsigned long long u64;
 
 // ****************************************************************************
+// ERROR HANDLING
+// ****************************************************************************
+
+enum WebGPULogEntryType {
+    "device-lost",
+    "validation-error",
+    "recoverable-out-of-memory",
+};
+
+interface WebGPULogEntry {
+    readonly attribute WebGPULogEntryType type;
+    readonly attribute any object;
+    readonly attribute DOMString? reason;
+};
+
+enum WebGPUObjectStatus {
+    "valid",
+    "out-of-memory",
+    "invalid",
+};
+
+typedef Promise<WebGPUObjectStatus> WebGPUObjectStatusQuery;
+
+typedef (WebGPUBuffer or WebGPUTexture) StatusableObject;
+
+callback WebGPULogCallback = void (WebGPULogEntry error);
+
+// ****************************************************************************
 // SHADER RESOURCES (buffer, textures, texture views, samples)
 // ****************************************************************************
 
@@ -395,7 +423,7 @@ dictionary WebGPURenderPassAttachmentDescriptor {
     WebGPUTextureView attachment;
     WebGPULoadOp loadOp;
     WebGPUStoreOp storeOp;
-}
+};
 
 dictionary WebGPURenderPassDescriptor {
     sequence<WebGPURenderPassAttachmentDescriptor> colorAttachments;
@@ -505,6 +533,9 @@ interface WebGPUDevice {
     WebGPUFence createFence(WebGPUFenceDescriptor descriptor);
 
     WebGPUQueue getQueue();
+
+    attribute WebGPULogCallback onLog;
+    WebGPUObjectStatusQuery getObjectStatus(StatusableObject object);
 };
 
 // WebGPU "namespace" used for device creation
