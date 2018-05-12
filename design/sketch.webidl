@@ -494,25 +494,26 @@ interface WebGPUQueue {
     WebGPUFence insertFence();
 };
 
-// SwapChain / RenderingContext
+// Parameter structure to initialize a swapchain,
+// to be provided to `HTMLCanvasElement.getContext()`.
 dictionary WebGPUSwapChainDescriptor {
+    WebGPUDevice device;
     WebGPUTextureUsageFlags usage;
     WebGPUTextureFormatEnum format;
-    u32 width;
-    u32 height;
 };
 
+// The swapchain that is returned by `HTMLCanvasElement.getContext`.
 interface WebGPUSwapChain {
-    void configure(WebGPUSwapChainDescriptor descriptor);
     WebGPUTexture getNextTexture();
-    void present();
-};
-
-interface WebGPURenderingContext : WebGPUSwapChain {
+    void commit();
 };
 
 // Device
 interface WebGPUDevice {
+    WebGPUExtensions getExtensions();
+    WebGPUFeatures getFeatures();
+    WebGPULimits getLimits();
+
     WebGPUBuffer createBuffer(WebGPUBufferDescriptor descriptor);
     WebGPUTexture createTexture(WebGPUTextureDescriptor descriptor);
     WebGPUSampler createSampler(WebGPUSamplerDescriptor descriptor);
@@ -559,9 +560,7 @@ dictionary WebGPUDeviceDescriptor {
 };
 
 interface WebGPU {
-    static WebGPUExtensions getExtensions();
-    static WebGPUFeatures getFeatures();
-    static WebGPULimits getLimits();
+    static WebGPU instance();
 
-    static WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
+    WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
 };
