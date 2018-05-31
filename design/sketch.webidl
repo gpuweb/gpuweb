@@ -579,5 +579,11 @@ dictionary WebGPUAdapterDescriptor {
 };
 
 interface WebGPU {
-    static WebGPUAdapter getAdapter(WebGPUAdapterDescriptor desc);
+    WebGPUAdapter getAdapter(WebGPUAdapterDescriptor desc);
 };
+
+// Add a "webgpu" member to Window that contains the global instance of a "WebGPU"
+interface mixin WebGPUProvider {
+    [Replaceable, SameObject] readonly attribute WebGPU webgpu;
+}
+Window includes WebGPUProvider;
