@@ -511,8 +511,25 @@ interface WebGPUSwapChain {
 interface WebGPURenderingContext : WebGPUSwapChain {
 };
 
+// WebGPU "namespace" used for device creation
+dictionary WebGPUExtensions {
+    bool anisotropicFiltering;
+};
+
+dictionary WebGPUFeatures {
+    bool logicOp;
+};
+
+dictionary WebGPULimits {
+    u32 maxBindGroups;
+};
+
 // Device
 interface WebGPUDevice {
+    attribute readonly WebGPUExtensions extensions;
+    attribute readonly WebGPUFeatures features;
+    attribute readonly WebGPULimits limits;
+
     WebGPUBuffer createBuffer(WebGPUBufferDescriptor descriptor);
     WebGPUTexture createTexture(WebGPUTextureDescriptor descriptor);
     WebGPUSampler createSampler(WebGPUSamplerDescriptor descriptor);
@@ -538,30 +555,29 @@ interface WebGPUDevice {
     WebGPUObjectStatusQuery getObjectStatus(StatusableObject object);
 };
 
-// WebGPU "namespace" used for device creation
-dictionary WebGPUExtensions {
-    bool anisotropicFiltering;
-};
-
-dictionary WebGPUFeatures {
-    bool logicOp;
-};
-
-dictionary WebGPULimits {
-    u32 maxBindGroups;
-};
-
 dictionary WebGPUDeviceDescriptor {
     WebGPUExtensions extensions;
-    WebGPULimits limits;
     WebGPUFeatures features;
+    //WebGPULimits limits; Don't expose higher limits for now.
+
     // TODO are other things configurable like queues?
 };
 
-interface WebGPU {
-    static WebGPUExtensions getExtensions();
-    static WebGPUFeatures getFeatures();
-    static WebGPULimits getLimits();
+interface WebGPUAdapter {
+    attribute readonly DOMString name;
+    attribute readonly WebGPUExtensions extensions;
+    attribute readonly WebGPUFeatures features;
+    //attribute readonly WebGPULimits limits; Don't expose higher limits for now.
 
     static WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
+};
+
+enum WebGPUPowerPreference { "default", "low-power", "high-performance" };
+
+dictionary WebGPUAdapterDescriptor {
+    WebGPUPowerPreference powerPreference;
+};
+
+interface WebGPU {
+    static WebGPUAdapter getAdapter(WebGPUAdapterDescriptor desc);
 };
