@@ -516,19 +516,15 @@ dictionary WebGPUExtensions {
     bool anisotropicFiltering;
 };
 
-dictionary WebGPUFeatures {
-    bool logicOp;
-};
-
 dictionary WebGPULimits {
     u32 maxBindGroups;
 };
 
 // Device
 interface WebGPUDevice {
-    attribute readonly WebGPUExtensions extensions;
-    attribute readonly WebGPUFeatures features;
-    attribute readonly WebGPULimits limits;
+    readonly attribute WebGPUExtensions extensions;
+    readonly attribute WebGPULimits limits;
+    readonly attribute WebGPUAdapter adapter;
 
     WebGPUBuffer createBuffer(WebGPUBufferDescriptor descriptor);
     WebGPUTexture createTexture(WebGPUTextureDescriptor descriptor);
@@ -557,19 +553,17 @@ interface WebGPUDevice {
 
 dictionary WebGPUDeviceDescriptor {
     WebGPUExtensions extensions;
-    WebGPUFeatures features;
     //WebGPULimits limits; Don't expose higher limits for now.
 
     // TODO are other things configurable like queues?
 };
 
 interface WebGPUAdapter {
-    attribute readonly DOMString name;
-    attribute readonly WebGPUExtensions extensions;
-    attribute readonly WebGPUFeatures features;
-    //attribute readonly WebGPULimits limits; Don't expose higher limits for now.
+    readonly attribute DOMString name;
+    readonly attribute WebGPUExtensions extensions;
+    //readonly attribute WebGPULimits limits; Don't expose higher limits for now.
 
-    static WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
+    WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
 };
 
 enum WebGPUPowerPreference { "default", "low-power", "high-performance" };
