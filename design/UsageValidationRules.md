@@ -28,11 +28,17 @@ To avoid data hazards the simplest validation rules would be to check for every 
  - A combination of read-only usages
  - `STORAGE`
 
+If there is no usage of `STORAGE` then there are no data-races as everything is read-only, except `OUTPUT_ATTACHMENT` which is well-ordered.
+For `STORAGE` resources, the order of reads and writes to the same memory location is undefined and it is up to the application to ensure data-race freeness.
+
 ## Compute passes
 
 They are similar to render passes, every subresource (alternatively every resource) must be used as either:
  - A combination of read-only usages
  - `STORAGE`
+
+In a single `dispatch` command, the order of reads and writes to the same memory location of a `STORAGE` resource is undefined.
+It is up to the application to ensure data-race freeness.
 
 ## Other operations
 
@@ -42,8 +48,14 @@ Assuming we don't have "copy passes" and that other operations are top-level, th
  - Copies and stuff
 
 There are no particular constraints on the usage of the operations (apart from resources having been created with the proper usage flags).
+Implementations ensure that there are no-data races between any of these operations.
+There are validation rules to check for example that the source and destinations regions of buffer copies don't have overlap.
 
 ## Discussion
+
+In this proposal the only sources of data races come from the `STORAGE` usage:
+ - In render passes inside a single drawcall and between drawcalls for accesses to memory written to as `STORAGE`.
+ - In any compute passes inside a single dispatch for accesses to memory written to as `STORAGE`
 
 There are cases where the resource usage tracking could get expensive for example if subresources of a texture with an odd index use `STORAGE` while even ones use `SAMPLED`.
 That said such a case is unlikely to happen in real-world applications.
@@ -62,3 +74,9 @@ If this is deemed too costly, we could only have two sub-resources tracked in te
 This would mean for example that a texture couldn't be used as both  `STORAGE` and a read-only usage inside a render pass.
 The state tracking required in implementation would become significantly simpler at the cost of flexibility for the applications.
 When using the more constrained version of usage validation for textures, the cost of validation is O(commands).
+
+### Post MVP: Opt-in for cross-dispatch data-races
+
+Enforcing no data-races between dispatches could potentially result in a lot of ALU time being wasted on big GPUs.
+We could allow applications to opt into cross-dispatch data-races to get some of the performance back by manually placing "UAV barriers".
+A `WebGPUComputePassDescriptor.manualStorageBarriers` option could be added as well as a `WebGPUCommandEncoder.storageBarrier(...)` command.
