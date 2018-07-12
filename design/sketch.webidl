@@ -147,10 +147,10 @@ interface WebGPUBindingType {
 };
 
 dictionary WebGPUBindGroupBinding {
+    u32 binding;
     WebGPUShaderStageFlags visibility;
     WebGPUBindingType type;
-    u32 start;
-    u32 count;
+    u32 arraySize;
 };
 
 dictionary WebGPUBindGroupLayoutDescriptor {
