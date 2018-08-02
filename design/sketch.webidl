@@ -562,7 +562,7 @@ interface WebGPUAdapter {
     readonly attribute WebGPUExtensions extensions;
     //readonly attribute WebGPULimits limits; Don't expose higher limits for now.
 
-    WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
+    Promise<WebGPUDevice> requestDevice(WebGPUDeviceDescriptor descriptor);
 };
 
 enum WebGPUPowerPreference { "default", "low-power", "high-performance" };
