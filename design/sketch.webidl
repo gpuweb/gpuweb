@@ -66,20 +66,17 @@ interface WebGPUTextureView {
 };
 
 // Texture
-typedef u32 WebGPUTextureDimensionEnum;
-interface WebGPUTextureDimension {
-    const u32 e1D = 0;
-    const u32 e2D = 1;
-    const u32 e3D = 2;
-    // TODO other dimensions (cube, arrays)
+enum WebGPUTextureDimension {
+    "1d",
+    "2d",
+    "3d",
 };
 
-typedef u32 WebGPUTextureFormatEnum;
-interface WebGPUTextureFormat {
-    const u32 R8_G8_B8_A8_UNORM = 0;
-    const u32 R8_G8_B8_A8_UINT = 1;
-    const u32 B8_G8_R8_A8_UNORM = 2;
-    const u32 D32_FLOAT_S8_UINT = 3;
+enum WebGPUTextureFormat {
+    "R8G8B8A8Unorm",
+    "R8G8B8A8Uint",
+    "B8G8R8A8Unorm",
+    "D32FloatS8Uint",
     // TODO other formats
 };
 
@@ -109,10 +106,9 @@ interface WebGPUTexture {
 };
 
 // Sampler
-typedef u32 WebGPUFilterModeEnum;
-interface WebGPUFilterMode {
-    const u32 NEAREST = 0;
-    const u32 LINEAR = 1;
+enum WebGPUFilterMode {
+    "nearest",
+    "linear",
 };
 
 dictionary WebGPUSamplerDescriptor {
@@ -137,13 +133,12 @@ interface WebGPUShaderStageBit {
     const u32 COMPUTE = 4;
 };
 
-typedef u32 WebGPUBindingTypeEnum;
-interface WebGPUBindingType {
-    const u32 UNIFORM_BUFFER = 0;
-    const u32 SAMPLER = 1;
-    const u32 SAMPLED_TEXTURE = 2;
-    const u32 STORAGE_BUFFER = 3;
-    // TODO other binding types (storage images, ...)
+enum WebGPUBindingType {
+    "uniformBuffer",
+    "sampler",
+    "sampledTexture",
+    "storageBuffer",
+    // TODO other binding types
 };
 
 dictionary WebGPUBindGroupBinding {
@@ -195,30 +190,28 @@ interface WebGPUBindGroup {
 // ****************************************************************************
 
 // BlendState
-typedef u32 WebGPUBlendFactorEnum;
-interface WebGPUBlendFactor {
-    const u32 ZERO = 0;
-    const u32 ONE = 1;
-    const u32 SRC_COLOR = 2;
-    const u32 ONE_MINUS_SRC_COLOR = 3;
-    const u32 SRC_ALPHA = 4;
-    const u32 ONE_MINUS_SRC_ALPHA = 5;
-    const u32 DST_COLOR = 6;
-    const u32 ONE_MINUS_DST_COLOR = 7;
-    const u32 DST_ALPHA = 8;
-    const u32 ONE_MINUS_DST_ALPHA = 9;
-    const u32 SRC_ALPHA_SATURATED = 10;
-    const u32 BLEND_COLOR = 11;
-    const u32 ONE_MINUS_BLEND_COLOR = 12;
+enum WebGPUBlendFactor {
+    "zero",
+    "one",
+    "srcColor",
+    "oneMinusSrcColor",
+    "srcAlpha",
+    "oneMinusSrcAlpha",
+    "dstColor",
+    "oneMinusDstColor",
+    "dstAlpha",
+    "oneMinusDstAlpha",
+    "srcAlphaSaturated",
+    "blendColor",
+    "oneMinusBlendColor",
 };
 
-typedef u32 WebGPUBlendOperationEnum;
-interface WebGPUBlendOperation {
-    const u32 ADD = 0;
-    const u32 SUBTRACT = 1;
-    const u32 REVERSE_SUBTRACT = 2;
-    const u32 MIN = 3;
-    const u32 MAX = 4;
+enum WebGPUBlendOperation {
+    "add",
+    "substract",
+    "reverseSubstract",
+    "min",
+    "max",
 };
 
 typedef u32 WebGPUColorWriteFlags;
@@ -247,29 +240,26 @@ dictionary WebGPUBlendStateDescriptor {
 interface WebGPUBlendState {
 };
 
-// DepthStencilState
-typedef u32 WebGPUCompareFunctionEnum;
-interface WebGPUCompareFunction {
-    const u32 NEVER = 0;
-    const u32 LESS = 1;
-    const u32 LESS_EQUAL = 2;
-    const u32 GREATER = 3;
-    const u32 GREATER_EQUAL = 4;
-    const u32 EQUAL = 5;
-    const u32 NOT_EQUAL = 6;
-    const u32 ALWAYS = 7;
+enum WebGPUCompareFunction {
+    "never",
+    "less",
+    "lessEqual",
+    "greater",
+    "greaterEqual",
+    "equal",
+    "notEqual",
+    "always",
 };
 
-typedef u32 WebGPUStencilOperationEnum;
-interface WebGPUStencilOperation {
-    const u32 KEEP = 0;
-    const u32 ZERO = 1;
-    const u32 REPLACE = 2;
-    const u32 INVERT = 3;
-    const u32 INCREMENT_CLAMP = 4;
-    const u32 DECREMENT_CLAMP = 5;
-    const u32 INCREMENT_WRAP = 6;
-    const u32 DECREMENT_WRAP = 7;
+WebGPUStencilOperation {
+    "keep",
+    "zero",
+    "replace",
+    "invert",
+    "incrementClamp",
+    "decrementClamp",
+    "incrementWrap",
+    "decrementWrap",
 };
 
 dictionary WebGPUStencilStateFaceDescriptor {
@@ -383,13 +373,12 @@ interface WebGPUComputePipeline {
 };
 
 // WebGPURenderPipeline
-typedef u32 WebGPUPrimitiveTopologyEnum;
-interface WebGPUPrimitiveTopology {
-    const u32 POINT_LIST = 0;
-    const u32 LINE_LIST = 1;
-    const u32 LINE_STRIP = 2;
-    const u32 TRIANGLE_LIST = 3;
-    const u32 TRIANGLE_STRIP = 4;
+enum WebGPUPrimitiveTopology {
+    "pointList",
+    "lineList",
+    "lineStrip",
+    "trangleList",
+    "triangleStrip",
 };
 
 dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase{
@@ -407,16 +396,14 @@ interface WebGPURenderPipeline {
 // COMMAND RECORDING (Command buffer and all relevant structures)
 // ****************************************************************************
 
-typedef u32 WebGPULoadOpEnum;
-interface WebGPULoadOp {
-    const u32 CLEAR = 0;
-    const u32 LOAD = 1;
+enum WebGPULoadOp {
+    "clear",
+    "load",
 };
 
-typedef u32 WebGPUStoreOpEnum;
-interface WebGPUStoreOp {
-    const u32 STORE = 0;
-};
+enum WebGPUStoreOp {
+    "store",
+}
 
 dictionary WebGPURenderPassAttachmentDescriptor {
     WebGPUTextureView attachment;
