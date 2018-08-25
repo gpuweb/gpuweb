@@ -105,16 +105,48 @@ interface WebGPUTexture {
     WebGPUTextureView createTextureView(WebGPUTextureViewDescriptor desc);
 };
 
-// Sampler
+// Samplers
+enum WebGPUAddressMode {
+    "clampToEdge",
+    "repeat",
+    "mirrorRepeat",
+    "clampToBorderColor"
+}
+
 enum WebGPUFilterMode {
     "nearest",
-    "linear",
-};
+    "linear"
+}
+
+enum WebGPUCompareFunction {
+    "never",
+    "less",
+    "equal",
+    "lessEqual",
+    "greater",
+    "notEqual",
+    "greaterEqual",
+    "always"
+}
+
+enum WebGPUBorderColor {
+    "transparentBlack",
+    "opaqueBlack",
+    "opaqueWhite"
+}
 
 dictionary WebGPUSamplerDescriptor {
-    WebGPUFilterModeEnum magFilter;
-    WebGPUFilterModeEnum minFilter;
-    WebGPUFilterModeEnum mipmapFilter;
+    WebGPUddressMode rAddressMode = "clampToEdge",
+    WebGPUddressMode sAddressMode = "clampToEdge",
+    WebGPUddressMode tAddressMode = "clampToEdge",
+    WebGPUFilterModeEnum magFilter = "nearest";
+    WebGPUFilterModeEnum minFilter = "nearest";
+    WebGPUFilterModeEnum mipmapFilter = "nearest";
+    float lodMinClamp = 0,
+    float lodMaxClamp = FLT_MAX,
+    unsigned long maxAnisotropy = 1,
+    WebGPUCompareFunction compareFunction = "never",
+    WebGPUBorderColor borderColor = "transparentBlack"
 };
 
 interface WebGPUSampler {
