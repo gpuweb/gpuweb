@@ -136,17 +136,17 @@ enum WebGPUBorderColor {
 }
 
 dictionary WebGPUSamplerDescriptor {
-    WebGPUddressMode rAddressMode = "clampToEdge",
-    WebGPUddressMode sAddressMode = "clampToEdge",
-    WebGPUddressMode tAddressMode = "clampToEdge",
+    WebGPUddressMode rAddressMode = "clampToEdge";
+    WebGPUddressMode sAddressMode = "clampToEdge";
+    WebGPUddressMode tAddressMode = "clampToEdge";
     WebGPUFilterModeEnum magFilter = "nearest";
     WebGPUFilterModeEnum minFilter = "nearest";
     WebGPUFilterModeEnum mipmapFilter = "nearest";
-    float lodMinClamp = 0,
-    float lodMaxClamp = Number.MAX_VALUE,
-    unsigned long maxAnisotropy = 1,
-    WebGPUCompareFunction compareFunction = "never",
-    WebGPUBorderColor borderColor = "transparentBlack"
+    float lodMinClamp = 0;
+    float lodMaxClamp = Number.MAX_VALUE;
+    unsigned long maxAnisotropy = 1;
+    WebGPUCompareFunction compareFunction = "never";
+    WebGPUBorderColor borderColor = "transparentBlack";
 };
 
 interface WebGPUSampler {
