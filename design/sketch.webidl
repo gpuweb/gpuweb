@@ -143,7 +143,7 @@ dictionary WebGPUSamplerDescriptor {
     WebGPUFilterModeEnum minFilter = "nearest";
     WebGPUFilterModeEnum mipmapFilter = "nearest";
     float lodMinClamp = 0,
-    float lodMaxClamp = FLT_MAX,
+    float lodMaxClamp = Number.MAX_VALUE,
     unsigned long maxAnisotropy = 1,
     WebGPUCompareFunction compareFunction = "never",
     WebGPUBorderColor borderColor = "transparentBlack"
