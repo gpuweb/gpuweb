@@ -428,14 +428,46 @@ interface WebGPURenderPipeline {
 // COMMAND RECORDING (Command buffer and all relevant structures)
 // ****************************************************************************
 
-enum WebGPULoadOp {
+/// Common interface for render and compute pass encoders.
+interface WebGPUCommandEncoder {
+    WebGPUCommandBuffer end_pass();
+    // Allowed in both compute and render passes
+    void setPushConstants(WebGPUShaderStageFlags stage,
+                          u32 offset,
+                          u32 count,
+                          ArrayBuffer data);
+    void setBindGroup(u32 index, WebGPUBindGroup bindGroup);
+    void setPipeline((WebGPUComputePipeline or WebGPURenderPipeline) pipeline);
+};
+
+interface WebGPURenderPassEncoder: WebGPUCommandEncoder {
+    void setBlendColor(float r, float g, float b, float a);
+    void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
+    void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
+
+    void draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance);
+    void drawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, u32 firstInstance, u32 firstVertex);
+
+    // TODO add missing commands
+};
+
+interface WebGPUComputePassEncoder: WebGPUCommandEncoder {
+    void dispatch(u32 x, u32 y, u32 z);
+
+    // TODO add missing commands
+};
+
+
+typedef u32 WebGPULoadOpEnum;
+interface WebGPULoadOp {
     "clear",
     "load",
 };
 
-enum WebGPUStoreOp {
+typedef u32 WebGPUStoreOpEnum;
+interface WebGPUStoreOp {
     "store",
-}
+};
 
 dictionary WebGPURenderPassAttachmentDescriptor {
     WebGPUTextureView attachment;
@@ -449,10 +481,8 @@ dictionary WebGPURenderPassDescriptor {
 };
 
 interface WebGPUCommandBuffer {
-};
-
-interface WebGPUCommandEncoder {
-    WebGPUCommandBuffer finishEncoding();
+    WebGPURenderPassEncoder begin_render_pass(WebGPURenderPassDescriptor descriptor);
+    WebGPUComputePassEncoder begin_compute_pass();
 
     // Commands allowed outside of "passes"
     void copyBufferToBuffer(WebGPUBuffer src,
@@ -465,35 +495,12 @@ interface WebGPUCommandEncoder {
     void copyTextureToBuffer();
     void copyTextureToTexture();
     void blit();
+};
 
-    void transitionBuffer(WebGPUBuffer b, WebGPUBufferUsageFlags f);
-
-    // Allowed in both compute and render passes
-    void setPushConstants(WebGPUShaderStageFlags stage,
-                          u32 offset,
-                          u32 count,
-                          ArrayBuffer data);
-    void setBindGroup(u32 index, WebGPUBindGroup bindGroup);
-    void setPipeline((WebGPUComputePipeline or WebGPURenderPipeline) pipeline);
-
-    // Compute pass commands
-    void beginComputePass();
-    void endComputePass();
-
-    void dispatch(u32 x, u32 y, u32 z);
-
-    // Render pass commands
-    void beginRenderPass(WebGPURenderPassDescriptor descriptor);
-    void endRenderPass();
-
-    void setBlendColor(float r, float g, float b, float a);
-    void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
-    void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
-
-    void draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance);
-    void drawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, u32 firstInstance, u32 firstVertex);
-
-    // TODO add missing commands
+dictionary WebGPUCommandBufferDescriptor {
+    /// If true, the command buffer can be submitted for execution any number
+    /// of times. Otherwise, it's invalidated after the first submit.
+    bool reusable;
 };
 
 // ****************************************************************************
@@ -560,7 +567,7 @@ interface WebGPUDevice {
     WebGPUComputePipeline createComputePipeline(WebGPUComputePipelineDescriptor descriptor);
     WebGPURenderPipeline createRenderPipeline(WebGPURenderPipelineDescriptor descriptor);
 
-    WebGPUCommandEncoder createCommandEncoder(WebGPUCommandEncoderDescriptor descriptor);
+    WebGPUCommandBuffer createCommandBuffer(WebGPUCommandBufferDescriptor descriptor);
     WebGPUFence createFence(WebGPUFenceDescriptor descriptor);
 
     WebGPUQueue getQueue();
