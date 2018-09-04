@@ -13,7 +13,7 @@ enum WebGPULogEntryType {
 
 interface WebGPULogEntry {
     readonly attribute WebGPULogEntryType type;
-    readonly attribute any object;
+    readonly attribute any data;
     readonly attribute DOMString? reason;
 };
 
@@ -111,12 +111,12 @@ enum WebGPUAddressMode {
     "repeat",
     "mirrorRepeat",
     "clampToBorderColor"
-}
+};
 
 enum WebGPUFilterMode {
     "nearest",
     "linear"
-}
+};
 
 enum WebGPUCompareFunction {
     "never",
@@ -127,13 +127,13 @@ enum WebGPUCompareFunction {
     "notEqual",
     "greaterEqual",
     "always"
-}
+};
 
 enum WebGPUBorderColor {
     "transparentBlack",
     "opaqueBlack",
     "opaqueWhite"
-}
+};
 
 dictionary WebGPUSamplerDescriptor {
     WebGPUddressMode rAddressMode = "clampToEdge";
