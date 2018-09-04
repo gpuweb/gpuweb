@@ -19,7 +19,7 @@ to anyone. We especially encourage hardware vendors, browser engine developers,
 participate. You'll need a W3C account to join, and if you're affiliated with a
 W3C member, your W3C representative will confirm your participation. If you're
 not a W3C member, you're still welcome. All participants are required to agree
-to the [Contributor License Agreement](https://www.w3.org/community/about/agreements/cla/).
+to the [W3C Community Contributor License Agreement](https://www.w3.org/community/about/agreements/cla/).
 
 However, you are not required to be a member of the group in order to
 [file issues](https://github.com/gpuweb/gpuweb/issues), errors, fixes or make suggestions.
