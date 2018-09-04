@@ -13,7 +13,7 @@ enum WebGPULogEntryType {
 
 interface WebGPULogEntry {
     readonly attribute WebGPULogEntryType type;
-    readonly attribute any data;
+    readonly attribute any sourceObject;
     readonly attribute DOMString? reason;
 };
 
@@ -429,18 +429,15 @@ interface WebGPURenderPipeline {
 // ****************************************************************************
 
 /// Common interface for render and compute pass encoders.
-interface WebGPUCommandEncoder {
+interface WebGPUProgrammablePassEncoder {
     WebGPUCommandBuffer end_pass();
     // Allowed in both compute and render passes
-    void setPushConstants(WebGPUShaderStageFlags stage,
-                          u32 offset,
-                          u32 count,
-                          ArrayBuffer data);
+    //TODO: setPushConstants() ?
     void setBindGroup(u32 index, WebGPUBindGroup bindGroup);
     void setPipeline((WebGPUComputePipeline or WebGPURenderPipeline) pipeline);
 };
 
-interface WebGPURenderPassEncoder: WebGPUCommandEncoder {
+interface WebGPURenderPassEncoder: WebGPUProgrammablePassEncoder {
     void setBlendColor(float r, float g, float b, float a);
     void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
     void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
@@ -451,7 +448,7 @@ interface WebGPURenderPassEncoder: WebGPUCommandEncoder {
     // TODO add missing commands
 };
 
-interface WebGPUComputePassEncoder: WebGPUCommandEncoder {
+interface WebGPUComputePassEncoder: WebGPUProgrammablePassEncoder {
     void dispatch(u32 x, u32 y, u32 z);
 
     // TODO add missing commands
@@ -498,9 +495,7 @@ interface WebGPUCommandBuffer {
 };
 
 dictionary WebGPUCommandBufferDescriptor {
-    /// If true, the command buffer can be submitted for execution any number
-    /// of times. Otherwise, it's invalidated after the first submit.
-    bool reusable;
+    //TODO: reusability flag?
 };
 
 // ****************************************************************************
@@ -604,5 +599,5 @@ interface WebGPU {
 // Add a "webgpu" member to Window that contains the global instance of a "WebGPU"
 interface mixin WebGPUProvider {
     [Replaceable, SameObject] readonly attribute WebGPU webgpu;
-}
+};
 Window includes WebGPUProvider;
