@@ -430,7 +430,7 @@ interface WebGPURenderPipeline {
 
 /// Common interface for render and compute pass encoders.
 interface WebGPUProgrammablePassEncoder {
-    WebGPUCommandBuffer end_pass();
+    WebGPUCommandBuffer endPass();
     // Allowed in both compute and render passes
     //TODO: setPushConstants() ?
     void setBindGroup(u32 index, WebGPUBindGroup bindGroup);
@@ -455,14 +455,12 @@ interface WebGPUComputePassEncoder: WebGPUProgrammablePassEncoder {
 };
 
 
-typedef u32 WebGPULoadOpEnum;
-interface WebGPULoadOp {
+enum WebGPULoadOp {
     "clear",
     "load",
 };
 
-typedef u32 WebGPUStoreOpEnum;
-interface WebGPUStoreOp {
+enum WebGPUStoreOp {
     "store",
 };
 
@@ -478,8 +476,8 @@ dictionary WebGPURenderPassDescriptor {
 };
 
 interface WebGPUCommandBuffer {
-    WebGPURenderPassEncoder begin_render_pass(WebGPURenderPassDescriptor descriptor);
-    WebGPUComputePassEncoder begin_compute_pass();
+    WebGPURenderPassEncoder beginRenderPass(WebGPURenderPassDescriptor descriptor);
+    WebGPUComputePassEncoder beginComputePass();
 
     // Commands allowed outside of "passes"
     void copyBufferToBuffer(WebGPUBuffer src,
