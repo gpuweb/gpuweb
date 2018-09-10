@@ -1,6 +1,13 @@
 typedef unsigned long u32;
 typedef unsigned long long u64;
 
+dictionary WebGPUColor {
+    float r;
+    float g;
+    float b;
+    float a;
+};
+
 // ****************************************************************************
 // ERROR HANDLING
 // ****************************************************************************
@@ -453,15 +460,29 @@ enum WebGPUStoreOp {
     "store",
 };
 
-dictionary WebGPURenderPassAttachmentDescriptor {
+dictionary WebGPURenderPassColorAttachmentDescriptor {
     WebGPUTextureView attachment;
+
     WebGPULoadOp loadOp;
     WebGPUStoreOp storeOp;
+    WebGPUColor clearColor;
+};
+
+dictionary WebGPURenderPassDepthStencilAttachmentDescriptor {
+    WebGPUTextureView attachment;
+
+    WebGPULoadOp depthLoadOp;
+    WebGPUStoreOp depthStoreOp;
+    float clearDepth;
+
+    WebGPULoadOp stencilLoadOp;
+    WebGPUStoreOp stencilStoreOp;
+    uint32_t clearStencil;
 };
 
 dictionary WebGPURenderPassDescriptor {
-    sequence<WebGPURenderPassAttachmentDescriptor> colorAttachments;
-    WebGPURenderPassAttachmentDescriptor depthStencilAttachmaent;
+    sequence<WebGPURenderPassColorAttachmentDescriptor> colorAttachments;
+    WebGPURenderPassDepthStencilAttachmentDescriptor depthStencilAttachment;
 };
 
 interface WebGPUCommandBuffer {
