@@ -13,7 +13,7 @@ enum WebGPULogEntryType {
 
 interface WebGPULogEntry {
     readonly attribute WebGPULogEntryType type;
-    readonly attribute any object;
+    readonly attribute any sourceObject;
     readonly attribute DOMString? reason;
 };
 
@@ -111,12 +111,12 @@ enum WebGPUAddressMode {
     "repeat",
     "mirrorRepeat",
     "clampToBorderColor"
-}
+};
 
 enum WebGPUFilterMode {
     "nearest",
     "linear"
-}
+};
 
 enum WebGPUCompareFunction {
     "never",
@@ -127,13 +127,13 @@ enum WebGPUCompareFunction {
     "notEqual",
     "greaterEqual",
     "always"
-}
+};
 
 enum WebGPUBorderColor {
     "transparentBlack",
     "opaqueBlack",
     "opaqueWhite"
-}
+};
 
 dictionary WebGPUSamplerDescriptor {
     WebGPUddressMode rAddressMode = "clampToEdge";
@@ -428,6 +428,33 @@ interface WebGPURenderPipeline {
 // COMMAND RECORDING (Command buffer and all relevant structures)
 // ****************************************************************************
 
+/// Common interface for render and compute pass encoders.
+interface WebGPUProgrammablePassEncoder {
+    WebGPUCommandBuffer endPass();
+    // Allowed in both compute and render passes
+    //TODO: setPushConstants() ?
+    void setBindGroup(u32 index, WebGPUBindGroup bindGroup);
+    void setPipeline((WebGPUComputePipeline or WebGPURenderPipeline) pipeline);
+};
+
+interface WebGPURenderPassEncoder: WebGPUProgrammablePassEncoder {
+    void setBlendColor(float r, float g, float b, float a);
+    void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
+    void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
+
+    void draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance);
+    void drawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, u32 firstInstance, u32 firstVertex);
+
+    // TODO add missing commands
+};
+
+interface WebGPUComputePassEncoder: WebGPUProgrammablePassEncoder {
+    void dispatch(u32 x, u32 y, u32 z);
+
+    // TODO add missing commands
+};
+
+
 enum WebGPULoadOp {
     "clear",
     "load",
@@ -435,7 +462,7 @@ enum WebGPULoadOp {
 
 enum WebGPUStoreOp {
     "store",
-}
+};
 
 dictionary WebGPURenderPassAttachmentDescriptor {
     WebGPUTextureView attachment;
@@ -449,10 +476,8 @@ dictionary WebGPURenderPassDescriptor {
 };
 
 interface WebGPUCommandBuffer {
-};
-
-interface WebGPUCommandEncoder {
-    WebGPUCommandBuffer finishEncoding();
+    WebGPURenderPassEncoder beginRenderPass(WebGPURenderPassDescriptor descriptor);
+    WebGPUComputePassEncoder beginComputePass();
 
     // Commands allowed outside of "passes"
     void copyBufferToBuffer(WebGPUBuffer src,
@@ -465,35 +490,10 @@ interface WebGPUCommandEncoder {
     void copyTextureToBuffer();
     void copyTextureToTexture();
     void blit();
+};
 
-    void transitionBuffer(WebGPUBuffer b, WebGPUBufferUsageFlags f);
-
-    // Allowed in both compute and render passes
-    void setPushConstants(WebGPUShaderStageFlags stage,
-                          u32 offset,
-                          u32 count,
-                          ArrayBuffer data);
-    void setBindGroup(u32 index, WebGPUBindGroup bindGroup);
-    void setPipeline((WebGPUComputePipeline or WebGPURenderPipeline) pipeline);
-
-    // Compute pass commands
-    void beginComputePass();
-    void endComputePass();
-
-    void dispatch(u32 x, u32 y, u32 z);
-
-    // Render pass commands
-    void beginRenderPass(WebGPURenderPassDescriptor descriptor);
-    void endRenderPass();
-
-    void setBlendColor(float r, float g, float b, float a);
-    void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
-    void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
-
-    void draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance);
-    void drawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, u32 firstInstance, u32 firstVertex);
-
-    // TODO add missing commands
+dictionary WebGPUCommandBufferDescriptor {
+    //TODO: reusability flag?
 };
 
 // ****************************************************************************
@@ -560,7 +560,7 @@ interface WebGPUDevice {
     WebGPUComputePipeline createComputePipeline(WebGPUComputePipelineDescriptor descriptor);
     WebGPURenderPipeline createRenderPipeline(WebGPURenderPipelineDescriptor descriptor);
 
-    WebGPUCommandEncoder createCommandEncoder(WebGPUCommandEncoderDescriptor descriptor);
+    WebGPUCommandBuffer createCommandBuffer(WebGPUCommandBufferDescriptor descriptor);
     WebGPUFence createFence(WebGPUFenceDescriptor descriptor);
 
     WebGPUQueue getQueue();
@@ -597,5 +597,5 @@ interface WebGPU {
 // Add a "webgpu" member to Window that contains the global instance of a "WebGPU"
 interface mixin WebGPUProvider {
     [Replaceable, SameObject] readonly attribute WebGPU webgpu;
-}
+};
 Window includes WebGPUProvider;
