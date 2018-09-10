@@ -213,17 +213,16 @@ interface WebGPUPipelineLayout {
 };
 
 // BindGroup
-dictionary WebGPUBufferBinding {
+dictionary WebGPUBinding {
+    u32 binding;
+
+    WebGPUSampler sampler;
+
+    WebGPUTextureView textureView;
+
     WebGPUBuffer buffer;
     u32 offset;
     u32 size;
-};
-
-typedef (WebGPUSampler or WebGPUTextureView or WebGPUBufferBinding) WebGPUBindingResource;
-
-dictionary WebGPUBinding {
-    uint32_t binding;
-    WebGPUBindingResource resource;
 };
 
 dictionary WebGPUBindGroupDescriptor {
