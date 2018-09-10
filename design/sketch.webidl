@@ -190,14 +190,14 @@ enum WebGPUBindingType {
     // TODO other binding types
 };
 
-dictionary WebGPUBindGroupBinding {
+dictionary WebGPUBindGroupLayoutBinding {
     u32 binding;
     WebGPUShaderStageFlags visibility;
     WebGPUBindingType type;
 };
 
 dictionary WebGPUBindGroupLayoutDescriptor {
-    sequence<WebGPUBindGroupBinding> bindingTypes;
+    sequence<WebGPUBindGroupLayoutBinding> bindings;
 };
 
 interface WebGPUBindGroupLayout {
@@ -221,9 +221,8 @@ dictionary WebGPUBufferBinding {
 typedef (WebGPUSampler or WebGPUTextureView or WebGPUBufferBinding) WebGPUBindingResource;
 
 dictionary WebGPUBinding {
-    sequence<WebGPUBindingResource> resources;
-    u32 start;
-    u32 count;
+    uint32_t binding;
+    WebGPUBindingResource resource;
 };
 
 dictionary WebGPUBindGroupDescriptor {
