@@ -272,18 +272,7 @@ dictionary WebGPUBlendStateDescriptor {
 interface WebGPUBlendState {
 };
 
-enum WebGPUCompareFunction {
-    "never",
-    "less",
-    "lessEqual",
-    "greater",
-    "greaterEqual",
-    "equal",
-    "notEqual",
-    "always",
-};
-
-WebGPUStencilOperation {
+enum WebGPUStencilOperation {
     "keep",
     "zero",
     "replace",
@@ -295,10 +284,10 @@ WebGPUStencilOperation {
 };
 
 dictionary WebGPUStencilStateFaceDescriptor {
-    WebGPUCompareFunctionEnum compare;
-    WebGPUStencilOperationEnum stencilFailOp;
-    WebGPUStencilOperationEnum depthFailOp;
-    WebGPUStencilOperationEnum passOp;
+    WebGPUCompareFunction compare;
+    WebGPUStencilOperation stencilFailOp;
+    WebGPUStencilOperation depthFailOp;
+    WebGPUStencilOperation passOp;
 };
 
 dictionary WebGPUDepthStencilStateDescriptor {
