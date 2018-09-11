@@ -8,6 +8,18 @@ dictionary WebGPUColor {
     float a;
 };
 
+dictionary WebGPUOrigin3D {
+    u32 x;
+    u32 y;
+    u32 z;
+};
+
+dictionary WebGPUExtent3D {
+    u32 width;
+    u32 height;
+    u32 depth;
+};
+
 // ****************************************************************************
 // ERROR HANDLING
 // ****************************************************************************
@@ -99,9 +111,7 @@ interface WebGPUTextureUsage {
 };
 
 dictionary WebGPUTextureDescriptor {
-    u32 width;
-    u32 height;
-    u32 depth;
+    WebGPUExtent3D size;
     u32 arraySize;
     WebGPUTextureDimensionEnum dimension;
     WebGPUTextureFormatEnum format;
@@ -485,20 +495,49 @@ dictionary WebGPURenderPassDescriptor {
     WebGPURenderPassDepthStencilAttachmentDescriptor depthStencilAttachment;
 };
 
+dictionary WebGPUBufferCopyView {
+    WebGPUBuffer buffer;
+    u32 offset;
+    u32 rowPitch;
+    u32 imageHeight;
+};
+
+dictionary WebGPUTextureCopyView {
+    WebGPUTexture texture;
+    u32 level;
+    u32 slice;
+    WebGPUOrigin3D origin;
+    WebGPUTextureAspect aspect;
+};
+
 interface WebGPUCommandBuffer {
     WebGPURenderPassEncoder beginRenderPass(WebGPURenderPassDescriptor descriptor);
     WebGPUComputePassEncoder beginComputePass();
 
     // Commands allowed outside of "passes"
-    void copyBufferToBuffer(WebGPUBuffer src,
-                            u32 srcOffset,
-                            WebGPUBuffer dst,
-                            u32 dstOffset,
-                            u32 size);
-    // TODO figure out all the arguments required for these
-    void copyBufferToTexture();
-    void copyTextureToBuffer();
-    void copyTextureToTexture();
+    void copyBufferToBuffer(
+        WebGPUBuffer src,
+        u32 srcOffset,
+        WebGPUBuffer dst,
+        u32 dstOffset,
+        u32 size);
+
+    void copyBufferToTexture(
+        WebGPUBufferCopyView source,
+        WebGPUTextureCopyView destination,
+        WebGPUExtent3D copySize);
+
+    void copyTextureToBuffer(
+        WebGPUTextureCopyView source,
+        WebGPUBufferCopyView destination,
+        WebGPUExtent3D copySize);
+
+    void copyTextureToTexture(
+        WebGPUTextureCopyView source,
+        WebGPUTextureCopyView destination,
+        WebGPUExtent3D copySize);
+
+    // TODO figure which other commands are needed
     void blit();
 };
 
