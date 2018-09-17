@@ -614,7 +614,7 @@ interface WebGPUDevice {
     WebGPUQueue getQueue();
 
     attribute WebGPULogCallback onLog;
-    WebGPUObjectStatusQuery getObjectStatus(StatusableObject object);
+    WebGPUObjectStatusQuery getObjectStatus(StatusableObject statusableObject);
 };
 
 dictionary WebGPUDeviceDescriptor {
