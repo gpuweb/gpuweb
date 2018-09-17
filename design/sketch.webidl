@@ -256,8 +256,8 @@ enum WebGPUBlendFactor {
 
 enum WebGPUBlendOperation {
     "add",
-    "substract",
-    "reverseSubstract",
+    "subtract",
+    "reverseSubtract",
     "min",
     "max",
 };
@@ -308,7 +308,7 @@ dictionary WebGPUStencilStateFaceDescriptor {
 
 dictionary WebGPUDepthStencilStateDescriptor {
     bool depthWriteEnabled;
-    WebGPUCompareFunctionEnum depthCompare;
+    WebGPUCompareFunction depthCompare;
 
     WebGPUStencilStateFaceDescriptor front;
     WebGPUStencilStateFaceDescriptor back;
@@ -403,7 +403,7 @@ dictionary WebGPUPipelineDescriptorBase {
 };
 
 // ComputePipeline
-dictionary WebGPUComputePipelineDescriptor : WebGPUPipelineDescriptorBase{
+dictionary WebGPUComputePipelineDescriptor : WebGPUPipelineDescriptorBase {
 };
 
 interface WebGPUComputePipeline {
@@ -418,7 +418,7 @@ enum WebGPUPrimitiveTopology {
     "triangleStrip",
 };
 
-dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase{
+dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
     WebGPUPrimitiveTopologyEnum primitiveTopology;
     sequence<WebGPUBlendState> blendState;
     WebGPUDepthStencilState depthStencilState;
@@ -442,7 +442,7 @@ interface WebGPUProgrammablePassEncoder {
     void setPipeline((WebGPUComputePipeline or WebGPURenderPipeline) pipeline);
 };
 
-interface WebGPURenderPassEncoder: WebGPUProgrammablePassEncoder {
+interface WebGPURenderPassEncoder : WebGPUProgrammablePassEncoder {
     void setBlendColor(float r, float g, float b, float a);
     void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
     void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
@@ -453,7 +453,7 @@ interface WebGPURenderPassEncoder: WebGPUProgrammablePassEncoder {
     // TODO add missing commands
 };
 
-interface WebGPUComputePassEncoder: WebGPUProgrammablePassEncoder {
+interface WebGPUComputePassEncoder : WebGPUProgrammablePassEncoder {
     void dispatch(u32 x, u32 y, u32 z);
 
     // TODO add missing commands
@@ -614,7 +614,7 @@ interface WebGPUDevice {
     WebGPUQueue getQueue();
 
     attribute WebGPULogCallback onLog;
-    WebGPUObjectStatusQuery getObjectStatus(StatusableObject object);
+    WebGPUObjectStatusQuery getObjectStatus(StatusableObject statusableObject);
 };
 
 dictionary WebGPUDeviceDescriptor {
