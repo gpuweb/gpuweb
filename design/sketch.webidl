@@ -308,7 +308,7 @@ dictionary WebGPUStencilStateFaceDescriptor {
 
 dictionary WebGPUDepthStencilStateDescriptor {
     bool depthWriteEnabled;
-    WebGPUCompareFunctionEnum depthCompare;
+    WebGPUCompareFunction depthCompare;
 
     WebGPUStencilStateFaceDescriptor front;
     WebGPUStencilStateFaceDescriptor back;
