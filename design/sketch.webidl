@@ -1,3 +1,4 @@
+typedef long i32;
 typedef unsigned long u32;
 typedef unsigned long long u64;
 
@@ -448,7 +449,7 @@ interface WebGPURenderPassEncoder : WebGPUProgrammablePassEncoder {
     void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
 
     void draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance);
-    void drawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, u32 firstInstance, u32 firstVertex);
+    void drawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, i32 baseVertex, u32 firstInstance);
 
     // TODO add missing commands
 };
