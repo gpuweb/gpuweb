@@ -501,12 +501,19 @@ dictionary WebGPUBufferCopyView {
     u32 imageHeight;
 };
 
+typedef u32 WebGPUTextureAspectFlags;
+interface WebGPUTextureAspect {
+    const u32 COLOR = 1;
+    const u32 DEPTH = 2;
+    const u32 STENCIL = 4;
+};
+
 dictionary WebGPUTextureCopyView {
     WebGPUTexture texture;
     u32 level;
     u32 slice;
     WebGPUOrigin3D origin;
-    WebGPUTextureAspect aspect;
+    WebGPUTextureAspectFlags aspect;
 };
 
 interface WebGPUCommandBuffer {
