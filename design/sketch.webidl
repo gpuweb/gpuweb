@@ -639,7 +639,7 @@ dictionary WebGPUAdapterDescriptor {
 };
 
 interface WebGPU {
-    WebGPUAdapter getAdapter(WebGPUAdapterDescriptor desc);
+    Promise<WebGPUAdapter> requestAdapter(WebGPUAdapterDescriptor desc);
 };
 
 // Add a "webgpu" member to Window that contains the global instance of a "WebGPU"
