@@ -77,14 +77,6 @@ interface WebGPUBuffer {
     void unmap();
 };
 
-// Texture view
-dictionary WebGPUTextureViewDescriptor {
-    // TODO Investigate what goes in there.
-};
-
-interface WebGPUTextureView {
-};
-
 // Texture
 enum WebGPUTextureDimension {
     "1d",
@@ -119,8 +111,39 @@ dictionary WebGPUTextureDescriptor {
     WebGPUTextureUsageFlags usage;
 };
 
+// Texture view
+enum WebGPUTextureViewDimension {
+    "1d",
+    "2d",
+    "2darray",
+    "cube",
+    "cubearray",
+    "3d"
+};
+
+typedef u32 WebGPUTextureAspectFlags;
+interface WebGPUTextureAspect {
+    const u32 COLOR = 1;
+    const u32 DEPTH = 2;
+    const u32 STENCIL = 4;
+};
+
+dictionary WebGPUTextureViewDescriptor {
+    WebGPUTextureFormat format;
+    WebGPUTextureViewDimension type;
+    WebGPUTextureAspectFlags aspect;
+    u32 baseMipLevel;
+    u32 levelCount;
+    u32 baseArrayLayer;
+    u32 layerCount;
+};
+
+interface WebGPUTextureView {
+};
+
 interface WebGPUTexture {
     WebGPUTextureView createTextureView(WebGPUTextureViewDescriptor desc);
+    WebGPUTextureView createDefaultTextureView();
 };
 
 // Samplers
@@ -500,13 +523,6 @@ dictionary WebGPUBufferCopyView {
     u32 offset;
     u32 rowPitch;
     u32 imageHeight;
-};
-
-typedef u32 WebGPUTextureAspectFlags;
-interface WebGPUTextureAspect {
-    const u32 COLOR = 1;
-    const u32 DEPTH = 2;
-    const u32 STENCIL = 4;
 };
 
 dictionary WebGPUTextureCopyView {
