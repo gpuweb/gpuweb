@@ -397,13 +397,13 @@ dictionary WebGPUShaderModuleDescriptor {
 interface WebGPUShaderModule {
 };
 
-// AttachmentState
-dictionary WebGPUAttachmentStateDescriptor {
+// Description of the framebuffer attachments
+dictionary WebGPUAttachmentsStateDescriptor {
     sequence<WebGPUTextureFormatEnum> formats;
     // TODO other stuff like sample count etc.
 };
 
-interface WebGPUAttachmentState {
+interface WebGPUAttachmentsState {
 };
 
 // Common stuff for ComputePipeline and RenderPipeline
@@ -444,10 +444,10 @@ enum WebGPUPrimitiveTopology {
 
 dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
     WebGPUPrimitiveTopologyEnum primitiveTopology;
-    sequence<WebGPUBlendState> blendState;
+    sequence<WebGPUBlendState> blendStates;
     WebGPUDepthStencilState depthStencilState;
     WebGPUInputState inputState;
-    WebGPUAttachmentState attachmentState;
+    WebGPUAttachmentsState attachmentsState;
     // TODO other properties
 };
 
@@ -628,7 +628,7 @@ interface WebGPUDevice {
     WebGPUDepthStencilState createDepthStencilState(WebGPUDepthStencilStateDescriptor descriptor);
     WebGPUInputState createInputState(WebGPUInputStateDescriptor descriptor);
     WebGPUShaderModule createShaderModule(WebGPUShaderModuleDescriptor descriptor);
-    WebGPUAttachmentState createAttachmentState(WebGPUAttachmentStateDescriptor descriptor);
+    WebGPUAttachmentsState createAttachmentsState(WebGPUAttachmentsStateDescriptor descriptor);
     WebGPUComputePipeline createComputePipeline(WebGPUComputePipelineDescriptor descriptor);
     WebGPURenderPipeline createRenderPipeline(WebGPURenderPipelineDescriptor descriptor);
 
