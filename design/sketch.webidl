@@ -514,6 +514,7 @@ dictionary WebGPURenderPassDepthStencilAttachmentDescriptor {
 };
 
 dictionary WebGPURenderPassDescriptor {
+    WebGPUAttachmentsState attachmentsState;
     sequence<WebGPURenderPassColorAttachmentDescriptor> colorAttachments;
     WebGPURenderPassDepthStencilAttachmentDescriptor depthStencilAttachment;
 };
