@@ -514,9 +514,14 @@ dictionary WebGPURenderPassDepthStencilAttachmentDescriptor {
 };
 
 dictionary WebGPURenderPassDescriptor {
+    WebGPUPipelineLayout pipelineLayout;
     WebGPUAttachmentsState attachmentsState;
     sequence<WebGPURenderPassColorAttachmentDescriptor> colorAttachments;
     WebGPURenderPassDepthStencilAttachmentDescriptor depthStencilAttachment;
+};
+
+dictionary WebGPUComputePassDescriptor {
+    WebGPUPipelineLayout pipelineLayout;
 };
 
 dictionary WebGPUBufferCopyView {
@@ -536,7 +541,7 @@ dictionary WebGPUTextureCopyView {
 
 interface WebGPUCommandBuffer {
     WebGPURenderPassEncoder beginRenderPass(WebGPURenderPassDescriptor descriptor);
-    WebGPUComputePassEncoder beginComputePass();
+    WebGPUComputePassEncoder beginComputePass(WebGPUComputePassDescriptor descriptor);
 
     // Commands allowed outside of "passes"
     void copyBufferToBuffer(
