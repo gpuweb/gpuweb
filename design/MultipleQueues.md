@@ -20,3 +20,5 @@ a fence is complete, followed by submitting command buffers that depend on that 
 
 - Transfering resources between queues, particularly for VK_SHARING_MODE_EXCLUSIVE, as opposed to _CONCURRENT.
 - App-requested number of same-type queues, instead of implementation-dictated-only.
+- Have apps request a configuration of queues, and have the implementation virtualize as needed.
+- Establish approach to validation of implicit concurrent access.
