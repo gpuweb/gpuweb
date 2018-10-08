@@ -15,3 +15,8 @@ Devices must be able to support at least a compute queue, or device creation wil
 Queues can have fences inserted into them, and any queue can wait on that fence to be complete.
 Synchronizing usage of resources across queues should be done by telling a queue to wait until
 a fence is complete, followed by submitting command buffers that depend on that fence.
+
+## Further work
+
+- Transfering resources between queues, particularly for VK_SHARING_MODE_EXCLUSIVE, as opposed to _CONCURRENT.
+- App-requested number of same-type queues, instead of implementation-dictated-only.
