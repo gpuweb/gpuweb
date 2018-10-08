@@ -580,8 +580,12 @@ interface WebGPUFence {
 
 // Queue
 interface WebGPUQueue {
+    readonly attribute boolean graphics;
+    readonly attribute boolean compute;
+
     void submit(sequence<WebGPUCommandBuffer> buffers);
     WebGPUFence insertFence();
+    void wait(WebGPUFence);
 };
 
 // SwapChain / RenderingContext
@@ -615,6 +619,7 @@ interface WebGPUDevice {
     readonly attribute WebGPUExtensions extensions;
     readonly attribute WebGPULimits limits;
     readonly attribute WebGPUAdapter adapter;
+    readonly attribute sequence<WebGPUQueue> queues;
 
     WebGPUBuffer createBuffer(WebGPUBufferDescriptor descriptor);
     WebGPUTexture createTexture(WebGPUTextureDescriptor descriptor);
@@ -634,8 +639,6 @@ interface WebGPUDevice {
 
     WebGPUCommandBuffer createCommandBuffer(WebGPUCommandBufferDescriptor descriptor);
     WebGPUFence createFence(WebGPUFenceDescriptor descriptor);
-
-    WebGPUQueue getQueue();
 
     attribute WebGPULogCallback onLog;
     WebGPUObjectStatusQuery getObjectStatus(StatusableObject statusableObject);
