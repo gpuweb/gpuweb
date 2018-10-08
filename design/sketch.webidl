@@ -577,15 +577,24 @@ dictionary WebGPUCommandBufferDescriptor {
 // ****************************************************************************
 
 // Fence
+
+dictionary WebGPUFenceDescriptor {
+    WebGPUQueue signalQueue = null;
+    u64 initialValue = 0;
+};
+
 interface WebGPUFence {
-    bool wait(Number milliseconds);
-    readonly attribute Promise<void> promise;
+    u64 getCompletedValue();
+    Promise<void> onCompletion(u64 completionValue);
 };
 
 // Queue
 interface WebGPUQueue {
     void submit(sequence<WebGPUCommandBuffer> buffers);
-    WebGPUFence insertFence();
+    void signal(WebGPUFence fence, u64 signalValue);
+
+    // If we have multiple-queues
+    void wait(WebGPUFence fence, u64 valueToWait);
 };
 
 // SwapChain / RenderingContext
