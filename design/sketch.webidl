@@ -75,6 +75,8 @@ dictionary WebGPUBufferDescriptor {
 interface WebGPUBuffer {
     readonly attribute ArrayBuffer? mapping;
     void unmap();
+
+    void destroy();
 };
 
 // Texture
@@ -144,6 +146,8 @@ interface WebGPUTextureView {
 interface WebGPUTexture {
     WebGPUTextureView createTextureView(WebGPUTextureViewDescriptor desc);
     WebGPUTextureView createDefaultTextureView();
+
+    void destroy();
 };
 
 // Samplers
