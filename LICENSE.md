@@ -7,3 +7,6 @@ Contributions to Specifications are made under the
 
 Contributions to Test Suites are made under the
 [W3C 3-clause BSD License](https://www.w3.org/Consortium/Legal/2008/03-bsd-license.html)
+
+Contributions to Software are made under the
+[GPU for the Web 3-Clause BSD License](https://github.com/gpuweb/admin/blob/SourceCodeLicense/LICENSE.txt)
