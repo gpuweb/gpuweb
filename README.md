@@ -21,10 +21,15 @@ W3C member, your W3C representative will confirm your participation. If you're
 not a W3C member, you're still welcome. All participants are required to agree
 to the [Contributor License Agreement](https://www.w3.org/community/about/agreements/cla/).
 
-However, you are not required to be a member of the group in order to
+## Contributions
+
+You are not required to be a member of the group in order to
 [file issues](https://github.com/gpuweb/gpuweb/issues), errors, fixes or make suggestions.
 Just a github account. We simply require that any significant contribution of technology
 come from members, so that we can ensure no IP complications down the line.
+
+All contributions must comply with the group's
+[contribution guidelines](https://github.com/gpuweb/admin/master/blob/CONTRIBUTING.md).
 
 ## Code of Conduct
 
