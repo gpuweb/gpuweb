@@ -29,7 +29,7 @@ Just a github account. We simply require that any significant contribution of te
 come from members, so that we can ensure no IP complications down the line.
 
 All contributions must comply with the group's
-[contribution guidelines](https://github.com/gpuweb/admin/master/blob/CONTRIBUTING.md).
+[contribution guidelines](https://github.com/gpuweb/admin/blob/master/CONTRIBUTING.md).
 
 ## Code of Conduct
 
