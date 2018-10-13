@@ -1,14 +1,23 @@
-All error cases should be individually defined by the spec, on a case-by-case
-basis, as either:
+The behavior of every error case in WebGPU is defined by the spec on a
+case-by-case basis. A given error has one of these behaviors:
 
-* synchronously throwing a JS exception, or
-* occurring asynchronously - causes a WebGPU object to become internally null,
-  an operation to no-op, or a `Promise` to throw. (Plus an error log entry.)
+* Synchronously throws a JS exception.
+* Occurs asynchronously - one of:
+  * Causes a WebGPU object to become internally null. Produces an error log entry.
+  * Causes an operation to no-op. Produces an error log entry.
+* If the operation returns a Promise, it rejects (and maybe produces an error log entry).
 
 (If a "developer mode" is enabled, all validation errors are thrown
-synchronously, as exceptions. Device loss may or may not be synchronous.
+synchronously, as exceptions. Device loss may or may not be synchronous and
+this behavior may be implementation-specific.
 Out-of-memory errors should NOT be made synchronous if the application would
 otherwise have an opportunity to recover from them.)
+
+**The guidelines below are meant to help choose the individual cases defined by
+the spec, but every case must be specced. This does not allow for
+"implementation-defined" behavior.** Note that an implementation can easily
+surface a synchronous error "as-if" it's asynchronous, but it cannot do the
+opposite, so we prefer to err on the side of asynchronicity in the spec.
 
 As a general rule, those error cases should follow the following guidelines,
 but are allowed to deviate in individual cases. For WebGPU method call
