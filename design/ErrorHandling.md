@@ -21,7 +21,7 @@ There are several types of WebGPU calls that get their errors handled differentl
 ## *Debugging*: Dev Tools
 
 Implementations should provide a way to enable synchronous validation, for example via a debug shim or via the developer tools.
-The extra CPU overhead should be acceptable for debugging purposes.
+The extra overhead needs to be low enough that applications can still run while being debugged.
 
 ## *Telemetry* \& *Fallback*: Error Logging
 
@@ -140,10 +140,10 @@ A concrete example: When creating a buffer, the following logic applies:
  - `createBuffer` returns a `WebGPUBuffer` object `buffer` immediately.
  - A `WebGPUObjectStatusQuery` can be obtained by calling `device.getObjectStatus(buffer)`.
    At a later time, that query resolves to a `WebGPUObjectStatus` that is one of:
-       - Creation succeeded (`"valid"`).
-       - Creation encountered a recoverable error (`"out-of-memory"`).
-         (The application can then choose to retry a smaller allocation of a *new* `WebGPUBuffer`.)
-       - Creation encountered another type of error out of the control of the application (`"invalid"`).
+    - Creation succeeded (`"valid"`).
+    - Creation encountered a recoverable error (`"out-of-memory"`).
+      (The application can then choose to retry a smaller allocation of a *new* `WebGPUBuffer`.)
+    - Creation encountered another type of error out of the control of the application (`"invalid"`).
 
 Regardless of any recovery efforts the application makes, if creation fails,
 the resulting object is invalid (and subject to error propagation).
