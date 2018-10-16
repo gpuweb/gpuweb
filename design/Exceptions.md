@@ -20,17 +20,30 @@ surface a synchronous error "as-if" it's asynchronous, but it cannot do the
 opposite, so we prefer to err on the side of asynchronicity in the spec.
 
 As a general rule, those error cases should follow the following guidelines,
-but are allowed to deviate in individual cases. For WebGPU method call
+but are allowed to deviate in individual cases. For WebGPU function call
 `o.f(a, b, ...)`, let `A = {a: a, b: b, ...}` represent the object graph
 passed into `o.f`.
 
 * If WebIDL's binding rules would throw an exception: Error **must** be synchronous.
     * This should cover type checks.
 
-* If the method `f` is part of an extension that is not enabled, it must match
-  the behavior if an extension is not known by the browser (a bindings
-  exception): Error **must** be synchronous.
-    * Doesn't necessarily have to be the same exception type.
+* If the method `o.f` is part of a disabled extension: Error **must** be synchronous.
+    * If the extension is *known but disabled*, `o.f` can be called, but
+      throws an exception (in the implementation).
+    * If the extension is *unknown*, `o.f` is `undefined`;
+      calling `undefined` throws an exception.
+
+* If the method `o.f` is available, but would return an instance of an
+  interface defined in a disabled extension: Error **must** be synchronous.
+    * (We probably won't have this case anyway.)
+
+* If `o` **is** an interface (not an instance) that is defined in a disabled
+  extension: Error **must** be synchronous. However, note that the behavior
+  cannot match exactly:
+    * If the extension is *known but disabled*, `o.f` can be called, but
+      throws an exception (in the implementation).
+    * If the extension is *unknown*, `o` is not defined, so accessing `o`
+      throws an exception (and accessing `window.o` gives `undefined`).
 
 * If any object in `A` contains any key that is not core or part of an enabled
   extension: Error **must** be synchronous.
