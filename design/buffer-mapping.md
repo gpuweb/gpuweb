@@ -1,3 +1,5 @@
+# THIS DOCUMENT IS OUT OF DATE BECAUSE TRANSITIONS AREN'T IN WEBGPU
+
 # Buffer Mapping
 
 For each Buffer with MAP_READ or MAP_WRITE usage, an IPC implemention maintains
