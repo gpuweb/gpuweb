@@ -1,3 +1,5 @@
+# Error Synchronicity Conventions/Guidelines
+
 The behavior of every error case in WebGPU is defined by the spec on a
 case-by-case basis. A given error has one of these behaviors:
 
@@ -16,8 +18,9 @@ otherwise have an opportunity to recover from them.)
 **The guidelines below are meant to help choose the individual cases defined by
 the spec, but every case must be specced. This does not allow for
 "implementation-defined" behavior.** Note that an implementation can easily
-surface a synchronous error "as-if" it's asynchronous, but it cannot do the
-opposite, so we prefer to err on the side of asynchronicity in the spec.
+surface a synchronous error to the application "as-if" it's asynchronous, but
+it cannot do the opposite, so we prefer to err on the side of asynchronicity in
+the spec.
 
 As a general rule, those error cases should follow the following guidelines,
 but are allowed to deviate in individual cases. For WebGPU function call
@@ -25,7 +28,8 @@ but are allowed to deviate in individual cases. For WebGPU function call
 passed into `o.f`.
 
 * If WebIDL's binding rules would throw an exception: Error **must** be synchronous.
-    * This should cover type checks.
+    E.g.:
+    * If a parameter is passed in which doesn't match the type declared by the WebIDL.
 
 * If the method `o.f` is part of a disabled extension: Error **must** be synchronous.
     * If the extension is *known but disabled*, `o.f` can be called, but
