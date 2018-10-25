@@ -108,6 +108,7 @@ interface WebGPUTextureUsage {
 dictionary WebGPUTextureDescriptor {
     WebGPUExtent3D size;
     u32 arraySize;
+    u32 levelCount;
     WebGPUTextureDimensionEnum dimension;
     WebGPUTextureFormatEnum format;
     WebGPUTextureUsageFlags usage;
@@ -132,7 +133,7 @@ interface WebGPUTextureAspect {
 
 dictionary WebGPUTextureViewDescriptor {
     WebGPUTextureFormat format;
-    WebGPUTextureViewDimension type;
+    WebGPUTextureViewDimension dimension;
     WebGPUTextureAspectFlags aspect;
     u32 baseMipLevel;
     u32 levelCount;
