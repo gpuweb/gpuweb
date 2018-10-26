@@ -580,8 +580,7 @@ interface WebGPUFence {
 
 // Queue
 interface WebGPUQueue {
-    readonly attribute boolean graphics;
-    readonly attribute boolean compute;
+    readonly attribute WebGPUQueueFamily family;
 
     void submit(sequence<WebGPUCommandBuffer> buffers);
     WebGPUFence insertFence();
@@ -644,17 +643,24 @@ interface WebGPUDevice {
     WebGPUObjectStatusQuery getObjectStatus(StatusableObject statusableObject);
 };
 
+interface WebGPUQueueFamily {
+    readonly attribute boolean graphics;
+    readonly attribute boolean compute;
+    readonly attribute boolean copy;
+};
+
 dictionary WebGPUDeviceDescriptor {
     WebGPUExtensions extensions;
     //WebGPULimits limits; Don't expose higher limits for now.
 
-    // TODO are other things configurable like queues?
+    sequence<WebGLQueueFamily> queueRequests;
 };
 
 interface WebGPUAdapter {
     readonly attribute DOMString name;
     readonly attribute WebGPUExtensions extensions;
     //readonly attribute WebGPULimits limits; Don't expose higher limits for now.
+    readonly attribute sequence<WebGLQueueFamily> queueFamilies;
 
     WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
 };
