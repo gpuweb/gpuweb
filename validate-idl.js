@@ -1,7 +1,9 @@
 const WebIDL2 = require("webidl2");
 const fs = require("fs");
 
-const textToValidate = fs.readFileSync("design/sketch.webidl", "utf8");
+const fileName = process.argv[2];
+
+const textToValidate = fs.readFileSync(fileName, "utf8");
 
 try {
   const tree = WebIDL2.parse(textToValidate);
