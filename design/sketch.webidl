@@ -688,6 +688,6 @@ interface WebGPU {
 
 // Add a "webgpu" member to Window that contains the global instance of a "WebGPU"
 interface mixin WebGPUProvider {
-    [Replaceable, SameObject] readonly attribute WebGPU webgpu;
+    [Replaceable, SameObject] readonly attribute WebGPU gpu;
 };
 Window includes WebGPUProvider;
