@@ -682,12 +682,6 @@ dictionary WebGPUAdapterDescriptor {
     WebGPUPowerPreference powerPreference;
 };
 
-interface WebGPU {
+namespace gpu {
     Promise<WebGPUAdapter> requestAdapter(WebGPUAdapterDescriptor desc);
 };
-
-// Add a "gpu" member to Window that contains the global instance of a "WebGPU"
-interface mixin WebGPUProvider {
-    [Replaceable, SameObject] readonly attribute WebGPU gpu;
-};
-Window includes WebGPUProvider;
