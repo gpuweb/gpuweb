@@ -600,6 +600,7 @@ interface WebGPUQueue {
 
 // SwapChain / RenderingContext
 dictionary WebGPUSwapChainDescriptor {
+    WebGPUDevice? device;
     WebGPUTextureUsageFlags usage;
     WebGPUTextureFormatEnum format;
     u32 width;
