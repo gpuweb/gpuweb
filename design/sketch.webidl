@@ -418,28 +418,19 @@ dictionary WebGPUAttachmentsState {
     WebGPUAttachment? depthStencilAttachment;
 };
 
-// Common stuff for ComputePipeline and RenderPipeline
-typedef u32 WebGPUShaderStageEnum;
-interface WebGPUShaderStage {
-    const u32 VERTEX = 0;
-    const u32 FRAGMENT = 1;
-    const u32 COMPUTE = 2;
-};
-
 dictionary WebGPUPipelineStageDescriptor {
     WebGPUShaderModule module;
-    WebGPUShaderStageEnum stage;
     DOMString entryPoint;
     // TODO other stuff like specialization constants?
 };
 
 dictionary WebGPUPipelineDescriptorBase {
     WebGPUPipelineLayout layout;
-    sequence<WebGPUPipelineStageDescriptor> stages;
 };
 
 // WebGPUComputePipeline
 dictionary WebGPUComputePipelineDescriptor : WebGPUPipelineDescriptorBase {
+    WebGPUPipelineStageDescriptor computeStage;
 };
 
 interface WebGPUComputePipeline {
@@ -455,6 +446,8 @@ enum WebGPUPrimitiveTopology {
 };
 
 dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
+    WebGPUPipelineStageDescriptor vertexStage;
+    WebGPUPipelineStageDescriptor fragmentStage;
     WebGPUPrimitiveTopologyEnum primitiveTopology;
     sequence<WebGPUBlendState> blendStates;
     WebGPUDepthStencilState depthStencilState;
