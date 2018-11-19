@@ -480,6 +480,7 @@ interface WebGPUProgrammablePassEncoder {
 
 interface WebGPURenderPassEncoder : WebGPUProgrammablePassEncoder {
     void setBlendColor(float r, float g, float b, float a);
+    void setStencilReference(u32 reference);
     void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
     void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
 
