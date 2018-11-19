@@ -250,7 +250,7 @@ dictionary WebGPUBufferBinding {
 typedef (WebGPUSampler or WebGPUTextureView or WebGPUBufferBinding) WebGPUBindingResource;
 
 dictionary WebGPUBinding {
-    uint32_t binding;
+    u32 binding;
     WebGPUBindingResource resource;
 };
 
@@ -523,7 +523,7 @@ dictionary WebGPURenderPassDepthStencilAttachmentDescriptor {
 
     WebGPULoadOp stencilLoadOp;
     WebGPUStoreOp stencilStoreOp;
-    uint32_t clearStencil;
+    u32 clearStencil;
 };
 
 dictionary WebGPURenderPassDescriptor {
