@@ -336,9 +336,11 @@ dictionary WebGPUStencilStateFaceDescriptor {
 };
 
 dictionary WebGPUDepthStencilStateDescriptor {
+    bool depthTestEnabled;
     bool depthWriteEnabled;
     WebGPUCompareFunction depthCompare;
 
+    bool stencilTestEnabled;
     WebGPUStencilStateFaceDescriptor front;
     WebGPUStencilStateFaceDescriptor back;
 
