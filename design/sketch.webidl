@@ -395,8 +395,11 @@ interface WebGPUInputState {
 };
 
 // ShaderModule
+
+typedef (ArrayBuffer or DOMString) ArrayBufferOrDOMString;
+
 dictionary WebGPUShaderModuleDescriptor {
-    ArrayBuffer code;
+    required ArrayBufferOrDOMString code;
 };
 
 interface WebGPUShaderModule {
