@@ -182,9 +182,9 @@ enum WebGPUBorderColor {
 };
 
 dictionary WebGPUSamplerDescriptor {
-    WebGPUddressMode rAddressMode = "clampToEdge";
-    WebGPUddressMode sAddressMode = "clampToEdge";
-    WebGPUddressMode tAddressMode = "clampToEdge";
+    WebGPUAddressMode rAddressMode = "clampToEdge";
+    WebGPUAddressMode sAddressMode = "clampToEdge";
+    WebGPUAddressMode tAddressMode = "clampToEdge";
     WebGPUFilterModeEnum magFilter = "nearest";
     WebGPUFilterModeEnum minFilter = "nearest";
     WebGPUFilterModeEnum mipmapFilter = "nearest";
@@ -465,6 +465,7 @@ dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
 
 interface WebGPURenderPipeline {
 };
+
 // ****************************************************************************
 // COMMAND RECORDING (Command buffer and all relevant structures)
 // ****************************************************************************
