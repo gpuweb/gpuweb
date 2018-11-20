@@ -643,6 +643,12 @@ interface WebGPUDevice {
     WebGPUTexture createTexture(WebGPUTextureDescriptor descriptor);
     WebGPUSampler createSampler(WebGPUSamplerDescriptor descriptor);
 
+    // Returns a Promise that:
+    // - when fulfilled, provides the WebGPUShaderModule.
+    // - when rejected, provides a DOMString representing an implementation-specific
+    //   error message describing the reason the shader module creation failed.
+    Promise<WebGPUShaderModule> createShaderModule(WebGPUShaderModuleDescriptor descriptor);
+
     WebGPUBindGroupLayout createBindGroupLayout(WebGPUBindGroupLayoutDescriptor descriptor);
     WebGPUPipelineLayout createPipelineLayout(WebGPUPipelineLayoutDescriptor descriptor);
     WebGPUBindGroup createBindGroup(WebGPUBindGroupDescriptor descriptor);
@@ -650,7 +656,6 @@ interface WebGPUDevice {
     WebGPUBlendState createBlendState(WebGPUBlendStateDescriptor descriptor);
     WebGPUDepthStencilState createDepthStencilState(WebGPUDepthStencilStateDescriptor descriptor);
     WebGPUInputState createInputState(WebGPUInputStateDescriptor descriptor);
-    WebGPUShaderModule createShaderModule(WebGPUShaderModuleDescriptor descriptor);
     WebGPUComputePipeline createComputePipeline(WebGPUComputePipelineDescriptor descriptor);
     WebGPURenderPipeline createRenderPipeline(WebGPURenderPipelineDescriptor descriptor);
 
