@@ -59,7 +59,7 @@ partial interface WebGPUDevice {
  - `"device-lost"`: the `WebGPUDevice` cannot be used anymore.
    This may happen if the device is destroyed by the application, reclaimed by the browser, or something goes terribly wrong.
    (An application may request a new device, or choose to fallback to other content.)
- - `"out-of-memory": an allocation failed because too much memory was used by the application (CPU or GPU).
+ - `"out-of-memory"`: an allocation failed because too much memory was used by the application (CPU or GPU).
    This includes recoverable out of memory errors that aren't opt-ed in to be handled by the application when the resource was created.
 
 For creation errors, the `object` attribute holds the object handle that was created.
