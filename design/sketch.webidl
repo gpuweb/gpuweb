@@ -703,6 +703,12 @@ Window includes WebGPUProvider;
 // DEBUGGING HELPERS
 // ****************************************************************************
 
+partial WebGPUProgrammablePassEncoder {
+    void pushDebugGroup(DOMString groupName);
+    void popDebugGroup(DOMString groupName);
+    void insertDebugMarker(DOMString markerName);
+};
+
 interface mixin WebGPUDebugLabel {
     attribute DOMString label;
 };
