@@ -671,7 +671,11 @@ interface WebGPUAdapter {
     WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
 };
 
-enum WebGPUPowerPreference { "default", "low-power", "high-performance" };
+enum WebGPUPowerPreference {
+    "default",
+    "low-power",
+    "high-performance"
+};
 
 dictionary WebGPUAdapterDescriptor {
     WebGPUPowerPreference powerPreference;
@@ -685,4 +689,58 @@ interface WebGPU {
 interface mixin WebGPUProvider {
     [Replaceable, SameObject] readonly attribute WebGPU gpu;
 };
+
 Window includes WebGPUProvider;
+
+// ****************************************************************************
+// DEBUGGING HELPERS
+// ****************************************************************************
+
+partial WebGPUProgrammablePassEncoder {
+    void pushDebugGroup(DOMString groupLabel);
+    void popDebugGroup(DOMString groupLabel);
+    void insertDebugMarker(DOMString markerLabel);
+};
+
+interface mixin WebGPUDebugLabel {
+    attribute DOMString label;
+};
+
+WebGPUBlendState includes WebGPUDebugLabel;
+WebGPUCommandBuffer includes WebGPUDebugLabel;
+WebGPUComputePipeline includes WebGPUDebugLabel;
+WebGPUDepthStencilState includes WebGPUDebugLabel;
+WebGPUFence includes WebGPUDebugLabel;
+WebGPUInputState includes WebGPUDebugLabel;
+WebGPUProgrammablePassEncoder includes WebGPUDebugLabel;
+WebGPUQueue includes WebGPUDebugLabel;
+WebGPURenderPipeline includes WebGPUDebugLabel;
+WebGPUShaderModule includes WebGPUDebugLabel;
+
+partial dictionary WebGPUBlendStateDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUCommandBufferDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUDepthStencilStateDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUFenceDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUInputStateDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUPipelineDescriptorBase {
+    DOMString label;
+};
+
+partial dictionary WebGPUShaderModuleDescriptor {
+    DOMString label;
+};
