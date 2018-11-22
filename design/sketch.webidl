@@ -396,6 +396,9 @@ interface WebGPUInputState {
 
 // ShaderModule
 
+// Note: While the choice of shader language is undecided,
+// WebGPUShaderModuleDescriptor will temporarily accept both
+// text and binary input.
 typedef (ArrayBuffer or DOMString) ArrayBufferOrDOMString;
 
 dictionary WebGPUShaderModuleDescriptor {
