@@ -704,9 +704,9 @@ Window includes WebGPUProvider;
 // ****************************************************************************
 
 partial WebGPUProgrammablePassEncoder {
-    void pushDebugGroup(DOMString groupName);
-    void popDebugGroup(DOMString groupName);
-    void insertDebugMarker(DOMString markerName);
+    void pushDebugGroup(DOMString groupLabel);
+    void popDebugGroup(DOMString groupLabel);
+    void insertDebugMarker(DOMString markerLabel);
 };
 
 interface mixin WebGPUDebugLabel {
