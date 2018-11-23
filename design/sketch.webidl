@@ -687,6 +687,7 @@ dictionary WebGPUAdapterDescriptor {
     WebGPUPowerPreference powerPreference;
 };
 
+[Exposed=Window]
 namespace gpu {
     Promise<WebGPUAdapter> requestAdapter(WebGPUAdapterDescriptor desc);
 };
