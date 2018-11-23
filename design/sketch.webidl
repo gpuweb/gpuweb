@@ -667,18 +667,17 @@ interface WebGPUAdapter {
 };
 
 enum WebGPUPowerPreference {
-    "default",
     "low-power",
     "high-performance"
 };
 
-dictionary WebGPUAdapterDescriptor {
+dictionary WebGPURequestAdapterOptions {
     WebGPUPowerPreference powerPreference;
 };
 
 [Exposed=Window]
 namespace gpu {
-    Promise<WebGPUAdapter> requestAdapter(WebGPUAdapterDescriptor desc);
+    Promise<WebGPUAdapter> requestAdapter(optional WebGPURequestAdapterOptions options);
 };
 
 // ****************************************************************************
