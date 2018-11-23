@@ -182,9 +182,9 @@ enum WebGPUBorderColor {
 };
 
 dictionary WebGPUSamplerDescriptor {
-    WebGPUddressMode rAddressMode = "clampToEdge";
-    WebGPUddressMode sAddressMode = "clampToEdge";
-    WebGPUddressMode tAddressMode = "clampToEdge";
+    WebGPUAddressMode rAddressMode = "clampToEdge";
+    WebGPUAddressMode sAddressMode = "clampToEdge";
+    WebGPUAddressMode tAddressMode = "clampToEdge";
     WebGPUFilterModeEnum magFilter = "nearest";
     WebGPUFilterModeEnum minFilter = "nearest";
     WebGPUFilterModeEnum mipmapFilter = "nearest";
@@ -250,7 +250,7 @@ dictionary WebGPUBufferBinding {
 typedef (WebGPUSampler or WebGPUTextureView or WebGPUBufferBinding) WebGPUBindingResource;
 
 dictionary WebGPUBinding {
-    uint32_t binding;
+    u32 binding;
     WebGPUBindingResource resource;
 };
 
@@ -395,8 +395,14 @@ interface WebGPUInputState {
 };
 
 // ShaderModule
+
+// Note: While the choice of shader language is undecided,
+// WebGPUShaderModuleDescriptor will temporarily accept both
+// text and binary input.
+typedef (ArrayBuffer or DOMString) ArrayBufferOrDOMString;
+
 dictionary WebGPUShaderModuleDescriptor {
-    ArrayBuffer code;
+    required ArrayBufferOrDOMString code;
 };
 
 interface WebGPUShaderModule {
@@ -418,28 +424,19 @@ dictionary WebGPUAttachmentsState {
     WebGPUAttachment? depthStencilAttachment;
 };
 
-// Common stuff for ComputePipeline and RenderPipeline
-typedef u32 WebGPUShaderStageEnum;
-interface WebGPUShaderStage {
-    const u32 VERTEX = 0;
-    const u32 FRAGMENT = 1;
-    const u32 COMPUTE = 2;
-};
-
 dictionary WebGPUPipelineStageDescriptor {
     WebGPUShaderModule module;
-    WebGPUShaderStageEnum stage;
     DOMString entryPoint;
     // TODO other stuff like specialization constants?
 };
 
 dictionary WebGPUPipelineDescriptorBase {
     WebGPUPipelineLayout layout;
-    sequence<WebGPUPipelineStageDescriptor> stages;
 };
 
 // WebGPUComputePipeline
 dictionary WebGPUComputePipelineDescriptor : WebGPUPipelineDescriptorBase {
+    WebGPUPipelineStageDescriptor computeStage;
 };
 
 interface WebGPUComputePipeline {
@@ -455,6 +452,8 @@ enum WebGPUPrimitiveTopology {
 };
 
 dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
+    WebGPUPipelineStageDescriptor vertexStage;
+    WebGPUPipelineStageDescriptor fragmentStage;
     WebGPUPrimitiveTopologyEnum primitiveTopology;
     sequence<WebGPUBlendState> blendStates;
     WebGPUDepthStencilState depthStencilState;
@@ -465,6 +464,7 @@ dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
 
 interface WebGPURenderPipeline {
 };
+
 // ****************************************************************************
 // COMMAND RECORDING (Command buffer and all relevant structures)
 // ****************************************************************************
@@ -480,6 +480,7 @@ interface WebGPUProgrammablePassEncoder {
 
 interface WebGPURenderPassEncoder : WebGPUProgrammablePassEncoder {
     void setBlendColor(float r, float g, float b, float a);
+    void setStencilReference(u32 reference);
     void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
     void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
 
@@ -522,7 +523,7 @@ dictionary WebGPURenderPassDepthStencilAttachmentDescriptor {
 
     WebGPULoadOp stencilLoadOp;
     WebGPUStoreOp stencilStoreOp;
-    uint32_t clearStencil;
+    u32 clearStencil;
 };
 
 dictionary WebGPURenderPassDescriptor {
@@ -676,7 +677,11 @@ interface WebGPUAdapter {
     WebGPUDevice createDevice(WebGPUDeviceDescriptor descriptor);
 };
 
-enum WebGPUPowerPreference { "default", "low-power", "high-performance" };
+enum WebGPUPowerPreference {
+    "default",
+    "low-power",
+    "high-performance"
+};
 
 dictionary WebGPUAdapterDescriptor {
     WebGPUPowerPreference powerPreference;
@@ -684,4 +689,57 @@ dictionary WebGPUAdapterDescriptor {
 
 namespace gpu {
     Promise<WebGPUAdapter> requestAdapter(WebGPUAdapterDescriptor desc);
+};
+
+// ****************************************************************************
+// DEBUGGING HELPERS
+// ****************************************************************************
+
+partial WebGPUProgrammablePassEncoder {
+    void pushDebugGroup(DOMString groupLabel);
+    void popDebugGroup(DOMString groupLabel);
+    void insertDebugMarker(DOMString markerLabel);
+};
+
+interface mixin WebGPUDebugLabel {
+    attribute DOMString label;
+};
+
+WebGPUBlendState includes WebGPUDebugLabel;
+WebGPUCommandBuffer includes WebGPUDebugLabel;
+WebGPUComputePipeline includes WebGPUDebugLabel;
+WebGPUDepthStencilState includes WebGPUDebugLabel;
+WebGPUFence includes WebGPUDebugLabel;
+WebGPUInputState includes WebGPUDebugLabel;
+WebGPUProgrammablePassEncoder includes WebGPUDebugLabel;
+WebGPUQueue includes WebGPUDebugLabel;
+WebGPURenderPipeline includes WebGPUDebugLabel;
+WebGPUShaderModule includes WebGPUDebugLabel;
+
+partial dictionary WebGPUBlendStateDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUCommandBufferDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUDepthStencilStateDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUFenceDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUInputStateDescriptor {
+    DOMString label;
+};
+
+partial dictionary WebGPUPipelineDescriptorBase {
+    DOMString label;
+};
+
+partial dictionary WebGPUShaderModuleDescriptor {
+    DOMString label;
 };
