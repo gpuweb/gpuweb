@@ -109,6 +109,7 @@ dictionary WebGPUTextureDescriptor {
     WebGPUExtent3D size;
     u32 arraySize;
     u32 levelCount;
+    u32 sampleCount;
     WebGPUTextureDimensionEnum dimension;
     WebGPUTextureFormatEnum format;
     WebGPUTextureUsageFlags usage;
@@ -403,8 +404,6 @@ interface WebGPUShaderModule {
 dictionary WebGPUAttachmentDescriptor {
     // Attachment data format
     WebGPUTextureFormatEnum format;
-    // Number of MSAA samples
-    u32 samples;
 };
 
 // Description of the framebuffer attachments
@@ -451,6 +450,8 @@ dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
     WebGPUDepthStencilStateDescriptor depthStencilState;
     WebGPUInputStateDescriptor inputState;
     WebGPUAttachmentsStateDescriptor attachmentsState;
+    // Number of MSAA samples
+    u32 sampleCount;
     // TODO other properties
 };
 
@@ -508,6 +509,7 @@ enum WebGPUStoreOp {
 
 dictionary WebGPURenderPassColorAttachmentDescriptor {
     WebGPUTextureView attachment;
+    WebGPUTextureView? resolveTarget;
 
     WebGPULoadOp loadOp;
     WebGPUStoreOp storeOp;
