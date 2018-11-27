@@ -314,9 +314,6 @@ dictionary WebGPUBlendStateDescriptor {
     WebGPUColorWriteFlags writeMask;
 };
 
-interface WebGPUBlendState {
-};
-
 enum WebGPUStencilOperation {
     "keep",
     "zero",
@@ -344,9 +341,6 @@ dictionary WebGPUDepthStencilStateDescriptor {
 
     u32 stencilReadMask;
     u32 stencilWriteMask;
-};
-
-interface WebGPUDepthStencilState {
 };
 
 // InputState
@@ -391,9 +385,6 @@ dictionary WebGPUInputStateDescriptor {
     sequence<WebGPUVertexInputDescriptor> inputs;
 };
 
-interface WebGPUInputState {
-};
-
 // ShaderModule
 
 // Note: While the choice of shader language is undecided,
@@ -409,7 +400,7 @@ interface WebGPUShaderModule {
 };
 
 // Description of a single attachment
-dictionary WebGPUAttachment {
+dictionary WebGPUAttachmentDescriptor {
     // Attachment data format
     WebGPUTextureFormatEnum format;
     // Number of MSAA samples
@@ -417,9 +408,9 @@ dictionary WebGPUAttachment {
 };
 
 // Description of the framebuffer attachments
-dictionary WebGPUAttachmentsState {
+dictionary WebGPUAttachmentsStateDescriptor {
     // Array of color attachments
-    sequence<WebGPUAttachment> colorAttachments;
+    sequence<WebGPUAttachmentDescriptor> colorAttachments;
     // Optional depth/stencil attachment
     WebGPUAttachment? depthStencilAttachment;
 };
@@ -454,11 +445,12 @@ enum WebGPUPrimitiveTopology {
 dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
     WebGPUPipelineStageDescriptor vertexStage;
     WebGPUPipelineStageDescriptor fragmentStage;
+
     WebGPUPrimitiveTopologyEnum primitiveTopology;
-    sequence<WebGPUBlendState> blendStates;
-    WebGPUDepthStencilState depthStencilState;
-    WebGPUInputState inputState;
-    WebGPUAttachmentsState attachmentsState;
+    sequence<WebGPUBlendStateDescriptor> blendStates;
+    WebGPUDepthStencilStateDescriptor depthStencilState;
+    WebGPUInputStateDescriptor inputState;
+    WebGPUAttachmentsStateDescriptor attachmentsState;
     // TODO other properties
 };
 
@@ -646,9 +638,6 @@ interface WebGPUDevice {
     WebGPUPipelineLayout createPipelineLayout(WebGPUPipelineLayoutDescriptor descriptor);
     WebGPUBindGroup createBindGroup(WebGPUBindGroupDescriptor descriptor);
 
-    WebGPUBlendState createBlendState(WebGPUBlendStateDescriptor descriptor);
-    WebGPUDepthStencilState createDepthStencilState(WebGPUDepthStencilStateDescriptor descriptor);
-    WebGPUInputState createInputState(WebGPUInputStateDescriptor descriptor);
     WebGPUShaderModule createShaderModule(WebGPUShaderModuleDescriptor descriptor);
     WebGPUComputePipeline createComputePipeline(WebGPUComputePipelineDescriptor descriptor);
     WebGPURenderPipeline createRenderPipeline(WebGPURenderPipelineDescriptor descriptor);
@@ -706,34 +695,19 @@ interface mixin WebGPUDebugLabel {
     attribute DOMString label;
 };
 
-WebGPUBlendState includes WebGPUDebugLabel;
 WebGPUCommandBuffer includes WebGPUDebugLabel;
 WebGPUComputePipeline includes WebGPUDebugLabel;
-WebGPUDepthStencilState includes WebGPUDebugLabel;
 WebGPUFence includes WebGPUDebugLabel;
-WebGPUInputState includes WebGPUDebugLabel;
 WebGPUProgrammablePassEncoder includes WebGPUDebugLabel;
 WebGPUQueue includes WebGPUDebugLabel;
 WebGPURenderPipeline includes WebGPUDebugLabel;
 WebGPUShaderModule includes WebGPUDebugLabel;
 
-partial dictionary WebGPUBlendStateDescriptor {
-    DOMString label;
-};
-
 partial dictionary WebGPUCommandBufferDescriptor {
     DOMString label;
 };
 
-partial dictionary WebGPUDepthStencilStateDescriptor {
-    DOMString label;
-};
-
 partial dictionary WebGPUFenceDescriptor {
-    DOMString label;
-};
-
-partial dictionary WebGPUInputStateDescriptor {
     DOMString label;
 };
 
