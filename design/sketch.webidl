@@ -481,6 +481,14 @@ interface WebGPUProgrammablePassEncoder {
 interface WebGPURenderPassEncoder : WebGPUProgrammablePassEncoder {
     void setBlendColor(float r, float g, float b, float a);
     void setStencilReference(u32 reference);
+
+    // The default viewport is (0.0, 0.0, w, h, 0.0, 1.0), where w and h are the dimensions of back buffer
+    void setViewport(float x, float y, float, width, float height, float minDepth, float maxDepth);
+
+    // The default scissor rectangle is (0, 0, w, h), where w and h are the dimensions of back buffer.
+    // Width and height must be greater than 0. Otherwise, an error will be generated.
+    void setScissorRect(u32 x, u32 y, u32 width, u32 height);
+
     void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
     void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
 
