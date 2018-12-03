@@ -483,7 +483,7 @@ interface WebGPURenderPassEncoder : WebGPUProgrammablePassEncoder {
     void setStencilReference(u32 reference);
 
     // The default viewport is (0.0, 0.0, w, h, 0.0, 1.0), where w and h are the dimensions of back buffer
-    void setViewport(float x, float y, float, width, float height, float minDepth, float maxDepth);
+    void setViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
 
     // The default scissor rectangle is (0, 0, w, h), where w and h are the dimensions of back buffer.
     // Width and height must be greater than 0. Otherwise, an error will be generated.
