@@ -412,7 +412,7 @@ dictionary WebGPUAttachmentsStateDescriptor {
     // Array of color attachments
     sequence<WebGPUAttachmentDescriptor> colorAttachments;
     // Optional depth/stencil attachment
-    WebGPUAttachment? depthStencilAttachment;
+    WebGPUAttachmentDescriptor? depthStencilAttachment;
 };
 
 dictionary WebGPUPipelineStageDescriptor {
