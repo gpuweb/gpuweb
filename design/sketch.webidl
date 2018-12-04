@@ -266,6 +266,27 @@ interface WebGPUBindGroup {
 // PIPELINE CREATION (blend state, DS state, ..., pipelines)
 // ****************************************************************************
 
+// RasterizationState
+enum WebGPUFrontFace {
+    "ccw",
+    "cw"
+};
+
+enum WebGPUCullMode {
+    "none",
+    "front",
+    "back"
+};
+
+dictionary WebGPURasterizationStateDescriptor {
+    WebGPUFrontFace frontFace;
+    WebGPUCullMode cullMode;
+
+    i32 depthBias;
+    float depthBiasSlopeScale;
+    float depthBiasClamp;
+};
+
 // BlendState
 enum WebGPUBlendFactor {
     "zero",
@@ -447,6 +468,7 @@ dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
     WebGPUPipelineStageDescriptor fragmentStage;
 
     WebGPUPrimitiveTopologyEnum primitiveTopology;
+    WebGPURasterizationStateDescriptor rasterizationState;
     sequence<WebGPUBlendStateDescriptor> blendStates;
     WebGPUDepthStencilStateDescriptor depthStencilState;
     WebGPUInputStateDescriptor inputState;
