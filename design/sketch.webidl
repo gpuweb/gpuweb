@@ -28,7 +28,7 @@ dictionary WebGPUExtent3D {
 enum WebGPULogEntryType {
     "device-lost",
     "validation-error",
-    "recoverable-out-of-memory",
+    "recoverable-out-of-memory"
 };
 
 interface WebGPULogEntry {
@@ -40,7 +40,7 @@ interface WebGPULogEntry {
 enum WebGPUObjectStatus {
     "valid",
     "out-of-memory",
-    "invalid",
+    "invalid"
 };
 
 typedef Promise<WebGPUObjectStatus> WebGPUObjectStatusQuery;
@@ -83,14 +83,14 @@ interface WebGPUBuffer {
 enum WebGPUTextureDimension {
     "1d",
     "2d",
-    "3d",
+    "3d"
 };
 
 enum WebGPUTextureFormat {
     "R8G8B8A8Unorm",
     "R8G8B8A8Uint",
     "B8G8R8A8Unorm",
-    "D32FloatS8Uint",
+    "D32FloatS8Uint"
     // TODO other formats
 };
 
@@ -190,7 +190,7 @@ dictionary WebGPUSamplerDescriptor {
     WebGPUFilterModeEnum mipmapFilter = "nearest";
     float lodMinClamp = 0;
     float lodMaxClamp = Number.MAX_VALUE;
-    unsigned long maxAnisotropy = 1;
+    u32 maxAnisotropy = 1;
     WebGPUCompareFunction compareFunction = "never";
     WebGPUBorderColor borderColor = "transparentBlack";
 };
@@ -215,7 +215,7 @@ enum WebGPUBindingType {
     "uniformBuffer",
     "sampler",
     "sampledTexture",
-    "storageBuffer",
+    "storageBuffer"
     // TODO other binding types
 };
 
@@ -280,7 +280,7 @@ enum WebGPUBlendFactor {
     "oneMinusDstAlpha",
     "srcAlphaSaturated",
     "blendColor",
-    "oneMinusBlendColor",
+    "oneMinusBlendColor"
 };
 
 enum WebGPUBlendOperation {
@@ -288,7 +288,7 @@ enum WebGPUBlendOperation {
     "subtract",
     "reverseSubtract",
     "min",
-    "max",
+    "max"
 };
 
 typedef u32 WebGPUColorWriteFlags;
@@ -322,7 +322,7 @@ enum WebGPUStencilOperation {
     "incrementClamp",
     "decrementClamp",
     "incrementWrap",
-    "decrementWrap",
+    "decrementWrap"
 };
 
 dictionary WebGPUStencilStateFaceDescriptor {
@@ -439,7 +439,7 @@ enum WebGPUPrimitiveTopology {
     "lineList",
     "lineStrip",
     "trangleList",
-    "triangleStrip",
+    "triangleStrip"
 };
 
 dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
@@ -499,11 +499,11 @@ interface WebGPUComputePassEncoder : WebGPUProgrammablePassEncoder {
 
 enum WebGPULoadOp {
     "clear",
-    "load",
+    "load"
 };
 
 enum WebGPUStoreOp {
-    "store",
+    "store"
 };
 
 dictionary WebGPURenderPassColorAttachmentDescriptor {
