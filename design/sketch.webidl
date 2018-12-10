@@ -545,7 +545,6 @@ dictionary WebGPUTextureCopyView {
     u32 level;
     u32 slice;
     WebGPUOrigin3D origin;
-    WebGPUTextureAspectFlags aspect;
 };
 
 interface WebGPUCommandBuffer {
