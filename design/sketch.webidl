@@ -250,14 +250,14 @@ dictionary WebGPUBufferBinding {
 
 typedef (WebGPUSampler or WebGPUTextureView or WebGPUBufferBinding) WebGPUBindingResource;
 
-dictionary WebGPUBinding {
+dictionary WebGPUBindGroupBinding {
     u32 binding;
     WebGPUBindingResource resource;
 };
 
 dictionary WebGPUBindGroupDescriptor {
     WebGPUBindGroupLayout layout;
-    sequence<WebGPUBinding> bindings;
+    sequence<WebGPUBindGroupBinding> bindings;
 };
 
 interface WebGPUBindGroup {
