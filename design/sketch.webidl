@@ -214,9 +214,11 @@ interface WebGPUShaderStageBit {
 
 enum WebGPUBindingType {
     "uniformBuffer",
+    "dynamicUniformBuffer",
     "sampler",
     "sampledTexture",
-    "storageBuffer"
+    "storageBuffer",
+    "dynamicStorageBuffer"
     // TODO other binding types
 };
 
@@ -487,7 +489,7 @@ interface WebGPUProgrammablePassEncoder {
     WebGPUCommandBuffer endPass();
     // Allowed in both compute and render passes
     //TODO: setPushConstants() ?
-    void setBindGroup(u32 index, WebGPUBindGroup bindGroup);
+    void setBindGroup(u32 index, WebGPUBindGroup bindGroup, optional sequence<u32> dynamicOffsets);
     void setPipeline((WebGPUComputePipeline or WebGPURenderPipeline) pipeline);
 };
 
