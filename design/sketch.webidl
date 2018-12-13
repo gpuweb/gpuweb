@@ -388,14 +388,13 @@ interface WebGPUInputStepMode {
 };
 
 dictionary WebGPUVertexAttributeDescriptor {
-    u32 shaderLocation;
-    u32 inputSlot;
-    u32 offset;
+    u32 shaderLocation; // How the attribute is identified inside the shader source code
+    u32 inputSlot; // An index into the "inputs" sequence in WebGPUInputStateDescriptor
+    u32 offset; // Within the WebGPUVertexInputDescriptor's stride
     WebGPUVertexFormatEnum format;
 };
 
 dictionary WebGPUVertexInputDescriptor {
-    u32 inputSlot;
     u32 stride;
     WebGPUInputStepModeEnum stepMode;
 };
@@ -404,7 +403,7 @@ dictionary WebGPUInputStateDescriptor {
     WebGPUIndexFormatEnum indexFormat;
 
     sequence<WebGPUVertexAttributeDescriptor> attributes;
-    sequence<WebGPUVertexInputDescriptor> inputs;
+    sequence<WebGPUVertexInputDescriptor?> inputs;
 };
 
 // ShaderModule
@@ -505,7 +504,9 @@ interface WebGPURenderPassEncoder : WebGPUProgrammablePassEncoder {
     void setScissorRect(u32 x, u32 y, u32 width, u32 height);
 
     void setIndexBuffer(WebGPUBuffer buffer, u32 offset);
-    void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer> buffers, sequence<u32> offsets);
+    // "startSlot" refers to an index into the "inputs" sequence in the currently bound pipeline's WebGPUInputStateDescriptor.
+    // "buffers" and "offsets" are parallel.
+    void setVertexBuffers(u32 startSlot, sequence<WebGPUBuffer?> buffers, sequence<u32?> offsets);
 
     void draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance);
     void drawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, i32 baseVertex, u32 firstInstance);
