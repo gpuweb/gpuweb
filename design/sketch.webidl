@@ -366,10 +366,10 @@ dictionary WebGPUDepthStencilStateDescriptor {
 };
 
 // InputState
-typedef u32 WebGPUIndexFormatEnum;
-interface WebGPUIndexFormat {
-    const u32 UINT16 = 0;
-    const u32 UINT32 = 1;
+
+enum WebGPUIndexFormat {
+    "uint16",
+    "uint32"
 };
 
 typedef u32 WebGPUVertexFormatEnum;
@@ -401,7 +401,7 @@ dictionary WebGPUVertexInputDescriptor {
 };
 
 dictionary WebGPUInputStateDescriptor {
-    WebGPUIndexFormatEnum indexFormat;
+    WebGPUIndexFormat indexFormat;
 
     sequence<WebGPUVertexAttributeDescriptor> attributes;
     sequence<WebGPUVertexInputDescriptor> inputs;
