@@ -372,12 +372,11 @@ enum WebGPUIndexFormat {
     "uint32"
 };
 
-typedef u32 WebGPUVertexFormatEnum;
-interface WebGPUVertexFormat {
-    const u32 FLOAT_R32_G32_B32_A32 = 0;
-    const u32 FLOAT_R32_G32_B32 = 1;
-    const u32 FLOAT_R32_G32 = 2;
-    const u32 FLOAT_R32 = 3;
+enum WebGPUVertexFormat {
+    "floatR32G32B32A32",
+    "floatR32G32B32",
+    "floatR32G32",
+    "floatR32"
     // TODO other vertex formats
 };
 
@@ -391,7 +390,7 @@ dictionary WebGPUVertexAttributeDescriptor {
     u32 shaderLocation;
     u32 inputSlot;
     u32 offset;
-    WebGPUVertexFormatEnum format;
+    WebGPUVertexFormat format;
 };
 
 dictionary WebGPUVertexInputDescriptor {
