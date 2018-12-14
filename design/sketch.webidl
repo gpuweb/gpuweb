@@ -380,10 +380,9 @@ enum WebGPUVertexFormat {
     // TODO other vertex formats
 };
 
-typedef u32 WebGPUInputStepModeEnum;
-interface WebGPUInputStepMode {
-    const u32 VERTEX = 0;
-    const u32 INSTANCE = 1;
+enum WebGPUInputStepMode {
+    "vertex",
+    "instance"
 };
 
 dictionary WebGPUVertexAttributeDescriptor {
@@ -396,7 +395,7 @@ dictionary WebGPUVertexAttributeDescriptor {
 dictionary WebGPUVertexInputDescriptor {
     u32 inputSlot;
     u32 stride;
-    WebGPUInputStepModeEnum stepMode;
+    WebGPUInputStepMode stepMode;
 };
 
 dictionary WebGPUInputStateDescriptor {
