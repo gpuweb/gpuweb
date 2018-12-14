@@ -366,42 +366,40 @@ dictionary WebGPUDepthStencilStateDescriptor {
 };
 
 // InputState
-typedef u32 WebGPUIndexFormatEnum;
-interface WebGPUIndexFormat {
-    const u32 UINT16 = 0;
-    const u32 UINT32 = 1;
+
+enum WebGPUIndexFormat {
+    "uint16",
+    "uint32"
 };
 
-typedef u32 WebGPUVertexFormatEnum;
-interface WebGPUVertexFormat {
-    const u32 FLOAT_R32_G32_B32_A32 = 0;
-    const u32 FLOAT_R32_G32_B32 = 1;
-    const u32 FLOAT_R32_G32 = 2;
-    const u32 FLOAT_R32 = 3;
+enum WebGPUVertexFormat {
+    "floatR32G32B32A32",
+    "floatR32G32B32",
+    "floatR32G32",
+    "floatR32"
     // TODO other vertex formats
 };
 
-typedef u32 WebGPUInputStepModeEnum;
-interface WebGPUInputStepMode {
-    const u32 VERTEX = 0;
-    const u32 INSTANCE = 1;
+enum WebGPUInputStepMode {
+    "vertex",
+    "instance"
 };
 
 dictionary WebGPUVertexAttributeDescriptor {
     u32 shaderLocation;
     u32 inputSlot;
     u32 offset;
-    WebGPUVertexFormatEnum format;
+    WebGPUVertexFormat format;
 };
 
 dictionary WebGPUVertexInputDescriptor {
     u32 inputSlot;
     u32 stride;
-    WebGPUInputStepModeEnum stepMode;
+    WebGPUInputStepMode stepMode;
 };
 
 dictionary WebGPUInputStateDescriptor {
-    WebGPUIndexFormatEnum indexFormat;
+    WebGPUIndexFormat indexFormat;
 
     sequence<WebGPUVertexAttributeDescriptor> attributes;
     sequence<WebGPUVertexInputDescriptor> inputs;
