@@ -45,7 +45,7 @@ enum WebGPUObjectStatus {
 
 typedef Promise<WebGPUObjectStatus> WebGPUObjectStatusQuery;
 
-typedef (WebGPUBuffer or WebGPUTexture) StatusableObject;
+typedef (WebGPUBuffer or WebGPUTexture) WebGPUStatusableObject;
 
 callback WebGPULogCallback = void (WebGPULogEntry error);
 
@@ -110,8 +110,8 @@ dictionary WebGPUTextureDescriptor {
     u32 arraySize;
     u32 levelCount;
     u32 sampleCount;
-    WebGPUTextureDimensionEnum dimension;
-    WebGPUTextureFormatEnum format;
+    WebGPUTextureDimension dimension;
+    WebGPUTextureFormat format;
     WebGPUTextureUsageFlags usage;
 };
 
@@ -186,11 +186,11 @@ dictionary WebGPUSamplerDescriptor {
     WebGPUAddressMode rAddressMode = "clampToEdge";
     WebGPUAddressMode sAddressMode = "clampToEdge";
     WebGPUAddressMode tAddressMode = "clampToEdge";
-    WebGPUFilterModeEnum magFilter = "nearest";
-    WebGPUFilterModeEnum minFilter = "nearest";
-    WebGPUFilterModeEnum mipmapFilter = "nearest";
+    WebGPUFilterMode magFilter = "nearest";
+    WebGPUFilterMode minFilter = "nearest";
+    WebGPUFilterMode mipmapFilter = "nearest";
     float lodMinClamp = 0;
-    float lodMaxClamp = Number.MAX_VALUE;
+    float lodMaxClamp = 0xffffffff; // TODO: What should this be? Was Number.MAX_VALUE.
     u32 maxAnisotropy = 1;
     WebGPUCompareFunction compareFunction = "never";
     WebGPUBorderColor borderColor = "transparentBlack";
@@ -326,13 +326,13 @@ interface WebGPUColorWriteBits {
 };
 
 dictionary WebGPUBlendDescriptor {
-    WebGPUBlendFactorEnum srcFactor;
-    WebGPUBlendFactorEnum dstFactor;
-    WebGPUBlendOperationEnum operation;
+    WebGPUBlendFactor srcFactor;
+    WebGPUBlendFactor dstFactor;
+    WebGPUBlendOperation operation;
 };
 
 dictionary WebGPUBlendStateDescriptor {
-    bool blendEnabled;
+    boolean blendEnabled;
     WebGPUBlendDescriptor alpha;
     WebGPUBlendDescriptor color;
     WebGPUColorWriteFlags writeMask;
@@ -357,7 +357,7 @@ dictionary WebGPUStencilStateFaceDescriptor {
 };
 
 dictionary WebGPUDepthStencilStateDescriptor {
-    bool depthWriteEnabled;
+    boolean depthWriteEnabled;
     WebGPUCompareFunction depthCompare;
 
     WebGPUStencilStateFaceDescriptor front;
@@ -424,7 +424,7 @@ interface WebGPUShaderModule {
 // Description of a single attachment
 dictionary WebGPUAttachmentDescriptor {
     // Attachment data format
-    WebGPUTextureFormatEnum format;
+    WebGPUTextureFormat format;
 };
 
 // Description of the framebuffer attachments
@@ -466,7 +466,7 @@ dictionary WebGPURenderPipelineDescriptor : WebGPUPipelineDescriptorBase {
     WebGPUPipelineStageDescriptor vertexStage;
     WebGPUPipelineStageDescriptor fragmentStage;
 
-    WebGPUPrimitiveTopologyEnum primitiveTopology;
+    WebGPUPrimitiveTopology primitiveTopology;
     WebGPURasterizationStateDescriptor rasterizationState;
     sequence<WebGPUBlendStateDescriptor> blendStates;
     WebGPUDepthStencilStateDescriptor depthStencilState;
@@ -633,7 +633,7 @@ interface WebGPUQueue {
 dictionary WebGPUSwapChainDescriptor {
     WebGPUDevice? device;
     WebGPUTextureUsageFlags usage;
-    WebGPUTextureFormatEnum format;
+    WebGPUTextureFormat format;
     u32 width;
     u32 height;
 };
@@ -649,7 +649,7 @@ interface WebGPURenderingContext : WebGPUSwapChain {
 
 // WebGPU "namespace" used for device creation
 dictionary WebGPUExtensions {
-    bool anisotropicFiltering;
+    boolean anisotropicFiltering;
 };
 
 dictionary WebGPULimits {
@@ -680,7 +680,7 @@ interface WebGPUDevice {
     WebGPUQueue getQueue();
 
     attribute WebGPULogCallback onLog;
-    WebGPUObjectStatusQuery getObjectStatus(StatusableObject statusableObject);
+    WebGPUObjectStatusQuery getObjectStatus(WebGPUStatusableObject statusableObject);
 };
 
 dictionary WebGPUDeviceDescriptor {
@@ -716,7 +716,7 @@ namespace gpu {
 // DEBUGGING HELPERS
 // ****************************************************************************
 
-partial WebGPUProgrammablePassEncoder {
+partial interface WebGPUProgrammablePassEncoder {
     void pushDebugGroup(DOMString groupLabel);
     void popDebugGroup(DOMString groupLabel);
     void insertDebugMarker(DOMString markerLabel);
