@@ -65,6 +65,9 @@ interface WebGPUBufferUsage {
     const u32 VERTEX = 32;
     const u32 UNIFORM = 64;
     const u32 STORAGE = 128;
+    const u32 TEXTURE_BUFFER = 256;
+    const u32 DRAW_INDIRECT = 512;
+    const u32 DRAW_INDIRECT_PARAMETER = 1024;
 };
 
 dictionary WebGPUBufferDescriptor {
