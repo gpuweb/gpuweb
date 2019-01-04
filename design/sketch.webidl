@@ -458,7 +458,7 @@ enum WebGPUPrimitiveTopology {
     "pointList",
     "lineList",
     "lineStrip",
-    "trangleList",
+    "triangleList",
     "triangleStrip"
 };
 
