@@ -183,9 +183,9 @@ enum WebGPUBorderColor {
 };
 
 dictionary WebGPUSamplerDescriptor {
-    WebGPUAddressMode rAddressMode = "clampToEdge";
-    WebGPUAddressMode sAddressMode = "clampToEdge";
-    WebGPUAddressMode tAddressMode = "clampToEdge";
+    WebGPUAddressMode addressModeU = "clampToEdge";
+    WebGPUAddressMode addressModeV = "clampToEdge";
+    WebGPUAddressMode addressModeW = "clampToEdge";
     WebGPUFilterMode magFilter = "nearest";
     WebGPUFilterMode minFilter = "nearest";
     WebGPUFilterMode mipmapFilter = "nearest";
