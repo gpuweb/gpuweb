@@ -718,7 +718,7 @@ namespace gpu {
 
 partial interface WebGPUProgrammablePassEncoder {
     void pushDebugGroup(DOMString groupLabel);
-    void popDebugGroup(DOMString groupLabel);
+    void popDebugGroup();
     void insertDebugMarker(DOMString markerLabel);
 };
 
