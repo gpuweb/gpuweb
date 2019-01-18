@@ -393,7 +393,7 @@ dictionary GPUVertexAttributeDescriptor {
     GPUVertexFormat format;
 };
 
-dictionary GPUVertexInputDescriptor {
+dictionary GPUVertexBufferDescriptor {
     u32 inputSlot;
     u32 stride;
     GPUInputStepMode stepMode;
@@ -403,7 +403,7 @@ dictionary GPUInputStateDescriptor {
     GPUIndexFormat indexFormat;
 
     sequence<GPUVertexAttributeDescriptor> attributes;
-    sequence<GPUVertexInputDescriptor> inputs;
+    sequence<GPUVertexBufferDescriptor> inputs;
 };
 
 // ShaderModule
