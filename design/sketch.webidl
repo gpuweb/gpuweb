@@ -493,7 +493,7 @@ interface GPUProgrammablePassEncoder {
 };
 
 interface GPURenderPassEncoder : GPUProgrammablePassEncoder {
-    void setBlendColor(float r, float g, float b, float a);
+    void setBlendColor(GPUColor color);
     void setStencilReference(u32 reference);
 
     // The default viewport is (0.0, 0.0, w, h, 0.0, 1.0), where w and h are the dimensions of back buffer
