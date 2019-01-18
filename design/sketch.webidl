@@ -640,7 +640,7 @@ dictionary WebGPUSwapChainDescriptor {
 
 interface WebGPUSwapChain {
     void configure(WebGPUSwapChainDescriptor descriptor);
-    WebGPUTexture getNextTexture();
+    WebGPUTexture acquireNextTexture();
     void present();
 };
 
