@@ -594,9 +594,6 @@ interface GPUCommandBuffer {
         GPUTextureCopyView source,
         GPUTextureCopyView destination,
         GPUExtent3D copySize);
-
-    // TODO figure which other commands are needed
-    void blit();
 };
 
 dictionary GPUCommandBufferDescriptor {
