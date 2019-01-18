@@ -106,8 +106,8 @@ interface GPUTextureUsage {
 
 dictionary GPUTextureDescriptor {
     GPUExtent3D size;
-    u32 arraySize;
-    u32 levelCount;
+    u32 arrayLayerCount;
+    u32 mipLevelCount;
     u32 sampleCount;
     GPUTextureDimension dimension;
     GPUTextureFormat format;
@@ -136,9 +136,9 @@ dictionary GPUTextureViewDescriptor {
     GPUTextureViewDimension dimension;
     GPUTextureAspectFlags aspect;
     u32 baseMipLevel;
-    u32 levelCount;
+    u32 mipLevelCount;
     u32 baseArrayLayer;
-    u32 layerCount;
+    u32 arrayLayerCount;
 };
 
 interface GPUTextureView {
@@ -563,8 +563,8 @@ dictionary GPUBufferCopyView {
 
 dictionary GPUTextureCopyView {
     GPUTexture texture;
-    u32 level;
-    u32 slice;
+    u32 mipLevel;
+    u32 arrayLayer;
     GPUOrigin3D origin;
 };
 
