@@ -630,11 +630,8 @@ interface GPUQueue {
 
 // SwapChain / RenderingContext
 dictionary GPUSwapChainDescriptor {
-    GPUDevice? device;
     GPUTextureUsageFlags usage;
     GPUTextureFormat format;
-    u32 width;
-    u32 height;
 };
 
 interface GPUSwapChain {
