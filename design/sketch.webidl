@@ -485,7 +485,8 @@ interface GPURenderPipeline {
 
 /// Common interface for render and compute pass encoders.
 interface GPUProgrammablePassEncoder {
-    GPUCommandBuffer endPass();
+    void endPass();
+
     // Allowed in both compute and render passes
     //TODO: setPushConstants() ?
     void setBindGroup(u32 index, GPUBindGroup bindGroup, optional sequence<u32> dynamicOffsets);
