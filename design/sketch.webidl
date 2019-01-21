@@ -87,10 +87,10 @@ enum GPUTextureDimension {
 };
 
 enum GPUTextureFormat {
-    "R8G8B8A8Unorm",
-    "R8G8B8A8Uint",
-    "B8G8R8A8Unorm",
-    "D32FloatS8Uint"
+    "r8g8b8a8-unorm",
+    "r8g8b8a8-uint",
+    "b8g8r8a8-unorm",
+    "d32-float-s8-uint"
     // TODO other formats
 };
 
@@ -118,9 +118,9 @@ dictionary GPUTextureDescriptor {
 enum GPUTextureViewDimension {
     "1d",
     "2d",
-    "2darray",
+    "2d-array",
     "cube",
-    "cubearray",
+    "cube-array",
     "3d"
 };
 
@@ -153,10 +153,10 @@ interface GPUTexture {
 
 // Samplers
 enum GPUAddressMode {
-    "clampToEdge",
+    "clamp-to-edge",
     "repeat",
-    "mirrorRepeat",
-    "clampToBorderColor"
+    "mirror-repeat",
+    "clamp-to-border-color"
 };
 
 enum GPUFilterMode {
@@ -168,17 +168,17 @@ enum GPUCompareFunction {
     "never",
     "less",
     "equal",
-    "lessEqual",
+    "less-equal",
     "greater",
-    "notEqual",
-    "greaterEqual",
+    "not-equal",
+    "greater-equal",
     "always"
 };
 
 enum GPUBorderColor {
-    "transparentBlack",
-    "opaqueBlack",
-    "opaqueWhite"
+    "transparent-black",
+    "opaque-black",
+    "opaque-white"
 };
 
 dictionary GPUSamplerDescriptor {
@@ -212,12 +212,12 @@ interface GPUShaderStageBit {
 };
 
 enum GPUBindingType {
-    "uniformBuffer",
-    "dynamicUniformBuffer",
+    "uniform-buffer",
+    "dynamic-uniform-buffer",
     "sampler",
-    "sampledTexture",
-    "storageBuffer",
-    "dynamicStorageBuffer"
+    "sampled-texture",
+    "storage-buffer",
+    "dynamic-storage-buffer"
     // TODO other binding types
 };
 
@@ -293,23 +293,23 @@ dictionary GPURasterizationStateDescriptor {
 enum GPUBlendFactor {
     "zero",
     "one",
-    "srcColor",
-    "oneMinusSrcColor",
-    "srcAlpha",
-    "oneMinusSrcAlpha",
-    "dstColor",
-    "oneMinusDstColor",
-    "dstAlpha",
-    "oneMinusDstAlpha",
-    "srcAlphaSaturated",
-    "blendColor",
-    "oneMinusBlendColor"
+    "src-color",
+    "one-minus-src-color",
+    "src-alpha",
+    "one-minus-src-alpha",
+    "dst-color",
+    "one-minus-dst-color",
+    "dst-alpha",
+    "one-minus-dst-alpha",
+    "src-alpha-saturated",
+    "blend-color",
+    "one-minus-blend-color"
 };
 
 enum GPUBlendOperation {
     "add",
     "subtract",
-    "reverseSubtract",
+    "reverse-subtract",
     "min",
     "max"
 };
@@ -342,10 +342,10 @@ enum GPUStencilOperation {
     "zero",
     "replace",
     "invert",
-    "incrementClamp",
-    "decrementClamp",
-    "incrementWrap",
-    "decrementWrap"
+    "increment-clamp",
+    "decrement-clamp",
+    "increment-wrap",
+    "decrement-wrap"
 };
 
 dictionary GPUStencilStateFaceDescriptor {
@@ -374,10 +374,10 @@ enum GPUIndexFormat {
 };
 
 enum GPUVertexFormat {
-    "floatR32G32B32A32",
-    "floatR32G32B32",
-    "floatR32G32",
-    "floatR32"
+    "float-r32g32b32a32",
+    "float-r32g32b32",
+    "float-r32g32",
+    "float-r32"
     // TODO other vertex formats
 };
 
@@ -454,11 +454,11 @@ interface GPUComputePipeline {
 
 // GPURenderPipeline
 enum GPUPrimitiveTopology {
-    "pointList",
-    "lineList",
-    "lineStrip",
-    "triangleList",
-    "triangleStrip"
+    "point-list",
+    "line-list",
+    "line-strip",
+    "triangle-list",
+    "triangle-strip"
 };
 
 dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
