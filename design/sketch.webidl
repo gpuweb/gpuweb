@@ -102,7 +102,6 @@ interface WebGPUTextureUsage {
     const u32 SAMPLED = 4;
     const u32 STORAGE = 8;
     const u32 OUTPUT_ATTACHMENT = 16;
-    const u32 PRESENT = 32;
 };
 
 dictionary WebGPUTextureDescriptor {
