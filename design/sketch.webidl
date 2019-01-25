@@ -73,7 +73,10 @@ dictionary GPUBufferDescriptor {
 };
 
 interface GPUBuffer {
-    readonly attribute ArrayBuffer? mapping;
+    void setSubData(u32 offset, ArrayBuffer data);
+
+    Promise<ArrayBuffer> mapReadAsync();
+    Promise<ArrayBuffer> mapWriteAsync();
     void unmap();
 
     void destroy();
@@ -657,6 +660,8 @@ interface GPUDevice {
     readonly attribute GPUAdapter adapter;
 
     GPUBuffer createBuffer(GPUBufferDescriptor descriptor);
+    (GPUBuffer, ArrayBuffer) createBufferMapped(GPUBufferDescriptor descriptor);
+    Promise<(GPUBuffer, ArrayBuffer)> createBufferMappedAsync(GPUBufferDescriptor descriptor);
     GPUTexture createTexture(GPUTextureDescriptor descriptor);
     GPUSampler createSampler(GPUSamplerDescriptor descriptor);
 
