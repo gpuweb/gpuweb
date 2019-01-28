@@ -350,7 +350,7 @@ enum GPUStencilOperation {
 
 dictionary GPUStencilStateFaceDescriptor {
     GPUCompareFunction compare;
-    GPUStencilOperation stencilFailOp;
+    GPUStencilOperation failOp;
     GPUStencilOperation depthFailOp;
     GPUStencilOperation passOp;
 };
@@ -359,8 +359,8 @@ dictionary GPUDepthStencilStateDescriptor {
     boolean depthWriteEnabled;
     GPUCompareFunction depthCompare;
 
-    GPUStencilStateFaceDescriptor front;
-    GPUStencilStateFaceDescriptor back;
+    GPUStencilStateFaceDescriptor stencilFront;
+    GPUStencilStateFaceDescriptor stencilBack;
 
     u32 stencilReadMask;
     u32 stencilWriteMask;
