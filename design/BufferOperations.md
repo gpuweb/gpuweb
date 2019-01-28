@@ -1,7 +1,7 @@
 # Buffer operations
 
 This explainer describes the operations that are available on the `GPUBuffer` object directly.
-They are `setSubData` which is an immediate data upload operations, and `mapWriteAsync`, `mapReadAsync` and `unmap` which are memory mapping operations.
+They are `setSubData` which is an immediate data upload operation, and `mapWriteAsync`, `mapReadAsync` and `unmap` which are memory mapping operations.
 
 ## Prelimineries: buffered / unbuffered commands
 
@@ -123,9 +123,9 @@ partial interface GPUDevice {
 ```
 
 `GPUDevice.createBufferMapped` returns a buffer in the mapped state along with an write mapping representing the whole range of the buffer.
-`GPUDevice.createBufferMappedAsync` returns the same values as a promise.
+`GPUDevice.createBufferMappedAsync` returns the same values as a promise and provides more opportunities for optimization in implementations of the API.
 
-The mapping, starts filled with zeros.
+The mapping starts filled with zeros.
 
 ## Examples
 
