@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=600">
+<title>WebGPU Cube demo</title>
+<script src="gl-matrix-min.js"></script>
+</head>
+<body>
+<canvas height=1000 width=1000></canvas>
+<script>
+const shader = `
+#include <metal_stdlib>
+
+using namespace metal;
+
+struct Vertex
+{
+    float4 position [[attribute(0)]];
+    float4 color [[attribute(1)]];
+};
+
+struct FragmentData
+{
+    float4 position [[position]];
+    float4 color;
+};
+
+struct Uniform
+{
+    device float4x4* modelViewProjectionMatrix [[id(0)]];
+};
+
+vertex FragmentData vertex_main(Vertex vertexIn [[stage_in]],
+                          const device Uniform& uniforms [[buffer(1)]])
+{
+    FragmentData output;
+    output.position = uniforms.modelViewProjectionMatrix[0] * vertexIn.position;
+    output.color = vertexIn.color;
+
+    return output;
+}
+
+fragment float4 fragment_main(FragmentData data [[stage_in]])
+{
+    return float4(data.color);
+}
+`
+
+// A * indicates that this symbol has yet to be implemented in WebKit.
+
+let device, context, verticesBuffer, mappedTransformArray, uniformsBindGroup, pipeline, renderPassDescriptor, queue;
+let projectionMatrix = mat4.create();
+
+const vertexSize = 4 * 8;
+const verticesSize = vertexSize * 36;
+const colorOffset = 4 * 4;
+function populateVerticesArray(array) {
+    const vertexData = [
+        // float4 position, float4 color
+        1, -1, 1, 1, 1, 0, 1, 1,
+        -1, -1, 1, 1, 0, 0, 1, 1,
+        -1, -1, -1, 1, 0, 0, 0, 1,
+        1, -1, -1, 1, 1, 0, 0, 1,
+        1, -1, 1, 1, 1, 0, 1, 1,
+        -1, -1, -1, 1, 0, 0, 0, 1,
+
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, -1, 1, 1, 1, 0, 1, 1,
+        1, -1, -1, 1, 1, 0, 0, 1,
+        1, 1, -1, 1, 1, 1, 0, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, -1, -1, 1, 1, 0, 0, 1,
+
+        -1, 1, 1, 1, 0, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, -1, 1, 1, 1, 0, 1,
+        -1, 1, -1, 1, 0, 1, 0, 1,
+        -1, 1, 1, 1, 0, 1, 1, 1,
+        1, 1, -1, 1, 1, 1, 0, 1,
+
+        -1, -1, 1, 1, 0, 0, 1, 1,
+        -1, 1, 1, 1, 0, 1, 1, 1,
+        -1, 1, -1, 1, 0, 1, 0, 1,
+        -1, -1, -1, 1, 0, 0, 0, 1,
+        -1, -1, 1, 1, 0, 0, 1, 1,
+        -1, 1, -1, 1, 0, 1, 0, 1,
+
+        1, 1, 1, 1, 1, 1, 1, 1,
+        -1, 1, 1, 1, 0, 1, 1, 1,
+        -1, -1, 1, 1, 0, 0, 1, 1,
+        -1, -1, 1, 1, 0, 0, 1, 1,
+        1, -1, 1, 1, 1, 0, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+
+        1, -1, -1, 1, 1, 0, 0, 1,
+        -1, -1, -1, 1, 0, 0, 0, 1,
+        -1, 1, -1, 1, 0, 1, 0, 1,
+        1, 1, -1, 1, 1, 1, 0, 1,
+        1, -1, -1, 1, 1, 0, 0, 1,
+        -1, 1, -1, 1, 0, 1, 0, 1,
+    ];
+
+    for (let i = 0; i < vertexData.length; ++i) {
+        array[i] = vertexData[i];
+    }
+}
+
+const transformSize = 4 * 16;
+function populateTransformArray(array) {
+    let viewMatrix = mat4.create();
+    mat4.translate(viewMatrix, viewMatrix, vec3.fromValues(0, 0, -5));
+    let now = Date.now() / 1000;
+    mat4.rotate(viewMatrix, viewMatrix, 1, vec3.fromValues(Math.sin(now), Math.cos(now), 0));
+
+    let modelViewProjectionMatrix = mat4.create();
+    mat4.multiply(modelViewProjectionMatrix, projectionMatrix, viewMatrix);
+
+    for (let i = 0; i < 16; i++) {
+        array[i] = modelViewProjectionMatrix[i];
+    }
+}
+
+async function init() {
+    const adapter = await webgpu.requestAdapter({}); // Current (unifinished) implementation of requestAdapter requires this argument.
+    device = adapter.createDevice();
+
+    const canvas = document.querySelector('canvas');
+
+    const aspect = Math.abs(canvas.width / canvas.height);
+    mat4.perspective(projectionMatrix, (2 * Math.PI) / 5, aspect, 1, 100.0);
+
+    context = canvas.getContext('webgpu');
+
+    const swapChainDescriptor = { 
+        device: device, 
+        format:"B8G8R8A8Unorm", 
+        width: canvas.width, 
+        height: canvas.height 
+    };
+    context.configure(swapChainDescriptor);
+
+    // WebKit WebGPU accepts only MSL for now.
+    const shaderModuleDescriptor = { code: shader };
+    const shaderModule = device.createShaderModule(shaderModuleDescriptor);
+
+    // Unfinished buffer uploading. Will be updated to match the model detailed in https://github.com/gpuweb/gpuweb/pull/147.
+    const verticesBufferDescriptor = { 
+        size: verticesSize, 
+        usage: WebGPUBufferUsage.VERTEX 
+    };
+    verticesBuffer = device.createBuffer(verticesBufferDescriptor);
+    const mappedArray = new Float32Array(verticesBuffer.mapping);
+    populateVerticesArray(mappedArray);
+
+    // Input state. Model will change soon to adopt one of https://github.com/kainino0x/gpuweb/pull/2/'s ideas.
+    const positionAttributeDescriptor = {
+        shaderLocation: 0,  // [[attribute(0)]].
+        inputSlot: 0,       // Used as vertex buffer index in Metal.
+        offset: 0,
+        format: WebGPUVertexFormat.FLOAT_R32_G32_B32_A32
+    };
+    const colorAttributeDescriptor = {
+        shaderLocation: 1,
+        inputSlot: 0,
+        offset: colorOffset,
+        format: WebGPUVertexFormat.FLOAT_R32_G32_B32_A32
+    }
+    const vertexInputDescriptor = { // Will be renamed to the more apt VertexBufferDescriptor.
+        inputSlot: 0,
+        stride: vertexSize,
+        stepMode: WebGPUInputStepMode.VERTEX
+    };
+    const inputStateDescriptor = {
+        indexFormat: WebGPUIndexFormat.UINT32,
+        attributes: [positionAttributeDescriptor, colorAttributeDescriptor], 
+        inputs: [vertexInputDescriptor]
+    };
+
+    // Bind gropup resource buffers
+    const transformBufferDescriptor = { 
+        size: transformSize, 
+        usage:WebGPUBufferUsage.UNIFORM 
+    };
+    const transformBuffer = device.createBuffer(transformBufferDescriptor);
+    mappedTransformArray = new Float32Array(transformBuffer.mapping);
+
+    const transformBufferBindGroupLayoutBinding = {
+        binding: 0, // id[[(0)]]
+        visibility: WebGPUShaderStageBit.VERTEX,
+        type: "uniformBuffer"
+    };
+
+    const uniformsBindGroupLayoutDescriptor = { 
+        bindings: [transformBufferBindGroupLayoutBinding] 
+    };
+    const uniformsBindGroupLayout = device.createBindGroupLayout(uniformsBindGroupLayoutDescriptor);
+
+    const transformBufferBinding = {
+        buffer: transformBuffer,
+        offset: 0,
+        size: transformSize
+    };
+    const transformBufferBindGroupBinding = {
+        binding: 0,
+        resource: transformBufferBinding
+    };
+
+    const uniformsBindGroupDescriptor = { 
+        layout: uniformsBindGroupLayout, 
+        bindings: [transformBufferBindGroupBinding] 
+    };
+    uniformsBindGroup = device.createBindGroup(uniformsBindGroupDescriptor);
+
+    // *GPUDepthStencilStateDescriptor
+    // const depthStateDescriptor = {
+    //     boolean depthWriteEnabled: true,
+    //     *GPUCompareFunction depthCompare: "less",
+
+    //     *GPUStencilStateFaceDescriptor front;
+    //     *GPUStencilStateFaceDescriptor back;
+
+    //     u32 stencilReadMask;
+    //     u32 stencilWriteMask;
+    // };
+
+    // Pipeline
+    const pipelineLayoutDescriptor = { bindGroupLayouts: [uniformsBindGroupLayout] };
+    const pipelineLayout = device.createPipelineLayout(pipelineLayoutDescriptor);
+    const vertexStageDescriptor = {
+        module: shaderModule,
+        entryPoint: "vertex_main"
+    };
+    const fragmentStageDescriptor = {
+        module: shaderModule,
+        entryPoint: "fragment_main"
+    };
+    const pipelineDescriptor = {
+        layout: pipelineLayout,
+
+        vertexStage: vertexStageDescriptor,
+        fragmentStage: fragmentStageDescriptor,
+
+        primitiveTopology: "triangleList",
+        // *GPURasterizationStateDescriptor rasterizationState;
+        // sequence<*GPUBlendStateDescriptor> blendStates;
+        // *GPUDepthStencilStateDescriptor depthStencilState: depthStateDescriptor
+        inputState: inputStateDescriptor
+        // *GPUAttachmentsStateDescriptor attachmentsState;
+ 
+        // u32 sampleCount; // Multisampling
+    };
+    pipeline = device.createRenderPipeline(pipelineDescriptor);
+
+    let colorAttachment = {
+        // attachment is acquired in render loop.
+
+        // GPUTextureView? resolveTarget;
+
+        // *GPULoadOp loadOp;
+        // *GPUStoreOp storeOp;
+        clearColor: { r: 0.5, g: 1.0, b: 1.0, a: 1.0 } // GPUColor
+    };
+
+    // Depth stencil texture
+
+    // *GPUExtent3D
+    // const depthSize = {
+    //     u32 width;
+    //     u32 height;
+    //     u32 depth;
+    // };
+
+    // *GPUTextureDescriptor
+    // const depthTextureDescriptor = {
+    //     *GPUExtent3D size: depthSize,
+    //     u32 arraySize;
+    //     u32 levelCount;
+    //     u32 sampleCount: 1,
+    //     *GPUTextureDimension dimension: "2d",
+    //     *GPUTextureFormat format: "D32FloatS8Uint",
+    //     *GPUTextureUsageFlags usage: GPUTextureUsage.OUTPUT_ATTACHMENT
+    // };
+
+    // GPUTexture + *GPUDevice::createTexture()
+    // const depthTexture = device.createTexture(depthTextureDescriptor);
+
+    // *GPURenderPassDepthStencilAttachmentDescriptor
+    // const depthAttachment = {
+    //     GPUTextureView attachment: depthTexture
+
+    //     *GPULoadOp depthLoadOp;
+    //     *GPUStoreOp depthStoreOp;
+    //     float clearDepth: 1.0;
+
+    //     *GPULoadOp stencilLoadOp;
+    //     *GPUStoreOp stencilStoreOp;
+    //     u32 clearStencil;
+    // };
+
+    renderPassDescriptor = { 
+        colorAttachments: [colorAttachment] 
+        // *depthStencilAttachment: depthAttachment
+    };
+
+    queue = device.getQueue();
+
+    render();
+}
+
+function render() {
+    populateTransformArray(mappedTransformArray);
+
+    const commandBuffer = device.createCommandBuffer();
+    renderPassDescriptor.colorAttachments[0].attachment = context.getNextTexture().createDefaultTextureView();
+    const passEncoder = commandBuffer.beginRenderPass(renderPassDescriptor);
+
+    // Encode drawing commands.
+    passEncoder.setPipeline(pipeline);
+    // Vertex attributes
+    passEncoder.setVertexBuffers(0, [verticesBuffer], [0]);
+    // Bind groups
+    passEncoder.setBindGroup(1, uniformsBindGroup);
+    
+    passEncoder.draw(36, 1, 0, 0);
+
+    const endCommandBuffer = passEncoder.endPass();
+    queue.submit([endCommandBuffer]);
+    context.present();
+
+    requestAnimationFrame(render);
+}
+
+init();
+</script>
+</body>
+</html>
