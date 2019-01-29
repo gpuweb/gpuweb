@@ -12,7 +12,7 @@ This proposal tries to codify what the expectations are on the members to make m
 ## Producer homework
 
 In order for members to have time to review material for a meeting, the meat of investigations and proposals have to be posted at least 48 working day hours in advance.
-For example for a meeting on Monday at 3PM, material has to be posted before the previous Friday at 3PM.
+For example for a meeting on Monday at 3PM, material has to be posted before the previous Thursday at 3PM.
 Topics for which the material isn't ready by that deadline can be dropped from the meeting to leave space for topics with more shared knowledge.
 Small-scale clarifications and discussions on the material don't have a deadline themselves though.
 
