@@ -215,7 +215,7 @@ enum GPUBindingType {
     "uniform-buffer",
     "dynamic-uniform-buffer",
     "sampler",
-    "sampled-texture",
+    "texture",
     "storage-buffer",
     "dynamic-storage-buffer"
     // TODO other binding types
