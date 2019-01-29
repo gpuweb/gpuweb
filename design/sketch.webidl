@@ -252,7 +252,6 @@ dictionary GPUBufferBinding {
 typedef (GPUSampler or GPUTextureView or GPUBufferBinding) GPUBindingResource;
 
 dictionary GPUBindGroupBinding {
-    u32 binding;
     GPUBindingResource resource;
 };
 
