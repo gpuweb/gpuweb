@@ -660,6 +660,9 @@ interface GPUDevice {
     GPUTexture createTexture(GPUTextureDescriptor descriptor);
     GPUSampler createSampler(GPUSamplerDescriptor descriptor);
 
+    Promise<GPUBuffer?> tryCreateBuffer(GPUBufferDescriptor descriptor);
+    Promise<GPUTexture?> tryCreateTexture(GPUTextureDescriptor descriptor);
+
     GPUBindGroupLayout createBindGroupLayout(GPUBindGroupLayoutDescriptor descriptor);
     GPUPipelineLayout createPipelineLayout(GPUPipelineLayoutDescriptor descriptor);
     GPUBindGroup createBindGroup(GPUBindGroupDescriptor descriptor);
@@ -674,7 +677,6 @@ interface GPUDevice {
     GPUQueue getQueue();
 
     attribute GPULogCallback onLog;
-    GPUObjectStatusQuery getObjectStatus(GPUStatusableObject statusableObject);
 };
 
 dictionary GPUDeviceDescriptor {
