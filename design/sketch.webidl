@@ -330,10 +330,12 @@ dictionary GPUBlendDescriptor {
     GPUBlendOperation operation;
 };
 
-dictionary GPUBlendStateDescriptor {
+dictionary GPUColorStateDescriptor {
+    GPUTextureFormat format;
+
     boolean blendEnabled;
-    GPUBlendDescriptor alpha;
-    GPUBlendDescriptor color;
+    GPUBlendDescriptor alphaBlend;
+    GPUBlendDescriptor colorBlend;
     GPUColorWriteFlags writeMask;
 };
 
@@ -356,6 +358,8 @@ dictionary GPUStencilStateFaceDescriptor {
 };
 
 dictionary GPUDepthStencilStateDescriptor {
+    GPUTextureFormat format;
+
     boolean depthWriteEnabled;
     GPUCompareFunction depthCompare;
 
@@ -420,20 +424,6 @@ dictionary GPUShaderModuleDescriptor {
 interface GPUShaderModule {
 };
 
-// Description of a single attachment
-dictionary GPUAttachmentDescriptor {
-    // Attachment data format
-    GPUTextureFormat format;
-};
-
-// Description of the framebuffer attachments
-dictionary GPUAttachmentsStateDescriptor {
-    // Array of color attachments
-    sequence<GPUAttachmentDescriptor> colorAttachments;
-    // Optional depth/stencil attachment
-    GPUAttachmentDescriptor? depthStencilAttachment;
-};
-
 dictionary GPUPipelineStageDescriptor {
     GPUShaderModule module;
     DOMString entryPoint;
@@ -467,10 +457,10 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
 
     GPUPrimitiveTopology primitiveTopology;
     GPURasterizationStateDescriptor rasterizationState;
-    sequence<GPUBlendStateDescriptor> blendStates;
-    GPUDepthStencilStateDescriptor depthStencilState;
+    sequence<GPUColorStateDescriptor> colorStates;
+    GPUDepthStencilStateDescriptor? depthStencilState;
     GPUInputStateDescriptor inputState;
-    GPUAttachmentsStateDescriptor attachmentsState;
+
     // Number of MSAA samples
     u32 sampleCount;
     // TODO other properties
