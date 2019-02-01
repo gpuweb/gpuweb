@@ -36,7 +36,7 @@ The following must be true or a validation error occurs on the call to `setSubDa
 ### `MAP_READ` and `MAP_WRITE`
 
 The `MAP_READ` and `MAP_WRITE` buffer creation usage flags need to be specified to create a buffer mappable for reading (resp. for writing).
-An additional validation constraint is that the `MAP_READ` usage flag must not be used with any other flags except with `TRANSFER_DST`.
+An additional validation constraint is that the `MAP_READ` and `MAP_WRITE` may not be used in combination.
 
 ```webidl
 partial interface GPUBufferUsage {
