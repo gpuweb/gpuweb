@@ -621,9 +621,6 @@ interface GPUFence {
 interface GPUQueue {
     void submit(sequence<GPUCommandBuffer> buffers);
     void signal(GPUFence fence, u64 signalValue);
-
-    // If we have multiple-queues
-    void wait(GPUFence fence, u64 valueToWait);
 };
 
 // SwapChain / RenderingContext
