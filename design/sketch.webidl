@@ -561,6 +561,9 @@ dictionary GPUTextureCopyView {
 };
 
 interface GPUCommandBuffer {
+};
+
+interface GPUCommandEncoder {
     GPURenderPassEncoder beginRenderPass(GPURenderPassDescriptor descriptor);
     GPUComputePassEncoder beginComputePass();
 
@@ -586,9 +589,11 @@ interface GPUCommandBuffer {
         GPUTextureCopyView source,
         GPUTextureCopyView destination,
         GPUExtent3D copySize);
+
+    GPUCommandBuffer finish();
 };
 
-dictionary GPUCommandBufferDescriptor {
+dictionary GPUCommandEncoderDescriptor {
     //TODO: reusability flag?
 };
 
@@ -661,7 +666,7 @@ interface GPUDevice {
     Promise<GPUComputePipeline> createReadyComputePipeline(GPUComputePipelineDescriptor descriptor);
     Promise<GPURenderPipeline> createReadyRenderPipeline(GPUPipelineDescriptor descriptor);
 
-    GPUCommandBuffer createCommandBuffer(GPUCommandBufferDescriptor descriptor);
+    GPUCommandEncoder createCommandEncoder(GPUCommandEncoderDescriptor descriptor);
     GPUFence createFence(GPUFenceDescriptor descriptor);
 
     GPUQueue getQueue();
@@ -714,6 +719,7 @@ interface mixin GPUDebugLabel {
 };
 
 GPUCommandBuffer includes GPUDebugLabel;
+GPUCommandEncoder includes GPUDebugLabel;
 GPUComputePipeline includes GPUDebugLabel;
 GPUFence includes GPUDebugLabel;
 GPUProgrammablePassEncoder includes GPUDebugLabel;
@@ -721,7 +727,7 @@ GPUQueue includes GPUDebugLabel;
 GPURenderPipeline includes GPUDebugLabel;
 GPUShaderModule includes GPUDebugLabel;
 
-partial dictionary GPUCommandBufferDescriptor {
+partial dictionary GPUCommandEncoderDescriptor {
     DOMString label;
 };
 
