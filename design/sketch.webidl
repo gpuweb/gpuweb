@@ -668,6 +668,9 @@ interface GPUDevice {
     GPUComputePipeline createComputePipeline(GPUComputePipelineDescriptor descriptor);
     GPURenderPipeline createRenderPipeline(GPURenderPipelineDescriptor descriptor);
 
+    Promise<GPUComputePipeline> createReadyComputePipeline(GPUComputePipelineDescriptor descriptor);
+    Promise<GPURenderPipeline> createReadyRenderPipeline(GPUPipelineDescriptor descriptor);
+
     GPUCommandBuffer createCommandBuffer(GPUCommandBufferDescriptor descriptor);
     GPUFence createFence(GPUFenceDescriptor descriptor);
 
