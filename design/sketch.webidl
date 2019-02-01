@@ -190,7 +190,6 @@ dictionary GPUSamplerDescriptor {
     GPUFilterMode mipmapFilter = "nearest";
     float lodMinClamp = 0;
     float lodMaxClamp = 0xffffffff; // TODO: What should this be? Was Number.MAX_VALUE.
-    u32 maxAnisotropy = 1;
     GPUCompareFunction compareFunction = "never";
     GPUBorderColor borderColor = "transparentBlack";
 };
