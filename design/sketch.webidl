@@ -336,7 +336,6 @@ dictionary GPUBlendDescriptor {
 dictionary GPUColorStateDescriptor {
     GPUTextureFormat format;
 
-    boolean blendEnabled;
     GPUBlendDescriptor alphaBlend;
     GPUBlendDescriptor colorBlend;
     GPUColorWriteFlags writeMask;
