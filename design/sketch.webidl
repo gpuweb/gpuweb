@@ -237,14 +237,6 @@ dictionary GPUBindGroupLayoutDescriptor {
 interface GPUBindGroupLayout {
 };
 
-// PipelineLayout
-dictionary GPUPipelineLayoutDescriptor {
-    sequence<GPUBindGroupLayout> bindGroupLayouts;
-};
-
-interface GPUPipelineLayout {
-};
-
 // BindGroup
 dictionary GPUBufferBinding {
     GPUBuffer buffer;
@@ -444,7 +436,7 @@ dictionary GPUPipelineStageDescriptor {
 };
 
 dictionary GPUPipelineDescriptorBase {
-    GPUPipelineLayout layout;
+    sequence<GPUBindGroupLayout> bindGroupLayouts;
 };
 
 // GPUComputePipeline
@@ -662,7 +654,6 @@ interface GPUDevice {
     GPUSampler createSampler(GPUSamplerDescriptor descriptor);
 
     GPUBindGroupLayout createBindGroupLayout(GPUBindGroupLayoutDescriptor descriptor);
-    GPUPipelineLayout createPipelineLayout(GPUPipelineLayoutDescriptor descriptor);
     GPUBindGroup createBindGroup(GPUBindGroupDescriptor descriptor);
 
     GPUShaderModule createShaderModule(GPUShaderModuleDescriptor descriptor);
