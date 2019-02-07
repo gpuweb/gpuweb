@@ -627,14 +627,13 @@ interface GPUQueue {
 
 // SwapChain / RenderingContext
 dictionary GPUSwapChainDescriptor {
-    GPUTextureUsageFlags usage;
-    GPUTextureFormat format;
+    required GPUCanvasContext context;
+    required GPUTextureFormat format;
+    GPUTextureUsageFlags usage = GPUTextureUsage.OUTPUT_ATTACHMENT;
 };
 
 interface GPUSwapChain {
-    void configure(GPUSwapChainDescriptor descriptor);
-    GPUTexture getNextTexture();
-    void present();
+    GPUTexture getTexture();
 };
 
 interface GPURenderingContext : GPUSwapChain {
@@ -675,10 +674,16 @@ interface GPUDevice {
     GPUCommandBuffer createCommandBuffer(GPUCommandBufferDescriptor descriptor);
     GPUFence createFence(GPUFenceDescriptor descriptor);
 
+    // Calling createSwapChain a second time for the same GPUCanvasContext
+    // invalidates the previous one, and all of the textures it’s produced.
+    GPUSwapChain createSwapChain(GPUSwapChainDescriptor desc);
+
     GPUQueue getQueue();
 
     attribute GPULogCallback onLog;
     GPUObjectStatusQuery getObjectStatus(GPUStatusableObject statusableObject);
+
+    Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUCanvasContext context);
 };
 
 dictionary GPUDeviceDescriptor {
