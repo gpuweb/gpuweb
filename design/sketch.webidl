@@ -625,7 +625,10 @@ interface GPUQueue {
     void signal(GPUFence fence, u64 signalValue);
 };
 
-// SwapChain / RenderingContext
+// SwapChain / CanvasContext
+interface GPUCanvasContext {
+};
+
 dictionary GPUSwapChainDescriptor {
     required GPUCanvasContext context;
     required GPUTextureFormat format;
@@ -634,9 +637,6 @@ dictionary GPUSwapChainDescriptor {
 
 interface GPUSwapChain {
     GPUTexture getTexture();
-};
-
-interface GPURenderingContext : GPUSwapChain {
 };
 
 // Web GPU "namespace" used for device creation
