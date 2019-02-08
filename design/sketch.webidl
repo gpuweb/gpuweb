@@ -544,7 +544,7 @@ dictionary GPURenderPassDepthStencilAttachmentDescriptor {
 
 dictionary GPURenderPassDescriptor {
     sequence<GPURenderPassColorAttachmentDescriptor> colorAttachments;
-    GPURenderPassDepthStencilAttachmentDescriptor depthStencilAttachment;
+    GPURenderPassDepthStencilAttachmentDescriptor? depthStencilAttachment;
 };
 
 dictionary GPUBufferCopyView {
