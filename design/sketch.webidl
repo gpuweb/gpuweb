@@ -122,6 +122,8 @@ enum GPUTextureFormat {
     "rg8snorm",
     "rg8uint",
     "rg8sint",
+    /* Packed 16 bit formats */
+    "b5g6r5unorm",
     /* Normal 32 bit formats */
     "r32uint",
     "r32sint",
@@ -138,6 +140,9 @@ enum GPUTextureFormat {
     "rgba8sint",
     "bgra8unorm",
     "bgra8unorm-srgb",
+    /* Packed 32 bit formats */
+    "rgb10a2unorm",
+    "rg11b10float",
     /* Normal 64 bit formats */
     "rg32uint",
     "rg32sint",
