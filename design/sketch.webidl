@@ -105,7 +105,6 @@ enum GPUTextureDimension {
 
 enum GPUTextureFormat {
     /* Normal 8 bit formats */
-    "a8unorm",
     "r8unorm",
     "r8unorm-srgb",
     "r8snorm",
