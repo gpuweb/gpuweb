@@ -100,6 +100,8 @@ enum GPUTextureDimension {
 //     float = floating point
 // If the format has the "-srgb" suffix, then sRGB gamma compression and decompression are
 // applied during the reading and writing of color values in the pixel.
+// Compressed texture formats are provided by extensions. Their naming should follow the
+// convention here, with the texture name as a prefix. e.g. "etc2-rgba8unorm".
 
 enum GPUTextureFormat {
     /* Normal 8 bit formats */
