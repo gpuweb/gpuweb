@@ -89,12 +89,72 @@ enum GPUTextureDimension {
     "3d"
 };
 
+// Texture formats
+// The name of the format specifies the order of components, bits per component, and data type for
+// the component.
+//     r, g, b, a = red, green, blue, alpha
+//     unorm = unsigned normalized
+//     snorm = signed normalized
+//     uint = unsigned int
+//     sint = signed int
+//     float = floating point
+// If the format has the "-srgb" suffix, then sRGB gamma compression and decompression are
+// applied during the reading and writing of color values in the pixel.
+// Compressed texture formats are provided by extensions. Their naming should follow the
+// convention here, with the texture name as a prefix. e.g. "etc2-rgba8unorm".
+
 enum GPUTextureFormat {
-    "r8g8b8a8-unorm",
-    "r8g8b8a8-uint",
-    "b8g8r8a8-unorm",
-    "d32-float-s8-uint"
-    // TODO other formats
+    /* Normal 8 bit formats */
+    "r8unorm",
+    "r8unorm-srgb",
+    "r8snorm",
+    "r8uint",
+    "r8sint",
+    /* Normal 16 bit formats */
+    "r16unorm",
+    "r16snorm",
+    "r16uint",
+    "r16sint",
+    "r16float",
+    "rg8unorm",
+    "rg8unorm-srgb",
+    "rg8snorm",
+    "rg8uint",
+    "rg8sint",
+    /* Packed 16 bit formats */
+    "b5g6r5unorm",
+    /* Normal 32 bit formats */
+    "r32uint",
+    "r32sint",
+    "r32float",
+    "rg16unorm",
+    "rg16snorm",
+    "rg16uint",
+    "rg16sint",
+    "rg16float",
+    "rgba8unorm",
+    "rgba8unorm-srgb",
+    "rgba8snorm",
+    "rgba8uint",
+    "rgba8sint",
+    "bgra8unorm",
+    "bgra8unorm-srgb",
+    /* Packed 32 bit formats */
+    "rgb10a2unorm",
+    "rg11b10float",
+    /* Normal 64 bit formats */
+    "rg32uint",
+    "rg32sint",
+    "rg32float",
+    "rgba16unorm",
+    "rgba16snorm",
+    "rgba16uint",
+    "rgba16sint",
+    "rgba16float",
+    /* Normal 128 bit formats */
+    "rgba32uint",
+    "rgba32sint",
+    "rgba32float",
 };
 
 typedef u32 GPUTextureUsageFlags;
@@ -379,12 +439,71 @@ enum GPUIndexFormat {
     "uint32"
 };
 
+// Vertex formats
+// The name of the format specifies the data type of the component, the number of
+// values, and whether the data is normalized.
+//     uchar = unsigned 8-bit value
+//     char = signed 8-bit value
+//     ushort = unsigned 16-bit value
+//     short = signed 16-bit value
+//     half = half-precision 16-bit floating point value
+//     float = 32-bit floating point value
+//     uint = unsigned 32-bit integer value
+//     int = signed 32-bit integer value
+// If no number of values is given in the name, a single value is provided.
+// If the format has the "-bgra" suffix, it means the values are arranged as
+// blue, green, red and alpha values.
+
 enum GPUVertexFormat {
-    "float-r32g32b32a32",
-    "float-r32g32b32",
-    "float-r32g32",
-    "float-r32"
-    // TODO other vertex formats
+    "uchar",
+    "uchar2",
+    "uchar3",
+    "uchar4",
+    "char",
+    "char2",
+    "char3",
+    "char4",
+    "ucharnorm",
+    "uchar2norm",
+    "uchar3norm",
+    "uchar4norm",
+    "uchar4norm-bgra",
+    "charnorm",
+    "char2norm",
+    "char3norm",
+    "char4norm",
+    "ushort",
+    "ushort2",
+    "ushort3",
+    "ushort4",
+    "short",
+    "short2",
+    "short3",
+    "short4",
+    "ushortnorm",
+    "ushort2norm",
+    "ushort3norm",
+    "ushort4norm",
+    "shortnorm",
+    "short2norm",
+    "short3norm",
+    "short4norm",
+    "half",
+    "half2",
+    "half3",
+    "half4",
+    "float",
+    "float2",
+    "float3",
+    "float4",
+    "uint",
+    "uint2",
+    "uint3",
+    "uint4",
+    "int",
+    "int2",
+    "int3",
+    "int4"
 };
 
 enum GPUInputStepMode {
