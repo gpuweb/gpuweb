@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=600">
+<title>Web GPU Cube demo</title>
+<script src="gl-matrix-min.js"></script>
+</head>
+<body>
+<canvas height=1000 width=1000></canvas>
+<script>
+const shader = `
+struct FragmentData {
+    float4 position : SV_Position;
+    float4 color : attribute(0);
+};
+
+vertex FragmentData vertex_main(float4 position : attribute(0),
+                                float4 color : attribute(1),
+                                constant float4x4* modelViewProjectionMatrix : register(b0)) {
+    FragmentData output;
+
+    output.position = *modelViewProjectionMatrix * position;
+    output.color = color;
+
+    return output;
+}
+
+fragment float4 fragment_main(float4 color : attribute(0)) : SV_Target {
+    return color;
+}
+`
+
+const vertexSize = 4 * 8;
+const colorOffset = 4 * 4;
+const vertexArray = new Float32Array([
+    // float4 position, float4 color
+    1, -1, 1, 1, 1, 0, 1, 1,
+    -1, -1, 1, 1, 0, 0, 1, 1,
+    -1, -1, -1, 1, 0, 0, 0, 1,
+    1, -1, -1, 1, 1, 0, 0, 1,
+    1, -1, 1, 1, 1, 0, 1, 1,
+    -1, -1, -1, 1, 0, 0, 0, 1,
+
+    1, 1, 1, 1, 1, 1, 1, 1,
+    1, -1, 1, 1, 1, 0, 1, 1,
+    1, -1, -1, 1, 1, 0, 0, 1,
+    1, 1, -1, 1, 1, 1, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1,
+    1, -1, -1, 1, 1, 0, 0, 1,
+
+    -1, 1, 1, 1, 0, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, -1, 1, 1, 1, 0, 1,
+    -1, 1, -1, 1, 0, 1, 0, 1,
+    -1, 1, 1, 1, 0, 1, 1, 1,
+    1, 1, -1, 1, 1, 1, 0, 1,
+
+    -1, -1, 1, 1, 0, 0, 1, 1,
+    -1, 1, 1, 1, 0, 1, 1, 1,
+    -1, 1, -1, 1, 0, 1, 0, 1,
+    -1, -1, -1, 1, 0, 0, 0, 1,
+    -1, -1, 1, 1, 0, 0, 1, 1,
+    -1, 1, -1, 1, 0, 1, 0, 1,
+
+    1, 1, 1, 1, 1, 1, 1, 1,
+    -1, 1, 1, 1, 0, 1, 1, 1,
+    -1, -1, 1, 1, 0, 0, 1, 1,
+    -1, -1, 1, 1, 0, 0, 1, 1,
+    1, -1, 1, 1, 1, 0, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1,
+
+    1, -1, -1, 1, 1, 0, 0, 1,
+    -1, -1, -1, 1, 0, 0, 0, 1,
+    -1, 1, -1, 1, 0, 1, 0, 1,
+    1, 1, -1, 1, 1, 1, 0, 1,
+    1, -1, -1, 1, 1, 0, 0, 1,
+    -1, 1, -1, 1, 0, 1, 0, 1,
+]);
+
+let device, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor, queue;
+let projectionMatrix = mat4.create();
+
+async function init() {
+    /* Context, Device, SwapChain */
+    const adapter = await gpu.requestAdapter();
+    device = adapter.createDevice();
+
+    const canvas = document.querySelector('canvas');
+
+    const aspect = Math.abs(canvas.width / canvas.height);
+    mat4.perspective(projectionMatrix, (2 * Math.PI) / 5, aspect, 1, 100.0);
+
+    const context = canvas.getContext('gpu');
+
+    const swapChainDescriptor = {
+        context: context,
+        format: "bgra8unorm"
+    };
+
+    const swapChain = device.createSwapChain(swapChainDescriptor);
+
+    /* Shader Module */
+    const shaderModuleDescriptor = { code: shader };
+    const shaderModule = device.createShaderModule(shaderModuleDescriptor);
+
+    const verticesBufferDescriptor = {
+        size: vertexArray.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.TRANSFER_DST
+    };
+    verticesBuffer = device.createBuffer(verticesBufferDescriptor);
+    verticesBuffer.setSubData(0, vertexArray.buffer);
+
+    /* Input State */
+    const positionAttributeDescriptor = {
+        attributeIndex: 0,
+        offset: 0,
+        format: "float4"
+    };
+    const colorAttributeDescriptor = {
+        attributeIndex: 1,
+        offset: colorOffset,
+        format: "float4"
+    }
+    const vertexBufferDescriptor = {
+        stride: vertexSize,
+        stepMode: "vertex",
+        attributes: [positionAttributeDescriptor, colorAttributeDescriptor]
+    };
+    const inputStateDescriptor = {
+        indexFormat: "uint32",
+        vertexBuffers: { 0: vertexBufferDescriptor }
+    };
+
+    /* Bind Group Layout */
+    const transformBufferBindGroupLayoutBinding = {
+        binding: 0,
+        visibility: GPUShaderStageBit.VERTEX,
+        type: "uniform-buffer"
+    };
+
+    const uniformsBindGroupLayoutDescriptor = {
+        bindings: [transformBufferBindGroupLayoutBinding]
+    };
+    uniformsBindGroupLayout = device.createBindGroupLayout(uniformsBindGroupLayoutDescriptor);
+
+    const depthStateDescriptor = {
+        depthWriteEnabled: true,
+        depthCompare: "less"
+    };
+
+    /* Render Pipeline */
+    const vertexStageDescriptor = {
+        module: shaderModule,
+        entryPoint: "vertex_main"
+    };
+    const fragmentStageDescriptor = {
+        module: shaderModule,
+        entryPoint: "fragment_main"
+    };
+    const pipelineDescriptor = {
+        bindGroupLayouts: [uniformsBindGroupLayout],
+
+        vertexStage: vertexStageDescriptor,
+        fragmentStage: fragmentStageDescriptor,
+
+        primitiveTopology: "triangle-list",
+        depthStencilState: depthStateDescriptor,
+        inputState: inputStateDescriptor
+    };
+    pipeline = device.createRenderPipeline(pipelineDescriptor);
+
+    /* Renderpass Attachments */
+    let colorAttachment = {
+        // attachment is acquired in render loop.
+        loadOp: "clear",
+        storeOp: "store",
+        clearColor: { r: 0.5, g: 1.0, b: 1.0, a: 1.0 }
+    };
+
+    // GPUExtent3D
+    const depthSize = {
+        width: canvas.width,
+        height: canvas.height,
+        depth: 1
+    };
+
+    const depthTextureDescriptor = {
+        size: depthSize,
+        arrayLayerCount: 1,
+        mipLevelCount: 1,
+        sampleCount: 1,
+        dimension: "2d",
+        format: "d32-float-s8-uint",
+        usage: GPUTextureUsage.OUTPUT_ATTACHMENT
+    };
+
+    const depthTexture = device.createTexture(depthTextureDescriptor);
+
+    // GPURenderPassDepthStencilAttachmentDescriptor
+    const depthAttachment = {
+        attachment: depthTexture,
+
+        depthLoadOp = "clear",
+        depthStoreOp = "store",
+        clearDepth: 1.0
+    };
+
+    renderPassDescriptor = {
+        colorAttachments: [colorAttachment],
+        depthStencilAttachment: depthAttachment
+    };
+
+    queue = device.getQueue();
+
+    render();
+}
+
+/* Transform Buffers and Bindings */
+const transformSize = 4 * 16;
+function updateTransformArray(array) {
+    let viewMatrix = mat4.create();
+    mat4.translate(viewMatrix, viewMatrix, vec3.fromValues(0, 0, -5));
+    let now = Date.now() / 1000;
+    mat4.rotate(viewMatrix, viewMatrix, 1, vec3.fromValues(Math.sin(now), Math.cos(now), 0));
+
+    let modelViewProjectionMatrix = mat4.create();
+    mat4.multiply(modelViewProjectionMatrix, projectionMatrix, viewMatrix);
+
+    for (let i = 0; i < 16; i++) {
+        array[i] = modelViewProjectionMatrix[i];
+    }
+}
+
+const transformBufferDescriptor = {
+    size: transformSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.MAP_WRITE
+};
+
+function createTransformBindGroupDescriptor(transformBuffer) {
+    const transformBufferBinding = {
+        buffer: transformBuffer,
+        offset: 0,
+        size: transformSize
+    };
+
+    const transformBufferBindGroupBinding = {
+        binding: 0,
+        resource: transformBufferBinding
+    };
+
+    return {
+        layout: uniformsBindGroupLayout,
+        bindings: [transformBufferBindGroupBinding]
+    };
+}
+
+class MappedBufferBindGroup {
+    constructor(buffer, arrayBuffer, bindGroup) {
+        this.buffer = buffer;
+        this.arrayBuffer = arrayBuffer;
+        this.bindGroup = bindGroup;
+    }
+}
+const mappedGroups = [];
+
+function render() {
+    let mappedGroup;
+
+    if (mappedGroups.length == 0) {
+        // No buffers are mapped and ready for update.
+        const { buffer, arrayBuffer } = device.createMappedBuffer(transformBufferDescriptor);
+        const bindGroup = device.createBindGroup(createTransformBindGroupDescriptor(buffer));
+
+        mappedGroup = new MappedBufferBindGroup(buffer, arrayBuffer, bindGroup);
+    } else
+        mappedGroup = mappedGroups.shift();
+
+    updateTransformArray(mappedGroup.arrayBuffer);
+    mappedGroup.buffer.unmap();
+
+    const commandEncoder = device.createCommandEncoder();
+    renderPassDescriptor.colorAttachments[0].attachment = swapChain.getTexture().createDefaultTextureView();
+    const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+
+    // Encode drawing commands.
+    passEncoder.setPipeline(pipeline);
+    // Vertex attributes
+    passEncoder.setVertexBuffers(0, [verticesBuffer], [0]);
+    // Bind groups
+    passEncoder.setBindGroup(0, mappedGroup.bindGroup);
+
+    passEncoder.draw(36, 1, 0, 0);
+
+    passEncoder.endPass();
+    queue.submit([commandEncoder.finish()]);
+
+    // Ready the current buffer for update after GPU is done with it.
+    mappedGroup.buffer.mapWriteAsync().then((arrayBuffer) => {
+        mappedGroup.arrayBuffer = arrayBuffer;
+        mappedGroups.push(mappedGroup);
+    });
+
+    requestAnimationFrame(render);
+}
+
+init();
+</script>
+</body>
+</html>
