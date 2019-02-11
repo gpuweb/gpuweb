@@ -200,8 +200,8 @@ interface GPUTextureView {
 };
 
 interface GPUTexture {
-    GPUTextureView createTextureView(GPUTextureViewDescriptor desc);
-    GPUTextureView createDefaultTextureView();
+    GPUTextureView createView(GPUTextureViewDescriptor desc);
+    GPUTextureView createDefaultView();
 
     void destroy();
 };
