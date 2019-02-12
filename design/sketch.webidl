@@ -676,7 +676,7 @@ interface GPUDevice {
 
     // Calling createSwapChain a second time for the same GPUCanvasContext
     // invalidates the previous one, and all of the textures it’s produced.
-    GPUSwapChain createSwapChain(GPUSwapChainDescriptor desc);
+    GPUSwapChain createSwapChain(GPUSwapChainDescriptor descriptor);
 
     GPUQueue getQueue();
 
