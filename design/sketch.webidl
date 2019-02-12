@@ -636,7 +636,7 @@ dictionary GPUSwapChainDescriptor {
 };
 
 interface GPUSwapChain {
-    GPUTexture getTexture();
+    GPUTexture getCurrentTexture();
 };
 
 // Web GPU "namespace" used for device creation
