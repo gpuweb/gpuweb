@@ -730,19 +730,18 @@ interface GPUQueue {
     void signal(GPUFence fence, u64 signalValue);
 };
 
-// SwapChain / RenderingContext
+// SwapChain / CanvasContext
+interface GPUCanvasContext {
+};
+
 dictionary GPUSwapChainDescriptor {
-    GPUTextureUsageFlags usage;
-    GPUTextureFormat format;
+    required GPUCanvasContext context;
+    required GPUTextureFormat format;
+    GPUTextureUsageFlags usage = GPUTextureUsage.OUTPUT_ATTACHMENT;
 };
 
 interface GPUSwapChain {
-    void configure(GPUSwapChainDescriptor descriptor);
-    GPUTexture getNextTexture();
-    void present();
-};
-
-interface GPURenderingContext : GPUSwapChain {
+    GPUTexture getCurrentTexture();
 };
 
 // Web GPU "namespace" used for device creation
@@ -780,9 +779,15 @@ interface GPUDevice {
     GPUCommandEncoder createCommandEncoder(GPUCommandEncoderDescriptor descriptor);
     GPUFence createFence(GPUFenceDescriptor descriptor);
 
+    // Calling createSwapChain a second time for the same GPUCanvasContext
+    // invalidates the previous one, and all of the textures it’s produced.
+    GPUSwapChain createSwapChain(GPUSwapChainDescriptor descriptor);
+
     GPUQueue getQueue();
 
     GPUObjectStatusQuery getObjectStatus(GPUStatusableObject statusableObject);
+
+    Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUCanvasContext context);
 };
 
 dictionary GPUDeviceDescriptor {
