@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=600">
+<meta name="viewport" content="width=1000">
 <title>WebGPU Cube demo</title>
 <script src="gl-matrix-min.js"></script>
 </head>
@@ -48,14 +48,14 @@ fragment float4 fragment_main(FragmentData data [[stage_in]])
 
 // A * indicates that this symbol has yet to be implemented in WebKit.
 
-let device, context, verticesBuffer, mappedTransformArray, uniformsBindGroup, pipeline, renderPassDescriptor, queue;
+let device, context, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor, queue;
 let projectionMatrix = mat4.create();
 
 const vertexSize = 4 * 8;
 const verticesSize = vertexSize * 36;
 const colorOffset = 4 * 4;
 function populateVerticesArray(array) {
-    const vertexData = [
+    array.set([
         // float4 position, float4 color
         1, -1, 1, 1, 1, 0, 1, 1,
         -1, -1, 1, 1, 0, 0, 1, 1,
@@ -98,26 +98,7 @@ function populateVerticesArray(array) {
         1, 1, -1, 1, 1, 1, 0, 1,
         1, -1, -1, 1, 1, 0, 0, 1,
         -1, 1, -1, 1, 0, 1, 0, 1,
-    ];
-
-    for (let i = 0; i < vertexData.length; ++i) {
-        array[i] = vertexData[i];
-    }
-}
-
-const transformSize = 4 * 16;
-function populateTransformArray(array) {
-    let viewMatrix = mat4.create();
-    mat4.translate(viewMatrix, viewMatrix, vec3.fromValues(0, 0, -5));
-    let now = Date.now() / 1000;
-    mat4.rotate(viewMatrix, viewMatrix, 1, vec3.fromValues(Math.sin(now), Math.cos(now), 0));
-
-    let modelViewProjectionMatrix = mat4.create();
-    mat4.multiply(modelViewProjectionMatrix, projectionMatrix, viewMatrix);
-
-    for (let i = 0; i < 16; i++) {
-        array[i] = modelViewProjectionMatrix[i];
-    }
+    ]);
 }
 
 async function init() {
@@ -143,14 +124,11 @@ async function init() {
     const shaderModuleDescriptor = { code: shader };
     const shaderModule = device.createShaderModule(shaderModuleDescriptor);
 
-    // Unfinished buffer uploading. Will be updated to match the model detailed in https://github.com/gpuweb/gpuweb/pull/147.
     const verticesBufferDescriptor = { 
         size: verticesSize, 
-        usage: WebGPUBufferUsage.VERTEX 
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.MAP_WRITE
     };
     verticesBuffer = device.createBuffer(verticesBufferDescriptor);
-    const mappedArray = new Float32Array(verticesBuffer.mapping);
-    populateVerticesArray(mappedArray);
 
     // Input state. Model will change soon to adopt one of https://github.com/kainino0x/gpuweb/pull/2/'s ideas.
     const positionAttributeDescriptor = {
@@ -176,13 +154,7 @@ async function init() {
         inputs: [vertexBufferDescriptor]
     };
 
-    // Bind gropup resource buffers
-    const transformBufferDescriptor = { 
-        size: transformSize, 
-        usage:WebGPUBufferUsage.UNIFORM 
-    };
-    const transformBuffer = device.createBuffer(transformBufferDescriptor);
-    mappedTransformArray = new Float32Array(transformBuffer.mapping);
+    // Bind group binding layout
 
     const transformBufferBindGroupLayoutBinding = {
         binding: 0, // id[[(0)]]
@@ -193,23 +165,7 @@ async function init() {
     const uniformsBindGroupLayoutDescriptor = { 
         bindings: [transformBufferBindGroupLayoutBinding] 
     };
-    const uniformsBindGroupLayout = device.createBindGroupLayout(uniformsBindGroupLayoutDescriptor);
-
-    const transformBufferBinding = {
-        buffer: transformBuffer,
-        offset: 0,
-        size: transformSize
-    };
-    const transformBufferBindGroupBinding = {
-        binding: 0,
-        resource: transformBufferBinding
-    };
-
-    const uniformsBindGroupDescriptor = { 
-        layout: uniformsBindGroupLayout, 
-        bindings: [transformBufferBindGroupBinding] 
-    };
-    uniformsBindGroup = device.createBindGroup(uniformsBindGroupDescriptor);
+    uniformsBindGroupLayout = device.createBindGroupLayout(uniformsBindGroupLayoutDescriptor);
 
     const depthStateDescriptor = {
         depthWriteEnabled: true,
@@ -282,28 +238,89 @@ async function init() {
 
     queue = device.getQueue();
 
-    render();
+    verticesBuffer.mapWriteAsync().then(arrayBuffer => {
+        populateVerticesArray(new Float32Array(arrayBuffer));
+
+        verticesBuffer.unmap();
+
+        render();
+    });
 }
 
+/* Transform Buffers and Bindings */
+const transformSize = 4 * 16;
+function updateTransformArray(array) {
+    let viewMatrix = mat4.create();
+    mat4.translate(viewMatrix, viewMatrix, vec3.fromValues(0, 0, -5));
+    let now = Date.now() / 1000;
+    mat4.rotate(viewMatrix, viewMatrix, 1, vec3.fromValues(Math.sin(now), Math.cos(now), 0));
+    let modelViewProjectionMatrix = mat4.create();
+    mat4.multiply(modelViewProjectionMatrix, projectionMatrix, viewMatrix);
+    for (let i = 0; i < 16; i++) {
+        array[i] = modelViewProjectionMatrix[i];
+    }
+}
+
+const transformBufferDescriptor = {
+    size: transformSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.MAP_WRITE
+};
+
+function createTransformBindGroupDescriptor(transformBuffer) {
+    const transformBufferBinding = {
+        buffer: transformBuffer,
+        offset: 0,
+        size: transformSize
+    };
+    const transformBufferBindGroupBinding = {
+        binding: 0,
+        resource: transformBufferBinding
+    };
+    return {
+        layout: uniformsBindGroupLayout,
+        bindings: [transformBufferBindGroupBinding]
+    };
+}
+
+let mappedGroups = [];
+
 function render() {
-    populateTransformArray(mappedTransformArray);
+    if (mappedGroups.length == 0) {
+        const buffer = device.createBuffer(transformBufferDescriptor);
+        buffer.mapWriteAsync().then(arrayBuffer => {
+            const group = device.createBindGroup(createTransformBindGroupDescriptor(buffer));
+
+            let mappedGroup = { buffer: buffer, arrayBuffer: arrayBuffer, bindGroup: group };
+            drawCommands(mappedGroup);
+        });
+    } else
+        drawCommands(mappedGroups.shift());
+}
+
+function drawCommands(mappedGroup) {
+    updateTransformArray(new Float32Array(mappedGroup.arrayBuffer));
+    mappedGroup.buffer.unmap();
 
     const commandBuffer = device.createCommandBuffer();
     renderPassDescriptor.colorAttachments[0].attachment = context.getNextTexture().createDefaultTextureView();
     const passEncoder = commandBuffer.beginRenderPass(renderPassDescriptor);
-
     // Encode drawing commands.
     passEncoder.setPipeline(pipeline);
     // Vertex attributes
     passEncoder.setVertexBuffers(0, [verticesBuffer], [0]);
     // Bind groups
-    passEncoder.setBindGroup(0, uniformsBindGroup);
-    
+    passEncoder.setBindGroup(0, mappedGroup.bindGroup);
     passEncoder.draw(36, 1, 0, 0);
-
     const endCommandBuffer = passEncoder.endPass();
+
     queue.submit([endCommandBuffer]);
     context.present();
+
+    // Ready the current buffer for update after GPU is done with it.
+    mappedGroup.buffer.mapWriteAsync().then((arrayBuffer) => {
+        mappedGroup.arrayBuffer = arrayBuffer;
+        mappedGroups.push(mappedGroup);
+    });
 
     requestAnimationFrame(render);
 }
