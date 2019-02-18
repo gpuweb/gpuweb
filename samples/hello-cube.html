@@ -81,17 +81,15 @@ const vertexArray = new Float32Array([
     -1, 1, -1, 1, 0, 1, 0, 1,
 ]);
 
-let device, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor, queue;
-let projectionMatrix = mat4.create();
-
 async function init() {
     /* Context, Device, SwapChain */
     const adapter = await gpu.requestAdapter();
-    device = adapter.createDevice();
+    const device = adapter.createDevice();
 
     const canvas = document.querySelector('canvas');
 
     const aspect = Math.abs(canvas.width / canvas.height);
+    let projectionMatrix = mat4.create();
     mat4.perspective(projectionMatrix, (2 * Math.PI) / 5, aspect, 1, 100.0);
 
     const context = canvas.getContext('gpu');
@@ -111,7 +109,7 @@ async function init() {
         size: vertexArray.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.TRANSFER_DST
     };
-    verticesBuffer = device.createBuffer(verticesBufferDescriptor);
+    const verticesBuffer = device.createBuffer(verticesBufferDescriptor);
     verticesBuffer.setSubData(0, vertexArray.buffer);
 
     /* Input State */
@@ -145,14 +143,14 @@ async function init() {
     const uniformsBindGroupLayoutDescriptor = {
         bindings: [transformBufferBindGroupLayoutBinding]
     };
-    uniformsBindGroupLayout = device.createBindGroupLayout(uniformsBindGroupLayoutDescriptor);
+    const uniformsBindGroupLayout = device.createBindGroupLayout(uniformsBindGroupLayoutDescriptor);
 
+    /* Render Pipeline */
     const depthStateDescriptor = {
         depthWriteEnabled: true,
         depthCompare: "less"
     };
 
-    /* Render Pipeline */
     const vertexStageDescriptor = {
         module: shaderModule,
         entryPoint: "vertex_main"
@@ -171,7 +169,7 @@ async function init() {
         depthStencilState: depthStateDescriptor,
         inputState: inputStateDescriptor
     };
-    pipeline = device.createRenderPipeline(pipelineDescriptor);
+    const pipeline = device.createRenderPipeline(pipelineDescriptor);
 
     /* Renderpass Attachments */
     let colorAttachment = {
@@ -194,7 +192,7 @@ async function init() {
         mipLevelCount: 1,
         sampleCount: 1,
         dimension: "2d",
-        format: "d32-float-s8-uint",
+        format: "depth32float",
         usage: GPUTextureUsage.OUTPUT_ATTACHMENT
     };
 
@@ -209,19 +207,19 @@ async function init() {
         clearDepth: 1.0
     };
 
-    renderPassDescriptor = {
+    const renderPassDescriptor = {
         colorAttachments: [colorAttachment],
         depthStencilAttachment: depthAttachment
     };
 
-    queue = device.getQueue();
+    const queue = device.getQueue();
 
-    render();
+    render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor, queue);
 }
 
 /* Transform Buffers and Bindings */
 const transformSize = 4 * 16;
-function updateTransformArray(array) {
+function updateTransformArray(array, projectionMatrix) {
     let viewMatrix = mat4.create();
     mat4.translate(viewMatrix, viewMatrix, vec3.fromValues(0, 0, -5));
     let now = Date.now() / 1000;
@@ -258,16 +256,9 @@ function createTransformBindGroupDescriptor(transformBuffer) {
     };
 }
 
-class MappedBufferBindGroup {
-    constructor(buffer, arrayBuffer, bindGroup) {
-        this.buffer = buffer;
-        this.arrayBuffer = arrayBuffer;
-        this.bindGroup = bindGroup;
-    }
-}
 const mappedGroups = [];
 
-function render() {
+function render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor, queue) {
     let mappedGroup;
 
     if (mappedGroups.length == 0) {
@@ -275,11 +266,11 @@ function render() {
         const { buffer, arrayBuffer } = device.createMappedBuffer(transformBufferDescriptor);
         const bindGroup = device.createBindGroup(createTransformBindGroupDescriptor(buffer));
 
-        mappedGroup = new MappedBufferBindGroup(buffer, arrayBuffer, bindGroup);
+        mappedGroup = { buffer, arrayBuffer, bindGroup };
     } else
         mappedGroup = mappedGroups.shift();
 
-    updateTransformArray(mappedGroup.arrayBuffer);
+    updateTransformArray(mappedGroup.arrayBuffer, projectionMatrix);
     mappedGroup.buffer.unmap();
 
     const commandEncoder = device.createCommandEncoder();
