@@ -66,6 +66,7 @@ dictionary GPUBufferDescriptor {
 
 interface GPUBuffer {
     void setSubData(u32 offset, ArrayBuffer data);
+    Promise<ArrayBuffer> getSubData(u32 offset, u32 length);
 
     Promise<ArrayBuffer> mapReadAsync();
     Promise<ArrayBuffer> mapWriteAsync();
