@@ -6,26 +6,25 @@ However, this would introduce a lot of synchronization points for multi-threaded
 There are a number of cases that developers or applications need error handling for:
 
  - *Debugging*: Getting errors synchronously during development, to break in to the debugger.
+ - *Fallible Allocation*: Making fallible resource allocations (detecting out-of-memory).
+ - *Testing*: Checking success of WebGPU calls, for conformance testing or application unit testing.
  - *Telemetry*: Collecting error logs in deployment, for bug reporting and telemetry.
- - *Recovery*: Recovering from recoverable errors (like out-of-memory on resource creation).
  - *Fallback*: Tearing down the application and falling back, e.g. to WebGL, 2D Canvas, or static content.
 
 Meanwhile, error handling should not make the API clunky to use.
 
-There are several types of WebGPU calls that get their errors handled differently:
-
- - *Creation*: WebGPU Object creation.
- - *Encoding*: Recording of GPU commands in `GPUCommandEncoder`.
- - *Operations*: Other API calls, such as `GPUQueue.submit`.
-
 ## *Debugging*: Dev Tools
 
-Implementations should provide a way to enable synchronous validation, for example via a debug shim or via the developer tools.
+Implementations should provide a way to enable synchronous validation, for example via a "break on WebGPU error" option in the developer tools.
 The extra overhead needs to be low enough that applications can still run while being debugged.
 
 ## *Telemetry*: Validation Error Logging
 
 Logging of validation errors (which includes errors caused by using objects that are invalid for any reason).
+
+This mechanism is like a programmatic way to access the warnings that appear in the developer tools.
+Errors reported via the validation error event *should* also appear in the developer tools console as warnings (like in WebGL).
+However, some developer tools warnings might not necessarily fire the event, and message could be different (e.g. some details omitted for security).
 
 ```webidl
 [
@@ -80,90 +79,244 @@ device.addEventListener('validationerror', (event) => {
 });
 ```
 
-## Object Creation
+## Object and Operation Status
+
+### Internal Nullability
 
 WebGPU objects are opaque handles.
 On creation, such a handle is "pending" until the backing object is created by the implementation.
 After that, a handle may refer to a successfully created object (called a "valid object"), or an error that occured during creation (called an "invalid object").
 
-When a WebGPU object handle is passed to an operation, the object will resolve (to "valid" or "invalid") before it is actually used by that operation.
+When a WebGPU object handle is passed to a WebGPU API call, the object must resolve (to "valid" or "invalid") before the implementation can perform validation on that call.
 
-### Error propagation of invalid objects
+### Categories of WebGPU Calls
 
-Using any invalid object in a WebGPU operation produces a validation error.
-The effect of an error depends on the type of a call:
+Each category of WebGPU call has its errors handled in a different way.
 
- - For object creation, the call produces a new invalid object.
- - For `GPUCommandEncoder` encoding methods, the `GPUCommandEncoder.finishEncoding` method will return an invalid object.
- - For other WebGPU calls, the call becomes a no-op.
+#### Initialization
 
-In each case, an error is logged to the error log.
+Creation of the adapter and device.
 
-## *Recovery*: Recoverable Errors
+  - `gpu.requestAdapter`
+  - `GPUAdapter.requestDevice`
 
-Recoverable errors are produced only by object creation.
-The status of an object can be retrieved asynchronously (see next section).
+Handled by "Fatal Errors" above.
 
-```
-enum GPUObjectStatus {
-    // The object is valid.
-    "valid",
-    // The object is invalid due to a non-fatal allocation failure.
-    // The application can use this as a signal to scale back resource usage, if possible.
-    "out-of-memory",
-    // The object is invalid for another, unrecoverable reason.
-    "invalid",
+#### Object-Returning
+
+WebGPU Object creation and getters.
+
+  - `GPUDevice.create*`
+  - `GPUTexture.create*View`
+  - `GPUCommandEncoder.finish`
+  - `GPUDevice.getQueue`
+  - `GPUSwapChain.getCurrentTexture`
+
+If there is an error, the returned object is invalid.
+
+See "Object Status" below.
+
+#### Object-Promise-Returning*
+
+Async WebGPU Object creation.
+
+  - `GPUDevice.createReady*`
+  - `GPUDevice.createBufferMappedAsync`
+
+If there is an error, either the returned object is invalid, or the Promise rejects.
+
+See "Object Status" below.
+
+#### Encoding
+
+Recording of GPU commands in `GPUCommandEncoder`.
+
+  - `GPU*Encoder.*`
+
+These commands do not report errors.
+Instead, any error is reported by `GPUCommandEncoder.finish`.
+
+#### Other-Promise-Returning
+
+  - `GPUDevice.getSwapChainPreferredFormat`
+  - `GPUFence.onCompletion`
+  - `GPUBuffer.mapReadAsync`
+  - `GPUBuffer.mapWriteAsync`
+
+If there is an error, the returned Promise rejects.
+
+#### Void-Returning
+
+  - `GPUQueue.submit`
+  - `GPUQueue.signal`
+  - `GPUBuffer.setSubData`
+  - `GPUBuffer.unmap`
+  - `GPUBuffer.destroy`
+  - `GPUTexture.destroy`
+  - `GPUFence.getCompletedValue`
+
+See "Operation Status" below.
+
+## Object Status
+
+As described above, objects may be internally "valid" or "invalid".
+For testing, it is necessary to be able to inspect this status.
+Through this mechanism, allocation failure ("out-of-memory") can also be expressed.
+
+Object status can be queried with `getStatus`.
+`getStatus` returns a Promise which resolves to a `GPUObjectStatus` object that reports the status of the object.
+`GPUObjectStatus` includes a `type`, which describes the general category of error, as well as a `message` (an implementation-defined human-readable message string about the error).
+
+`getStatus` rejects if the device is lost.
+
+```webidl
+enum GPUErrorType {
+    "invalid-object", // `this` or an object argument was invalid.
+    "invalid-value",  // A non-object argument was wrong (out of range, or invalid enum).
+    "invalid-state",  // `this` or an object argument was in a wrong state (e.g. mapped).
+    // TODO: more?
+    "out-of-memory"   // An allocation failed nonfatally.
 };
-```
 
-(Note that object creation failures always send an error to the error log, regardless of the object type or the type of failure.)
+interface GPUObjectStatus {
+    readonly attribute boolean valid;
 
-If an application uses recoverable allocation, the implementation will still generate error log entries:
-a `"recoverable-out-of-memory"` error for the object creation, and `"validation-error"`s for any subsequent uses of the invalid object.
-The application may need to understand whether such error log entries were part of a recovered allocation (e.g. to avoid sending telemetry for those errors).
-To facilitate this filtering, the handle to the invalid object (including "expando" JavaScript properties) is attached to the error log entry (see above).
+    // These are only set if valid == false.
+    readonly attribute GPUErrorType? type;
+    readonly attribute DOMString? message;
+};
 
-### Recoverable errors in object creation
-
-A recoverable error is exposed as a `GPUObjectStatusQuery`.
-
-```
-// (Exact form/type subject to change.)
-typedef Promise<GPUObjectStatus> GPUObjectStatusQuery;
-
-typedef (GPUBuffer or GPUTexture) StatusableObject;
+typedef (GPUBindGroup
+      or GPUBindGroupLayout
+      or GPUBuffer
+      or GPUCommandBuffer
+      or GPUCommandEncoder
+      or GPUComputePipeline
+      or GPUFence
+      or GPUPipelineLayout
+      or GPUProgrammablePassEncoder
+      or GPUQueue
+      or GPURenderPipeline
+      or GPUSampler
+      or GPUShaderModule
+      or GPUSwapChain
+      or GPUTexture
+      or GPUTextureView) GPUStatusableObject;
 
 partial interface GPUDevice {
-    GPUObjectStatusQuery getObjectStatus(StatusableObject object);
+    Promise<GPUObjectStatus> getObjectStatus(GPUStatusableObject object);
 };
 ```
 
-A concrete example: When creating a buffer, the following logic applies:
+#### Alternatives
 
- - `createBuffer` returns a `GPUBuffer` object `buffer` immediately.
- - A `GPUObjectStatusQuery` can be obtained by calling `device.getObjectStatus(buffer)`.
-   At a later time, that query resolves to a `GPUObjectStatus` that is one of:
-    - Creation succeeded (`"valid"`).
-    - Creation encountered a recoverable error (`"out-of-memory"`).
-      (The application can then choose to retry a smaller allocation of a *new* `GPUBuffer`.)
-    - Creation encountered another type of error out of the control of the application (`"invalid"`).
+- Instead of `device.getStatus(obj)`, have `obj.getStatus()`. Con: Pollutes objects with rarely-used methods. Pro: Maybe slightly more clear to users.
 
-Regardless of any recovery efforts the application makes, if creation fails,
-the resulting object is invalid (and subject to error propagation).
+- The Promise could reject if the object is invalid. Con: Promises can only reject to DOMExceptions, meaning we have to express error categories via established DOMException error codes. (Also not sure if DOMException allows custom `message`s.)
 
-Checking the status of a `GPUBuffer` or `GPUTexture` is **not** required.
-It is only necessary if an application wishes to recover from recoverable errors such as out of memory.
-(If it does, it is responsible for avoiding using the invalid object.)
+### Operation Status
+
+For the "Void-Returning" operations, errors are reported via `getLastOperationStatus()`.
+
+  - `GPUQueue.submit`
+  - `GPUQueue.signal`
+  - `GPUBuffer.setSubData`
+  - `GPUBuffer.unmap`
+  - `GPUBuffer.destroy`
+  - `GPUTexture.destroy`
+  - `GPUFence.getCompletedValue` (never fails)
+
+`device.getLastOperationStatus()` always resolves to the status of the most recent void-returning operation.
+If called multiple times in a row, it returns the same result (but not the same object).
+
+`getLastOperationStatus` returns a Promise that resolves to a `GPUOperationStatus` object describing the status of the last operation on this object.
+`GPUOperationStatus` includes a `type`, which describes the general category of error, as well as a `message` (an implementation-defined human-readable message string about the error).
+
+`getStatus` rejects if the device is lost.
+
+```webidl
+interface GPUOperationStatus {
+    readonly attribute boolean succeeded;
+
+    // These are only set if succeeded == false.
+    readonly attribute GPUErrorType? type;
+    readonly attribute DOMString? message;
+};
+
+partial interface GPUDevice {
+    Promise<GPUOperationStatus> getLastOperationStatus();
+};
+```
+
+#### Alternatives
+
+  - `{GPUQueue,GPUBuffer,GPUTexture}.getLastOperationStatus`: the same but per-object.
+    Cons: pollutes objects with rarely used methods; requires each object to keep data for its last operation status.
+    Pro: associated with the object that had the error.
+
+  - `getOperationStatuses`: returns a sequence of statuses for past operations.
+    Con: sequence will grow unboundedly unless there is some arbitrary limit.
+
+  - Change void-returning operations to return Promise<void>.
+    Con: creates too much garbage.
+
+## *Testing*
+
+When testing object-returning methods, `getStatus`'s returned status is used.
+
+```js
+const buffer = device.createBuffer({size: -1});
+const status = await buffer.getStatus();
+expect(!status.valid);
+expect(status.type === 'invalid-value');
+
+await loseDevice(device); // (implemented somehow)
+buffer.getStatus().then(testFailed, testPassed); // should reject
+```
+
+When testing void-returning methods, `getLastOperationStatus`'s returned status is used.
+
+```js
+buffer.unmap()
+const status = await device.getLastOperationStatus();
+expect(!status.succeeded);
+expect(status.type === 'invalid-state');
+
+await loseDevice(device); // (implemented somehow)
+device.getLastOperationStatus().then(testFailed, testPassed); // should reject
+```
+
+When testing promise-returning methods, the promise's resolve/reject state is used.
+
+```js
+buffer.mapWriteAsync().then(testFailed, testPassed); // should reject
+```
+
+## *Fallible Allocation*
+
+On failure to allocate, `buffer.getStatus` or `texture.getStatus` returns a status with type `"out-of-memory"`.
+The application can detect this and use it as a signal to reallocate.
+
+`"out-of-memory"` objects are special invalid objects.
+If an `"out-of-memory"` object is used (mapped, used as an argument, etc.), it signals that the application has not handled the out-of-memory case for this allocation.
+As a result, any such use results in device loss, so the application can fall back instead of breaking unpredictably.
+
+```js
+let buffer = device.createBuffer(desc); // If this fails, try again.
+const status = await buffer.getStatus();
+if (status.type === 'out-of-memory') {
+  freeSomeMemory();
+  buffer = device.createBuffer(desc); // If this fails, return an out-of-memory
+                                      // object which results in device loss and fallback.
+}
+```
 
 ## Open Questions and Considerations
 
- - WebGPU could guarantee that objects such as `GPUQueue` and `GPUFence` can never be errors.
-   If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for an invalid `GPUBuffer`.
-
  - Should developers be able to self-impose a memory limit (in order to emulate lower-memory devices)?
-   Should implementations automatically impose a lower memory limit (to improve portability)?
+   Should implementations automatically impose a lower memory limit (to improve stability and portability)?
 
- - To help developers, `GPUValidationErrorEvent.message` could contain some sort of "stack trace" and could take advantage of debug name of objects if that's something that's present in WebGPU.
+ - To help developers, `GPUValidationErrorEvent.message` could contain some sort of "stack trace" and could take advantage of object debug labels.
    For example:
 
    ```
@@ -172,12 +325,15 @@ It is only necessary if an application wishes to recover from recoverable errors
    - <mesh3.indexBuffer> is invalid because it got an unsupported usage flag (0x89)
    ```
 
- - The exact shape of `GPUObjectStatusQuery` (currently `Promise<GPUObjectStatus>`) may piggy-back on the decision taken for `GPUFence`.
+ - How do applications handle the case where they've allocated a lot of optional memory, but want to make another required allocation (which could fail due to OOM)?
+   How do they know when to free an optional allocation first?
+    - For now, applications wanting to handle this kind of case must always use fallible allocations.
+    - (We will likely improve this with a `GPUResourceHeap`, once we figure out what that looks like.)
+
+ - Should attempting to use a buffer or texture in the `"out-of-memory"` state (a) result in immediate device loss, (b) result in device loss when used in a device-level operation (submit, map, etc.), or (c) just produce a validation error?
+    - Currently described: (a)
 
 ## Resolved Questions
-   
- - Should there be a mode/flag which causes OOM errors to trigger context loss?
-    - Resolved: Not necessary, since an application can manually destroy the context based on entries in the error log.
 
  - In a world with persistent object "usage" state:
    If an invalid command buffer is submitted, and its transitions becomes no-ops, the usage state won't update.
@@ -187,3 +343,11 @@ It is only necessary if an application wishes to recover from recoverable errors
  - Should an object creation error immediately log an error to the error log?
    Or should it only log if the error propagates to a device-level operation?
     - Tentatively resolved: errors should be logged immediately.
+
+ - Should applications be able to intentionally create graphs of potentially-invalid objects, and recover from this late?
+   E.g. create a large buffer, create a bind group from that, create a command buffer from that, then choose whether to submit based on whether the buffer was successfully allocated.
+    - For non-OOM, tentatively resolved: They can, but it is not useful, and they will incur a lot of validation log events by doing so.
+    - For OOM, see other question about OOM.
+
+ - Should there be an API to query object status?
+    - Resolved: Yes. It is needed for testing.

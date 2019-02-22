@@ -22,7 +22,7 @@ dictionary GPUExtent3D {
 };
 
 // ****************************************************************************
-// ERROR HANDLING
+// VALIDATION ERROR EVENTS (telemetry)
 // ****************************************************************************
 
 [
@@ -785,8 +785,6 @@ interface GPUDevice {
 
     GPUQueue getQueue();
 
-    GPUObjectStatusQuery getObjectStatus(GPUStatusableObject statusableObject);
-
     Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUCanvasContext context);
 };
 
@@ -817,6 +815,59 @@ dictionary GPURequestAdapterOptions {
 [Exposed=Window]
 namespace gpu {
     Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
+};
+
+// ****************************************************************************
+// OBJECT STATUS & OPERATION STATUS
+// ****************************************************************************
+
+enum GPUErrorType {
+    "invalid-object", // `this` or an object argument was invalid.
+    "invalid-value",  // A non-object argument was wrong (out of range, or invalid enum).
+    "invalid-state",  // `this` or an object argument was in a wrong state (e.g. mapped).
+    // TODO: more?
+    "out-of-memory"   // An allocation failed nonfatally.
+};
+
+interface GPUObjectStatus {
+    readonly attribute boolean valid;
+
+    // These are only set if valid == false.
+    readonly attribute GPUErrorType? type;
+    readonly attribute DOMString? message;
+};
+
+typedef (GPUBindGroup
+      or GPUBindGroupLayout
+      or GPUBuffer
+      or GPUCommandBuffer
+      or GPUCommandEncoder
+      or GPUComputePipeline
+      or GPUFence
+      or GPUPipelineLayout
+      or GPUProgrammablePassEncoder
+      or GPUQueue
+      or GPURenderPipeline
+      or GPUSampler
+      or GPUShaderModule
+      or GPUSwapChain
+      or GPUTexture
+      or GPUTextureView) GPUStatusableObject;
+
+partial interface GPUDevice {
+    Promise<GPUObjectStatus> getObjectStatus(GPUStatusableObject object);
+};
+
+interface GPUOperationStatus {
+    readonly attribute boolean succeeded;
+
+    // These are only set if succeeded == false.
+    readonly attribute GPUErrorType? type;
+    readonly attribute DOMString? message;
+};
+
+partial interface GPUDevice {
+    Promise<GPUOperationStatus> getLastOperationStatus();
 };
 
 // ****************************************************************************
