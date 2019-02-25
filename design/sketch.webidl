@@ -335,13 +335,16 @@ enum GPUCullMode {
     "back"
 };
 
+dictionary GPUDepthBiasDescriptor {
+    i32 offset;
+    float slopeScale;
+    float clamp;
+};
+
 dictionary GPURasterizationStateDescriptor {
     GPUFrontFace frontFace;
     GPUCullMode cullMode;
-
-    i32 depthBias;
-    float depthBiasSlopeScale;
-    float depthBiasClamp;
+    GPUDepthBiasDescriptor depthBias;
 };
 
 // BlendState
