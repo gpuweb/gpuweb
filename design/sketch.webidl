@@ -833,14 +833,21 @@ interface mixin GPUDebugLabel {
     attribute DOMString label;
 };
 
+GPUBindGroup includes GPUDebugLabel;
+GPUBindGroupLayout includes GPUDebugLabel;
+GPUBuffer includes GPUDebugLabel;
 GPUCommandBuffer includes GPUDebugLabel;
 GPUCommandEncoder includes GPUDebugLabel;
 GPUComputePipeline includes GPUDebugLabel;
 GPUFence includes GPUDebugLabel;
+GPUPipelineLayout includes GPUDebugLabel;
 GPUProgrammablePassEncoder includes GPUDebugLabel;
 GPUQueue includes GPUDebugLabel;
 GPURenderPipeline includes GPUDebugLabel;
+GPUSampler includes GPUDebugLabel;
 GPUShaderModule includes GPUDebugLabel;
+GPUTexture includes GPUDebugLabel;
+GPUTextureView includes GPUDebugLabel;
 
 partial dictionary GPUCommandEncoderDescriptor {
     DOMString label;
