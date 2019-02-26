@@ -60,12 +60,12 @@ interface GPUBufferUsage {
 };
 
 dictionary GPUBufferDescriptor {
-    u32 size;
+    u64 size;
     GPUBufferUsageFlags usage;
 };
 
 interface GPUBuffer {
-    void setSubData(u32 offset, ArrayBuffer data);
+    void setSubData(u64 offset, ArrayBuffer data);
 
     Promise<ArrayBuffer> mapReadAsync();
     Promise<ArrayBuffer> mapWriteAsync();
@@ -300,8 +300,8 @@ interface GPUPipelineLayout {
 // BindGroup
 dictionary GPUBufferBinding {
     GPUBuffer buffer;
-    u32 offset;
-    u32 size;
+    u64 offset;
+    u64 size;
 };
 
 typedef (GPUSampler or GPUTextureView or GPUBufferBinding) GPUBindingResource;
@@ -506,13 +506,13 @@ enum GPUInputStepMode {
 dictionary GPUVertexAttributeDescriptor {
     u32 shaderLocation;
     u32 inputSlot;
-    u32 offset;
+    u64 offset;
     GPUVertexFormat format;
 };
 
 dictionary GPUVertexInputDescriptor {
     u32 inputSlot;
-    u32 stride;
+    u64 stride;
     GPUInputStepMode stepMode;
 };
 
@@ -591,7 +591,7 @@ interface GPUProgrammablePassEncoder {
     void endPass();
 
     // Allowed in both compute and render passes
-    void setBindGroup(u32 index, GPUBindGroup bindGroup, optional sequence<u32> dynamicOffsets);
+    void setBindGroup(u32 index, GPUBindGroup bindGroup, optional sequence<u64> dynamicOffsets);
     void setPipeline((GPUComputePipeline or GPURenderPipeline) pipeline);
 };
 
@@ -606,8 +606,8 @@ interface GPURenderPassEncoder : GPUProgrammablePassEncoder {
     // Width and height must be greater than 0. Otherwise, an error will be generated.
     void setScissorRect(u32 x, u32 y, u32 width, u32 height);
 
-    void setIndexBuffer(GPUBuffer buffer, u32 offset);
-    void setVertexBuffers(u32 startSlot, sequence<GPUBuffer> buffers, sequence<u32> offsets);
+    void setIndexBuffer(GPUBuffer buffer, u64 offset);
+    void setVertexBuffers(u32 startSlot, sequence<GPUBuffer> buffers, sequence<u64> offsets);
 
     void draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance);
     void drawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, i32 baseVertex, u32 firstInstance);
@@ -659,8 +659,8 @@ dictionary GPURenderPassDescriptor {
 
 dictionary GPUBufferCopyView {
     GPUBuffer buffer;
-    u32 offset;
-    u32 rowPitch;
+    u64 offset;
+    u64 rowPitch;
     u32 imageHeight;
 };
 
@@ -681,10 +681,10 @@ interface GPUCommandEncoder {
     // Commands allowed outside of "passes"
     void copyBufferToBuffer(
         GPUBuffer src,
-        u32 srcOffset,
+        u64 srcOffset,
         GPUBuffer dst,
-        u32 dstOffset,
-        u32 size);
+        u64 dstOffset,
+        u64 size);
 
     void copyBufferToTexture(
         GPUBufferCopyView source,
