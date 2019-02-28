@@ -187,17 +187,16 @@ enum GPUTextureViewDimension {
     "3d"
 };
 
-typedef u32 GPUTextureAspectFlags;
-interface GPUTextureAspect {
-    const u32 COLOR = 1;
-    const u32 DEPTH = 2;
-    const u32 STENCIL = 4;
+enum GPUTextureAspect {
+    "all",
+    "stencil-only",
+    "depth-only"
 };
 
 dictionary GPUTextureViewDescriptor {
     GPUTextureFormat format;
     GPUTextureViewDimension dimension;
-    GPUTextureAspectFlags aspect;
+    GPUTextureAspect aspect;
     u32 baseMipLevel;
     u32 mipLevelCount;
     u32 baseArrayLayer;
