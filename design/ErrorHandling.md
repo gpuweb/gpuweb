@@ -8,7 +8,7 @@ There are a number of cases that developers or applications need error handling 
  - *Debugging*: Getting errors synchronously during development, to break in to the debugger.
  - *Telemetry*: Collecting error logs in deployment, for bug reporting and telemetry.
  - *Recovery*: Recovering from recoverable errors (like out-of-memory on resource creation).
- - *Fallback*: Tearing down the application and falling back, e.g. to WebGL, 2D Canvas, or static content.
+ - *Fatal Errors*: Handling device/adapter loss, either by restoring WebGPU or by fallback to non-WebGPU content.
 
 Meanwhile, error handling should not make the API clunky to use.
 
@@ -22,6 +22,147 @@ There are several types of WebGPU calls that get their errors handled differentl
 
 Implementations should provide a way to enable synchronous validation, for example via a debug shim or via the developer tools.
 The extra overhead needs to be low enough that applications can still run while being debugged.
+
+## *Fatal Errors*: Lost/Recovered Events
+
+<!-- calling this revision 6 -->
+
+```webidl
+interface GPUDeviceLostInfo {
+    readonly attribute DOMString message;
+};
+
+partial interface GPUDevice {
+    readonly attribute Promise<GPUDeviceLostInfo> lost;
+};
+```
+
+`GPUAdapter.requestDevice` requests a device from the adapter.
+It returns a Promise which resolves when a device is ready.
+The Promise may not resolve for a long time - it resolves when the browser is ready for the application to bring up (or restore) its content.
+If the adapter is unable to create a device (i.e. because the adapter was lost), the Promise rejects.
+
+The `GPUDevice` may be lost if something goes fatally wrong on the device (e.g. unexpected out-of-memory, crash, or native device loss).
+The `GPUDevice` provides a promise, `device.lost`, which resolves when the device is lost.
+It will **never** reject and may be pending forever.
+
+Once `lost` resolves, the `GPUDevice` cannot be used anymore.
+The device and all objects created from the device have become invalid.
+All further operations on the device and its objects are errors.
+The `"validationerror"` event will no longer fire. (This makes all further operations no-ops.)
+
+### Example Code
+
+```js
+class MyRenderer {
+  constructor() {
+    this.adapter = null;
+    this.device = null;
+  }
+  async begin() {
+    try {
+      await this.initWebGPU();
+    } catch (e) {
+      console.error(e);
+      this.initFallback();
+    }
+  }
+  async initWebGPU() {
+    await this.ensureDevice();
+    // ... Upload resources, etc.
+  }
+  initFallback() { /* try WebGL, 2D Canvas, or other fallback */ }
+  async ensureDevice() {
+    // Stop rendering. (If there was already a device, WebGPU calls made before
+    // the app notices the device is lost are okay - they are no-ops.)
+    this.device = null;
+
+    // Keep current adapter (but make a new one if there isn't a current one.)
+    // If we can't get an adapter, ensureDevice rejects and the app falls back.
+    await ensureAdapter();
+
+    try {
+      await ensureDeviceOnCurrentAdapter();
+      // Got a device.
+      return;
+    } catch (e) {
+      console.error("device request failed", e);
+      // That failed; try a new adapter entirely.
+      this.adapter = null;
+      // If we can't get a new adapter, it causes ensureDevice to reject and the app to fall back.
+      await ensureAdapter();
+      await ensureDeviceOnCurrentAdapter();
+    }
+  }
+  async ensureAdapter() {
+    if (!this.adapter) {
+      // If no adapter, get one.
+      // (If requestAdapter rejects, no matching adapter is available. Exit to fallback.)
+      this.adapter = await gpu.requestAdapter({ /* options */ });
+    }
+  }
+  async ensureDeviceOnCurrentAdapter() {
+    this.device = await this.adapter.requestDevice({ /* options */ });
+    this.device.lost.then((info) => {
+      // Device was lost.
+      console.error("device lost", info);
+      // Try to get a device again.
+      this.ensureDevice();
+    });
+  }
+}
+```
+
+### Case Studies
+
+*What signals should the app get, and when?*
+
+Two independent applications are running on the same webpage against two devices on the same adapter.
+The tab is in the background, and one device is using a lot of resources.
+ - The browser chooses to lose the heavier device.
+    - `device.lost` resolves, message = recovering device resources
+    - (App calls `createDevice` on any adapter, but it doesn't resolve yet.)
+ - Later, the browser might choose to lose the smaller device too.
+    - `device.lost` resolves, message = recovering device resources
+    - (App calls `createDevice` on any adapter, but it doesn't resolve yet.)
+ - Later, the tab is brought to the foreground. 
+    - Both `createDevice` Promises resolve.
+      (Unless the adapter was lost, in which case they would have rejected.)
+
+A page begins loading in a tab, but then the tab is backgrounded.
+ - On load, the page attempts creation of a device.
+    - `createDevice` Promise will resolve.
+
+A device's adapter is physically unplugged from the system (but an integrated GPU is still available).
+ - The same adapter, or a new adapter, is plugged back in.
+    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+
+An app is running on an integrated adapter.
+ - A new, discrete adapter is plugged in.
+    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+
+An app is running on a discrete adapter.
+ - The adapter is physically unplugged from the system. An integrated GPU is still available.
+    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapters` gives the new adapter.
+ - The same adapter, or a new adapter, is plugged back in.
+    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+
+The device is lost because of an unexpected error in the implementation.
+ - `device.lost` resolves, message = whatever the unexpected thing was.
+
+A TDR-like scenario occurs.
+ - The adapter is lost, which loses all devices on the adapter.
+   `device.lost` resolves on every device, message = adapter reset. Application must request adapter again.
+ - (TODO: alternatively, adapter could be retained, but all devices on it are lost.)
+
+All devices and adapters are lost (except for software?) because GPU access has been disabled by the browser (for this page or globally, e.g. due to unexpected GPU process crashes).
+ - `device.lost` resolves on every device, message = whatever
+
+WebGPU access has been disabled for the page.
+ - `requestAdapters` rejects (or returns a software adapter).
+
+The device is lost right as it's being returned by requestDevice.
+ - `device.lost` resolves.
 
 ## *Telemetry*: Validation Error Logging
 

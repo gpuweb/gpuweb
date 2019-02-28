@@ -25,6 +25,14 @@ dictionary GPUExtent3D {
 // ERROR HANDLING
 // ****************************************************************************
 
+interface GPUDeviceLostInfo {
+    readonly attribute DOMString message;
+};
+
+partial interface GPUDevice {
+    readonly attribute Promise<GPUDeviceLostInfo> lost;
+};
+
 [
     Constructor(DOMString type, GPUValidationErrorEventInit gpuValidationErrorEventInitDict),
     Exposed=Window
@@ -802,7 +810,8 @@ interface GPUAdapter {
     readonly attribute GPUExtensions extensions;
     //readonly attribute GPULimits limits; Don't expose higher limits for now.
 
-    GPUDevice createDevice(GPUDeviceDescriptor descriptor);
+    // May reject with DOMException  // TODO: DOMException("OperationError")?
+    Promise<GPUDevice> requestDevice(GPUDeviceDescriptor descriptor);
 };
 
 enum GPUPowerPreference {
@@ -816,6 +825,7 @@ dictionary GPURequestAdapterOptions {
 
 [Exposed=Window]
 namespace gpu {
+    // May reject with DOMException  // TODO: DOMException("OperationError")?
     Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
 };
 
