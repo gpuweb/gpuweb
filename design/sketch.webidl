@@ -715,7 +715,6 @@ dictionary GPUCommandEncoderDescriptor {
 // Fence
 
 dictionary GPUFenceDescriptor {
-    GPUQueue signalQueue = null;
     u64 initialValue = 0;
 };
 
@@ -727,6 +726,8 @@ interface GPUFence {
 // Queue
 interface GPUQueue {
     void submit(sequence<GPUCommandBuffer> buffers);
+
+    GPUFence createFence(GPUFenceDescriptor descriptor);
     void signal(GPUFence fence, u64 signalValue);
 };
 
@@ -777,7 +778,6 @@ interface GPUDevice {
     Promise<GPURenderPipeline> createReadyRenderPipeline(GPUPipelineDescriptor descriptor);
 
     GPUCommandEncoder createCommandEncoder(GPUCommandEncoderDescriptor descriptor);
-    GPUFence createFence(GPUFenceDescriptor descriptor);
 
     // Calling createSwapChain a second time for the same GPUCanvasContext
     // invalidates the previous one, and all of the textures it’s produced.
