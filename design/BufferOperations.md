@@ -3,7 +3,7 @@
 This explainer describes the operations that are available on the `GPUBuffer` object directly.
 They are `setSubData` which is an immediate data upload operation, and `mapWriteAsync`, `mapReadAsync` and `unmap` which are memory mapping operations.
 
-## Prelimineries: buffered / unbuffered commands
+## Preliminaries: buffered / unbuffered commands
 
 Assuming there is a single queue, there are two types of commands in WebGPU:
 
@@ -134,8 +134,8 @@ Using `GPUBuffer.setSubData` would look like this:
 ```js
 // device is a GPUDevice
 const myUBO = device.createBuffer({
-    "size":4 * 16,
-    "usage": GPUBufferUsage.TRANSFER_DST | GPUBufferUsage.UNIFORM
+    size: 4 * 16,
+    usage: GPUBufferUsage.TRANSFER_DST | GPUBufferUsage.UNIFORM
 });
 
 const uboData = Float32Array(some4x4Matrix);
@@ -148,8 +148,8 @@ Using `GPUBuffer.mapReadAsync` would look like this:
 
 ```js
 const readPixelsBuffer = device.createBuffer({
-    "size": 4,
-    "usage": GPUBufferUsage.MAP_READ | GPUBufferUsage.TRANSFER_DST,
+    size: 4,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.TRANSFER_DST,
 });
 
 // Commands copying a pixel from a texture into readPixelsBuffer are submitted
@@ -169,14 +169,14 @@ Using `GPUBuffer.mapWriteAsync` would look like this:
 const size = model.computeVertexBufferSize();
 
 const stagingVertexBuffer = device.createBuffer({
-    "size": size,
-    "usage": GPUBufferUsage.MAP_WRITE | GPUBufferUsage.TRANSFER_SRC,
+    size: size,
+    usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.TRANSFER_SRC,
 });
 
 stagingVertexBuffer.mapWriteAsync().then((stagingData) => {
     model.decompressVerticesIn(stagingData);
 
-    stagingvertexBuffer.unmap();
+    stagingVertexBuffer.unmap();
 
     // Enqueue copy from the staging buffer to the real vertex buffer.
 });
