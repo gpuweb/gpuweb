@@ -95,7 +95,7 @@ partial interface GPUBuffer {
 };
 ```
 
-Upon success the buffer is put in the unmapped state, its mapping detached or a pending mapping promise rejected.
+Upon success the buffer is put in the unmapped state. Any associated `ArrayBuffer`s are neutered, and any pending mapping promises are rejected.
 
 The following must be true or the unmapping call on `buffer` fails:
 
