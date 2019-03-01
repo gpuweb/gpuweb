@@ -792,7 +792,7 @@ interface GPUDevice {
 
 dictionary GPUDeviceDescriptor {
     GPUExtensions extensions;
-    //GPULimits limits; Don't expose higher limits for now.
+    GPULimits limits;
 
     // TODO are other things configurable like queues?
 };
