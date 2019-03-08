@@ -1,7 +1,7 @@
 # Error Handling
 
-The simplest design for error handling would be to do it synchronously, for example with Javascript exceptions and object creation returning `null`.
-However, this would introduce a lot of synchronization points for multi-threaded/multi-process WebGPU implementations, making it too slow to be useful.
+The simplest design for error handling would be synchronous, for example with Javascript exceptions.
+However, this would introduce a lot of round-trip synchronization points for multi-threaded/multi-process WebGPU implementations, making it too slow to be useful.
 
 There are a number of cases that developers or applications need error handling for:
 
@@ -20,7 +20,7 @@ There are several types of WebGPU calls that get their errors handled differentl
 
 ## *Debugging*: Dev Tools
 
-Implementations should provide a way to enable synchronous validation, for example via a debug shim or via the developer tools.
+Implementations should provide a way to enable synchronous validation, for example via a "break on WebGPU error" option in the developer tools.
 The extra overhead needs to be low enough that applications can still run while being debugged.
 
 ## *Fatal Errors*: Lost/Recovered Events
@@ -42,7 +42,7 @@ It returns a Promise which resolves when a device is ready.
 The Promise may not resolve for a long time - it resolves when the browser is ready for the application to bring up (or restore) its content.
 If the adapter is unable to create a device (i.e. because the adapter was lost), the Promise rejects.
 
-The `GPUDevice` may be lost if something goes fatally wrong on the device (e.g. unexpected out-of-memory, crash, or native device loss).
+The `GPUDevice` may be lost if something goes fatally wrong on the device (e.g. unexpected driver error, crash, or native device loss).
 The `GPUDevice` provides a promise, `device.lost`, which resolves when the device is lost.
 It will **never** reject and may be pending forever.
 
@@ -125,7 +125,7 @@ The tab is in the background, and one device is using a lot of resources.
  - Later, the browser might choose to lose the smaller device too.
     - `device.lost` resolves, message = recovering device resources
     - (App calls `createDevice` on any adapter, but it doesn't resolve yet.)
- - Later, the tab is brought to the foreground. 
+ - Later, the tab is brought to the foreground.
     - Both `createDevice` Promises resolve.
       (Unless the adapter was lost, in which case they would have rejected.)
 
@@ -302,21 +302,20 @@ It is only necessary if an application wishes to recover from recoverable errors
    If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for an invalid `GPUBuffer`.
 
  - Should developers be able to self-impose a memory limit (in order to emulate lower-memory devices)?
-   Should implementations automatically impose a lower memory limit (to improve portability)?
+   Should implementations automatically impose a lower memory limit (to improve stability and portability)?
 
- - To help developers, `GPUValidationErrorEvent.message` could contain some sort of "stack trace" and could take advantage of debug name of objects if that's something that's present in WebGPU.
+ - To help developers, should `GPUValidationErrorEvent.message` contain some sort of "stack trace" taking advantage of object debug labels?
    For example:
 
    ```
-   Failed <myQueue>.submit because commands[0] (<mainColorPass>) is invalid:
-   - <mainColorPass> is invalid because in setIndexBuffer, indexBuffer (<mesh3.indexBuffer>) is invalid
-   - <mesh3.indexBuffer> is invalid because it got an unsupported usage flag (0x89)
+   <myQueue>.submit failed:
+   - commands[0] (<mainColorPass>) was invalid:
+   - in setIndexBuffer, indexBuffer (<mesh3.indices>) was invalid:
+   - in createBuffer, desc.usage was invalid (0x89)
    ```
 
- - The exact shape of `GPUObjectStatusQuery` (currently `Promise<GPUObjectStatus>`) may piggy-back on the decision taken for `GPUFence`.
-
 ## Resolved Questions
-   
+
  - Should there be a mode/flag which causes OOM errors to trigger context loss?
     - Resolved: Not necessary, since an application can manually destroy the context based on entries in the error log.
 
