@@ -218,8 +218,7 @@ interface GPUTexture {
 enum GPUAddressMode {
     "clamp-to-edge",
     "repeat",
-    "mirror-repeat",
-    "clamp-to-border-color"
+    "mirror-repeat"
 };
 
 enum GPUFilterMode {
@@ -238,12 +237,6 @@ enum GPUCompareFunction {
     "always"
 };
 
-enum GPUBorderColor {
-    "transparent-black",
-    "opaque-black",
-    "opaque-white"
-};
-
 dictionary GPUSamplerDescriptor {
     GPUAddressMode addressModeU = "clampToEdge";
     GPUAddressMode addressModeV = "clampToEdge";
@@ -255,7 +248,6 @@ dictionary GPUSamplerDescriptor {
     float lodMaxClamp = 0xffffffff; // TODO: What should this be? Was Number.MAX_VALUE.
     u32 maxAnisotropy = 1;
     GPUCompareFunction compareFunction = "never";
-    GPUBorderColor borderColor = "transparentBlack";
 };
 
 interface GPUSampler {
