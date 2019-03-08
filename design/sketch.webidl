@@ -779,6 +779,8 @@ interface GPUDevice {
     GPUBindGroup createBindGroup(GPUBindGroupDescriptor descriptor);
 
     GPUShaderModule createShaderModule(GPUShaderModuleDescriptor descriptor);
+    Promise<GPUShaderModule> createReadyShaderModule(GPUShaderModuleDescriptor descriptor);
+
     GPUComputePipeline createComputePipeline(GPUComputePipelineDescriptor descriptor);
     GPURenderPipeline createRenderPipeline(GPURenderPipelineDescriptor descriptor);
 
