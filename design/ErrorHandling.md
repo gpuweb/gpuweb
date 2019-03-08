@@ -6,17 +6,16 @@ However, this would introduce a lot of round-trip synchronization points for mul
 There are a number of cases that developers or applications need error handling for:
 
  - *Debugging*: Getting errors synchronously during development, to break in to the debugger.
- - *Telemetry*: Collecting error logs in deployment, for bug reporting and telemetry.
- - *Recovery*: Recovering from recoverable errors (like out-of-memory on resource creation).
  - *Fatal Errors*: Handling device/adapter loss, either by restoring WebGPU or by fallback to non-WebGPU content.
+ - *Fallible Allocation*: Making fallible resource allocations (detecting out-of-memory).
+ - *Testing*: Checking success of WebGPU calls, for conformance testing or application unit testing.
+ - *Telemetry*: Collecting error logs in deployment, for bug reporting and telemetry.
+
+There is one other use case that is closely related to error handling:
+
+ - *Waiting for Completion*: Waiting for completion of off-queue GPU operations (like object creation).
 
 Meanwhile, error handling should not make the API clunky to use.
-
-There are several types of WebGPU calls that get their errors handled differently:
-
- - *Creation*: WebGPU Object creation.
- - *Encoding*: Recording of GPU commands in `GPUCommandEncoder`.
- - *Operations*: Other API calls, such as `GPUQueue.submit`.
 
 ## *Debugging*: Dev Tools
 
@@ -164,147 +163,265 @@ WebGPU access has been disabled for the page.
 The device is lost right as it's being returned by requestDevice.
  - `device.lost` resolves.
 
-## *Telemetry*: Validation Error Logging
+## Operation Errors and Internal Nullability
 
-Logging of validation errors (which includes errors caused by using objects that are invalid for any reason).
+WebGPU objects are opaque handles.
+On creation, such a handle is "pending" until the backing object is created by the implementation.
+Asynchronously, a handle may refer to a successfully created object (called a "valid object"), or an internally-empty/unsuccessful object (called an "invalid object").
+The status of an object is opaque to JavaScript, except that any errors during object creation can be captured (see below).
+
+If a WebGPU object handle A is passed to a WebGPU API call C that requires a valid object, that API call opaquely accepts the object regardless of its status (pending, valid, or invalid).
+However, internally and asynchronously, C will not be validated and executed until A's status has resolved.
+If A resolves to invalid, C will fail (asynchronously).
+
+Errors in operations or creation will generate an error **into the current scope**.
+An error may be captured by a surrounding Error Scope (described below).
+If an error is not captured, it may fire the Device's "unhandlederror" event (below).
+
+### Categories of WebGPU Calls
+
+#### Initialization
+
+Creation of the adapter and device.
+
+  - `gpu.requestAdapter`
+  - `GPUAdapter.requestDevice`
+
+Handled by "Fatal Errors" above.
+
+#### Object-Returning
+
+WebGPU Object creation and getters.
+
+  - `GPUDevice.createTexture`
+  - `GPUDevice.createBuffer`
+  - `GPUDevice.createBufferMapped`
+  - `GPUTexture.createView`
+  - `GPUTexture.createDefaultView`
+  - `GPUCommandEncoder.finish`
+  - `GPUDevice.getQueue`
+  - `GPUSwapChain.getCurrentTexture`
+
+If there is an error, the returned object is invalid, and an error is generated into the current scope.
+
+#### Encoding
+
+Recording of GPU commands in `GPUCommandEncoder`.
+
+  - `GPUCommandEncoder.*`
+  - `GPURenderPassEncoder.*`
+  - `GPUComputePassEncoder.*`
+
+These commands do not report errors.
+Instead, `GPUCommandEncoder.finish` returns an invalid object and generates an error into the current scope.
+
+#### Promise-Returning
+
+  - `GPUDevice.createBufferMappedAsync`
+  - `GPUDevice.getSwapChainPreferredFormat`
+  - `GPUFence.onCompletion`
+  - `GPUBuffer.mapReadAsync`
+  - `GPUBuffer.mapWriteAsync`
+
+If there is an error, the returned Promise rejects.
+
+#### Void-Returning
+
+  - `GPUQueue.submit`
+  - `GPUQueue.signal`
+  - `GPUBuffer.setSubData`
+  - `GPUBuffer.unmap`
+  - `GPUBuffer.destroy`
+  - `GPUTexture.destroy`
+
+If there is an error, an error is generated into the current scope.
+
+#### Infallible
+
+  - `GPUFence.getCompletedValue`
+
+This call cannot fail.
+
+## Error Scopes
+
+Each device\* maintains a persistent "error scope" stack state.
+Initially, the device's error scope stack is empty.
+`GPUDevice.pushErrorScope(filter)` creates an error scope and pushes it onto the stack.
+
+`GPUDevice.popErrorScope()` pops an error scope from the stack, and returns a `Promise<GPUError?>`, which resolves once the enclosed operations are complete.
+It resolves to null if no errors were captured, and otherwise resolves to the first error that occurred in the scope -
+either a `GPUOutOfMemoryError` or a `GPUValidationError` object containing information about the validation failure.
+
+An error scope captures an error if its filter matches the type of the error scope:
+`pushErrorScope('out-of-memory')` captures `GPUOutOfMemoryError`s;
+`pushErrorScope('validation')` captures `GPUValidationError`s.
+`pushErrorScope('none')` never captures errors, but can be used to detect operation completion.
+The filter mechanism prevents developers from accidentally silencing validation errors when trying to do fallible allocation or wait for completion.
+
+If an error scope captures an error, the error is not passed down to the enclosing error scope.
+Each error scope stores only the **first error** it captures, and returns that error when the scope is popped.
+Any further errors it captures are **silently ignored**.
+
+If an error is not captured by an error scope, it is passed out to the enclosing error scope.
+
+If there are no error scopes on the stack, `popErrorScope()` rejects.
+
+If the device is lost, `popErrorScope()` always rejects.
+
+\* Error scope state is **per-device, per-execution-context**.
+That is, when a `GPUDevice` is posted to a Worker for the first time, the new `GPUDevice` copy's error scope stack is empty.
+(If a `GPUDevice` is copied *back* to an execution context it already existed on, it shares its error scope state with all other copies on that execution context.)
 
 ```webidl
-[
-    Constructor(DOMString type, GPUValidationErrorEventInit gpuValidationErrorEventInitDict),
-    Exposed=Window
-]
-interface GPUValidationErrorEvent : Event {
+enum GPUErrorFilter {
+    "none",
+    "out-of-memory",
+    "validation"
+};
+
+interface GPUOutOfMemoryError {};
+
+interface GPUValidationError {
     readonly attribute DOMString message;
 };
 
-dictionary GPUValidationErrorEventInit : EventInit {
-    required DOMString message;
-};
+typedef (GPUOutOfMemoryError or GPUValidationError) GPUError;
 
-partial interface GPUDevice : EventTarget {
-    attribute EventHandler onvalidationerror;
+partial interface GPUDevice {
+    void pushErrorScope(GPUErrorFilter filter);
+    Promise<GPUError?> popErrorScope();
 };
 ```
 
-`WebGPUDevice` `"validationerror"` -> `GPUValidationErrorEvent`:
-Fires when a non-fatal error occurs in the API, i.e. a validation error (including if an "invalid" object is used).
+### *Fallible Allocation*
 
-When there is a validation error in the API (including operations on "invalid" WebGPU objects), an error is logged.
-When a validation error is discovered by the WebGPU implementation, it may fire a `"validationerror"` event on the `GPUDevice`.
-These events should not be used by applications to recover from expected, recoverable errors.
-Instead, the error log may be used for handling unexpected errors in deployment, for bug reporting and telemetry.
+An `out-of-memory` error scope can be used to detect allocation failure.
 
-`"validationerror"` events are all delivered through the device.
-They are not directly associated with the objects or operations that produced them.
+#### Example: tryCreateBuffer
 
-The `"validationerror"` event always fires on the main thread (Window) event loop.
+```js
+async function tryCreateBuffer(device, desc) {
+  device.pushErrorScope('out-of-memory');
+  const buffer = device.createBuffer(desc);
+  if (await device.popErrorScope() !== null) {
+    return null;
+  }
+  return buffer;
+}
+```
 
-For creation errors, the `object` attribute holds the object handle that was created.
-(It will always point to an "invalid" object.)
-It preserves the JavaScript object wrapper of that handle (including any extra JavaScript properties attached to that wrapper).
+### *Waiting for Completion*
 
-The `message` is a human-readable string, provided for debugging/reporting/telemetry.
+Since error scope results only return once the enclosed operations are complete, a `none` error scope can be used to detect completion of off-queue operations.
+(On-queue operation completion can be detected with `GPUFence`.)
 
-The WebGPU implementation may choose not to fire the `"validationerror"` event for a given log entry if there have been too many errors, too many errors in a row, or too many errors of the same kind.
-(In badly-formed applications, this mechanism can prevent the `"validationerror"` events from having a significant performance impact on the system.)
+#### Example: createReadyRenderPipeline
 
-No `"validationerror"` events will be fired after the device is lost.
-(Though a there may be one "just before" the device is lost, if the error would be useful for telemetry.)
+```js
+async function createReadyRenderPipeline(device, desc) {
+  device.pushErrorScope('none');
+  const pipeline = device.createRenderPipeline(desc);
+  await device.popErrorScope(); // always resolves to null
+  return pipeline;
+}
+```
+
+### *Testing*
+
+Tests need to be able to reliably detect both expected and unexpected errors.
 
 ### Example
 
 ```js
-const adapter = await gpu.requestAdapter({ /* options */ });
-const device = await adapter.requestDevice({ /* options */ });
-device.addEventListener('validationerror', (event) => {
-    appendToTelemetryReport(event.message);
+device.pushErrorScope('out-of-memory');
+device.pushErrorScope('validation');
+
+{
+  // Do stuff that shouldn't produce errors.
+  {
+    device.pushErrorScope('validation');
+    device.doOperationThatErrors();
+    device.popErrorScope().then(error => { assert(error !== null); });
+  }
+  // More stuff that shouldn't produce errors
+}
+
+// Detect unexpected errors.
+device.popErrorScope().then(error => { assert(error === null); });
+device.popErrorScope().then(error => { assert(error === null); });
+```
+
+## *Telemetry*
+
+If an error is not captured by an explicit error scope, it bubbles up to the device and **may** fire its `uncapturederror` event.
+
+This mechanism is like a programmatic way to access the warnings that appear in the developer tools.
+Errors reported via the validation error event *should* also appear in the developer tools console as warnings (like in WebGL).
+However, some developer tools warnings might not necessarily fire the event, and message strings could be different (e.g. some details omitted for security).
+
+The WebGPU implementation may choose not to fire the `uncapturederror` event for a given error, for example if it has fired too many times, too many times in a row, or with too many errors of the same kind.
+This is similar to how console warnings would work, and work today for WebGL.
+(In badly-formed applications, this mechanism can prevent the events from having a significant performance impact on the system.)
+
+**Unlike** error scoping, the `uncapturederror` event can only fire on the main thread (Window) event loop.
+
+```webidl
+[
+    Constructor(DOMString type, GPUUncapturedErrorEventInit gpuUncapturedErrorEventInitDict),
+    Exposed=Window
+]
+interface GPUUncapturedErrorEvent : Event {
+    readonly attribute GPUError error;
+};
+
+dictionary GPUUncapturedErrorEventInit : EventInit {
+    required DOMString message;
+};
+
+// TODO: is it possible to expose the EventTarget only on the main thread?
+partial interface GPUDevice : EventTarget {
+    [Exposed=Window]
+    attribute EventHandler onuncapturederror;
+};
+```
+
+#### Example
+
+```js
+const device = await adapter.createDevice({});
+device.addEventListener('uncapturederror', (event) => {
+  appendToTelemetryReport(event.message);
 });
 ```
 
-## Object Creation
-
-WebGPU objects are opaque handles.
-On creation, such a handle is "pending" until the backing object is created by the implementation.
-After that, a handle may refer to a successfully created object (called a "valid object"), or an error that occured during creation (called an "invalid object").
-
-When a WebGPU object handle is passed to an operation, the object will resolve (to "valid" or "invalid") before it is actually used by that operation.
-
-### Error propagation of invalid objects
-
-Using any invalid object in a WebGPU operation produces a validation error.
-The effect of an error depends on the type of a call:
-
- - For object creation, the call produces a new invalid object.
- - For `GPUCommandEncoder` encoding methods, the `GPUCommandEncoder.finishEncoding` method will return an invalid object.
- - For other WebGPU calls, the call becomes a no-op.
-
-In each case, an error is logged to the error log.
-
-## *Recovery*: Recoverable Errors
-
-Recoverable errors are produced only by object creation.
-The status of an object can be retrieved asynchronously (see next section).
-
-```
-enum GPUObjectStatus {
-    // The object is valid.
-    "valid",
-    // The object is invalid due to a non-fatal allocation failure.
-    // The application can use this as a signal to scale back resource usage, if possible.
-    "out-of-memory",
-    // The object is invalid for another, unrecoverable reason.
-    "invalid",
-};
-```
-
-(Note that object creation failures always send an error to the error log, regardless of the object type or the type of failure.)
-
-If an application uses recoverable allocation, the implementation will still generate error log entries:
-a `"recoverable-out-of-memory"` error for the object creation, and `"validation-error"`s for any subsequent uses of the invalid object.
-The application may need to understand whether such error log entries were part of a recovered allocation (e.g. to avoid sending telemetry for those errors).
-To facilitate this filtering, the handle to the invalid object (including "expando" JavaScript properties) is attached to the error log entry (see above).
-
-### Recoverable errors in object creation
-
-A recoverable error is exposed as a `GPUObjectStatusQuery`.
-
-```
-// (Exact form/type subject to change.)
-typedef Promise<GPUObjectStatus> GPUObjectStatusQuery;
-
-typedef (GPUBuffer or GPUTexture) StatusableObject;
-
-partial interface GPUDevice {
-    GPUObjectStatusQuery getObjectStatus(StatusableObject object);
-};
-```
-
-A concrete example: When creating a buffer, the following logic applies:
-
- - `createBuffer` returns a `GPUBuffer` object `buffer` immediately.
- - A `GPUObjectStatusQuery` can be obtained by calling `device.getObjectStatus(buffer)`.
-   At a later time, that query resolves to a `GPUObjectStatus` that is one of:
-    - Creation succeeded (`"valid"`).
-    - Creation encountered a recoverable error (`"out-of-memory"`).
-      (The application can then choose to retry a smaller allocation of a *new* `GPUBuffer`.)
-    - Creation encountered another type of error out of the control of the application (`"invalid"`).
-
-Regardless of any recovery efforts the application makes, if creation fails,
-the resulting object is invalid (and subject to error propagation).
-
-Checking the status of a `GPUBuffer` or `GPUTexture` is **not** required.
-It is only necessary if an application wishes to recover from recoverable errors such as out of memory.
-(If it does, it is responsible for avoiding using the invalid object.)
-
 ## Open Questions and Considerations
 
- - WebGPU could guarantee that objects such as `GPUQueue` and `GPUFence` can never be errors.
-   If this is true, then the only synchronous API that needs special casing is buffer mapping, where `mapping` is always `null` for an invalid `GPUBuffer`.
+ - Is there a need for synchronous, programmatic capture of errors during development?
+   (E.g. an option to throw an exception on error instead of surfacing the error asynchronously.
+   Asynchronous error handling APIs are not enough to polyfill this.)
+   This would only be needed for printf-style debugging; a "break on WebGPU error" would be used for Dev Tools debugging.
+
+ - How can a synchronous application (e.g. WASM port) handle all of these asynchronous errors?
+   A synchronous version of `popErrorState` and other entry points would need to be exposed on Workers.
+   (A more general solution for using asynchronous APIs synchronously would also solve this.)
+
+ - Should there be a maximum error scope depth?
+
+ - Or should error scope balance be enforced by changing the API to e.g. `device.withErrorScope('none', () => { device.stuff(); /*...*/ })`?
+
+ - Should the error scope filter be a bitfield?
+
+ - Should the error scope filter have a default value?
+
+ - Should errors beyond the first in an error scope be silently ignored, bubble up to the parent error scope, or be immediately given to the `uncapturederror` event?
+    - (Currently, it is silently ignored.)
+
+ - Should there be codes for different error types, to slightly improve testing fidelity? (e.g. `invalid-object`, `invalid-value`, `invalid-state`)
 
  - Should developers be able to self-impose a memory limit (in order to emulate lower-memory devices)?
    Should implementations automatically impose a lower memory limit (to improve stability and portability)?
 
- - To help developers, should `GPUValidationErrorEvent.message` contain some sort of "stack trace" taking advantage of object debug labels?
+ - To help developers, should `GPUUncapturedErrorEvent.message` contain some sort of "stack trace" taking advantage of object debug labels?
    For example:
 
    ```
@@ -314,10 +431,15 @@ It is only necessary if an application wishes to recover from recoverable errors
    - in createBuffer, desc.usage was invalid (0x89)
    ```
 
-## Resolved Questions
+ - How do applications handle the case where they've allocated a lot of optional memory, but want to make another required allocation (which could fail due to OOM)?
+   How do they know when to free an optional allocation first?
+    - For now, applications wanting to handle this kind of case must always use fallible allocations.
+    - (We will likely improve this with a `GPUResourceHeap`, once we figure out what that looks like.)
 
- - Should there be a mode/flag which causes OOM errors to trigger context loss?
-    - Resolved: Not necessary, since an application can manually destroy the context based on entries in the error log.
+ - Should attempting to use a buffer or texture in the `"out-of-memory"` state (a) result in immediate device loss, (b) result in device loss when used in a device-level operation (submit, map, etc.), or (c) just produce a validation error?
+    - Currently described: none, implicitly (c)
+
+## Resolved Questions
 
  - In a world with persistent object "usage" state:
    If an invalid command buffer is submitted, and its transitions becomes no-ops, the usage state won't update.
@@ -327,3 +449,14 @@ It is only necessary if an application wishes to recover from recoverable errors
  - Should an object creation error immediately log an error to the error log?
    Or should it only log if the error propagates to a device-level operation?
     - Tentatively resolved: errors should be logged immediately.
+
+ - Should applications be able to intentionally create graphs of potentially-invalid objects, and recover from this late?
+   E.g. create a large buffer, create a bind group from that, create a command buffer from that, then choose whether to submit based on whether the buffer was successfully allocated.
+    - For non-OOM, tentatively resolved: They can, inside of an error scope. Any subsequent errors can be suppressed. Not sure if it's useful.
+    - For OOM, see other questions about OOM.
+
+ - Should there be an API that exposes object status?
+    - Resolved: No, but errors during object creation can be detected.
+
+ - Should there be a way to capture out-of-memory errors without capturing validation errors? (And vice versa?)
+    - Resolved: Yes, so applications don't accidentally silence validation errors.
