@@ -22,34 +22,6 @@ dictionary GPUExtent3D {
 };
 
 // ****************************************************************************
-// ERROR HANDLING
-// ****************************************************************************
-
-interface GPUDeviceLostInfo {
-    readonly attribute DOMString message;
-};
-
-partial interface GPUDevice {
-    readonly attribute Promise<GPUDeviceLostInfo> lost;
-};
-
-[
-    Constructor(DOMString type, GPUValidationErrorEventInit gpuValidationErrorEventInitDict),
-    Exposed=Window
-]
-interface GPUValidationErrorEvent : Event {
-    readonly attribute DOMString message;
-};
-
-dictionary GPUValidationErrorEventInit : EventInit {
-    required DOMString message;
-};
-
-partial interface GPUDevice : EventTarget {
-    attribute EventHandler onvalidationerror;
-};
-
-// ****************************************************************************
 // SHADER RESOURCES (buffer, textures, texture views, samples)
 // ****************************************************************************
 
@@ -782,9 +754,6 @@ interface GPUDevice {
     GPUComputePipeline createComputePipeline(GPUComputePipelineDescriptor descriptor);
     GPURenderPipeline createRenderPipeline(GPURenderPipelineDescriptor descriptor);
 
-    Promise<GPUComputePipeline> createReadyComputePipeline(GPUComputePipelineDescriptor descriptor);
-    Promise<GPURenderPipeline> createReadyRenderPipeline(GPUPipelineDescriptor descriptor);
-
     GPUCommandEncoder createCommandEncoder(GPUCommandEncoderDescriptor descriptor);
 
     // Calling createSwapChain a second time for the same GPUCanvasContext
@@ -792,8 +761,6 @@ interface GPUDevice {
     GPUSwapChain createSwapChain(GPUSwapChainDescriptor descriptor);
 
     GPUQueue getQueue();
-
-    GPUObjectStatusQuery getObjectStatus(GPUStatusableObject statusableObject);
 
     Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUCanvasContext context);
 };
@@ -827,6 +794,51 @@ dictionary GPURequestAdapterOptions {
 namespace gpu {
     // May reject with DOMException  // TODO: DOMException("OperationError")?
     Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
+};
+
+// ****************************************************************************
+// ERROR SCOPES
+// ****************************************************************************
+
+enum GPUErrorFilter {
+    "none",
+    "out-of-memory",
+    "validation"
+};
+
+interface GPUOutOfMemoryError {};
+
+interface GPUValidationError {
+    readonly attribute DOMString message;
+};
+
+typedef (GPUOutOfMemoryError or GPUValidationError) GPUError;
+
+partial interface GPUDevice {
+    void pushErrorScope(GPUErrorFilter filter);
+    Promise<GPUError?> popErrorScope();
+};
+
+// ****************************************************************************
+// TELEMETRY
+// ****************************************************************************
+
+[
+    Constructor(DOMString type, GPUUncapturedErrorEventInit gpuUncapturedErrorEventInitDict),
+    Exposed=Window
+]
+interface GPUUncapturedErrorEvent : Event {
+    readonly attribute GPUError error;
+};
+
+dictionary GPUUncapturedErrorEventInit : EventInit {
+    required DOMString message;
+};
+
+// TODO: is it possible to expose the EventTarget only on the main thread?
+partial interface GPUDevice : EventTarget {
+    [Exposed=Window]
+    attribute EventHandler onuncapturederror;
 };
 
 // ****************************************************************************
