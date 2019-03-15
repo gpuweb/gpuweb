@@ -1,6 +1,7 @@
 typedef long i32;
 typedef unsigned long u32;
 typedef unsigned long long u64;
+typedef u32 GPUShaderAttributeIndex;
 
 dictionary GPUColor {
     float r;
@@ -404,7 +405,7 @@ dictionary GPUDepthStencilStateDescriptor {
     u32 stencilWriteMask;
 };
 
-// InputState
+// VertexInput
 
 enum GPUIndexFormat {
     "uint16",
@@ -484,23 +485,23 @@ enum GPUInputStepMode {
 };
 
 dictionary GPUVertexAttributeDescriptor {
-    u32 shaderLocation;
-    u32 inputSlot;
     u64 offset;
     GPUVertexFormat format;
+    GPUShaderAttributeIndex attributeIndex;
+};
+
+dictionary GPUVertexBufferDescriptor {
+    u64 stride;
+    GPUInputStepMode stepMode;
+    sequence<GPUVertexAttributeDescriptor> attributes;
 };
 
 dictionary GPUVertexInputDescriptor {
-    u32 inputSlot;
-    u64 stride;
-    GPUInputStepMode stepMode;
-};
-
-dictionary GPUInputStateDescriptor {
     GPUIndexFormat indexFormat;
 
-    sequence<GPUVertexAttributeDescriptor> attributes;
-    sequence<GPUVertexInputDescriptor> inputs;
+    // This object has keys of 0..15 and values of type GPUVertexBufferDescriptor.
+    // (It's not possible in WebIDL to describe a dictionary with keys "0" through "15".)
+    object vertexBuffers;
 };
 
 // ShaderModule
@@ -552,7 +553,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     GPURasterizationStateDescriptor rasterizationState;
     sequence<GPUColorStateDescriptor> colorStates;
     GPUDepthStencilStateDescriptor? depthStencilState;
-    GPUInputStateDescriptor inputState;
+    GPUVertexInputDescriptor vertexInput;
 
     // Number of MSAA samples
     u32 sampleCount;
