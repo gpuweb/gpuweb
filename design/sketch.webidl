@@ -572,10 +572,10 @@ interface GPUProgrammablePassEncoder {
 
     // Allowed in both compute and render passes
     void setBindGroup(u32 index, GPUBindGroup bindGroup, optional sequence<u64> dynamicOffsets);
-    void setPipeline((GPUComputePipeline or GPURenderPipeline) pipeline);
 };
 
 interface GPURenderPassEncoder : GPUProgrammablePassEncoder {
+    void setPipeline(GPURenderPipeline pipeline);
     void setBlendColor(GPUColor color);
     void setStencilReference(u32 reference);
 
@@ -596,6 +596,7 @@ interface GPURenderPassEncoder : GPUProgrammablePassEncoder {
 };
 
 interface GPUComputePassEncoder : GPUProgrammablePassEncoder {
+    void setPipeline(GPUComputePipeline pipeline);
     void dispatch(u32 x, u32 y, u32 z);
 
     // TODO add missing commands
