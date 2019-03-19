@@ -641,7 +641,7 @@ dictionary GPURenderPassDescriptor {
 dictionary GPUBufferCopyView {
     GPUBuffer buffer;
     u64 offset;
-    u64 rowPitch;
+    u32 rowPitch;
     u32 imageHeight;
 };
 
