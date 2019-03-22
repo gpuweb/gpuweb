@@ -20,7 +20,7 @@ struct FragmentData {
 
 vertex FragmentData vertex_main(float4 position : attribute(0),
                                 float4 color : attribute(1),
-                                constant float4x4* modelViewProjectionMatrix : register(b0)) {
+                                constant float4x4* modelViewProjectionMatrix : register(b0)) : SV_Position {
     FragmentData output;
 
     output.position = *modelViewProjectionMatrix * position;
@@ -29,7 +29,7 @@ vertex FragmentData vertex_main(float4 position : attribute(0),
     return output;
 }
 
-fragment float4 fragment_main(float4 color : attribute(0)) : SV_Target {
+fragment float4 fragment_main(float4 color : attribute(0)) : SV_Target 0 {
     return color;
 }
 `
@@ -84,7 +84,7 @@ const cubeVerticesArray = new Float32Array([
 async function init() {
     /* Context, Device, SwapChain */
     const adapter = await gpu.requestAdapter();
-    const device = adapter.createDevice();
+    const device = await adapter.requestDevice();
 
     const canvas = document.querySelector('canvas');
 
@@ -102,7 +102,7 @@ async function init() {
     const swapChain = device.createSwapChain(swapChainDescriptor);
 
     /* Shader Module */
-    const shaderModuleDescriptor = { code: shader };
+    const shaderModuleDescriptor = { code: shader, isWHLSL: true };
     const shaderModule = device.createShaderModule(shaderModuleDescriptor);
 
     const verticesBufferDescriptor = {
@@ -147,7 +147,6 @@ async function init() {
 
     /* Render Pipeline */
     const depthStateDescriptor = {
-        format: "depth32float",
         depthWriteEnabled: true,
         depthCompare: "less"
     };
@@ -193,14 +192,14 @@ async function init() {
         mipLevelCount: 1,
         sampleCount: 1,
         dimension: "2d",
-        format: "depth32float",
+        format: "depth32float-stencil8",
         usage: GPUTextureUsage.OUTPUT_ATTACHMENT
     };
 
     const depthTexture = device.createTexture(depthTextureDescriptor);
 
     const depthAttachment = {
-        attachment: depthTexture,
+        attachment: depthTexture.createDefaultView(),
 
         depthLoadOp: "clear",
         depthStoreOp: "store",
@@ -212,9 +211,7 @@ async function init() {
         depthStencilAttachment: depthAttachment
     };
 
-    const queue = device.getQueue();
-
-    render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor, queue);
+    render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor);
 }
 
 /* Transform Buffers and Bindings */
@@ -238,7 +235,7 @@ const transformBufferDescriptor = {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.MAP_WRITE
 };
 
-function createTransformBindGroupDescriptor(transformBuffer) {
+function createTransformBindGroupDescriptor(transformBuffer, uniformsBindGroupLayout) {
     const transformBufferBinding = {
         buffer: transformBuffer,
         offset: 0,
@@ -258,26 +255,27 @@ function createTransformBindGroupDescriptor(transformBuffer) {
 
 const mappedGroups = [];
 
-function render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor, queue) {
-    let mappedGroup;
-
+function render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor) {
     if (mappedGroups.length == 0) {
         // No buffers are mapped and ready for update.
-        const { buffer, arrayBuffer } = device.createMappedBuffer(transformBufferDescriptor);
-        const bindGroup = device.createBindGroup(createTransformBindGroupDescriptor(buffer));
+        const buffer = device.createBuffer(transformBufferDescriptor);
+        buffer.mapWriteAsync().then(arrayBuffer => {
+            const group = device.createBindGroup(createTransformBindGroupDescriptor(buffer, uniformsBindGroupLayout));
 
-        mappedGroup = { buffer: buffer, arrayBuffer: arrayBuffer, bindGroup: bindGroup };
+            let mappedGroup = { buffer: buffer, arrayBuffer: arrayBuffer, bindGroup: group };
+            drawCommands(mappedGroup, device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor);
+        });
     } else
-        mappedGroup = mappedGroups.shift();
+        drawCommands(mappedGroups.shift(), device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor);
+}
 
-    updateTransformArray(mappedGroup.arrayBuffer, projectionMatrix);
+function drawCommands(mappedGroup, device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor) {
+    updateTransformArray(new Float32Array(mappedGroup.arrayBuffer), projectionMatrix);
     mappedGroup.buffer.unmap();
 
-    renderPassDescriptor.colorAttachments[0].attachment = swapChain.getCurrentTexture().createDefaultView();
-
     const commandEncoder = device.createCommandEncoder();
+    renderPassDescriptor.colorAttachments[0].attachment = swapChain.getCurrentTexture().createDefaultView();
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-
     // Encode drawing commands.
     passEncoder.setPipeline(pipeline);
     // Vertex attributes
@@ -286,9 +284,9 @@ function render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBin
     passEncoder.setBindGroup(0, mappedGroup.bindGroup);
     // 36 vertices, 1 instance, 0th vertex, 0th instance.
     passEncoder.draw(36, 1, 0, 0);
-
     passEncoder.endPass();
-    queue.submit([commandEncoder.finish()]);
+
+    device.getQueue().submit([commandEncoder.finish()]);
 
     // Ready the current buffer for update after GPU is done with it.
     mappedGroup.buffer.mapWriteAsync().then((arrayBuffer) => {
@@ -296,7 +294,7 @@ function render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBin
         mappedGroups.push(mappedGroup);
     });
 
-    requestAnimationFrame(render);
+    requestAnimationFrame(() => { render(device, projectionMatrix, swapChain, verticesBuffer, uniformsBindGroupLayout, pipeline, renderPassDescriptor) });
 }
 
 init();
