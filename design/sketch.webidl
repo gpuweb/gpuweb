@@ -794,9 +794,19 @@ dictionary GPURequestAdapterOptions {
 };
 
 [Exposed=Window]
-namespace gpu {
+interface GPU {
     // May reject with DOMException  // TODO: DOMException("OperationError")?
     Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
+};
+
+[Exposed=Window]
+partial interface Navigator {
+    [SameObject] readonly attribute GPU gpu;
+};
+
+[Exposed=DedicatedWorker]
+partial interface WorkerNavigator {
+    [SameObject] readonly attribute GPU gpu;
 };
 
 // ****************************************************************************
