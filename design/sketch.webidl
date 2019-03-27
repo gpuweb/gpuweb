@@ -829,21 +829,14 @@ partial interface GPUDevice {
 // ****************************************************************************
 
 [
-    Constructor(DOMString type, GPUUncapturedErrorEventInit gpuUncapturedErrorEventInitDict),
     Exposed=Window
 ]
 interface GPUUncapturedErrorEvent : Event {
     readonly attribute GPUError error;
 };
 
-dictionary GPUUncapturedErrorEventInit : EventInit {
-    required DOMString message;
-};
-
 // TODO: is it possible to expose the EventTarget only on the main thread?
 partial interface GPUDevice : EventTarget {
-    [Exposed=Window]
-    attribute EventHandler onuncapturederror;
 };
 
 // ****************************************************************************
