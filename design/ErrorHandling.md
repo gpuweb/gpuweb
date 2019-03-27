@@ -22,7 +22,7 @@ Meanwhile, error handling should not make the API clunky to use.
 Implementations should provide a way to enable synchronous validation, for example via a "break on WebGPU error" option in the developer tools.
 The extra overhead needs to be low enough that applications can still run while being debugged.
 
-## *Fatal Errors*: Lost/Recovered Events
+## *Fatal Errors*: requestDevice and device.lost
 
 <!-- calling this revision 6 -->
 
@@ -324,6 +324,39 @@ async function createReadyRenderPipeline(device, desc) {
   await device.popErrorScope(); // always resolves to null
   return pipeline;
 }
+```
+
+`createReadyRenderPipeline` is asynchronous.
+`requestAnimationFrame`'s callback is not treated as asynchronous - only the first task is guaranteed to occur before the frame is displayed.
+
+```js
+class Renderer {
+  init() {
+    const fastPipeline = createRenderPipeline(...);
+    this.pipeline = fastPipeline;
+  }
+
+  prepareSlowPipeline() {
+    createReadyRenderPipeline(...).then((slowPipeline) => {
+      this.pipeline = slowPipeline;
+    });
+  }
+
+  draw() {
+    if (wantSlowPipeline) {
+      prepareSlowPipeline();
+    }
+    // draw object with this.pipeline.
+    // It switches to the "slowPipeline" when it becomes available.
+  }
+}
+
+renderer.init();
+const frame = () => {
+  requestAnimationFrame(frame);
+  renderer.draw();
+};
+requestAnimationFrame(frame);
 ```
 
 ### *Testing*
