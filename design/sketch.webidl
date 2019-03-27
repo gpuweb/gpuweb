@@ -213,9 +213,9 @@ enum GPUCompareFunction {
 };
 
 dictionary GPUSamplerDescriptor {
-    GPUAddressMode addressModeU = "clampToEdge";
-    GPUAddressMode addressModeV = "clampToEdge";
-    GPUAddressMode addressModeW = "clampToEdge";
+    GPUAddressMode addressModeU = "clamp-to-edge";
+    GPUAddressMode addressModeV = "clamp-to-edge";
+    GPUAddressMode addressModeW = "clamp-to-edge";
     GPUFilterMode magFilter = "nearest";
     GPUFilterMode minFilter = "nearest";
     GPUFilterMode mipmapFilter = "nearest";
