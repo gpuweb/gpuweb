@@ -837,6 +837,10 @@ interface GPUUncapturedErrorEvent : Event {
 
 // TODO: is it possible to expose the EventTarget only on the main thread?
 partial interface GPUDevice : EventTarget {
+    // GPUDevice has an event target on "uncapturederror" (but no
+    // onuncapturederror property). It can be listened with
+    //   device.addEventListener("uncapturederror", ev => {});
+    // (ev is a GPUUncapturedErrorEvent object.)
 };
 
 // ****************************************************************************
