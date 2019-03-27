@@ -491,8 +491,6 @@ dictionary GPUVertexInputDescriptor {
 };
 
 dictionary GPUInputStateDescriptor {
-    GPUIndexFormat indexFormat;
-
     sequence<GPUVertexAttributeDescriptor> attributes;
     sequence<GPUVertexInputDescriptor> inputs;
 };
@@ -580,7 +578,7 @@ interface GPURenderPassEncoder : GPUProgrammablePassEncoder {
     // Width and height must be greater than 0. Otherwise, an error will be generated.
     void setScissorRect(u32 x, u32 y, u32 width, u32 height);
 
-    void setIndexBuffer(GPUBuffer buffer, u64 offset);
+    void setIndexBuffer(GPUIndexFormat indexFormat, GPUBuffer buffer, u64 offset);
     void setVertexBuffers(u32 startSlot, sequence<GPUBuffer> buffers, sequence<u64> offsets);
 
     void draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance);
