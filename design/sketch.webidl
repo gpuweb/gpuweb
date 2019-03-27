@@ -244,10 +244,10 @@ enum GPUBindingType {
     "uniform-buffer",
     "dynamic-uniform-buffer",
     "sampler",
-    "sampled-texture",
+    "ro-texture",
+    // TODO: "rw-texture",
     "storage-buffer",
     "dynamic-storage-buffer"
-    // TODO other binding types
 };
 
 dictionary GPUBindGroupLayoutBinding {
