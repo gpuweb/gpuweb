@@ -802,6 +802,18 @@ partial interface WorkerNavigator {
 };
 
 // ****************************************************************************
+// FATAL ERRORS
+// ****************************************************************************
+
+interface GPUDeviceLostInfo {
+    readonly attribute DOMString message;
+};
+
+partial interface GPUDevice {
+    readonly attribute Promise<GPUDeviceLostInfo> lost;
+};
+
+// ****************************************************************************
 // ERROR SCOPES
 // ****************************************************************************
 
