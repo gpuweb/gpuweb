@@ -803,8 +803,14 @@ enum GPUErrorFilter {
     "validation"
 };
 
+[
+    Constructor()
+]
 interface GPUOutOfMemoryError {};
 
+[
+    Constructor(DOMString message)
+]
 interface GPUValidationError {
     readonly attribute DOMString message;
 };
@@ -829,7 +835,7 @@ interface GPUUncapturedErrorEvent : Event {
 };
 
 dictionary GPUUncapturedErrorEventInit : EventInit {
-    required DOMString message;
+    required GPUError error;
 };
 
 // TODO: is it possible to expose the EventTarget only on the main thread?
