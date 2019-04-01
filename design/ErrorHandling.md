@@ -218,7 +218,7 @@ Instead, `GPUCommandEncoder.finish` returns an invalid object and generates an e
 #### Promise-Returning
 
   - `GPUDevice.createBufferMappedAsync`
-  - `GPUDevice.getSwapChainPreferredFormat`
+  - `GPUCanvasContext.getSwapChainPreferredFormat`
   - `GPUFence.onCompletion`
   - `GPUBuffer.mapReadAsync`
   - `GPUBuffer.mapWriteAsync`
