@@ -687,11 +687,16 @@ interface GPUQueue {
 };
 
 // SwapChain / CanvasContext
-interface GPUCanvasContext {
+partial interface GPUCanvasContext {
+    // Calling configureSwapChain a second time invalidates the previous one,
+    // and all of the textures it’s produced.
+    GPUSwapChain configureSwapChain(GPUSwapChainDescriptor descriptor);
+
+    Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUDevice device);
 };
 
 dictionary GPUSwapChainDescriptor {
-    required GPUCanvasContext context;
+    required GPUDevice device;
     required GPUTextureFormat format;
     GPUTextureUsageFlags usage = GPUTextureUsage.OUTPUT_ATTACHMENT;
 };
@@ -731,13 +736,7 @@ interface GPUDevice {
 
     GPUCommandEncoder createCommandEncoder(GPUCommandEncoderDescriptor descriptor);
 
-    // Calling createSwapChain a second time for the same GPUCanvasContext
-    // invalidates the previous one, and all of the textures it’s produced.
-    GPUSwapChain createSwapChain(GPUSwapChainDescriptor descriptor);
-
     GPUQueue getQueue();
-
-    Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUCanvasContext context);
 };
 
 dictionary GPUDeviceDescriptor {
