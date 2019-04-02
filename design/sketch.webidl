@@ -688,9 +688,9 @@ interface GPUQueue {
 
 // SwapChain / CanvasContext
 partial interface GPUCanvasContext {
-    // Calling createSwapChain a second time invalidates the previous one, an
-    // all of the textures it’s produced.
-    GPUSwapChain createSwapChain(GPUSwapChainDescriptor descriptor);
+    // Calling configureSwapChain a second time invalidates the previous one,
+    // and all of the textures it’s produced.
+    GPUSwapChain configureSwapChain(GPUSwapChainDescriptor descriptor);
 
     Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUDevice device);
 };
