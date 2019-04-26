@@ -13,24 +13,6 @@ Assuming there is a single queue, there are two types of commands in WebGPU:
 Assuming there is a single queue, there is a total order on the unbuffered commands: they all execute atomically in the order they were called.
 `GPUQueue.submit` is special because it atomically executes all the commands stored in its `commands` argument.
 
-## `GPUBuffer.setSubData`
-
-```webidl
-partial interface GPUBuffer {
-    void setSubData(u32 offset, ArrayBuffer data);
-}
-```
-
-Calling `setSubData` on a `buffer` causes its content in the range `[offset, offset + data.length)` to be updated with the content of `data`.
-The update to the content of `buffer` happens atomically after all previous unbuffered operations and before all subsequent unbuffered operations.
-
-The following must be true or a validation error occurs on the call to `setSubData`:
-
- - `buffer` must have been created with the `TRANSFER_DST` usage flag.
- - `offset + data.length` must be less or equal to the size of `buffer`.
- - `buffer` must be in the unmapped state (which also means it hasn't been destroyed with `GPUBuffer.destroy`)
- - `data.length` and `offset` aren't aligned (TODO investigate alignment constraints)
-
 ## Buffer mapping
 
 ### `MAP_READ` and `MAP_WRITE`
@@ -129,22 +111,7 @@ The mapping starts filled with zeros.
 
 ## Examples
 
-Using `GPUBuffer.setSubData` would look like this:
-
-```js
-// device is a GPUDevice
-const myUBO = device.createBuffer({
-    size: 4 * 16,
-    usage: GPUBufferUsage.TRANSFER_DST | GPUBufferUsage.UNIFORM
-});
-
-const uboData = Float32Array(some4x4Matrix);
-
-myUBO.setSubData(0, uboData.buffer);
-// myUBO now contains data representing some44Matrix
-```
-
-Using `GPUBuffer.mapReadAsync` would look like this:
+### `GPUBuffer.mapReadAsync`
 
 ```js
 const readPixelsBuffer = device.createBuffer({
@@ -162,7 +129,7 @@ readPixelsBuffer.mapReadAsync().then((data) => {
 });
 ```
 
-Using `GPUBuffer.mapWriteAsync` would look like this:
+### `GPUBuffer.mapWriteAsync`
 
 ```js
 // model is some 3D framework resource.
@@ -180,4 +147,112 @@ stagingVertexBuffer.mapWriteAsync().then((stagingData) => {
 
     // Enqueue copy from the staging buffer to the real vertex buffer.
 });
+```
+
+### Updating data to an existing buffer (like webgl.bufferSubData)
+
+```
+function bufferSubData(device, destBuffer, destOffset, srcArrayBuffer) {
+    const byteCount = srcArrayBuffer.byteLength;
+    const (srcBuffer, mapping) = device.createBufferMapped({
+        size: byteCount,
+        usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.TRANSFER_SRC,
+    });
+    (new Uint8Array(mapping)).set(new Uint8Array(srcArrayBuffer)); // memcpy
+    srcBuffer.unmap();
+
+    const enc = device.createCommandEncoder({});
+    enc.copyBufferToBuffer(srcBuffer, 0, destBuffer, destOffset, byteCount);
+    const cb = enc.finish();
+    const q = device.getQueue();
+    q.submit([cb]);
+
+    srcBuffer.destroy();
+}
+```
+
+As usual, batching per-frame uploads through fewer (or a single) buffer reduces
+overhead.
+
+Applications are free to implement their own heuristics for batching or reusing
+upload buffers:
+```
+function AutoRingBuffer(device, chunkSize) {
+    const queue = device.getQueue();
+    let availChunks = [];
+
+    function Chunk() {
+        const size = chunkSize;
+        const (buf, initialMap) = this.device.createBufferMapped({
+            size: size,
+            usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.TRANSFER_SRC,
+        });
+
+        let mapTyped;
+        let pos;
+        let enc;
+        this.reset = function(mappedArrayBuffer) {
+            mapTyped = new Uint8Array(mappedArrayBuffer);
+            pos = 0;
+            enc = device.createCommandEncoder({});
+            if (size == chunkSize) {
+                availChunks.push(this);
+            }
+        };
+        this.reset(initialMap);
+
+        this.push = function(destBuffer, destOffset, srcArrayBuffer) {
+            const byteCount = srcArrayBuffer.byteLength;
+            const end = pos + byteCount;
+            if (end > size)
+                return false;
+            mapTyped.set(new Uint8Array(srcArrayBuffer), pos);
+            enc.copyBufferToBuffer(buf, pos, destBuffer, destOffset, byteCount);
+            pos = end;
+            return true;
+        };
+
+        this.flush = async function() {
+            const cb = enc.finish();
+            queue.submit([cb]);
+            const newMap = await buf.mapWriteAsync();
+            this.reset(newMap);
+        };
+
+        this.destroy = function() {
+            buf.destroy();
+        };
+    };
+
+    this.push = function(destBuffer, destOffset, srcArrayBuffer) {
+        if (availChunks.length) {
+            const chunk = availChunks[0];
+            if (chunk.push(destBuffer, destOffset, srcArrayBuffer))
+                return;
+            chunk.flush();
+            this.destroy();
+
+            while (true) {
+                chunkSize *= 2;
+                if (chunkSize >= srcArrayBuffer.byteLength)
+                    break;
+            }
+        }
+
+        new Chunk();
+        availChunks[0].push(destBuffer, destOffset, srcArrayBuffer);
+    };
+
+    this.flush = function() {
+        if (availChunks.length) {
+            availChunks[0].flush();
+            availChunks.shift();
+        }
+    };
+
+    this.destroy = function() {
+        availChunks.forEach(x => x.destroy());
+        availChunks = [];
+    };
+};
 ```
