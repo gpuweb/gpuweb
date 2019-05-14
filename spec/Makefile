@@ -3,7 +3,7 @@ all: index.html webgpu.idl
 index.html: index.bs
 	bikeshed -f spec index.bs
 
-webgpu.idl: index.bs
+webgpu.idl: index.bs extract-idl.py
 	python extract-idl.py index.bs > webgpu.idl
 
 online:

@@ -19,7 +19,7 @@ HEADER = """
 
 // **** This file is auto-generated. Do not edit. ****
 
-"""
+""".lstrip()
 
 inputfilename = sys.argv[1]
 inputfile = open(inputfilename)
@@ -28,15 +28,17 @@ recording = False
 idlStart = re.compile("\<script .*type=[\'\"]?idl")
 idlStop = re.compile("\</script\>")
 
+idlLineList = []
 for line in inputfile:
     line = line.rstrip()
     if idlStart.search(line) != None:
         recording = True
     elif idlStop.search(line) != None:
-        idlList.append("\n")
         recording = False
+        idlList.append("\n".join(idlLineList))
+        idlLineList = []
     elif recording:
-        idlList.append(line)
+        idlLineList.append(line)
 
 headerTemplate = Template(HEADER)
-print headerTemplate.substitute(YEAR=date.today().year) + "\n".join(idlList)
+print headerTemplate.substitute(YEAR=date.today().year) + "\n\n\n".join(idlList)
