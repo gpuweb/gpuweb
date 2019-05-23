@@ -8,7 +8,7 @@ To simplify the validation of signal-before-wait, we can force signaled number t
 
 Thus each fence has two pieces of internal state:
  - The signaled value, the latest value passed to a signal to the fence, which is also the greatest thanks to the monotonicity
- - The completed value, the value corresponding to the lastest signal operation that has been executed.
+ - The completed value, the value corresponding to the latest signal operation that has been executed.
 
 The fences will require additional restrictions and operations if WebGPU has multiple queues.
 These changes will be tagged with [multi-queue]
@@ -92,4 +92,4 @@ It makes further execution on the queue wait until the value is passed on the fe
 
  - Should we call fences "timelines" and have them created on queues like so `queue.createTimeline()`?
  - How do we wait synchronously on fences?
-   Maybe it chould be similar to `Atomics.wait`?
+   Maybe it could be similar to `Atomics.wait`?
