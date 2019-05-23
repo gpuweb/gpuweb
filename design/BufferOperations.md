@@ -1,7 +1,7 @@
 # Buffer operations
 
 This explainer describes the operations that are available on the `GPUBuffer` object directly.
-They are `setSubData` which is an immediate data upload operation, and `mapWriteAsync`, `mapReadAsync` and `unmap` which are memory mapping operations.
+They are `mapWriteAsync`, `mapReadAsync` and `unmap` which are memory mapping operations.
 
 ## Preliminaries: buffered / unbuffered commands
 
@@ -34,8 +34,8 @@ It would allow clearing the buffer only on creation and not on every map.
 
 Buffers have an internal state machine that has three states:
 
- - **Unmapped**: where the buffer can be used in queue submits or `setSubData`
- - **Mapped**: after a map operation and the subsequent `unmap` where the buffer cannot be used in queue submits or `setSubData`
+ - **Unmapped**: where the buffer can be used in queue submits
+ - **Mapped**: after a map operation and the subsequent `unmap` where the buffer cannot be used in queue submits
  - **Destroyed**: after a call to `GPUBuffer.destroy` where it is a validation error to do anything with the buffer.
 
 In the following a buffer's state is a shorthand for the buffer's state machine.
