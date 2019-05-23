@@ -229,7 +229,6 @@ If there is an error, the returned Promise rejects.
 
   - `GPUQueue.submit`
   - `GPUQueue.signal`
-  - `GPUBuffer.setSubData`
   - `GPUBuffer.unmap`
   - `GPUBuffer.destroy`
   - `GPUTexture.destroy`
