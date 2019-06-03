@@ -107,6 +107,9 @@ partial interface GPUDevice {
 `GPUDevice.createBufferMapped` returns a buffer in the mapped state along with an write mapping representing the whole range of the buffer.
 `GPUDevice.createBufferMappedAsync` returns the same values as a promise and provides more opportunities for optimization in implementations of the API.
 
+These entry points do not require the `MAP_WRITE` usage to be specified.
+The `MAP_WRITE` usage may be specified if the buffer needs to be re-mappable later on.
+
 The mapping starts filled with zeros.
 
 ## Examples
@@ -156,7 +159,7 @@ function bufferSubData(device, destBuffer, destOffset, srcArrayBuffer) {
     const byteCount = srcArrayBuffer.byteLength;
     const (srcBuffer, mapping) = device.createBufferMapped({
         size: byteCount,
-        usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.TRANSFER_SRC,
+        usage: GPUBufferUsage.TRANSFER_SRC,
     });
     (new Uint8Array(mapping)).set(new Uint8Array(srcArrayBuffer)); // memcpy
     srcBuffer.unmap();
