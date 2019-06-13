@@ -152,25 +152,25 @@ stagingVertexBuffer.mapWriteAsync().then((stagingData) => {
 });
 ```
 
-### Updating data to an existing buffer (like webgl.bufferSubData)
+### Updating data to an existing buffer (like `gl.bufferSubData`)
 
-```
+```js
 function bufferSubData(device, destBuffer, destOffset, srcArrayBuffer) {
-    const byteCount = srcArrayBuffer.byteLength;
-    const (srcBuffer, mapping) = device.createBufferMapped({
-        size: byteCount,
-        usage: GPUBufferUsage.TRANSFER_SRC,
-    });
-    (new Uint8Array(mapping)).set(new Uint8Array(srcArrayBuffer)); // memcpy
-    srcBuffer.unmap();
+  const byteCount = srcArrayBuffer.byteLength;
+  const [srcBuffer, arrayBuffer] = device.createBufferMapped({
+    size: byteCount,
+    usage: GPUBufferUsage.TRANSFER_SRC
+  });
+  new Uint8Array(arrayBuffer).set(new Uint8Array(srcArrayBuffer)); // memcpy
+  srcBuffer.unmap();
 
-    const enc = device.createCommandEncoder({});
-    enc.copyBufferToBuffer(srcBuffer, 0, destBuffer, destOffset, byteCount);
-    const cb = enc.finish();
-    const q = device.getQueue();
-    q.submit([cb]);
+  const encoder = device.createCommandEncoder();
+  encoder.copyBufferToBuffer(srcBuffer, 0, destBuffer, destOffset, byteCount);
+  const commandBuffer = encoder.finish();
+  const queue = device.getQueue();
+  queue.submit([commandBuffer]);
 
-    srcBuffer.destroy();
+  srcBuffer.destroy();
 }
 ```
 
