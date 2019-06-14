@@ -188,7 +188,7 @@ function AutoRingBuffer(device, chunkSize) {
 
     function Chunk() {
         const size = chunkSize;
-        const (buf, initialMap) = this.device.createBufferMapped({
+        const [buf, initialMap] = this.device.createBufferMapped({
             size: size,
             usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.TRANSFER_SRC,
         });
