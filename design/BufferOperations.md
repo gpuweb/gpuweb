@@ -152,26 +152,27 @@ stagingVertexBuffer.mapWriteAsync().then((stagingData) => {
 });
 ```
 
-### Updating data to an existing buffer (like `gl.bufferSubData`)
+### Updating data to an existing buffer (like WebGL's `bufferSubData`)
 
 ```js
 function bufferSubData(device, destBuffer, destOffset, srcArrayBuffer) {
-  const byteCount = srcArrayBuffer.byteLength;
-  const [srcBuffer, arrayBuffer] = device.createBufferMapped({
-    size: byteCount,
-    usage: GPUBufferUsage.TRANSFER_SRC
-  });
-  new Uint8Array(arrayBuffer).set(new Uint8Array(srcArrayBuffer)); // memcpy
-  srcBuffer.unmap();
+    const byteCount = srcArrayBuffer.byteLength;
+    const [srcBuffer, arrayBuffer] = device.createBufferMapped({
+        size: byteCount,
+        usage: GPUBufferUsage.TRANSFER_SRC
+    });
+    new Uint8Array(arrayBuffer).set(new Uint8Array(srcArrayBuffer)); // memcpy
+    srcBuffer.unmap();
 
-  const encoder = device.createCommandEncoder();
-  encoder.copyBufferToBuffer(srcBuffer, 0, destBuffer, destOffset, byteCount);
-  const commandBuffer = encoder.finish();
-  const queue = device.getQueue();
-  queue.submit([commandBuffer]);
+    const encoder = device.createCommandEncoder();
+    encoder.copyBufferToBuffer(srcBuffer, 0, destBuffer, destOffset, byteCount);
+    const commandBuffer = encoder.finish();
+    const queue = device.getQueue();
+    queue.submit([commandBuffer]);
 
-  srcBuffer.destroy();
+    srcBuffer.destroy();
 }
+
 ```
 
 As usual, batching per-frame uploads through fewer (or a single) buffer reduces
@@ -179,7 +180,8 @@ overhead.
 
 Applications are free to implement their own heuristics for batching or reusing
 upload buffers:
-```
+
+```js
 function AutoRingBuffer(device, chunkSize) {
     const queue = device.getQueue();
     let availChunks = [];
