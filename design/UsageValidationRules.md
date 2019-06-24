@@ -7,17 +7,17 @@ Buffers have the following usages (and commands inducing that usage):
  - `INDEX` for `buffer` in calls to `WebGPUCommandEncoder.setIndexBuffer`
  - `INDIRECT` for `indirectBuffer` in calls to `WebGPUCommandEncode.{draw|drawIndexed|dispatch}Indirect`
  - `UBO` and `STORAGE` for buffers referenced by bindgroups passed to `setBindGroup`, with the usage corresponding to the binding's type.
- - `TRANSFER_SRC` for buffers used as the copy source of various commands.
- - `TRANSFER_DST` for buffers used as the copy destination of various commands.
+ - `COPY_SRC` for buffers used as the copy source of various commands.
+ - `COPY_DST` for buffers used as the copy destination of various commands.
  - (Maybe `STORAGE_TEXEL` and `UNIFORM_TEXEL`?)
 
 Textures have the following usages:
  - `OUTPUT_ATTACHMENT` for the subresources referenced by `WebGPURenderPassDescriptor`
  - `SAMPLED` and `STORAGE` for subresources corresponding to the image views referenced by bindgroups passed to `setBindGroup`, with the usage corresponding to the binding's type.
- - `TRANSFER_SRC` for textures used as the copy source of various commands.
- - `TRANSFER_DST` for textures used as the copy destination of various commands.
+ - `COPY_SRC` for textures used as the copy source of various commands.
+ - `COPY_DST` for textures used as the copy destination of various commands.
 
-Read only usages are `VERTEX`, `INDEX`, `INDIRECT`, `UBO`, `TRANSFER_SRC` and `SAMPLED`.
+Read only usages are `VERTEX`, `INDEX`, `INDIRECT`, `UBO`, `COPY_SRC` and `SAMPLED`.
 
 ## Render passes
 
