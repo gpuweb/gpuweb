@@ -4,7 +4,7 @@ Shortname: webgpu
 Level: 1
 Status: w3c/ED
 Group: webgpu
-URL: https://github.com/gpuweb/gpuweb/spec/
+URL: https://gpuweb.github.io/gpuweb
 Editor: The GPU for the Web Community Group, W3C https://github.com/gpuweb/
 Abstract: WebGPU exposes an API for performing operations, such as rendering and computation, on a Graphics Processing Unit.
 </pre>
@@ -23,33 +23,37 @@ typedef long i32;
 typedef unsigned long u32;
 typedef unsigned long long u64;
 
-dictionary GPUColor {
+dictionary GPUColorDict {
     required float r;
     required float g;
     required float b;
     required float a;
 };
+typedef (sequence<float> or GPUColorDict) GPUColor;
 
-dictionary GPUOrigin2D {
+dictionary GPUOrigin2DDict {
     u32 x = 0;
     u32 y = 0;
 };
+typedef (sequence<u32> or GPUOrigin2DDict) GPUOrigin2D;
 
-dictionary GPUOrigin3D {
+dictionary GPUOrigin3DDict {
     u32 x = 0;
     u32 y = 0;
     u32 z = 0;
 };
+typedef (sequence<u32> or GPUOrigin3DDict) GPUOrigin3D;
 
-dictionary GPUExtent3D {
+dictionary GPUExtent3DDict {
     required u32 width;
     required u32 height;
     required u32 depth;
 };
+typedef (sequence<u32> or GPUExtent3DDict) GPUExtent3D;
 
 typedef sequence<any> GPUMappedBuffer;  // [GPUBuffer, ArrayBuffer]
 
-interface GPUObjectBase {
+interface mixin GPUObjectBase {
     attribute DOMString? label;
 };
 
@@ -291,11 +295,11 @@ interface GPUShaderStageBit {
 
 enum GPUBindingType {
     "uniform-buffer",
-    "dynamic-uniform-buffer",
+    "storage-buffer",
+    "readonly-storage-buffer",
     "sampler",
     "sampled-texture",
-    "storage-buffer",
-    "dynamic-storage-buffer"
+    "storage-texture"
     // TODO other binding types
 };
 
@@ -303,6 +307,10 @@ dictionary GPUBindGroupLayoutBinding {
     required u32 binding;
     required GPUShaderStageFlags visibility;
     required GPUBindingType type;
+    // For uniform, storage and readonly storage buffer, means that the binding
+    // has a dynamic offset. One offset must be passed to setBindGroup for each
+    // dynamic binding in increasing order of `binding` number.
+    boolean dynamic = false;
 };
 
 dictionary GPUBindGroupLayoutDescriptor : GPUObjectDescriptorBase {
@@ -375,7 +383,7 @@ enum GPUCullMode {
 };
 
 dictionary GPURasterizationStateDescriptor {
-    required GPUFrontFace frontFace;
+    GPUFrontFace frontFace = "ccw";
     GPUCullMode cullMode = "none";
 
     i32 depthBias = 0;
@@ -593,7 +601,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     // Number of MSAA samples
     u32 sampleCount = 1;
     u32 sampleMask = 0xFFFFFFFF;
-    bool alphaToCoverageEnabled = false;
+    boolean alphaToCoverageEnabled = false;
     // TODO other properties
 };
 
@@ -644,7 +652,7 @@ interface GPURenderPassEncoder : GPUProgrammablePassEncoder {
 
 interface GPUComputePassEncoder : GPUProgrammablePassEncoder {
     void setPipeline(GPUComputePipeline pipeline);
-    void dispatch(u32 x, u32 y, u32 z);
+    void dispatch(u32 x, optional u32 y = 1, optional u32 z = 1);
     void dispatchIndirect(GPUBuffer indirectBuffer, u64 indirectOffset);
 
     // TODO add missing commands
@@ -752,7 +760,7 @@ interface GPUCommandEncoder : GPUObjectBase {
     void popDebugGroup();
     void insertDebugMarker(DOMString markerLabel);
 
-    GPUCommandBuffer finish(GPUCommandBufferDescriptor? descriptor);
+    GPUCommandBuffer finish(optional GPUCommandBufferDescriptor descriptor);
 };
 
 dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
@@ -781,7 +789,7 @@ Queues {#queues}
 interface GPUQueue : GPUObjectBase {
     void submit(sequence<GPUCommandBuffer> buffers);
 
-    GPUFence createFence(GPUFenceDescriptor descriptor);
+    GPUFence createFence(optional GPUFenceDescriptor descriptor);
     void signal(GPUFence fence, u64 signalValue);
 };
 </script>
@@ -822,7 +830,8 @@ dictionary GPULimits {
 };
 
 // Device
-interface GPUDevice : GPUObjectBase {
+[Exposed=(Window, Worker)]
+interface GPUDevice : EventTarget {
     readonly attribute GPUExtensions extensions;
     readonly attribute GPULimits limits;
     readonly attribute GPUAdapter adapter;
@@ -831,7 +840,7 @@ interface GPUDevice : GPUObjectBase {
     GPUMappedBuffer createBufferMapped(GPUBufferDescriptor descriptor);
     Promise<GPUMappedBuffer> createBufferMappedAsync(GPUBufferDescriptor descriptor);
     GPUTexture createTexture(GPUTextureDescriptor descriptor);
-    GPUSampler createSampler(GPUSamplerDescriptor descriptor);
+    GPUSampler createSampler(optional GPUSamplerDescriptor descriptor);
 
     GPUBindGroupLayout createBindGroupLayout(GPUBindGroupLayoutDescriptor descriptor);
     GPUPipelineLayout createPipelineLayout(GPUPipelineLayoutDescriptor descriptor);
@@ -841,10 +850,12 @@ interface GPUDevice : GPUObjectBase {
     GPUComputePipeline createComputePipeline(GPUComputePipelineDescriptor descriptor);
     GPURenderPipeline createRenderPipeline(GPURenderPipelineDescriptor descriptor);
 
-    GPUCommandEncoder createCommandEncoder(GPUCommandEncoderDescriptor descriptor);
+    GPUCommandEncoder createCommandEncoder(optional GPUCommandEncoderDescriptor descriptor);
 
     GPUQueue getQueue();
 };
+
+GPUDevice includes GPUObjectBase;
 
 dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
     GPUExtensions extensions;
@@ -859,7 +870,7 @@ interface GPUAdapter : GPUObjectBase {
     //readonly attribute GPULimits limits; Don't expose higher limits for now.
 
     // May reject with DOMException  // TODO: DOMException("OperationError")?
-    Promise<GPUDevice> requestDevice(GPUDeviceDescriptor descriptor);
+    Promise<GPUDevice> requestDevice(optional GPUDeviceDescriptor descriptor);
 };
 
 enum GPUPowerPreference {
@@ -946,10 +957,6 @@ interface GPUUncapturedErrorEvent : Event {
 dictionary GPUUncapturedErrorEventInit : EventInit {
     required GPUError error;
 };
-
-// TODO: EventTarget is actually an interface, not a mixin, but it probably should be a mixin.
-[Exposed=Window]
-GPUDevice includes EventTarget;
 
 partial interface GPUDevice {
     [Exposed=Window]
