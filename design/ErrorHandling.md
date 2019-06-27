@@ -267,9 +267,10 @@ If there are no error scopes on the stack, `popErrorScope()` rejects.
 
 If the device is lost, `popErrorScope()` always rejects.
 
-\* Error scope state is **per-device, per-execution-context**.
-That is, when a `GPUDevice` is posted to a Worker for the first time, the new `GPUDevice` copy's error scope stack is empty.
-(If a `GPUDevice` is copied *back* to an execution context it already existed on, it shares its error scope state with all other copies on that execution context.)
+\* Error scope state is **per-underlying-device, per-execution-context**.
+That is, when a device (`GPUDevice` or `GPUDeviceRef`) appears on a Worker for the first time (via `requestDevice` or `onmessage`), the new `GPUDeviceRef`'s error scope stack is empty.
+(If a single execution context ends up with multiple `GPUDevice`/`GPUDeviceRef` objects pointing at the same underlying WebGPU device, they all share the same error scope state.
+Uncaptured errors always bubble to the event handler on the primary `GPUDevice`; uncaptured errors cannot be caught from `GPUDeviceRef`s.
 
 ```webidl
 enum GPUErrorFilter {
