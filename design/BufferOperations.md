@@ -119,7 +119,7 @@ The mapping starts filled with zeros.
 ```js
 const readPixelsBuffer = device.createBuffer({
     size: 4,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.TRANSFER_DST,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
 });
 
 // Commands copying a pixel from a texture into readPixelsBuffer are submitted
@@ -140,7 +140,7 @@ const size = model.computeVertexBufferSize();
 
 const stagingVertexBuffer = device.createBuffer({
     size: size,
-    usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.TRANSFER_SRC,
+    usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
 });
 
 stagingVertexBuffer.mapWriteAsync().then((stagingData) => {
@@ -159,7 +159,7 @@ function bufferSubData(device, destBuffer, destOffset, srcArrayBuffer) {
     const byteCount = srcArrayBuffer.byteLength;
     const [srcBuffer, arrayBuffer] = device.createBufferMapped({
         size: byteCount,
-        usage: GPUBufferUsage.TRANSFER_SRC
+        usage: GPUBufferUsage.COPY_SRC
     });
     new Uint8Array(arrayBuffer).set(new Uint8Array(srcArrayBuffer)); // memcpy
     srcBuffer.unmap();
@@ -190,7 +190,7 @@ function AutoRingBuffer(device, chunkSize) {
         const size = chunkSize;
         const [buf, initialMap] = this.device.createBufferMapped({
             size: size,
-            usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.TRANSFER_SRC,
+            usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
         });
 
         let mapTyped;
