@@ -1,14 +1,14 @@
 # WebGPU + ImageBitmap
 
 ```webidl
-dictionary ImageBitmapCopyView {
-    ImageBitmap imageBitmap;
+dictionary GPUImageBitmapCopyView {
+    required ImageBitmap imageBitmap;
     GPUOrigin2D origin;
 };
 
 partial interface GPUCommandEncoder {
     void copyImageBitmapToTexture(
-        ImageBitmapCopyView source,
+        GPUImageBitmapCopyView source,
         GPUTextureCopyView destination,
         // For now, copySize.z must be 1.
         GPUExtent3D copySize);
