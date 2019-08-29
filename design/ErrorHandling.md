@@ -263,7 +263,7 @@ Any further errors it captures are **silently ignored**.
 
 If an error is not captured by an error scope, it is passed out to the enclosing error scope.
 
-If there are no error scopes on the stack, `popErrorScope()` rejects.
+If there are no error scopes on the stack, `popErrorScope()` throws OperationError.
 
 If the device is lost, `popErrorScope()` always rejects.
 
