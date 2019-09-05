@@ -15,6 +15,12 @@ Abstract: WebGPU exposes an API for performing operations, such as rendering and
 Markup Shorthands: markdown yes
 </pre>
 
+<pre class='anchors'>
+urlPrefix: https://tc39.github.io/ecma262/; spec: ECMA-262
+    type: dfn
+        text: agent; url: agent
+</pre>
+
 
 Introduction {#intro}
 =====================
@@ -26,9 +32,8 @@ Type Definitions {#type-definitions}
 ============================
 
 <script type=idl>
-typedef long i32;
-typedef unsigned long u32;
-typedef unsigned long long u64;
+typedef unsigned long GPUFlags;
+typedef unsigned long long GPUBufferSize;
 </script>
 
 ## Colors and Vectors ## {#colors-and-vectors}
@@ -43,41 +48,67 @@ dictionary GPUColorDict {
 typedef (sequence<double> or GPUColorDict) GPUColor;
 </script>
 
-Note: `double` is large enough to precisely hold `i32`/`u32`.
+Note: `double` is large enough to precisely hold 32-bit signed/unsigned
+integers and single-precision floats.
 
 <script type=idl>
 dictionary GPUOrigin2DDict {
-    u32 x = 0;
-    u32 y = 0;
+    unsigned long x = 0;
+    unsigned long y = 0;
 };
-typedef (sequence<u32> or GPUOrigin2DDict) GPUOrigin2D;
+typedef (sequence<unsigned long> or GPUOrigin2DDict) GPUOrigin2D;
 </script>
 
 <script type=idl>
 dictionary GPUOrigin3DDict {
-    u32 x = 0;
-    u32 y = 0;
-    u32 z = 0;
+    unsigned long x = 0;
+    unsigned long y = 0;
+    unsigned long z = 0;
 };
-typedef (sequence<u32> or GPUOrigin3DDict) GPUOrigin3D;
+typedef (sequence<unsigned long> or GPUOrigin3DDict) GPUOrigin3D;
 </script>
 
 <script type=idl>
 dictionary GPUExtent3DDict {
-    required u32 width;
-    required u32 height;
-    required u32 depth;
+    required unsigned long width;
+    required unsigned long height;
+    required unsigned long depth;
 };
-typedef (sequence<u32> or GPUExtent3DDict) GPUExtent3D;
+typedef (sequence<unsigned long> or GPUExtent3DDict) GPUExtent3D;
 </script>
 
-## Base Objects ## {#base-objects}
+## Internal Objects ## {#webgpu-internal-objects}
+
+An <dfn dfn>internal object</dfn> is a non-exposed conceptual WebGPU object.
+[=Internal objects=] track the state of an API object and hold any underlying implementation.
+If the state of a particular [=internal object=] can change in parallel from multiple [=agents=],
+those changes are always atomic with respect to all [=agents=].
+
+Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
+
+## WebGPU Interfaces ## {#webgpu-interfaces}
+
+A <dfn dfn>WebGPU interface</dfn> is an exposed interface which encapsulates an [=internal object=].
+It provides the interface through which the [=internal object=]'s state is changed.
+
+Any interface which includes {{GPUObjectBase}} is a [=WebGPU interface=].
 
 <script type=idl>
 interface mixin GPUObjectBase {
     attribute DOMString? label;
 };
 </script>
+
+<dl dfn-type=attribute dfn-for=GPUObjectBase>
+    : <dfn>label</dfn>
+    ::
+
+    : <dfn>\[[device]]</dfn>, of type [=device=], readonly
+    ::
+        An internal slot holding the [=device=] on which the object exists.
+</dl>
+
+## Object Descriptors ## {#object-descriptors}
 
 <script type=idl>
 dictionary GPUObjectDescriptorBase {
@@ -101,10 +132,41 @@ partial interface WorkerNavigator {
 };
 </script>
 
-## GPUAdapter ## {#adapter}
+<script type=idl>
+[Exposed=Window]
+interface GPU {
+    // May reject with DOMException  // TODO: DOMException("OperationError")?
+    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
+};
+</script>
+
+## Adapters ## {#adapters}
+
+An <dfn dfn>adapter</dfn> represents an implementation of WebGPU on the system.
+Each adapter identifies both an instance of a hardware accelerator (e.g. GPU or CPU) and
+an instance of a browser's implementation of WebGPU on top of that accelerator.
+
+<!--TODO: Move definition of "invalid" somewhere more generic.-->
+If an [=adapter=] becomes unavailable, it becomes <dfn dfn>invalid</dfn>.
+Once invalid, it never becomes valid again.
+
+Note:
+An [=adapter=] may be a physical display adapter (GPU), but it could also be
+a software renderer.
+A returned [=adapter=] could refer to different physical adapters, or to
+different browser codepaths or system drivers on the same physical adapters.
+Applications can hold onto multiple [=adapters=] at once (via {{GPUAdapter}})
+(even if some are [=invalid=]),
+and two of these could refer to different instances of the same physical
+configuration (e.g. if the GPU reset, or were disconnected and reconnected).
+
+### GPUAdapter ### {#gpu-adapter}
+
+A <dfn interface>GPUAdapter</dfn> refers to an [=adapter=],
+and exposes its capabilities (extensions and limits).
 
 <script type=idl>
-interface GPUAdapter : GPUObjectBase {
+interface GPUAdapter {
     readonly attribute DOMString name;
     readonly attribute GPUExtensions extensions;
     //readonly attribute GPULimits limits; Don't expose higher limits for now.
@@ -114,21 +176,65 @@ interface GPUAdapter : GPUObjectBase {
 };
 </script>
 
+{{GPUAdapter}} has the following attributes:
+
+<dl dfn-type=attribute dfn-for=GPUAdapter>
+    : <dfn>\[[adapter]]</dfn>, of type [=adapter=], readonly
+    ::
+        An internal slot holding the [=adapter=] to which this {{GPUAdapter}}
+        refers.
+
+    : <dfn>name</dfn>
+    ::
+        A human-readable name identifying the adapter.
+        The contents are implementation-defined.
+
+    : <dfn>extensions</dfn>
+    ::
+        A {{GPUExtensions}} object which enumerates the extensions supported
+        by the user agent, and whether each extension is supported by the
+        underlying implementation.
+          - If an extension is not supported by the user agent,
+            it will not be present in the object.
+          - If an extension is supported by the user agent, but
+            not by the [=adapter=], it will be `false`.
+          - If an extension is supported by the user agent and
+            by the [=adapter=], it will be `true`.
+</dl>
+
 ### Getting an Adapter ### {#adapter-creation}
 
-<script type=idl>
-[Exposed=Window]
-interface GPU {
-    // May reject with DOMException  // TODO: DOMException("OperationError")?
-    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
-};
-</script>
+To get a {{GPUAdapter}}, use {{GPU/requestAdapter()}}.
 
 <script type=idl>
 dictionary GPURequestAdapterOptions {
-    GPUPowerPreference? powerPreference;
+    GPUPowerPreference powerPreference;
 };
 </script>
+
+<dfn dictionary>GPURequestAdapterOptions</dfn>
+provides requirements and hints to the user agent indicating what
+configuration is suitable for the application.
+
+<dl dfn-type=dict-member dfn-for=GPURequestAdapterOptions>
+    : <dfn>powerPreference</dfn>
+    ::
+        Provides a hint indicating what class of [=adapter=] should be selected from the system's
+        available adapters.
+
+        If unspecified, the user agent decides which class of adapter is most suitable.
+
+        Note:
+        This hint may influence which GPU is used in a system with multiple GPUs.
+        For example, a dual-GPU system might have one GPU that consumes less power at the expense
+        of performance.
+
+        Note:
+        Depending on the exact hardware configuration, such as attached displays or removable
+        GPUs, the user agent may select different [=adapters=] given the same power preference.
+        Typically, given the same hardware configuration and state (e.g. battery percentage) and
+        `powerPreference`, the user agent should select the same adapter.
+</dl>
 
 <script type=idl>
 enum GPUPowerPreference {
@@ -137,10 +243,65 @@ enum GPUPowerPreference {
 };
 </script>
 
-## GPUDevice ## {#device}
+<dl dfn-type=enum-value dfn-for=GPUPowerPreference>
+    : <dfn>"low-power"</dfn>
+    ::
+        Indicates a request to prioritize power savings over performance.
+
+        Note:
+        Generally, content should use this if it is unlikely to be constrained by drawing
+        performance; for example, if it renders only one frame per second, draws only relatively
+        simple geometry with simple shaders, or uses a small HTML canvas element.
+        Developers are encouraged to use this value if their content allows, since it may
+        significantly improve battery life on portable devices.
+
+    : <dfn>"high-performance"</dfn>
+    ::
+        Indicates a request to prioritize performance over power consumption.
+
+        Note:
+        By choosing this value, developers should be aware that, for [=devices=] created on the
+        resulting adapter, user agents are more likely to force device loss, in order to save
+        power.
+        Developers are encouraged to only specify this value if they believe it is absolutely
+        necessary, since it may significantly decrease battery life on portable devices.
+</dl>
+
+## Devices ## {#devices}
+
+A <dfn dfn>device</dfn> is the logical instantiation of an [=adapter=],
+through which [=internal objects=] are created.
+It can be shared across multiple [=agents=] (e.g. dedicated workers).
+
+A [=device=] is the exclusive owner of all [=internal objects=] created from it:
+when the [=device=] is lost, all objects created from it become invalid.
+
+<!-- TODO: write and link to spec about what invalid means -->
+
+A [=device=] has the following internal slots:
+
+<dl dfn-type=attribute dfn-for=device>
+    : <dfn>\[[adapter]]</dfn>, of type [=adapter=], readonly
+    ::
+        The [=adapter=] from which this device was created.
+</dl>
+
+When a [=device=] is created, its capabilities are set to those requested by
+the user in {{GPUAdapter/requestDevice()}} (which must be no greater than the
+capabilities specified by the [=adapter=]).
+These capabilities are enforced upon the usage of objects on the [=device=],
+even if the underlying [=adapter=] can support higher capabilities.
+
+<!-- TODO: specify "no greater" more precisely -->
+
+### GPUDevice ### {#gpu-device}
+
+A {{GPUDevice}} refers to a [=device=] and
+exposes the capabilities with which the [=device=] was created.
+It is the top-level object through which [=WebGPU interfaces=] are created.
 
 <script type=idl>
-[Exposed=(Window, Worker)]
+[Exposed=(Window, Worker), Serializable]
 interface GPUDevice : EventTarget {
     readonly attribute GPUExtensions extensions;
     readonly attribute GPULimits limits;
@@ -168,7 +329,33 @@ interface GPUDevice : EventTarget {
 GPUDevice includes GPUObjectBase;
 </script>
 
-### Creation ### {#device-creation}
+{{GPUDevice}} also has the following internal slots:
+
+<dl dfn-type=attribute dfn-for=GPUDevice>
+    : <dfn>\[[device]]</dfn>, of type [=device=], readonly
+    ::
+        The [=device=] that this {{GPUDevice}} refers to.
+</dl>
+
+{{GPUDevice}} objects are [=serializable objects=].
+
+<div algorithm="serializing a GPUDevice">
+    Their [=serialization steps=], given |value|, |serialized|, and |forStorage|, are:
+
+    1. If |forStorage| is true, throw a "{{DataCloneError}}".
+
+    1. Set |serialized|.device to the value of |value|.{{GPUDevice/[[device]]}}.
+</div>
+
+<div algorithm="deserializing a GPUDevice">
+    Their [=deserialization steps=], given |serialized| and |value|, are:
+
+    1. Set |value|.{{GPUDevice/[[device]]}} to |serialized|.device.
+</div>
+
+### Getting a Device ### {#device-creation}
+
+To get a {{GPUDevice}}, use {{GPUAdapter/requestDevice()}}.
 
 <script type=idl>
 dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
@@ -179,6 +366,24 @@ dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
 };
 </script>
 
+<dl dfn-type=dict-member dfn-for=GPUDeviceDescriptor>
+    : <dfn>extensions</dfn>
+    ::
+        The extensions to request of device creation.
+
+    : <dfn>limits</dfn>
+    ::
+        The limits to request of device creation.
+</dl>
+
+<div algorithm="creating a GPUDevice">
+    1. If the requested configuration is not available
+        (i.e. the requested extensions or limits cannot be supported),
+        {{GPUAdapter/requestDevice()}} rejects with a "{{NotSupportedError}}".
+
+    1. Otherwise, a {{GPUDevice}} is created with the {{GPUExtensions}} and {{GPULimits}} specified.
+</div>
+
 <script type=idl>
 dictionary GPUExtensions {
     boolean anisotropicFiltering = false;
@@ -187,15 +392,112 @@ dictionary GPUExtensions {
 
 <script type=idl>
 dictionary GPULimits {
-    u32 maxBindGroups = 4;
+    unsigned long maxBindGroups = 4;
 };
 </script>
 
 
-Buffers {#buffers}
-==================
+# {{GPUBuffer}} # {#GPUBuffer}
 
-## GPUBuffer ## {#buffer}
+A {{GPUBuffer}} represents a block of memory that can be used in GPU operations.
+Data is stored in linear layout, meaning that each byte of the allocation can be
+addressed by its offset from the start of the {{GPUBuffer}}, subject to alignment
+restrictions depending on the operation.
+
+{{GPUBuffer}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUBuffer">
+	: <dfn>\[[size]]</dfn> of type {{GPUBufferSize}}.
+	::
+        The length of the {{GPUBuffer}} allocation in bytes.
+
+	: <dfn>\[[usage]]</dfn> of type {{GPUBufferUsageFlags}}.
+	::
+        The allowed usages for this {{GPUBuffer}}.
+
+    : <dfn>\[[state]]</dfn> of type [=buffer state=].
+    ::
+        The current state of the {{GPUBuffer}}.
+</dl>
+
+Each {{GPUBuffer}} has a current <dfn dfn>buffer state</dfn> which is one of the following:
+
+ - "<dfn dfn for="buffer state">mapped</dfn>" where the {{GPUBuffer}} is available for CPU operations.
+ - "<dfn dfn for="buffer state">unmapped</dfn>" where the {{GPUBuffer}} is available for GPU operations.
+ - "<dfn dfn for="buffer state">destroyed</dfn>" where the {{GPUBuffer}} is no longer available for any operations except {{GPUBuffer/destroy}}.
+
+Note:
+{{GPUBuffer/[[size]]}} and {{GPUBuffer/[[usage]]}} are immutable once the {{GPUBuffer}} has been created.
+
+## Creation ## {#buffer-creation}
+
+A {{GPUBuffer}} can be created in the "[=buffer state/unmapped=]" state using the {{GPUDevice}}.{{GPUDevice/createBuffer(descriptor)}} method.
+
+### {{GPUBufferDescriptor}} ### {#GPUBufferDescriptor}
+
+This specifies the options to use in creating a {{GPUBuffer}}.
+
+<script type=idl>
+dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
+    required GPUBufferSize size;
+    required GPUBufferUsageFlags usage;
+};
+</script>
+
+<!-- TODO(kangz): Describe what are the {{device}} [[allowed buffer usages]] -->
+
+<dl dfn-type="abstract-op">
+    : <dfn>validating GPUBufferDescriptor</dfn>(device, descriptor)
+    ::
+        <div algorithm="validation GPUBufferDescriptor(device, descriptor)">
+            1. If device is lost return false.
+            1. If any of the bits of |descriptor|'s {{GPUBufferDescriptor/usage}} aren't present in this device's [[allowed buffer usages]] return false.
+            1. If both the {{GPUBufferUsage/MAP_READ}} and {{GPUBufferUsage/MAP_WRITE}} bits of |descriptor|'s {{GPUBufferDescriptor/usage}} attribute are set, return false.
+            1. Return true.
+        </div>
+</dl>
+
+### {{GPUDevice/createBuffer(descriptor)|GPUDevice.createBuffer(descriptor)}} ### {#GPUDevice-createBuffer}
+
+<dl dfn-type="method" dfn-for="GPUDevice">
+	: <dfn>createBuffer(descriptor)</dfn>
+	::
+		<div algorithm="GPUDevice.createBuffer(descriptor)">
+            1. If the result of [$validating GPUBufferDescriptor$](this, descriptor) is false:
+
+                1. Record a validation error in the current scope.
+                <!-- TODO(kangz): Once we have a description of the error monad, explain what the error buffer is. -->
+                1. Create an error buffer and return the result.
+
+            1. Let |b| be a new {{GPUBuffer}} object.
+            1. Set the {{GPUBuffer/[[size]]}} slot of |b| to the value of the {{GPUBufferDescriptor/size}} attribute of |descriptor|.
+            1. Set the {{GPUBuffer/[[usage]]}} slot of |b| to the value of the {{GPUBufferDescriptor/usage}} attribute of |descriptor|.
+            1. Set the {{GPUBuffer/[[state]]}} internal slot of |b| to `"unmapped"`.
+            1. Set each byte of |b|'s allocation to zero.
+            1. Return |b|.
+        </div>
+</dl>
+
+## Buffer Usage ## {#buffer-usage}
+
+<script type=idl>
+typedef GPUFlags GPUBufferUsageFlags;
+interface GPUBufferUsage {
+    const GPUFlags NONE      = 0x0000;
+    const GPUFlags MAP_READ  = 0x0001;
+    const GPUFlags MAP_WRITE = 0x0002;
+    const GPUFlags COPY_SRC  = 0x0004;
+    const GPUFlags COPY_DST  = 0x0008;
+    const GPUFlags INDEX     = 0x0010;
+    const GPUFlags VERTEX    = 0x0020;
+    const GPUFlags UNIFORM   = 0x0040;
+    const GPUFlags STORAGE   = 0x0080;
+    const GPUFlags INDIRECT  = 0x0100;
+};
+</script>
+
+## Buffer Mapping ## {#buffer-mapping}
+
 
 <script type=idl>
 interface GPUBuffer : GPUObjectBase {
@@ -205,38 +507,7 @@ interface GPUBuffer : GPUObjectBase {
 
     void destroy();
 };
-</script>
 
-### Creation ### {#buffer-creation}
-
-<script type=idl>
-dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
-    required u64 size;
-    required GPUBufferUsageFlags usage;
-};
-</script>
-
-## Buffer Usage ## {#buffer-usage}
-
-<script type=idl>
-typedef u32 GPUBufferUsageFlags;
-interface GPUBufferUsage {
-    const u32 NONE      = 0x0000;
-    const u32 MAP_READ  = 0x0001;
-    const u32 MAP_WRITE = 0x0002;
-    const u32 COPY_SRC  = 0x0004;
-    const u32 COPY_DST  = 0x0008;
-    const u32 INDEX     = 0x0010;
-    const u32 VERTEX    = 0x0020;
-    const u32 UNIFORM   = 0x0040;
-    const u32 STORAGE   = 0x0080;
-    const u32 INDIRECT  = 0x0100;
-};
-</script>
-
-## Buffer Mapping ## {#buffer-mapping}
-
-<script type=idl>
 typedef sequence<any> GPUMappedBuffer;
 </script>
 
@@ -251,8 +522,7 @@ Textures {#textures}
 
 <script type=idl>
 interface GPUTexture : GPUObjectBase {
-    GPUTextureView createView(GPUTextureViewDescriptor descriptor);
-    GPUTextureView createDefaultView();
+    GPUTextureView createView(optional GPUTextureViewDescriptor descriptor);
 
     void destroy();
 };
@@ -263,9 +533,9 @@ interface GPUTexture : GPUObjectBase {
 <script type=idl>
 dictionary GPUTextureDescriptor : GPUObjectDescriptorBase {
     required GPUExtent3D size;
-    u32 arrayLayerCount = 1;
-    u32 mipLevelCount = 1;
-    u32 sampleCount = 1;
+    unsigned long arrayLayerCount = 1;
+    unsigned long mipLevelCount = 1;
+    unsigned long sampleCount = 1;
     GPUTextureDimension dimension = "2d";
     required GPUTextureFormat format;
     required GPUTextureUsageFlags usage;
@@ -281,14 +551,14 @@ enum GPUTextureDimension {
 </script>
 
 <script type=idl>
-typedef u32 GPUTextureUsageFlags;
+typedef GPUFlags GPUTextureUsageFlags;
 interface GPUTextureUsage {
-    const u32 NONE              = 0x00;
-    const u32 COPY_SRC          = 0x01;
-    const u32 COPY_DST          = 0x02;
-    const u32 SAMPLED           = 0x04;
-    const u32 STORAGE           = 0x08;
-    const u32 OUTPUT_ATTACHMENT = 0x10;
+    const GPUFlags NONE              = 0x00;
+    const GPUFlags COPY_SRC          = 0x01;
+    const GPUFlags COPY_DST          = 0x02;
+    const GPUFlags SAMPLED           = 0x04;
+    const GPUFlags STORAGE           = 0x08;
+    const GPUFlags OUTPUT_ATTACHMENT = 0x10;
 };
 </script>
 
@@ -303,15 +573,27 @@ interface GPUTextureView : GPUObjectBase {
 
 <script type=idl>
 dictionary GPUTextureViewDescriptor : GPUObjectDescriptorBase {
-    required GPUTextureFormat format;
-    required GPUTextureViewDimension dimension;
-    required GPUTextureAspect aspect;
-    u32 baseMipLevel = 0;
-    u32 mipLevelCount = 1;
-    u32 baseArrayLayer = 0;
-    u32 arrayLayerCount = 1;
+    GPUTextureFormat format;
+    GPUTextureViewDimension dimension;
+    GPUTextureAspect aspect = "all";
+    unsigned long baseMipLevel = 0;
+    unsigned long mipLevelCount = 0;
+    unsigned long baseArrayLayer = 0;
+    unsigned long arrayLayerCount = 0;
 };
 </script>
+
+  * {{GPUTextureViewDescriptor/format}}:
+    If unspecified, defaults to the format of the texture.
+
+  * {{GPUTextureViewDescriptor/dimension}}:
+    If unspecified, defaults to the dimension of the texture.
+
+  * {{GPUTextureViewDescriptor/mipLevelCount}}:
+    If mipLevelCount == 0, the texture view will cover all the mipmap levels starting from baseMipLevel.
+
+  * {{GPUTextureViewDescriptor/arrayLayerCount}}:
+    If arrayLayerCount == 0, the texture view will cover all the array layers starting from baseArrayLayer.
 
 <script type=idl>
 enum GPUTextureViewDimension {
@@ -359,8 +641,6 @@ enum GPUTextureFormat {
     "r8sint",
 
     // 16-bit formats
-    "r16unorm",
-    "r16snorm",
     "r16uint",
     "r16sint",
     "r16float",
@@ -373,8 +653,6 @@ enum GPUTextureFormat {
     "r32uint",
     "r32sint",
     "r32float",
-    "rg16unorm",
-    "rg16snorm",
     "rg16uint",
     "rg16sint",
     "rg16float",
@@ -393,8 +671,6 @@ enum GPUTextureFormat {
     "rg32uint",
     "rg32sint",
     "rg32float",
-    "rgba16unorm",
-    "rgba16snorm",
     "rgba16uint",
     "rgba16sint",
     "rgba16float",
@@ -420,6 +696,13 @@ enum GPUTextureFormat {
     found in native APIs, which has a precision of
     1 ULP = 1 / (2<sup>24</sup> &minus; 1).
 
+<script type=idl>
+enum GPUTextureComponentType {
+    "float",
+    "sint",
+    "uint"
+};
+</script>
 
 Samplers {#samplers}
 ====================
@@ -511,10 +794,11 @@ dictionary GPUBindGroupLayoutDescriptor : GPUObjectDescriptorBase {
 
 <script type=idl>
 dictionary GPUBindGroupLayoutBinding {
-    required u32 binding;
+    required unsigned long binding;
     required GPUShaderStageFlags visibility;
     required GPUBindingType type;
-    GPUTextureViewDimension textureDimension;
+    GPUTextureViewDimension textureDimension = "2d";
+    GPUTextureComponentType textureComponentType = "float";
     boolean multisampled = false;
     boolean dynamic = false;
 };
@@ -535,12 +819,12 @@ dictionary GPUBindGroupLayoutBinding {
     {{GPUBindGroupLayoutBinding/binding}} number.
 
 <script type=idl>
-typedef u32 GPUShaderStageFlags;
+typedef GPUFlags GPUShaderStageFlags;
 interface GPUShaderStage {
-    const u32 NONE     = 0x0;
-    const u32 VERTEX   = 0x1;
-    const u32 FRAGMENT = 0x2;
-    const u32 COMPUTE  = 0x4;
+    const GPUFlags NONE     = 0x0;
+    const GPUFlags VERTEX   = 0x1;
+    const GPUFlags FRAGMENT = 0x2;
+    const GPUFlags COMPUTE  = 0x4;
 };
 </script>
 
@@ -576,7 +860,7 @@ dictionary GPUBindGroupDescriptor : GPUObjectDescriptorBase {
 typedef (GPUSampler or GPUTextureView or GPUBufferBinding) GPUBindingResource;
 
 dictionary GPUBindGroupBinding {
-    required u32 binding;
+    required unsigned long binding;
     required GPUBindingResource resource;
 };
 </script>
@@ -584,12 +868,12 @@ dictionary GPUBindGroupBinding {
 <script type=idl>
 dictionary GPUBufferBinding {
     required GPUBuffer buffer;
-    u64 offset = 0;
-    u64 size;
+    GPUBufferSize offset = 0;
+    GPUBufferSize size;
 };
 </script>
 
-  * {{GPUBufferBinding/size}}: If undefined, use the whole size of the buffer.
+  * {{GPUBufferBinding/size}}: If undefined, specifies the range starting at {{GPUBufferBinding/offset}} and ending at the end of the buffer.
 
 
 Shader Modules {#shader-modules}
@@ -666,10 +950,10 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     GPURasterizationStateDescriptor rasterizationState;
     required sequence<GPUColorStateDescriptor> colorStates;
     GPUDepthStencilStateDescriptor depthStencilState;
-    required GPUVertexInputDescriptor vertexInput;
+    GPUVertexInputDescriptor vertexInput = {};
 
-    u32 sampleCount = 1;
-    u32 sampleMask = 0xFFFFFFFF;
+    unsigned long sampleCount = 1;
+    unsigned long sampleMask = 0xFFFFFFFF;
     boolean alphaToCoverageEnabled = false;
     // TODO: other properties
 };
@@ -696,7 +980,7 @@ dictionary GPURasterizationStateDescriptor {
     GPUFrontFace frontFace = "ccw";
     GPUCullMode cullMode = "none";
 
-    i32 depthBias = 0;
+    long depthBias = 0;
     float depthBiasSlopeScale = 0;
     float depthBiasClamp = 0;
 };
@@ -730,14 +1014,14 @@ dictionary GPUColorStateDescriptor {
 </script>
 
 <script type=idl>
-typedef u32 GPUColorWriteFlags;
+typedef GPUFlags GPUColorWriteFlags;
 interface GPUColorWrite {
-    const u32 NONE  = 0x0;
-    const u32 RED   = 0x1;
-    const u32 GREEN = 0x2;
-    const u32 BLUE  = 0x4;
-    const u32 ALPHA = 0x8;
-    const u32 ALL   = 0xF;
+    const GPUFlags NONE  = 0x0;
+    const GPUFlags RED   = 0x1;
+    const GPUFlags GREEN = 0x2;
+    const GPUFlags BLUE  = 0x4;
+    const GPUFlags ALPHA = 0x8;
+    const GPUFlags ALL   = 0xF;
 };
 </script>
 
@@ -804,8 +1088,8 @@ dictionary GPUDepthStencilStateDescriptor {
     required GPUStencilStateFaceDescriptor stencilFront;
     required GPUStencilStateFaceDescriptor stencilBack;
 
-    u32 stencilReadMask = 0xFFFFFFFF;
-    u32 stencilWriteMask = 0xFFFFFFFF;
+    unsigned long stencilReadMask = 0xFFFFFFFF;
+    unsigned long stencilWriteMask = 0xFFFFFFFF;
 };
 </script>
 
@@ -889,15 +1173,16 @@ enum GPUInputStepMode {
 
 <script type=idl>
 dictionary GPUVertexAttributeDescriptor {
-    u32 offset = 0;
+
+    unsigned long offset = 0;
     required GPUVertexFormat format;
-    required u32 shaderLocation;
+    required unsigned long shaderLocation;
 };
 </script>
 
 <script type=idl>
 dictionary GPUVertexBufferDescriptor {
-    required u32 stride;
+    required unsigned long stride;
     GPUInputStepMode stepMode = "vertex";
     required sequence<GPUVertexAttributeDescriptor> attributeSet;
 };
@@ -906,7 +1191,7 @@ dictionary GPUVertexBufferDescriptor {
 <script type=idl>
 dictionary GPUVertexInputDescriptor {
     GPUIndexFormat indexFormat = "uint32";
-    required sequence<GPUVertexBufferDescriptor?> vertexBuffers;
+    sequence<GPUVertexBufferDescriptor?> vertexBuffers = [];
 };
 </script>
 
@@ -941,10 +1226,10 @@ interface GPUCommandEncoder : GPUObjectBase {
 
     void copyBufferToBuffer(
         GPUBuffer source,
-        u64 sourceOffset,
+        GPUBufferSize sourceOffset,
         GPUBuffer destination,
-        u64 destinationOffset,
-        u64 size);
+        GPUBufferSize destinationOffset,
+        GPUBufferSize size);
 
     void copyBufferToTexture(
         GPUBufferCopyView source,
@@ -990,17 +1275,17 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 <script type=idl>
 dictionary GPUBufferCopyView {
     required GPUBuffer buffer;
-    u64 offset = 0;
-    required u32 rowPitch;
-    required u32 imageHeight;
+    GPUBufferSize offset = 0;
+    required unsigned long rowPitch;
+    required unsigned long imageHeight;
 };
 </script>
 
 <script type=idl>
 dictionary GPUTextureCopyView {
     required GPUTexture texture;
-    u32 mipLevel = 0;
-    u32 arrayLayer = 0;
+    unsigned long mipLevel = 0;
+    unsigned long arrayLayer = 0;
     GPUOrigin3D origin;
 };
 </script>
@@ -1020,8 +1305,8 @@ dictionary GPUImageBitmapCopyView {
 
 <script type=idl>
 interface GPUProgrammablePassEncoder : GPUObjectBase {
-    void setBindGroup(u32 index, GPUBindGroup bindGroup,
-                      optional sequence<u64> dynamicOffsets);
+    void setBindGroup(unsigned long index, GPUBindGroup bindGroup,
+                      optional sequence<GPUBufferSize> dynamicOffsets);
 
     void pushDebugGroup(DOMString groupLabel);
     void popDebugGroup();
@@ -1037,8 +1322,8 @@ Compute Passes {#compute-passes}
 <script type=idl>
 interface GPUComputePassEncoder : GPUProgrammablePassEncoder {
     void setPipeline(GPUComputePipeline pipeline);
-    void dispatch(u32 x, optional u32 y = 1, optional u32 z = 1);
-    void dispatchIndirect(GPUBuffer indirectBuffer, u64 indirectOffset);
+    void dispatch(unsigned long x, optional unsigned long y = 1, optional unsigned long z = 1);
+    void dispatchIndirect(GPUBuffer indirectBuffer, GPUBufferSize indirectOffset);
 
     void endPass();
 };
@@ -1060,17 +1345,17 @@ Render Passes {#render-passes}
 interface GPURenderEncoderBase : GPUProgrammablePassEncoder {
     void setPipeline(GPURenderPipeline pipeline);
 
-    void setIndexBuffer(GPUBuffer buffer, u64 offset);
-    void setVertexBuffers(u32 startSlot,
-                          sequence<GPUBuffer> buffers, sequence<u64> offsets);
+    void setIndexBuffer(GPUBuffer buffer, optional GPUBufferSize offset = 0);
+    void setVertexBuffers(unsigned long startSlot,
+                          sequence<GPUBuffer> buffers, sequence<GPUBufferSize> offsets);
 
-    void draw(u32 vertexCount, u32 instanceCount,
-              u32 firstVertex, u32 firstInstance);
-    void drawIndexed(u32 indexCount, u32 instanceCount,
-                     u32 firstIndex, i32 baseVertex, u32 firstInstance);
+    void draw(unsigned long vertexCount, unsigned long instanceCount,
+              unsigned long firstVertex, unsigned long firstInstance);
+    void drawIndexed(unsigned long indexCount, unsigned long instanceCount,
+                     unsigned long firstIndex, long baseVertex, unsigned long firstInstance);
 
-    void drawIndirect(GPUBuffer indirectBuffer, u64 indirectOffset);
-    void drawIndexedIndirect(GPUBuffer indirectBuffer, u64 indirectOffset);
+    void drawIndirect(GPUBuffer indirectBuffer, GPUBufferSize indirectOffset);
+    void drawIndexedIndirect(GPUBuffer indirectBuffer, GPUBufferSize indirectOffset);
 };
 
 interface GPURenderPassEncoder : GPURenderEncoderBase {
@@ -1078,10 +1363,10 @@ interface GPURenderPassEncoder : GPURenderEncoderBase {
                      float width, float height,
                      float minDepth, float maxDepth);
 
-    void setScissorRect(u32 x, u32 y, u32 width, u32 height);
+    void setScissorRect(unsigned long x, unsigned long y, unsigned long width, unsigned long height);
 
     void setBlendColor(GPUColor color);
-    void setStencilReference(u32 reference);
+    void setStencilReference(unsigned long reference);
 
     void executeBundles(sequence<GPURenderBundle> bundles);
     void endPass();
@@ -1120,7 +1405,7 @@ dictionary GPURenderPassColorAttachmentDescriptor {
     GPUTextureView resolveTarget;
 
     required (GPULoadOp or GPUColor) loadValue;
-    required GPUStoreOp storeOp;
+    GPUStoreOp storeOp = "store";
 };
 </script>
 
@@ -1133,7 +1418,7 @@ dictionary GPURenderPassDepthStencilAttachmentDescriptor {
     required (GPULoadOp or float) depthLoadValue;
     required GPUStoreOp depthStoreOp;
 
-    required (GPULoadOp or u32) stencilLoadValue;
+    required (GPULoadOp or unsigned long) stencilLoadValue;
     required GPUStoreOp stencilStoreOp;
 };
 </script>
@@ -1183,7 +1468,7 @@ interface GPURenderBundleEncoder : GPURenderEncoderBase {
 dictionary GPURenderBundleEncoderDescriptor : GPUObjectDescriptorBase {
     required sequence<GPUTextureFormat> colorFormats;
     GPUTextureFormat depthStencilFormat;
-    u32 sampleCount = 1;
+    unsigned long sampleCount = 1;
 };
 </script>
 
@@ -1196,7 +1481,7 @@ interface GPUQueue : GPUObjectBase {
     void submit(sequence<GPUCommandBuffer> buffers);
 
     GPUFence createFence(optional GPUFenceDescriptor descriptor);
-    void signal(GPUFence fence, u64 signalValue);
+    void signal(GPUFence fence, unsigned long long signalValue);
 };
 </script>
 
@@ -1204,8 +1489,8 @@ interface GPUQueue : GPUObjectBase {
 
 <script type=idl>
 interface GPUFence : GPUObjectBase {
-    u64 getCompletedValue();
-    Promise<void> onCompletion(u64 completionValue);
+    unsigned long long getCompletedValue();
+    Promise<void> onCompletion(unsigned long long completionValue);
 };
 </script>
 
@@ -1213,7 +1498,7 @@ interface GPUFence : GPUObjectBase {
 
 <script type=idl>
 dictionary GPUFenceDescriptor : GPUObjectDescriptorBase {
-    u64 initialValue = 0;
+    unsigned long long initialValue = 0;
 };
 </script>
 
@@ -1223,13 +1508,17 @@ Canvas Rendering and Swap Chain {#swapchain}
 
 <script type=idl>
 interface GPUCanvasContext {
-    // Calling configureSwapChain a second time invalidates the previous one,
-    // and all of the textures it’s produced.
     GPUSwapChain configureSwapChain(GPUSwapChainDescriptor descriptor);
 
     Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUDevice device);
 };
 </script>
+
+  * {{GPUCanvasContext/configureSwapChain()}}:
+    Configures the swap chain for this canvas, and returns a new
+    {{GPUSwapChain}} object representing it. Destroys any swapchain
+    previously returned by `configureSwapChain`, including all of the
+    textures it has produced.
 
 <script type=idl>
 dictionary GPUSwapChainDescriptor : GPUObjectDescriptorBase {
@@ -1318,3 +1607,9 @@ partial interface GPUDevice {
     attribute EventHandler onuncapturederror;
 };
 </script>
+
+# Temporary usages of non-exported dfns ## {#temp-dfn-usages}
+
+Eventually all of these should disappear but they are useful to avoid warning while building the specification.
+
+[=buffer state/mapped=] [=buffer state/destroyed=]
