@@ -120,17 +120,17 @@ Two independent applications are running on the same webpage against two devices
 The tab is in the background, and one device is using a lot of resources.
  - The browser chooses to lose the heavier device.
     - `device.lost` resolves, message = recovering device resources
-    - (App calls `createDevice` on any adapter, but it doesn't resolve yet.)
+    - (App calls `requestDevice` on any adapter, but it doesn't resolve yet.)
  - Later, the browser might choose to lose the smaller device too.
     - `device.lost` resolves, message = recovering device resources
-    - (App calls `createDevice` on any adapter, but it doesn't resolve yet.)
+    - (App calls `requestDevice` on any adapter, but it doesn't resolve yet.)
  - Later, the tab is brought to the foreground.
-    - Both `createDevice` Promises resolve.
+    - Both `requestDevice` Promises resolve.
       (Unless the adapter was lost, in which case they would have rejected.)
 
 A page begins loading in a tab, but then the tab is backgrounded.
  - On load, the page attempts creation of a device.
-    - `createDevice` Promise will resolve.
+    - `requestDevice` Promise will resolve.
 
 A device's adapter is physically unplugged from the system (but an integrated GPU is still available).
  - The same adapter, or a new adapter, is plugged back in.
@@ -420,7 +420,7 @@ partial interface GPUDevice : EventTarget {
 #### Example
 
 ```js
-const device = await adapter.createDevice({});
+const device = await adapter.requestDevice({});
 device.addEventListener('uncapturederror', (event) => {
   appendToTelemetryReport(event.message);
 });

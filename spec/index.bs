@@ -15,6 +15,12 @@ Abstract: WebGPU exposes an API for performing operations, such as rendering and
 Markup Shorthands: markdown yes
 </pre>
 
+<pre class='anchors'>
+urlPrefix: https://tc39.github.io/ecma262/; spec: ECMA-262
+    type: dfn
+        text: agent; url: agent
+</pre>
+
 
 Introduction {#intro}
 =====================
@@ -71,13 +77,38 @@ dictionary GPUExtent3DDict {
 typedef (sequence<unsigned long> or GPUExtent3DDict) GPUExtent3D;
 </script>
 
-## Base Objects ## {#base-objects}
+## Internal Objects ## {#webgpu-internal-objects}
+
+An <dfn dfn>internal object</dfn> is a non-exposed conceptual WebGPU object.
+[=Internal objects=] track the state of an API object and hold any underlying implementation.
+If the state of a particular [=internal object=] can change in parallel from multiple [=agents=],
+those changes are always atomic with respect to all [=agents=].
+
+Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
+
+## WebGPU Interfaces ## {#webgpu-interfaces}
+
+A <dfn dfn>WebGPU interface</dfn> is an exposed interface which encapsulates an [=internal object=].
+It provides the interface through which the [=internal object=]'s state is changed.
+
+Any interface which includes {{GPUObjectBase}} is a [=WebGPU interface=].
 
 <script type=idl>
 interface mixin GPUObjectBase {
     attribute DOMString? label;
 };
 </script>
+
+<dl dfn-type=attribute dfn-for=GPUObjectBase>
+    : <dfn>label</dfn>
+    ::
+
+    : <dfn>\[[device]]</dfn>, of type [=device=], readonly
+    ::
+        An internal slot holding the [=device=] on which the object exists.
+</dl>
+
+## Object Descriptors ## {#object-descriptors}
 
 <script type=idl>
 dictionary GPUObjectDescriptorBase {
@@ -101,10 +132,41 @@ partial interface WorkerNavigator {
 };
 </script>
 
-## GPUAdapter ## {#adapter}
+<script type=idl>
+[Exposed=Window]
+interface GPU {
+    // May reject with DOMException  // TODO: DOMException("OperationError")?
+    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
+};
+</script>
+
+## Adapters ## {#adapters}
+
+An <dfn dfn>adapter</dfn> represents an implementation of WebGPU on the system.
+Each adapter identifies both an instance of a hardware accelerator (e.g. GPU or CPU) and
+an instance of a browser's implementation of WebGPU on top of that accelerator.
+
+<!--TODO: Move definition of "invalid" somewhere more generic.-->
+If an [=adapter=] becomes unavailable, it becomes <dfn dfn>invalid</dfn>.
+Once invalid, it never becomes valid again.
+
+Note:
+An [=adapter=] may be a physical display adapter (GPU), but it could also be
+a software renderer.
+A returned [=adapter=] could refer to different physical adapters, or to
+different browser codepaths or system drivers on the same physical adapters.
+Applications can hold onto multiple [=adapters=] at once (via {{GPUAdapter}})
+(even if some are [=invalid=]),
+and two of these could refer to different instances of the same physical
+configuration (e.g. if the GPU reset, or were disconnected and reconnected).
+
+### GPUAdapter ### {#gpu-adapter}
+
+A <dfn interface>GPUAdapter</dfn> refers to an [=adapter=],
+and exposes its capabilities (extensions and limits).
 
 <script type=idl>
-interface GPUAdapter : GPUObjectBase {
+interface GPUAdapter {
     readonly attribute DOMString name;
     readonly attribute GPUExtensions extensions;
     //readonly attribute GPULimits limits; Don't expose higher limits for now.
@@ -114,21 +176,65 @@ interface GPUAdapter : GPUObjectBase {
 };
 </script>
 
+{{GPUAdapter}} has the following attributes:
+
+<dl dfn-type=attribute dfn-for=GPUAdapter>
+    : <dfn>\[[adapter]]</dfn>, of type [=adapter=], readonly
+    ::
+        An internal slot holding the [=adapter=] to which this {{GPUAdapter}}
+        refers.
+
+    : <dfn>name</dfn>
+    ::
+        A human-readable name identifying the adapter.
+        The contents are implementation-defined.
+
+    : <dfn>extensions</dfn>
+    ::
+        A {{GPUExtensions}} object which enumerates the extensions supported
+        by the user agent, and whether each extension is supported by the
+        underlying implementation.
+          - If an extension is not supported by the user agent,
+            it will not be present in the object.
+          - If an extension is supported by the user agent, but
+            not by the [=adapter=], it will be `false`.
+          - If an extension is supported by the user agent and
+            by the [=adapter=], it will be `true`.
+</dl>
+
 ### Getting an Adapter ### {#adapter-creation}
 
-<script type=idl>
-[Exposed=Window]
-interface GPU {
-    // May reject with DOMException  // TODO: DOMException("OperationError")?
-    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
-};
-</script>
+To get a {{GPUAdapter}}, use {{GPU/requestAdapter()}}.
 
 <script type=idl>
 dictionary GPURequestAdapterOptions {
-    GPUPowerPreference? powerPreference;
+    GPUPowerPreference powerPreference;
 };
 </script>
+
+<dfn dictionary>GPURequestAdapterOptions</dfn>
+provides requirements and hints to the user agent indicating what
+configuration is suitable for the application.
+
+<dl dfn-type=dict-member dfn-for=GPURequestAdapterOptions>
+    : <dfn>powerPreference</dfn>
+    ::
+        Provides a hint indicating what class of [=adapter=] should be selected from the system's
+        available adapters.
+
+        If unspecified, the user agent decides which class of adapter is most suitable.
+
+        Note:
+        This hint may influence which GPU is used in a system with multiple GPUs.
+        For example, a dual-GPU system might have one GPU that consumes less power at the expense
+        of performance.
+
+        Note:
+        Depending on the exact hardware configuration, such as attached displays or removable
+        GPUs, the user agent may select different [=adapters=] given the same power preference.
+        Typically, given the same hardware configuration and state (e.g. battery percentage) and
+        `powerPreference`, the user agent should select the same adapter.
+</dl>
 
 <script type=idl>
 enum GPUPowerPreference {
@@ -137,10 +243,65 @@ enum GPUPowerPreference {
 };
 </script>
 
-## GPUDevice ## {#device}
+<dl dfn-type=enum-value dfn-for=GPUPowerPreference>
+    : <dfn>"low-power"</dfn>
+    ::
+        Indicates a request to prioritize power savings over performance.
+
+        Note:
+        Generally, content should use this if it is unlikely to be constrained by drawing
+        performance; for example, if it renders only one frame per second, draws only relatively
+        simple geometry with simple shaders, or uses a small HTML canvas element.
+        Developers are encouraged to use this value if their content allows, since it may
+        significantly improve battery life on portable devices.
+
+    : <dfn>"high-performance"</dfn>
+    ::
+        Indicates a request to prioritize performance over power consumption.
+
+        Note:
+        By choosing this value, developers should be aware that, for [=devices=] created on the
+        resulting adapter, user agents are more likely to force device loss, in order to save
+        power.
+        Developers are encouraged to only specify this value if they believe it is absolutely
+        necessary, since it may significantly decrease battery life on portable devices.
+</dl>
+
+## Devices ## {#devices}
+
+A <dfn dfn>device</dfn> is the logical instantiation of an [=adapter=],
+through which [=internal objects=] are created.
+It can be shared across multiple [=agents=] (e.g. dedicated workers).
+
+A [=device=] is the exclusive owner of all [=internal objects=] created from it:
+when the [=device=] is lost, all objects created from it become invalid.
+
+<!-- TODO: write and link to spec about what invalid means -->
+
+A [=device=] has the following internal slots:
+
+<dl dfn-type=attribute dfn-for=device>
+    : <dfn>\[[adapter]]</dfn>, of type [=adapter=], readonly
+    ::
+        The [=adapter=] from which this device was created.
+</dl>
+
+When a [=device=] is created, its capabilities are set to those requested by
+the user in {{GPUAdapter/requestDevice()}} (which must be no greater than the
+capabilities specified by the [=adapter=]).
+These capabilities are enforced upon the usage of objects on the [=device=],
+even if the underlying [=adapter=] can support higher capabilities.
+
+<!-- TODO: specify "no greater" more precisely -->
+
+### GPUDevice ### {#gpu-device}
+
+A {{GPUDevice}} refers to a [=device=] and
+exposes the capabilities with which the [=device=] was created.
+It is the top-level object through which [=WebGPU interfaces=] are created.
 
 <script type=idl>
-[Exposed=(Window, Worker)]
+[Exposed=(Window, Worker), Serializable]
 interface GPUDevice : EventTarget {
     readonly attribute GPUExtensions extensions;
     readonly attribute GPULimits limits;
@@ -168,7 +329,33 @@ interface GPUDevice : EventTarget {
 GPUDevice includes GPUObjectBase;
 </script>
 
-### Creation ### {#device-creation}
+{{GPUDevice}} also has the following internal slots:
+
+<dl dfn-type=attribute dfn-for=GPUDevice>
+    : <dfn>\[[device]]</dfn>, of type [=device=], readonly
+    ::
+        The [=device=] that this {{GPUDevice}} refers to.
+</dl>
+
+{{GPUDevice}} objects are [=serializable objects=].
+
+<div algorithm="serializing a GPUDevice">
+    Their [=serialization steps=], given |value|, |serialized|, and |forStorage|, are:
+
+    1. If |forStorage| is true, throw a "{{DataCloneError}}".
+
+    1. Set |serialized|.device to the value of |value|.{{GPUDevice/[[device]]}}.
+</div>
+
+<div algorithm="deserializing a GPUDevice">
+    Their [=deserialization steps=], given |serialized| and |value|, are:
+
+    1. Set |value|.{{GPUDevice/[[device]]}} to |serialized|.device.
+</div>
+
+### Getting a Device ### {#device-creation}
+
+To get a {{GPUDevice}}, use {{GPUAdapter/requestDevice()}}.
 
 <script type=idl>
 dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
@@ -178,6 +365,24 @@ dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
     // TODO: are other things configurable like queues?
 };
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPUDeviceDescriptor>
+    : <dfn>extensions</dfn>
+    ::
+        The extensions to request of device creation.
+
+    : <dfn>limits</dfn>
+    ::
+        The limits to request of device creation.
+</dl>
+
+<div algorithm="creating a GPUDevice">
+    1. If the requested configuration is not available
+        (i.e. the requested extensions or limits cannot be supported),
+        {{GPUAdapter/requestDevice()}} rejects with a "{{NotSupportedError}}".
+
+    1. Otherwise, a {{GPUDevice}} is created with the {{GPUExtensions}} and {{GPULimits}} specified.
+</div>
 
 <script type=idl>
 dictionary GPUExtensions {
@@ -1302,13 +1507,17 @@ Canvas Rendering and Swap Chain {#swapchain}
 
 <script type=idl>
 interface GPUCanvasContext {
-    // Calling configureSwapChain a second time invalidates the previous one,
-    // and all of the textures it’s produced.
     GPUSwapChain configureSwapChain(GPUSwapChainDescriptor descriptor);
 
     Promise<GPUTextureFormat> getSwapChainPreferredFormat(GPUDevice device);
 };
 </script>
+
+  * {{GPUCanvasContext/configureSwapChain()}}:
+    Configures the swap chain for this canvas, and returns a new
+    {{GPUSwapChain}} object representing it. Destroys any swapchain
+    previously returned by `configureSwapChain`, including all of the
+    textures it has produced.
 
 <script type=idl>
 dictionary GPUSwapChainDescriptor : GPUObjectDescriptorBase {
