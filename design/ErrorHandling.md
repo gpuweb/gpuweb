@@ -134,17 +134,17 @@ A page begins loading in a tab, but then the tab is backgrounded.
 
 A device's adapter is physically unplugged from the system (but an integrated GPU is still available).
  - The same adapter, or a new adapter, is plugged back in.
-    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
 
 An app is running on an integrated adapter.
  - A new, discrete adapter is plugged in.
-    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
 
 An app is running on a discrete adapter.
  - The adapter is physically unplugged from the system. An integrated GPU is still available.
-    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapters` gives the new adapter.
+    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapter` gives the new adapter.
  - The same adapter, or a new adapter, is plugged back in.
-    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
 
 The device is lost because of an unexpected error in the implementation.
  - `device.lost` resolves, message = whatever the unexpected thing was.
@@ -158,7 +158,7 @@ All devices and adapters are lost (except for software?) because GPU access has 
  - `device.lost` resolves on every device, message = whatever
 
 WebGPU access has been disabled for the page.
- - `requestAdapters` rejects (or returns a software adapter).
+ - `requestAdapter` rejects (or returns a software adapter).
 
 The device is lost right as it's being returned by requestDevice.
  - `device.lost` resolves.
@@ -263,7 +263,7 @@ Any further errors it captures are **silently ignored**.
 
 If an error is not captured by an error scope, it is passed out to the enclosing error scope.
 
-If there are no error scopes on the stack, `popErrorScope()` rejects.
+If there are no error scopes on the stack, `popErrorScope()` throws OperationError.
 
 If the device is lost, `popErrorScope()` always rejects.
 
