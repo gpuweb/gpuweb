@@ -6,6 +6,8 @@ Community Group.
 We'll use the [wiki](https://github.com/gpuweb/gpuweb/wiki) as the main source of information
 related to the work. This repository will hold the actual specification, examples, etc.
 
+Work-in-progress specification: https://gpuweb.github.io/gpuweb/
+
 ## Charter
 
 The [charter for this group](https://gpuweb.github.io/admin/cg-charter.html) is
