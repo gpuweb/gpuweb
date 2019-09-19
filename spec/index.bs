@@ -393,6 +393,13 @@ dictionary GPUExtensions {
 <script type=idl>
 dictionary GPULimits {
     unsigned long maxBindGroups = 4;
+    unsigned long maxDynamicUniformBuffersPerPipelineLayout = 8;
+    unsigned long maxDynamicStorageBuffersPerPipelineLayout = 4;
+    unsigned long maxSampledTexturesPerShaderStage = 16;
+    unsigned long maxSamplersPerShaderStage = 16;
+    unsigned long maxStorageBuffersPerPipelineLayout = 8;
+    unsigned long maxStorageTexturesPerShaderStage = 4;
+    unsigned long maxUniformBuffersPerShaderStage = 12;
 };
 </script>
 
@@ -779,23 +786,9 @@ enum GPUCompareFunction {
 Resource Binding {#binding}
 ===========================
 
-## GPUPipelineLayout ## {#pipeline-layout}
-
-<script type=idl>
-[Serializable]
-interface GPUPipelineLayout : GPUObjectBase {
-};
-</script>
-
-### Creation ### {#pipeline-layout-creation}
-
-<script type=idl>
-dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
-    required sequence<GPUBindGroupLayout> bindGroupLayouts;
-};
-</script>
-
 ## GPUBindGroupLayout ## {#bind-group-layout}
+
+A {{GPUBindGroupLayout}} defines the interface between a set of resources bound in a {{GPUBindGroup}} and their accessibility in shader stages.
 
 <script type=idl>
 [Serializable]
@@ -805,11 +798,15 @@ interface GPUBindGroupLayout : GPUObjectBase {
 
 ### Creation ### {#bind-group-layout-creation}
 
+A {{GPUBindGroupLayout}} is created via {{GPUDevice/createBindGroupLayout()|GPUDevice.createBindGroupLayout()}}.
+
 <script type=idl>
 dictionary GPUBindGroupLayoutDescriptor : GPUObjectDescriptorBase {
     required sequence<GPUBindGroupLayoutBinding> bindings;
 };
 </script>
+
+A {{GPUBindGroupLayoutBinding}} describes a single shader resource binding to be included in a {{GPUBindGroupLayout}}.
 
 <script type=idl>
 dictionary GPUBindGroupLayoutBinding {
@@ -819,23 +816,16 @@ dictionary GPUBindGroupLayoutBinding {
     GPUTextureViewDimension textureDimension = "2d";
     GPUTextureComponentType textureComponentType = "float";
     boolean multisampled = false;
-    boolean dynamic = false;
+    boolean hasDynamicOffset = false;
 };
 </script>
 
-  * {{GPUBindGroupLayoutBinding/textureDimension}}:
-    For texture bindings only, we need to know the dimensions and
-    multi-sampling properties at the layout creation time.
+  * {{GPUBindGroupLayoutBinding/binding}}:
+    A unique identifier for a resource binding within a {{GPUBindGroupLayoutBinding}}, a corresponding {{GPUBindGroupBinding}}, and shader stages.
 
-    Note: This allows Metal-based implementations to back the respective bind
-    groups with `MTLArgumentBuffer` objects that are more efficient to bind at
-    run-time.
-
-  * {{GPUBindGroupLayoutBinding/dynamic}}:
-    For uniform, storage and readonly storage buffer, means that the binding
-    has a dynamic offset. One offset must be passed to setBindGroup for each
-    dynamic binding in increasing order of
-    {{GPUBindGroupLayoutBinding/binding}} number.
+  * {{GPUBindGroupLayoutBinding/visibility}}: 
+    A bitset of the members of {{GPUShaderStage}}. Each set bit indicates that a {{GPUBindGroupLayoutBinding}}'s resource will be accessible from the 
+    associated shader stage.
 
 <script type=idl>
 typedef GPUFlags GPUShaderStageFlags;
@@ -846,6 +836,9 @@ interface GPUShaderStage {
     const GPUFlags COMPUTE  = 0x4;
 };
 </script>
+
+  * {{GPUBindGroupLayoutBinding/type}}: 
+    A member of {{GPUBindingType}} that indicates the intended usage of a resource binding in its visible {{GPUShaderStage}}s.
 
 <script type=idl>
 enum GPUBindingType {
@@ -858,6 +851,90 @@ enum GPUBindingType {
     // TODO: other binding types
 };
 </script>
+
+  * {{GPUBindGroupLayoutBinding/textureDimension}}, {{GPUBindGroupLayoutBinding/multisampled}}:
+    Describes the dimensionality of texture view bindings, and indicates if they are multisampled.
+
+    Note: This allows Metal-based implementations to back the respective bind
+    groups with `MTLArgumentBuffer` objects that are more efficient to bind at
+    run-time.
+
+  * {{GPUBindGroupLayoutBinding/hasDynamicOffset}}:
+    For {{GPUBindingType/uniform-buffer}}, {{GPUBindingType/storage-buffer}}, and {{GPUBindingType/readonly-storage-buffer}} bindings, 
+    indicates that the binding has a dynamic offset. One offset must be passed to 
+    setBindGroup for each dynamic binding in increasing order of
+    {{GPUBindGroupLayoutBinding/binding}} number.
+
+A {{GPUBindGroupLayout}} object has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUBindGroupLayout">
+	: <dfn>\[[bindings]]</dfn> of type sequence<{{GPUBindGroupLayoutBinding}}>.
+	::
+        The set of {{GPUBindGroupLayoutBinding}}s this {{GPUBindGroupLayout}} describes.
+
+</dl>
+
+### {{GPUDevice/createBindGroupLayout()|GPUDevice.createBindGroupLayout(GPUBindGroupLayoutDescriptor)}} ### {#GPUDevice-createBindGroupLayout}
+
+<div algorithm="GPUDevice.createBindGroupLayout(descriptor)">
+
+The <dfn-type="method" dfn-for="GPUDevice">createBindGroupLayout(|descriptor|)</dfn> method is used to create {{GPUBindGroupLayout}}s.
+
+1. Ensure [=device validation=] is not violated.
+1. Let |layout| be a new valid {{GPUBindGroupLayout}} object.
+1. For each {{GPUBindGroupLayoutBinding}} |bindingDescriptor| in |descriptor|.{{GPUBindGroupLayoutDescriptor/bindings}}:
+    1. Ensure |bindingDescriptor|.{{GPUBindGroupLayoutBinding/binding}} does not violate [=binding validation=].
+    1. If |bindingDescriptor|.{{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/uniform-buffer}}:
+        1. Ensure [=uniform buffer validation=] is not violated.
+        1. If |bindingDescriptor|.{{GPUBindGroupLayoutBinding/hasDynamicOffset}} is `true`, ensure [=dynamic uniform buffer validation=] is not violated.
+    1. If |bindingDescriptor|.{{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/storage-buffer}} or {{GPUBindingType/readonly-storage-buffer}}:
+        1. Ensure [=storage buffer validation=] is not violated.
+        1. If |bindingDescriptor|.{{GPUBindGroupLayoutBinding/hasDynamicOffset}} is `true`, ensure [=dynamic storage buffer validation=] is not violated.
+    1. If |bindingDescriptor|.{{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/sampled-texture}}
+        , ensure [=sampled texture validation=] is not violated.
+    1. If |bindingDescriptor|.{{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/storage-texture}}
+        , ensure [=storage texture validation=] is not violated.
+    1. If |bindingDescriptor|.{{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/sampler}}
+        , ensure [=sampler validation=] is not violated.
+    1. Insert |bindingDescriptor| into |layout|.{{GPUBindGroupLayout/[[bindings]]}}.
+1. Return |layout|.
+
+<b>Validation Conditions</b>
+
+<dl dfn-for="createBindGroupLayout(descriptor)">
+If any of the following conditions are violated:
+    1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
+    1. Create a new invalid {{GPUBindGroupLayout}} and return the result.
+
+<dfn>device validation</dfn>: The {{GPUDevice}} must not be lost.
+
+<dfn>binding validation</dfn>: Each |bindingDescriptor|.{{GPUBindGroupLayoutBinding/binding}} in |descriptor| must be unique.
+
+<dfn>uniform buffer validation</dfn>: There must be {{GPULimits/maxUniformBuffersPerShaderStage|GPULimits.maxUniformBuffersPerShaderStage}} or 
+    fewer |bindingDescriptor|s of type {{GPUBindingType/uniform-buffer}} visible on each shader stage in |descriptor|.
+
+<dfn>dynamic uniform buffer validation</dfn>: There must be {{GPULimits/maxDynamicUniformBuffersPerPipelineLayout|GPULimits.maxDynamicUniformBuffersPerPipelineLayout}} or
+        fewer |bindingDescriptor|s of type {{GPUBindingType/uniform-buffer}} with {{GPUBindGroupLayoutBinding/hasDynamicOffset}} set to `true` in
+        |descriptor| that are visible to any shader stage.
+
+<dfn>storage buffer validation</dfn>: There must be {{GPULimits/maxStorageBuffersPerPipelineLayout|GPULimits.maxStorageBuffersPerPipelineLayout}} or 
+    fewer |bindingDescriptor|s of type {{GPUBindingType/storage-buffer}} in |descriptor| that are visible to any shader stage.
+
+<dfn>dynamic storage buffer validation</dfn>: There must be {{GPULimits/maxDynamicStorageBuffersPerPipelineLayout|GPULimits.maxDynamicStorageBuffersPerPipelineLayout}} or
+        fewer |bindingDescriptor|s of type {{GPUBindingType/storage-buffer}} with {{GPUBindGroupLayoutBinding/hasDynamicOffset}} set to `true` 
+        in |descriptor| that are visible to any shader stage.
+
+<dfn>sampled texture validation</dfn>: There must be {{GPULimits/maxSampledTexturesPerShaderStage|GPULimits.maxSampledTexturesPerShaderStage}} or 
+    fewer |bindingDescriptor|s of type {{GPUBindingType/sampled-texture}} visible on each shader stage in |descriptor|.
+
+<dfn>storage texture validation</dfn>: There must be {{GPULimits/maxStorageTexturesPerShaderStage|GPULimits.maxStorageTexturesPerShaderStage}} or 
+    fewer |bindingDescriptor|s of type {{GPUBindingType/storage-texture}} visible on each shader stage in |descriptor|.
+
+<dfn>sampler validation</dfn>: There must be {{GPULimits/maxSamplersPerShaderStage|GPULimits.maxSamplersPerShaderStage}} or 
+    fewer |bindingDescriptor|s of type {{GPUBindingType/sampler}} visible on each shader stage in |descriptor|.
+
+</dl>
+</div>
 
 ## GPUBindGroup ## {#bind-groups}
 
@@ -894,6 +971,20 @@ dictionary GPUBufferBinding {
 
   * {{GPUBufferBinding/size}}: If undefined, specifies the range starting at {{GPUBufferBinding/offset}} and ending at the end of the buffer.
 
+## GPUPipelineLayout ## {#pipeline-layout}
+
+<script type=idl>
+interface GPUPipelineLayout : GPUObjectBase {
+};
+</script>
+
+### Creation ### {#pipeline-layout-creation}
+
+<script type=idl>
+dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
+    required sequence<GPUBindGroupLayout> bindGroupLayouts;
+};
+</script>
 
 Shader Modules {#shader-modules}
 ================================
