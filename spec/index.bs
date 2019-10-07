@@ -52,6 +52,65 @@ a {{GPURenderPipeline}} or a {{GPUComputePipeline}} object. The state not includ
 in these [=pipeline=] objects is set during encoding with commands,
 such as {{GPUCommandEncoder/beginRenderPass()}} or {{GPURenderPassEncoder/setBlendColor()}}.
 
+Security considerations {#security}
+=====================
+
+## Undefined driver behavior ## {#security-driver}
+WebGPU implementation translates the workloads issued by the user into API commands specific
+to the target platform. Native APIs specify the valid usage for the commands
+(for example, see [vkCreateDescriptorSetLayout](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/vkCreateDescriptorSetLayout.html))
+and generally don't guarantee any outcome if the valid usage rules are not followed.
+This is called "undefined behavior", and it can be exploited by an attacker to access memory
+they don't own, or force the driver to execute arbitrary code.
+
+In order to disallow insecure usage, the range of allowed WebGPU behaviors is defined for any input.
+An implementation has to validate all the input from the user and only reach the driver
+with the valid workloads. This document specifies all the error conditions and handling semantics.
+For example, specifying the same buffer in both "source" and "destination" of
+{{GPUCommandEncoder/copyBufferToBuffer()}} results in {{GPUCommandEncoder}} having an error state.
+
+See [[#errors-and-debugging]] for more information about error handling.
+
+## Out of bounds access in shaders ## {#security-shader}
+WebGPU shaders are executed by the compute units inside GPU hardware. Shaders can access
+[=physical resource=]s either directly or via <dfn dfn>texture unit</dfn>s,
+which are fixed-function hardware blocks that handle texture coordinate conversions.
+Validation on the API side can only guarantee that all the inputs to the shader are provided,
+they have the correct usage and types.
+The API side can not guarantee that the data is accessed within bounds
+if the [=texture unit=]s are not involved.
+
+In order to prevent the shaders from accessing GPU memory an application doesn't own,
+the WebGPU implementation may enable special mode in the driver that guarantees that the access
+is limited to resource bounds. Alternatively, an implementation may transform the shader code
+by inserting the manual bounds checks.
+
+If the shader attempts to load data outside of [=physical resource=] bounds,
+the implementation is allowed to:
+  1. return a value at a different location within the resource bounds
+  2. return a vector of "(0, 0, 0, X)" with any "X"
+  3. discard the whole draw or dispatch call
+
+If the shader attempts to write data outside of [=physical resource=] bounds,
+the implementation is allowed to:
+  1. write the value to a different place within the resource bounds
+  2. discard the write operation
+  3. discard the whole draw or dispatch call
+
+## Fingerprinting ## {#security-fingerprint}
+WebGPU API defines the required limits and capabilities exposed by {{GPUAdapter}}s
+and encourages the applications to target these standard limtis. There is no API to query
+the hardware capabilities, unlike the native API constructs like
+[vkGetPhysicalDeviceFeatures](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/vkGetPhysicalDeviceFeatures.html)).
+However, an application can still take advantage of the more capable GPU hardware by
+requesting higher than standard limits for {{GPUDevice}} and enabling extensions.
+
+## Timing attacks ## {#security-timing}
+WebGPU API is designed for multi-threaded use via Web Workers. Some of the objects,
+like {{GPUBuffer}}, are shared and allow simultaneous access.
+This allows race conditions to occur, similar to those of accessing an "SharedArrayBuffer"
+from multiple Web Workers, which makes the thread scheduling observable.
+
 Convention {#convention}
 ========================
 
