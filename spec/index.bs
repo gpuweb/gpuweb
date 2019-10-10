@@ -25,14 +25,139 @@ urlPrefix: https://tc39.github.io/ecma262/; spec: ECMA-262
 Introduction {#intro}
 =====================
 
-This specification rocks.
+*This section is non-normative.*
 
+[Graphics Processing Units](https://en.wikipedia.org/wiki/Graphics_processing_unit), or GPUs for short,
+have been essential in enabling rich rendering and computational applications in personal computing.
+WebGPU is an API that exposes the capabilities of GPU hardware for the Web.
+The API is designed from the ground up to efficiently map to the
+[Vulkan](https://www.khronos.org/vulkan/),
+[Direct3D 12](https://docs.microsoft.com/en-us/windows/win32/direct3d12/what-is-directx-12-),
+and [Metal](https://developer.apple.com/metal/) native GPU APIs.
+WebGPU is not related to [WebGL](https://www.khronos.org/webgl/) and does not explicitly target OpenGL ES.
+
+WebGPU sees physical GPU hardware as {{GPUAdapter}}s. It provides a connection to an adapter via
+{{GPUDevice}}, which manages resources, and the device's {{GPUQueue}}s, which execute commands.
+{{GPUDevice}} may have its own memory with high-speed access to the processing units.
+{{GPUBuffer}} and {{GPUTexture}} are the <dfn dfn>physical resources</dfn> backed by GPU memory.
+{{GPUCommandBuffer}} and {{GPURenderBundle}} are containers for user-recorded commands.
+{{GPUShaderModule}} contains [=shader=] code. The other resources,
+such as {{GPUSampler}} or {{GPUBindGroup}}, configure the way [=physical resources=] are used by the GPU.
+
+GPUs execute commands encoded in {{GPUCommandBuffer}}s by feeding data through a <dfn>pipeline</dfn>,
+which is a mix of fixed-function and programmable stages. Programmable stages execute
+<dfn dfn>shaders</dfn>, which are special programs designed to run on GPU hardware.
+Most of the state of a [=pipeline=] is defined by
+a {{GPURenderPipeline}} or a {{GPUComputePipeline}} object. The state not included
+in these [=pipeline=] objects is set during encoding with commands,
+such as {{GPUCommandEncoder/beginRenderPass()}} or {{GPURenderPassEncoder/setBlendColor()}}.
+
+Security considerations {#security}
+=====================
+
+## CPU-based undefined behavior ## {#security-cpu-ub}
+A WebGPU implementation translates the workloads issued by the user into API commands specific
+to the target platform. Native APIs specify the valid usage for the commands
+(for example, see [vkCreateDescriptorSetLayout](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/vkCreateDescriptorSetLayout.html))
+and generally don't guarantee any outcome if the valid usage rules are not followed.
+This is called "undefined behavior", and it can be exploited by an attacker to access memory
+they don't own, or force the driver to execute arbitrary code.
+
+In order to disallow insecure usage, the range of allowed WebGPU behaviors is defined for any input.
+An implementation has to validate all the input from the user and only reach the driver
+with the valid workloads. This document specifies all the error conditions and handling semantics.
+For example, specifying the same buffer with intersecting ranges in both "source" and "destination"
+of {{GPUCommandEncoder/copyBufferToBuffer()}} results in {{GPUCommandEncoder}}
+generating an error, and no other operation occurring.
+
+See [[#errors-and-debugging]] for more information about error handling.
+
+## GPU-based undefined behavior ## {#security-gpu-ub}
+WebGPU [=shader=]s are executed by the compute units inside GPU hardware. In native APIs,
+some of the shader instructions may result in undefined behavior on the GPU.
+In order to address that, the shader instruction set and its defined behaviors are
+strictly defined by WebGPU. When a shader is provided, the WebGPU implementation has to validate it
+before doing any translation (to platform-specific shaders) or transformation passes.
+
+## Out-of-bounds access in shaders ## {#security-shader}
+[=Shader=]s can access [=physical resource=]s either directly or via <dfn dfn>texture unit</dfn>s,
+which are fixed-function hardware blocks that handle texture coordinate conversions.
+Validation on the API side can only guarantee that all the inputs to the shader are provided and
+they have the correct usage and types.
+The API side can not guarantee that the data is accessed within bounds
+if the [=texture unit=]s are not involved.
+
+In order to prevent the shaders from accessing GPU memory an application doesn't own,
+the WebGPU implementation may enable a special mode (called "robust buffer access") in the driver
+that guarantees that the access is limited to buffer bounds.
+Alternatively, an implementation may transform the shader code by inserting manual bounds checks.
+
+If the shader attempts to load data outside of [=physical resource=] bounds,
+the implementation is allowed to:
+  1. return a value at a different location within the resource bounds
+  2. return a value vector of "(0, 0, 0, X)" with any "X"
+  3. partially discard the draw or dispatch call
+
+If the shader attempts to write data outside of [=physical resource=] bounds,
+the implementation is allowed to:
+  1. write the value to a different location within the resource bounds
+  2. discard the write operation
+  3. partially discard the draw or dispatch call
+
+## Invalid data ## {#security-invalid-data}
+When uploading [floating-point](https://en.wikipedia.org/wiki/IEEE_754) data from CPU to GPU,
+or generating it on the GPU, we may end up with a binary representation that doesn't correspond
+to a valid number, such as infinity or NaN (not-a-number). The GPU behavior in this case is
+subject to the accuracy of the GPU hardware implementation of the IEEE-754 standard.
+WebGPU guarantees that introducing invalid floating-point numbers would only affect the results
+of arithmetic computations and will not have other side effects.
+
+## Driver bugs ## {#security-driver-bugs}
+GPU drivers are subject to bugs like any other software. If a bug occurs, an attacker
+could possibly exploit the incorrect behavior of the driver to get access to unprivileged data.
+In order to reduce the risk, the WebGPU working group will coordinate with GPU vendors
+to integrate the WebGPU Conformance Test Suite (CTS) as part of their driver testing process,
+like it was done for WebGL.
+WebGPU implementations are expected to have workarounds for some of the discovered bugs,
+and support blacklisting particular drivers from using some of the native API backends.
+
+## Timing attacks ## {#security-timing}
+WebGPU is designed for multi-threaded use via Web Workers. Some of the objects,
+like {{GPUBuffer}}, have shared state which can be simultaneously accessed.
+This allows race conditions to occur, similar to those of accessing an SharedArrayBuffer
+from multiple Web Workers, which makes the thread scheduling observable
+and allows the creation of high-precision timers.
+The theoretical attack vectors are a subset of those of SharedArrayBuffer.
+
+## Denial of service ## {#security-dos}
+WebGPU applications have access to GPU memory and compute units. A WebGPU implementation may limit
+the available GPU memory to an application, in order to keep other applications responsive.
+For GPU processing time, a WebGPU implementation may set up "watchdog" timer that makes sure an
+application doesn't cause GPU unresponsiveness for more than a few seconds.
+These measures are similar to those used in WebGL.
+
+## Fingerprinting ## {#security-fingerprint}
+WebGPU defines the lowest allowed limits and capabilities of any {{GPUAdapter}}.
+and encourages applications to target these standard limits. The actual result from
+{{GPU/requestAdapter()}} may have higher limits, and could be subject to finger printing.
+
+Convention {#convention}
+========================
+
+## Coordinate Systems ## {#coordinate-systems}
+WebGPU's coordinate systems match DirectX and Metal's coordinate systems in graphics pipeline.
+  - Y-axis is up in normalized device coordinate (NDC): point(-1.0, -1.0) in NDC is located at the bottom-left corner of NDC.
+    In addition, x and y in NDC should be between -1.0 and 1.0 inclusive, while z in NDC should be between 0.0 and 1.0 inclusive.
+    Vertices out of this range in NDC will not introduce any errors, but they will be clipped.
+  - Y-axis is down in framebuffer coordinate, viewport coordinate and fragment/pixel coordinate:
+    origin(0, 0) is located at the top-left corner in these coordinate systems.
+  - Window/present coordinate matches framebuffer coordinate.
+  - UV of origin(0, 0) in texture coordinate represents the first texel (the lowest byte) in texture memory.
 
 Type Definitions {#type-definitions}
 ============================
 
 <script type=idl>
-typedef unsigned long GPUFlags;
 typedef unsigned long long GPUBufferSize;
 </script>
 
@@ -102,7 +227,9 @@ interface mixin GPUObjectBase {
 <dl dfn-type=attribute dfn-for=GPUObjectBase>
     : <dfn>label</dfn>
     ::
+</dl>
 
+<dl dfn-type=attribute dfn-for=GPUObjectBase>
     : <dfn>\[[device]]</dfn>, of type [=device=], readonly
     ::
         An internal slot holding the [=device=] on which the object exists.
@@ -136,7 +263,7 @@ partial interface WorkerNavigator {
 [Exposed=Window]
 interface GPU {
     // May reject with DOMException  // TODO: DOMException("OperationError")?
-    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options);
+    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options = {});
 };
 </script>
 
@@ -168,22 +295,17 @@ and exposes its capabilities (extensions and limits).
 <script type=idl>
 interface GPUAdapter {
     readonly attribute DOMString name;
-    readonly attribute GPUExtensions extensions;
+    readonly attribute object extensions;
     //readonly attribute GPULimits limits; Don't expose higher limits for now.
 
     // May reject with DOMException  // TODO: DOMException("OperationError")?
-    Promise<GPUDevice> requestDevice(optional GPUDeviceDescriptor descriptor);
+    Promise<GPUDevice> requestDevice(optional GPUDeviceDescriptor descriptor = {});
 };
 </script>
 
 {{GPUAdapter}} has the following attributes:
 
 <dl dfn-type=attribute dfn-for=GPUAdapter>
-    : <dfn>\[[adapter]]</dfn>, of type [=adapter=], readonly
-    ::
-        An internal slot holding the [=adapter=] to which this {{GPUAdapter}}
-        refers.
-
     : <dfn>name</dfn>
     ::
         A human-readable name identifying the adapter.
@@ -200,6 +322,15 @@ interface GPUAdapter {
             not by the [=adapter=], it will be `false`.
           - If an extension is supported by the user agent and
             by the [=adapter=], it will be `true`.
+</dl>
+
+{{GPUAdapter}} also has the following internal slots:
+
+<dl dfn-type=attribute dfn-for=GPUAdapter>
+    : <dfn>\[[adapter]]</dfn>, of type [=adapter=], readonly
+    ::
+        An internal slot holding the [=adapter=] to which this {{GPUAdapter}}
+        refers.
 </dl>
 
 ### Getting an Adapter ### {#adapter-creation}
@@ -303,15 +434,15 @@ It is the top-level object through which [=WebGPU interfaces=] are created.
 <script type=idl>
 [Exposed=(Window, Worker), Serializable]
 interface GPUDevice : EventTarget {
-    readonly attribute GPUExtensions extensions;
-    readonly attribute GPULimits limits;
     readonly attribute GPUAdapter adapter;
+    readonly attribute object extensions;
+    readonly attribute object limits;
 
     GPUBuffer createBuffer(GPUBufferDescriptor descriptor);
     GPUMappedBuffer createBufferMapped(GPUBufferDescriptor descriptor);
     Promise<GPUMappedBuffer> createBufferMappedAsync(GPUBufferDescriptor descriptor);
     GPUTexture createTexture(GPUTextureDescriptor descriptor);
-    GPUSampler createSampler(optional GPUSamplerDescriptor descriptor);
+    GPUSampler createSampler(optional GPUSamplerDescriptor descriptor = {});
 
     GPUBindGroupLayout createBindGroupLayout(GPUBindGroupLayoutDescriptor descriptor);
     GPUPipelineLayout createPipelineLayout(GPUPipelineLayoutDescriptor descriptor);
@@ -321,13 +452,29 @@ interface GPUDevice : EventTarget {
     GPUComputePipeline createComputePipeline(GPUComputePipelineDescriptor descriptor);
     GPURenderPipeline createRenderPipeline(GPURenderPipelineDescriptor descriptor);
 
-    GPUCommandEncoder createCommandEncoder(optional GPUCommandEncoderDescriptor descriptor);
+    GPUCommandEncoder createCommandEncoder(optional GPUCommandEncoderDescriptor descriptor = {});
     GPURenderBundleEncoder createRenderBundleEncoder(GPURenderBundleEncoderDescriptor descriptor);
 
     GPUQueue getQueue();
 };
 GPUDevice includes GPUObjectBase;
 </script>
+
+{{GPUDevice}} has the following attributes:
+
+<dl dfn-type=attribute dfn-for=GPUDevice>
+    : <dfn>adapter</dfn>
+    ::
+        The {{GPUAdapter}} from which this device was created.
+
+    : <dfn>extensions</dfn>
+    ::
+        A {{GPUExtensions}} object exposing the extensions with which this device was created.
+
+    : <dfn>limits</dfn>
+    ::
+        A {{GPULimits}} object exposing the limits with which this device was created.
+</dl>
 
 {{GPUDevice}} also has the following internal slots:
 
@@ -359,8 +506,8 @@ To get a {{GPUDevice}}, use {{GPUAdapter/requestDevice()}}.
 
 <script type=idl>
 dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
-    GPUExtensions extensions;
-    GPULimits limits;
+    GPUExtensions extensions = {};
+    GPULimits limits = {};
 
     // TODO: are other things configurable like queues?
 };
@@ -414,12 +561,12 @@ restrictions depending on the operation.
 {{GPUBuffer}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUBuffer">
-	: <dfn>\[[size]]</dfn> of type {{GPUBufferSize}}.
-	::
+    : <dfn>\[[size]]</dfn> of type {{GPUBufferSize}}.
+    ::
         The length of the {{GPUBuffer}} allocation in bytes.
 
-	: <dfn>\[[usage]]</dfn> of type {{GPUBufferUsageFlags}}.
-	::
+    : <dfn>\[[usage]]</dfn> of type {{GPUBufferUsageFlags}}.
+    ::
         The allowed usages for this {{GPUBuffer}}.
 
     : <dfn>\[[state]]</dfn> of type [=buffer state=].
@@ -467,9 +614,9 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
 ### {{GPUDevice/createBuffer(descriptor)|GPUDevice.createBuffer(descriptor)}} ### {#GPUDevice-createBuffer}
 
 <dl dfn-type="method" dfn-for="GPUDevice">
-	: <dfn>createBuffer(descriptor)</dfn>
-	::
-		<div algorithm="GPUDevice.createBuffer(descriptor)">
+    : <dfn>createBuffer(descriptor)</dfn>
+    ::
+        <div algorithm="GPUDevice.createBuffer(descriptor)">
             1. If the result of [$validating GPUBufferDescriptor$](this, descriptor) is false:
 
                 1. Record a validation error in the current scope.
@@ -488,18 +635,17 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
 ## Buffer Usage ## {#buffer-usage}
 
 <script type=idl>
-typedef GPUFlags GPUBufferUsageFlags;
+typedef unsigned long GPUBufferUsageFlags;
 interface GPUBufferUsage {
-    const GPUFlags NONE      = 0x0000;
-    const GPUFlags MAP_READ  = 0x0001;
-    const GPUFlags MAP_WRITE = 0x0002;
-    const GPUFlags COPY_SRC  = 0x0004;
-    const GPUFlags COPY_DST  = 0x0008;
-    const GPUFlags INDEX     = 0x0010;
-    const GPUFlags VERTEX    = 0x0020;
-    const GPUFlags UNIFORM   = 0x0040;
-    const GPUFlags STORAGE   = 0x0080;
-    const GPUFlags INDIRECT  = 0x0100;
+    const GPUBufferUsageFlags MAP_READ  = 0x0001;
+    const GPUBufferUsageFlags MAP_WRITE = 0x0002;
+    const GPUBufferUsageFlags COPY_SRC  = 0x0004;
+    const GPUBufferUsageFlags COPY_DST  = 0x0008;
+    const GPUBufferUsageFlags INDEX     = 0x0010;
+    const GPUBufferUsageFlags VERTEX    = 0x0020;
+    const GPUBufferUsageFlags UNIFORM   = 0x0040;
+    const GPUBufferUsageFlags STORAGE   = 0x0080;
+    const GPUBufferUsageFlags INDIRECT  = 0x0100;
 };
 </script>
 
@@ -507,13 +653,14 @@ interface GPUBufferUsage {
 
 
 <script type=idl>
-interface GPUBuffer : GPUObjectBase {
+interface GPUBuffer {
     Promise<ArrayBuffer> mapReadAsync();
     Promise<ArrayBuffer> mapWriteAsync();
     void unmap();
 
     void destroy();
 };
+GPUBuffer includes GPUObjectBase;
 
 typedef sequence<any> GPUMappedBuffer;
 </script>
@@ -528,11 +675,12 @@ Textures {#textures}
 ## GPUTexture ## {#texture}
 
 <script type=idl>
-interface GPUTexture : GPUObjectBase {
-    GPUTextureView createView(optional GPUTextureViewDescriptor descriptor);
+interface GPUTexture {
+    GPUTextureView createView(optional GPUTextureViewDescriptor descriptor = {});
 
     void destroy();
 };
+GPUTexture includes GPUObjectBase;
 </script>
 
 ### Texture Creation ### {#texture-creation}
@@ -558,22 +706,22 @@ enum GPUTextureDimension {
 </script>
 
 <script type=idl>
-typedef GPUFlags GPUTextureUsageFlags;
+typedef unsigned long GPUTextureUsageFlags;
 interface GPUTextureUsage {
-    const GPUFlags NONE              = 0x00;
-    const GPUFlags COPY_SRC          = 0x01;
-    const GPUFlags COPY_DST          = 0x02;
-    const GPUFlags SAMPLED           = 0x04;
-    const GPUFlags STORAGE           = 0x08;
-    const GPUFlags OUTPUT_ATTACHMENT = 0x10;
+    const GPUTextureUsageFlags COPY_SRC          = 0x01;
+    const GPUTextureUsageFlags COPY_DST          = 0x02;
+    const GPUTextureUsageFlags SAMPLED           = 0x04;
+    const GPUTextureUsageFlags STORAGE           = 0x08;
+    const GPUTextureUsageFlags OUTPUT_ATTACHMENT = 0x10;
 };
 </script>
 
 ## GPUTextureView ## {#texture-view}
 
 <script type=idl>
-interface GPUTextureView : GPUObjectBase {
+interface GPUTextureView {
 };
+GPUTextureView includes GPUObjectBase;
 </script>
 
 ### Texture View Creation ### {#texture-view-creation}
@@ -734,8 +882,9 @@ Samplers {#samplers}
 ## GPUSampler ## {#sampler}
 
 <script type=idl>
-interface GPUSampler : GPUObjectBase {
+interface GPUSampler {
 };
+GPUSampler includes GPUObjectBase;
 </script>
 
 ### Creation ### {#sampler-creation}
@@ -792,8 +941,9 @@ A {{GPUBindGroupLayout}} defines the interface between a set of resources bound 
 
 <script type=idl>
 [Serializable]
-interface GPUBindGroupLayout : GPUObjectBase {
+interface GPUBindGroupLayout {
 };
+GPUBindGroupLayout includes GPUObjectBase;
 </script>
 
 ### Creation ### {#bind-group-layout-creation}
@@ -823,21 +973,20 @@ dictionary GPUBindGroupLayoutBinding {
   * {{GPUBindGroupLayoutBinding/binding}}:
     A unique identifier for a resource binding within a {{GPUBindGroupLayoutBinding}}, a corresponding {{GPUBindGroupBinding}}, and shader stages.
 
-  * {{GPUBindGroupLayoutBinding/visibility}}: 
-    A bitset of the members of {{GPUShaderStage}}. Each set bit indicates that a {{GPUBindGroupLayoutBinding}}'s resource will be accessible from the 
+  * {{GPUBindGroupLayoutBinding/visibility}}:
+    A bitset of the members of {{GPUShaderStage}}. Each set bit indicates that a {{GPUBindGroupLayoutBinding}}'s resource will be accessible from the
     associated shader stage.
 
 <script type=idl>
-typedef GPUFlags GPUShaderStageFlags;
+typedef unsigned long GPUShaderStageFlags;
 interface GPUShaderStage {
-    const GPUFlags NONE     = 0x0;
-    const GPUFlags VERTEX   = 0x1;
-    const GPUFlags FRAGMENT = 0x2;
-    const GPUFlags COMPUTE  = 0x4;
+    const GPUShaderStageFlags VERTEX   = 0x1;
+    const GPUShaderStageFlags FRAGMENT = 0x2;
+    const GPUShaderStageFlags COMPUTE  = 0x4;
 };
 </script>
 
-  * {{GPUBindGroupLayoutBinding/type}}: 
+  * {{GPUBindGroupLayoutBinding/type}}:
     A member of {{GPUBindingType}} that indicates the intended usage of a resource binding in its visible {{GPUShaderStage}}s.
 
 <script type=idl>
@@ -860,16 +1009,16 @@ enum GPUBindingType {
     run-time.
 
   * {{GPUBindGroupLayoutBinding/hasDynamicOffset}}:
-    For {{GPUBindingType/uniform-buffer}}, {{GPUBindingType/storage-buffer}}, and {{GPUBindingType/readonly-storage-buffer}} bindings, 
-    indicates that the binding has a dynamic offset. One offset must be passed to 
+    For {{GPUBindingType/uniform-buffer}}, {{GPUBindingType/storage-buffer}}, and {{GPUBindingType/readonly-storage-buffer}} bindings,
+    indicates that the binding has a dynamic offset. One offset must be passed to
     setBindGroup for each dynamic binding in increasing order of
     {{GPUBindGroupLayoutBinding/binding}} number.
 
 A {{GPUBindGroupLayout}} object has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUBindGroupLayout">
-	: <dfn>\[[bindings]]</dfn> of type sequence<{{GPUBindGroupLayoutBinding}}>.
-	::
+    : <dfn>\[[bindings]]</dfn> of type sequence<{{GPUBindGroupLayoutBinding}}>.
+    ::
         The set of {{GPUBindGroupLayoutBinding}}s this {{GPUBindGroupLayout}} describes.
 
 </dl>
@@ -878,7 +1027,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
 
 <div algorithm="GPUDevice.createBindGroupLayout(descriptor)">
 
-The <dfn-type="method" dfn-for="GPUDevice">createBindGroupLayout(|descriptor|)</dfn> method is used to create {{GPUBindGroupLayout}}s.
+The <dfn method for="GPUDevice">createBindGroupLayout(|descriptor|)</dfn> method is used to create {{GPUBindGroupLayout}}s.
 
 1. Ensure [=device validation=] is not violated.
 1. Let |layout| be a new valid {{GPUBindGroupLayout}} object.
@@ -910,27 +1059,27 @@ If any of the following conditions are violated:
 
 <dfn>binding validation</dfn>: Each |bindingDescriptor|.{{GPUBindGroupLayoutBinding/binding}} in |descriptor| must be unique.
 
-<dfn>uniform buffer validation</dfn>: There must be {{GPULimits/maxUniformBuffersPerShaderStage|GPULimits.maxUniformBuffersPerShaderStage}} or 
+<dfn>uniform buffer validation</dfn>: There must be {{GPULimits/maxUniformBuffersPerShaderStage|GPULimits.maxUniformBuffersPerShaderStage}} or
     fewer |bindingDescriptor|s of type {{GPUBindingType/uniform-buffer}} visible on each shader stage in |descriptor|.
 
 <dfn>dynamic uniform buffer validation</dfn>: There must be {{GPULimits/maxDynamicUniformBuffersPerPipelineLayout|GPULimits.maxDynamicUniformBuffersPerPipelineLayout}} or
         fewer |bindingDescriptor|s of type {{GPUBindingType/uniform-buffer}} with {{GPUBindGroupLayoutBinding/hasDynamicOffset}} set to `true` in
         |descriptor| that are visible to any shader stage.
 
-<dfn>storage buffer validation</dfn>: There must be {{GPULimits/maxStorageBuffersPerPipelineLayout|GPULimits.maxStorageBuffersPerPipelineLayout}} or 
+<dfn>storage buffer validation</dfn>: There must be {{GPULimits/maxStorageBuffersPerPipelineLayout|GPULimits.maxStorageBuffersPerPipelineLayout}} or
     fewer |bindingDescriptor|s of type {{GPUBindingType/storage-buffer}} in |descriptor| that are visible to any shader stage.
 
 <dfn>dynamic storage buffer validation</dfn>: There must be {{GPULimits/maxDynamicStorageBuffersPerPipelineLayout|GPULimits.maxDynamicStorageBuffersPerPipelineLayout}} or
-        fewer |bindingDescriptor|s of type {{GPUBindingType/storage-buffer}} with {{GPUBindGroupLayoutBinding/hasDynamicOffset}} set to `true` 
+        fewer |bindingDescriptor|s of type {{GPUBindingType/storage-buffer}} with {{GPUBindGroupLayoutBinding/hasDynamicOffset}} set to `true`
         in |descriptor| that are visible to any shader stage.
 
-<dfn>sampled texture validation</dfn>: There must be {{GPULimits/maxSampledTexturesPerShaderStage|GPULimits.maxSampledTexturesPerShaderStage}} or 
+<dfn>sampled texture validation</dfn>: There must be {{GPULimits/maxSampledTexturesPerShaderStage|GPULimits.maxSampledTexturesPerShaderStage}} or
     fewer |bindingDescriptor|s of type {{GPUBindingType/sampled-texture}} visible on each shader stage in |descriptor|.
 
-<dfn>storage texture validation</dfn>: There must be {{GPULimits/maxStorageTexturesPerShaderStage|GPULimits.maxStorageTexturesPerShaderStage}} or 
+<dfn>storage texture validation</dfn>: There must be {{GPULimits/maxStorageTexturesPerShaderStage|GPULimits.maxStorageTexturesPerShaderStage}} or
     fewer |bindingDescriptor|s of type {{GPUBindingType/storage-texture}} visible on each shader stage in |descriptor|.
 
-<dfn>sampler validation</dfn>: There must be {{GPULimits/maxSamplersPerShaderStage|GPULimits.maxSamplersPerShaderStage}} or 
+<dfn>sampler validation</dfn>: There must be {{GPULimits/maxSamplersPerShaderStage|GPULimits.maxSamplersPerShaderStage}} or
     fewer |bindingDescriptor|s of type {{GPUBindingType/sampler}} visible on each shader stage in |descriptor|.
 
 </dl>
@@ -939,8 +1088,9 @@ If any of the following conditions are violated:
 ## GPUBindGroup ## {#bind-groups}
 
 <script type=idl>
-interface GPUBindGroup : GPUObjectBase {
+interface GPUBindGroup {
 };
+GPUBindGroup includes GPUObjectBase;
 </script>
 
 ### Bind Group Creation ### {#bind-group-creation}
@@ -974,8 +1124,9 @@ dictionary GPUBufferBinding {
 ## GPUPipelineLayout ## {#pipeline-layout}
 
 <script type=idl>
-interface GPUPipelineLayout : GPUObjectBase {
+interface GPUPipelineLayout {
 };
+GPUPipelineLayout includes GPUObjectBase;
 </script>
 
 ### Creation ### {#pipeline-layout-creation}
@@ -993,8 +1144,9 @@ Shader Modules {#shader-modules}
 
 <script type=idl>
 [Serializable]
-interface GPUShaderModule : GPUObjectBase {
+interface GPUShaderModule {
 };
+GPUShaderModule includes GPUObjectBase;
 </script>
 
 {{GPUShaderModule}} is {{Serializable}}. It is a reference to an internal
@@ -1038,8 +1190,9 @@ dictionary GPUProgrammableStageDescriptor {
 
 <script type=idl>
 [Serializable]
-interface GPUComputePipeline : GPUObjectBase {
+interface GPUComputePipeline {
 };
+GPUComputePipeline includes GPUObjectBase;
 </script>
 
 ### Creation ### {#compute-pipeline-creation}
@@ -1054,8 +1207,9 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 
 <script type=idl>
 [Serializable]
-interface GPURenderPipeline : GPUObjectBase {
+interface GPURenderPipeline {
 };
+GPURenderPipeline includes GPUObjectBase;
 </script>
 
 ### Creation ### {#render-pipeline-creation}
@@ -1066,7 +1220,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     GPUProgrammableStageDescriptor fragmentStage;
 
     required GPUPrimitiveTopology primitiveTopology;
-    GPURasterizationStateDescriptor rasterizationState;
+    GPURasterizationStateDescriptor rasterizationState = {};
     required sequence<GPUColorStateDescriptor> colorStates;
     GPUDepthStencilStateDescriptor depthStencilState;
     GPUVertexInputDescriptor vertexInput = {};
@@ -1126,21 +1280,20 @@ enum GPUCullMode {
 dictionary GPUColorStateDescriptor {
     required GPUTextureFormat format;
 
-    GPUBlendDescriptor alphaBlend;
-    GPUBlendDescriptor colorBlend;
+    GPUBlendDescriptor alphaBlend = {};
+    GPUBlendDescriptor colorBlend = {};
     GPUColorWriteFlags writeMask = 0xF;  // GPUColorWrite.ALL
 };
 </script>
 
 <script type=idl>
-typedef GPUFlags GPUColorWriteFlags;
+typedef unsigned long GPUColorWriteFlags;
 interface GPUColorWrite {
-    const GPUFlags NONE  = 0x0;
-    const GPUFlags RED   = 0x1;
-    const GPUFlags GREEN = 0x2;
-    const GPUFlags BLUE  = 0x4;
-    const GPUFlags ALPHA = 0x8;
-    const GPUFlags ALL   = 0xF;
+    const GPUColorWriteFlags RED   = 0x1;
+    const GPUColorWriteFlags GREEN = 0x2;
+    const GPUColorWriteFlags BLUE  = 0x4;
+    const GPUColorWriteFlags ALPHA = 0x8;
+    const GPUColorWriteFlags ALL   = 0xF;
 };
 </script>
 
@@ -1204,8 +1357,8 @@ dictionary GPUDepthStencilStateDescriptor {
     boolean depthWriteEnabled = false;
     GPUCompareFunction depthCompare = "always";
 
-    required GPUStencilStateFaceDescriptor stencilFront;
-    required GPUStencilStateFaceDescriptor stencilBack;
+    GPUStencilStateFaceDescriptor stencilFront = {};
+    GPUStencilStateFaceDescriptor stencilBack = {};
 
     unsigned long stencilReadMask = 0xFFFFFFFF;
     unsigned long stencilWriteMask = 0xFFFFFFFF;
@@ -1320,8 +1473,9 @@ Command Buffers {#command-buffers}
 ## GPUCommandBuffer ## {#command-buffer}
 
 <script type=idl>
-interface GPUCommandBuffer : GPUObjectBase {
+interface GPUCommandBuffer {
 };
+GPUCommandBuffer includes GPUObjectBase;
 </script>
 
 ### Creation ### {#command-buffer-creation}
@@ -1338,9 +1492,9 @@ Command Encoding {#command-encoding}
 ## GPUCommandEncoder ## {#command-encoder}
 
 <script type=idl>
-interface GPUCommandEncoder : GPUObjectBase {
+interface GPUCommandEncoder {
     GPURenderPassEncoder beginRenderPass(GPURenderPassDescriptor descriptor);
-    GPUComputePassEncoder beginComputePass(optional GPUComputePassDescriptor descriptor);
+    GPUComputePassEncoder beginComputePass(optional GPUComputePassDescriptor descriptor = {});
 
     void copyBufferToBuffer(
         GPUBuffer source,
@@ -1373,8 +1527,9 @@ interface GPUCommandEncoder : GPUObjectBase {
     void popDebugGroup();
     void insertDebugMarker(DOMString markerLabel);
 
-    GPUCommandBuffer finish(optional GPUCommandBufferDescriptor descriptor);
+    GPUCommandBuffer finish(optional GPUCommandBufferDescriptor descriptor = {});
 };
+GPUCommandEncoder includes GPUObjectBase;
 </script>
 
   * {{GPUCommandEncoder/copyImageBitmapToTexture()}}:
@@ -1404,7 +1559,7 @@ dictionary GPUTextureCopyView {
     required GPUTexture texture;
     unsigned long mipLevel = 0;
     unsigned long arrayLayer = 0;
-    GPUOrigin3D origin;
+    GPUOrigin3D origin = {};
 };
 </script>
 
@@ -1413,7 +1568,7 @@ dictionary GPUTextureCopyView {
 <script type=idl>
 dictionary GPUImageBitmapCopyView {
     required ImageBitmap imageBitmap;
-    GPUOrigin2D origin;
+    GPUOrigin2D origin = {};
 };
 </script>
 
@@ -1422,14 +1577,15 @@ dictionary GPUImageBitmapCopyView {
 ## Programmable Passes ## {#programmable-passes}
 
 <script type=idl>
-interface GPUProgrammablePassEncoder : GPUObjectBase {
+interface mixin GPUProgrammablePassEncoder {
     void setBindGroup(unsigned long index, GPUBindGroup bindGroup,
-                      optional sequence<GPUBufferSize> dynamicOffsets);
+                      optional sequence<GPUBufferSize> dynamicOffsets = []);
 
     void pushDebugGroup(DOMString groupLabel);
     void popDebugGroup();
     void insertDebugMarker(DOMString markerLabel);
 };
+GPUProgrammablePassEncoder includes GPUObjectBase;
 </script>
 
 Debug groups in a {{GPUCommandEncoder}} or {{GPUProgrammablePassEncoder}}
@@ -1441,13 +1597,14 @@ Compute Passes {#compute-passes}
 ## GPUComputePassEncoder ## {#compute-pass-encoder}
 
 <script type=idl>
-interface GPUComputePassEncoder : GPUProgrammablePassEncoder {
+interface GPUComputePassEncoder {
     void setPipeline(GPUComputePipeline pipeline);
     void dispatch(unsigned long x, optional unsigned long y = 1, optional unsigned long z = 1);
     void dispatchIndirect(GPUBuffer indirectBuffer, GPUBufferSize indirectOffset);
 
     void endPass();
 };
+GPUComputePassEncoder includes GPUProgrammablePassEncoder;
 </script>
 
 ### Creation ### {#compute-pass-encoder-creation}
@@ -1463,12 +1620,11 @@ Render Passes {#render-passes}
 ## GPURenderPassEncoder ## {#render-pass-encoder}
 
 <script type=idl>
-interface GPURenderEncoderBase : GPUProgrammablePassEncoder {
+interface mixin GPURenderEncoderBase {
     void setPipeline(GPURenderPipeline pipeline);
 
     void setIndexBuffer(GPUBuffer buffer, optional GPUBufferSize offset = 0);
-    void setVertexBuffers(unsigned long startSlot,
-                          sequence<GPUBuffer> buffers, sequence<GPUBufferSize> offsets);
+    void setVertexBuffer(unsigned long slot, GPUBuffer buffer, optional GPUBufferSize offset = 0);
 
     void draw(unsigned long vertexCount, unsigned long instanceCount,
               unsigned long firstVertex, unsigned long firstInstance);
@@ -1478,8 +1634,9 @@ interface GPURenderEncoderBase : GPUProgrammablePassEncoder {
     void drawIndirect(GPUBuffer indirectBuffer, GPUBufferSize indirectOffset);
     void drawIndexedIndirect(GPUBuffer indirectBuffer, GPUBufferSize indirectOffset);
 };
+GPURenderEncoderBase includes GPUProgrammablePassEncoder;
 
-interface GPURenderPassEncoder : GPURenderEncoderBase {
+interface GPURenderPassEncoder {
     void setViewport(float x, float y,
                      float width, float height,
                      float minDepth, float maxDepth);
@@ -1492,6 +1649,7 @@ interface GPURenderPassEncoder : GPURenderEncoderBase {
     void executeBundles(sequence<GPURenderBundle> bundles);
     void endPass();
 };
+GPURenderPassEncoder includes GPURenderEncoderBase;
 </script>
 
   * In indirect draw calls, the base instance field (inside the indirect
@@ -1571,8 +1729,9 @@ Bundles {#bundles}
 ## GPURenderBundle ## {#render-bundle}
 
 <script type=idl>
-interface GPURenderBundle : GPUObjectBase {
+interface GPURenderBundle {
 };
+GPURenderBundle includes GPUObjectBase;
 </script>
 
 ### Creation ### {#render-bundle-creation}
@@ -1583,9 +1742,10 @@ dictionary GPURenderBundleDescriptor : GPUObjectDescriptorBase {
 </script>
 
 <script type=idl>
-interface GPURenderBundleEncoder : GPURenderEncoderBase {
-    GPURenderBundle finish(optional GPURenderBundleDescriptor descriptor);
+interface GPURenderBundleEncoder {
+    GPURenderBundle finish(optional GPURenderBundleDescriptor descriptor = {});
 };
+GPURenderBundleEncoder includes GPURenderEncoderBase;
 </script>
 
 ### Encoding ### {#render-bundle-encoding}
@@ -1603,21 +1763,23 @@ Queues {#queues}
 ================
 
 <script type=idl>
-interface GPUQueue : GPUObjectBase {
+interface GPUQueue {
     void submit(sequence<GPUCommandBuffer> buffers);
 
-    GPUFence createFence(optional GPUFenceDescriptor descriptor);
+    GPUFence createFence(optional GPUFenceDescriptor descriptor = {});
     void signal(GPUFence fence, unsigned long long signalValue);
 };
+GPUQueue includes GPUObjectBase;
 </script>
 
 ## GPUFence ## {#fence}
 
 <script type=idl>
-interface GPUFence : GPUObjectBase {
+interface GPUFence {
     unsigned long long getCompletedValue();
     Promise<void> onCompletion(unsigned long long completionValue);
 };
+GPUFence includes GPUObjectBase;
 </script>
 
 ### Creation ### {#fence-creation}
@@ -1655,9 +1817,10 @@ dictionary GPUSwapChainDescriptor : GPUObjectDescriptorBase {
 </script>
 
 <script type=idl>
-interface GPUSwapChain : GPUObjectBase {
+interface GPUSwapChain {
     GPUTexture getCurrentTexture();
 };
+GPUSwapChain includes GPUObjectBase;
 </script>
 
 
@@ -1688,15 +1851,12 @@ enum GPUErrorFilter {
 </script>
 
 <script type=idl>
-[
-    Constructor()
-]
-interface GPUOutOfMemoryError {};
+interface GPUOutOfMemoryError {
+    constructor();
+};
 
-[
-    Constructor(DOMString message)
-]
 interface GPUValidationError {
+    constructor(DOMString message);
     readonly attribute DOMString message;
 };
 
@@ -1717,10 +1877,13 @@ partial interface GPUDevice {
 
 <script type=idl>
 [
-    Constructor(DOMString type, GPUUncapturedErrorEventInit gpuUncapturedErrorEventInitDict),
     Exposed=Window
 ]
 interface GPUUncapturedErrorEvent : Event {
+    constructor(
+        DOMString type,
+        GPUUncapturedErrorEventInit gpuUncapturedErrorEventInitDict
+    );
     readonly attribute GPUError error;
 };
 
