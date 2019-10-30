@@ -2,7 +2,7 @@
 
 This document lists the citations for the "limits" in the WebGPU API that decide the minimum capabilities of a compliant WebGPU implementation.
 
-## The GPULimits Dictionary (10/29/19)
+## The GPULimits Dictionary (last updated 2019-10-29)
 
 ```javascript
 dictionary GPULimits {
