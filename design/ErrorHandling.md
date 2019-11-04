@@ -265,7 +265,7 @@ If an error is not captured by an error scope, it is passed out to the enclosing
 
 If there are no error scopes on the stack, `popErrorScope()` throws OperationError.
 
-If the device is lost, `popErrorScope()` always rejects.
+If the device is lost, `popErrorScope()` always rejects with OperationError.
 
 \* Error scope state is **per-device, per-execution-context**.
 That is, when a `GPUDevice` is posted to a Worker for the first time, the new `GPUDevice` copy's error scope stack is empty.
