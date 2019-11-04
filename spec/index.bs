@@ -581,7 +581,31 @@ dictionary GPULimits {
 A {{GPUBuffer}} represents a block of memory that can be used in GPU operations.
 Data is stored in linear layout, meaning that each byte of the allocation can be
 addressed by its offset from the start of the {{GPUBuffer}}, subject to alignment
-restrictions depending on the operation.
+restrictions depending on the operation. Some {{GPUBuffer|GPUBuffers}} can be
+mapped which makes the block of memory accessible via an {{ArrayBuffer}} called
+its mapping.
+
+{{GPUBuffer|GPUBuffers}} can be created via the following functions:
+
+ - {{GPUDevice/createBuffer(descriptor)|GPUDevice.createBuffer(descriptor)}} that returns a new unmapped buffer.
+ - {{GPUDevice/createBufferMapped(descriptor)|GPUDevice.createBufferMapped(descriptor)}} that returns a mapped buffer and its mapping.
+ - {{GPUDevice/createBufferMappedAsync(descriptor)|GPUDevice.createBufferMappedAsync(descriptor)}} that returns a Promise of a mapped buffer and its mapping.
+
+<script type=idl>
+interface GPUBuffer {
+    Promise<ArrayBuffer> mapReadAsync();
+    Promise<ArrayBuffer> mapWriteAsync();
+    void unmap();
+
+    void destroy();
+};
+GPUBuffer includes GPUObjectBase;
+
+typedef sequence<any> GPUMappedBuffer;
+</script>
+
+{{GPUMappedBuffer}} is always a sequence of 2 elements, of types {{GPUBuffer}}
+and {{ArrayBuffer}}, respectively.
 
 {{GPUBuffer}} has the following internal slots:
 
@@ -608,9 +632,7 @@ Each {{GPUBuffer}} has a current <dfn dfn>buffer state</dfn> which is one of the
 Note:
 {{GPUBuffer/[[size]]}} and {{GPUBuffer/[[usage]]}} are immutable once the {{GPUBuffer}} has been created.
 
-## Creation ## {#buffer-creation}
-
-A {{GPUBuffer}} can be created in the "[=buffer state/unmapped=]" state using the {{GPUDevice}}.{{GPUDevice/createBuffer(descriptor)}} method.
+## Buffer creation ## {#buffer-creation}
 
 ### {{GPUBufferDescriptor}} ### {#GPUBufferDescriptor}
 
@@ -651,9 +673,30 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
             1. Let |b| be a new {{GPUBuffer}} object.
             1. Set the {{GPUBuffer/[[size]]}} slot of |b| to the value of the {{GPUBufferDescriptor/size}} attribute of |descriptor|.
             1. Set the {{GPUBuffer/[[usage]]}} slot of |b| to the value of the {{GPUBufferDescriptor/usage}} attribute of |descriptor|.
-            1. Set the {{GPUBuffer/[[state]]}} internal slot of |b| to `"unmapped"`.
+            1. Set the {{GPUBuffer/[[state]]}} internal slot of |b| to [=buffer state/unmapped=].
             1. Set each byte of |b|'s allocation to zero.
             1. Return |b|.
+        </div>
+</dl>
+
+## Buffer Destruction ## {#buffer-destruction}
+
+An application that no longer requires a {{GPUBuffer}} can choose to lose
+access to it before garbage collection by calling {{GPUBuffer/destroy()}}. 
+
+Note: This allows the user agent to reclaim the GPU memory associated with the {{GPUBuffer}}
+ once all previously submitted operations using it are complete.
+
+<dl dfn-type="method" dfn-for="GPUBuffer">
+    : <dfn>destroy()</dfn>
+    ::
+        <div algorithm="GPUBuffer.destroy()">
+            <!-- TODO(kangz) handle error buffers once we have a description of the error monad -->
+            1. If the {{[[state]]}} slot of |this| is [=buffer state/mapped=]
+
+                1. Run the steps to unmap `"this"`
+
+            1. Set the {{[[state]]}} slot of |this| to [=buffer state/destroyed=]
         </div>
 </dl>
 
@@ -675,24 +718,6 @@ interface GPUBufferUsage {
 </script>
 
 ## Buffer Mapping ## {#buffer-mapping}
-
-
-<script type=idl>
-interface GPUBuffer {
-    Promise<ArrayBuffer> mapReadAsync();
-    Promise<ArrayBuffer> mapWriteAsync();
-    void unmap();
-
-    void destroy();
-};
-GPUBuffer includes GPUObjectBase;
-
-typedef sequence<any> GPUMappedBuffer;
-</script>
-
-{{GPUMappedBuffer}} is always a sequence of 2 elements, of types {{GPUBuffer}}
-and {{ArrayBuffer}}, respectively.
-
 
 Textures {#textures}
 ====================
@@ -1484,9 +1509,9 @@ Each {{GPUVertexAttributeDescriptor}} describes its
 {{GPUVertexAttributeDescriptor/format}} and its
 {{GPUVertexAttributeDescriptor/offset}}, in bytes, within the structure.
 
-Each attribute appears as a separate input in a vertex shader, each bound by *location*,
+Each attribute appears as a separate input in a vertex shader, each bound by a numeric *location*,
 which is specified by {{GPUVertexAttributeDescriptor/shaderLocation}}.
-All of the locations must be unique within the {{GPUVertexStateDescriptor}}.
+Every location must be unique within the {{GPUVertexStateDescriptor}}.
 
 <script type=idl>
 dictionary GPUVertexBufferLayoutDescriptor {
@@ -1617,7 +1642,7 @@ dictionary GPUImageBitmapCopyView {
 <script type=idl>
 interface mixin GPUProgrammablePassEncoder {
     void setBindGroup(unsigned long index, GPUBindGroup bindGroup,
-                      optional sequence<GPUBufferSize> dynamicOffsets = []);
+                      optional sequence<unsigned long> dynamicOffsets = []);
 
     void pushDebugGroup(DOMString groupLabel);
     void popDebugGroup();
@@ -1805,13 +1830,17 @@ Queues {#queues}
 
 <script type=idl>
 interface GPUQueue {
-    void submit(sequence<GPUCommandBuffer> buffers);
+    void submit(sequence<GPUCommandBuffer> commandBuffers);
 
     GPUFence createFence(optional GPUFenceDescriptor descriptor = {});
     void signal(GPUFence fence, unsigned long long signalValue);
 };
 GPUQueue includes GPUObjectBase;
 </script>
+
+{{GPUQueue/submit(commandBuffers)}} does nothing and produces an error if any of the following is true:
+
+ - Any {{GPUBuffer}} referenced in any element of `commandBuffers` isn't in the `"unmapped"` [=buffer state=].
 
 ## GPUFence ## {#fence}
 
@@ -1943,7 +1972,5 @@ partial interface GPUDevice {
 # Temporary usages of non-exported dfns ## {#temp-dfn-usages}
 
 Eventually all of these should disappear but they are useful to avoid warning while building the specification.
-
-[=buffer state/mapped=] [=buffer state/destroyed=]
 
 [=vertex buffer=]
