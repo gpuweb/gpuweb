@@ -24,7 +24,7 @@ The `ImageBitmap` must not be detached, if it is, a validation error is generate
     Additionally, `ImageBitmap`s may be GPU- or CPU-backed, and wrapping a CPU-backed `ImageBitmap` is a significant meta-operation that requires an additional copy to be submitted.
  * Having `copyImageBitmapToTexture` on `GPUCommandEncoder`: this makes implementations much more complicated because they can't know when the copy will be effectively submitted.
     It also allows having multiple `copyImageBitmapToTexture` at different sports in the `GPUCommandEncoder` which would require splicing the encoder and keeping track of all the chunks.
-    Realistically copying imagebitmaps will be during loading to copy from <img> elements, or at most a couple times per frame for example to copy a camera frame, so an immediate copy is fine.
+    Realistically, copying `ImageBitmap`s will be during loading to copy from `<img>` elements, or at most a couple times per frame for example to copy a camera frame, so an immediate copy is fine.
 
 ## Issues
 
