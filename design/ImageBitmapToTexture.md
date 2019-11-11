@@ -6,7 +6,7 @@ dictionary GPUImageBitmapCopyView {
     GPUOrigin2D origin;
 };
 
-partial interface GPUCommandEncoder {
+partial interface GPUQueue {
     void copyImageBitmapToTexture(
         GPUImageBitmapCopyView source,
         GPUTextureCopyView destination,
@@ -15,14 +15,16 @@ partial interface GPUCommandEncoder {
 };
 ```
 
-`copyImageBitmapToTexture` encodes a copy from a source sub-rectangle of an `ImageBitmap` into a destination sub-resource of a `GPUTexture`.
-When the command buffer is submitted, the `ImageBitmap` must not be detached.
-If it is, a validation error is generated.
+`copyImageBitmapToTexture` submits a copy from a source sub-rectangle of an `ImageBitmap` into a destination sub-resource of a `GPUTexture`.
+The `ImageBitmap` must not be detached, if it is, a validation error is generated.
 
 ## Alternatives Considered
 
   * Creating a `GPUTexture` directly from an `ImageBitmap`, attempting to avoid copies, is impractical because it requires the GPUTexture's format to match the internal representation of the `ImageBitmap`, which is not exposed to the Web platform.
     Additionally, `ImageBitmap`s may be GPU- or CPU-backed, and wrapping a CPU-backed `ImageBitmap` is a significant meta-operation that requires an additional copy to be submitted.
+ * Having `copyImageBitmapToTexture` on `GPUCommandEncoder`: this makes implementations much more complicated because they can't know when the copy will be effectively submitted.
+    It also allows having multiple `copyImageBitmapToTexture` at different sports in the `GPUCommandEncoder` which would require splicing the encoder and keeping track of all the chunks.
+    Realistically, copying `ImageBitmap`s will be during loading to copy from `<img>` elements, or at most a couple times per frame for example to copy a camera frame, so an immediate copy is fine.
 
 ## Issues
 
