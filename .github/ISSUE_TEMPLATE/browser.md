@@ -1,13 +1,14 @@
 ---
 name: Browser-specific issue
-about: 'Browser-specific issue/question'
+about: 'Browser-specific issue/question - please file against relevant browser instead'
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-Please file all browser-specific issues against the relevant browser.
+**Please do not file browser-specific issues on this GitHub repository.**
+Instead, file against the relevant browser.
 
 Chrome:
   Known issues: https://bugs.chromium.org/p/chromium/issues/list?q=component:Blink%3EWebGPU
