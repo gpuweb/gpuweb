@@ -1,6 +1,6 @@
 ---
 name: WebGPU question.
-about: 'Browser-non-specific issues only.'
+about: 'Browser-non-specific WebGPU question'
 title: ''
 labels: 'question'
 assignees: ''

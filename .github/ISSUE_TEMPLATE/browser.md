@@ -1,6 +1,6 @@
 ---
 name: Browser-specific issue
-about: ''
+about: 'Browser-specific issue/question'
 title: ''
 labels: ''
 assignees: ''

@@ -1,6 +1,6 @@
 ---
-name: WebGPU standardization/specification issue
-about: ''
+name: WebGPU spec issue
+about: 'Standardization/specification issue'
 title: ''
 labels: ''
 assignees: ''
