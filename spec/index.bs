@@ -251,6 +251,115 @@ dictionary GPUObjectDescriptorBase {
 </script>
 
 
+Programming Model {#programming-model}
+======================================
+
+## Timelines ## {#programming-model-timelines}
+
+*This section is non-normative.*
+
+A computer system with a user agent at the front and GPU at the back
+has components working on different timelines in parallel:
+  - [=Content timeline=] is associated with the execution of the Web script.
+  It includes calling all methods described by this specification.
+  - [=Device timeline=] is associated with the GPU device operations
+  that are issued by the user agent. It includes creation of GPU resources
+  and state objects, which are typically synchronous operations from the point
+  of view of the user agent part that controls the GPU,
+  but it can live in a separate OS process.
+  - [=Queue timeline=] is associated with the execution of operations
+  on the compute units of the GPU. It includes actual rendering draw
+  and compute jobs that run on the GPU.
+
+In this specification, asynchronous operations are used when the result value
+depends on work that happens on any timeline other than the {{Content timeline}}.
+They are represented by callbacks and promises in JavaScript.
+
+Example-1: {{GPUComputePassEncoder/dispatch(x, y, z)}}
+
+  1. User encodes {{GPUComputePass}}, which happens on the {{Content timeline}}.
+  2. User issues {{GPUCommandEncoder/submit()}} that hands over
+  the {{GPUCommandBuffer}} to the user agent, which processes it
+  on the {{Device timeline}} by calling the OS driver to do a low-level submission.
+  3. The submit gets dispatched by the GPU thread scheduler onto the
+  actual compute units for execution, which happens on the {{Queue timeline}}.
+
+Example-2: {{GPUDevice/createBuffer(desc)}}
+
+  1. User fills out a {{GPUBufferDescriptor}} and creates a {{GPUBuffer}} with it,
+  which happens on the {{Content timeline}}.
+  2. User agent creates a low-level buffer on the {{Device timeline}}.
+
+Example-3: {{GPUBuffer/mapReadAsync()}}
+
+  1. User requests to map a {{GPUBuffer}} on the {{Content timeline}},
+  gets a promise in return.
+  2. User agent checks if the buffer is currently used by the GPU
+  and makes are reminder to itself to check back when this usage is over.
+  3. After the GPU operating on {{Queue timeline}} is done using the buffer,
+  the user agent maps it to memory and resolves the promise.
+
+## Memory ## {#programming-model-memory}
+
+*This section is non-normative.*
+
+Once a {{GPUDevice}} has been obtained during an application initialization routine,
+we can describe the [=WebGPU platform=] as consisting of the following layers:
+  1. User agent implementing the specification.
+  2. Operating system with low-level native API drivers for this device.
+  3. Actual CPU and GPU hardware.
+
+Each layer of These {{WebGPU platform}}s may have different memory types
+that the user agent needs to consider when implementing the specification:
+  - The script-owned memory, such as `ArrayBuffer` created by the script,
+  is generally not accessible by a GPU driver.
+  - A user agent may have different processes responsible for running
+  the content and communication to the GPU driver.
+  In this case, it uses shared memory to transfer data between processes.
+  - Dedicated GPUs have their own memory of high bandwidth,
+  while integrated GPUs typically share memory with the system.
+
+Most {{physical resource}}s are allocated in the memory of type
+that is efficient for computation or rendering by the GPU.
+When the user needs to provide new data to the GPU,
+the data may first need to cross the process boundary in order to reach
+the user agent part that communicates with the GPU driver.
+Then it may need to be made visible to the driver,
+which sometimes requires a copy into driver-allocated staging memory.
+Finally, it may need to be transferred to the dedicated GPU memory,
+potentially changing the internal layout into one
+that is most efficient for GPUs to operate on.
+
+All of these transitions are done by the WebGPU implementation.
+This example describes the worst case, while in practice
+the implementation may not need to cross the process boundary,
+or may be able to expose the driver-managed memory directly to
+the user behind an `ArrayBuffer`.
+
+## Resource usage ## {#programming-model-resource-usage}
+
+Buffers and textures can be used by the GPU in multiple ways,
+which can be split into two groups:
+  1. [=Read-only usage=]s. Usages like {{GPUBufferUsage/VERTEX}} or {{GPUTextureUsage/SAMPLED}}
+  don't change the contents of a resource.
+  2. [=Mutating usage=]s do change the contents, like {{GPUBufferUsage/STORAGE}}.
+
+Textures may consist of separate mipmap levels and array layers,
+which can be used differently at any given time. For the matter of usage validation,
+we'll call them [=subresource=]s.
+
+The main usage rule is that a {{subresource}} at any given time can only be in either:
+  - a combination of {{read-only usage}}s
+  - a single {{mutating usage}}
+
+Enforcing this rule allows the API to avoid data races when working with memory.
+
+Generally, when an implementation processes an operation that uses a {{subresource}}
+in a different way than its current usage allows, it schedules a transition of the resource
+into the new state. In some cases, like within an open `GPURenderPassEncoder`, such
+transition is impossible to do due to the hardware limitations. We define these places as
+[=usage scope=]s: each {{subresource}} must be in the same usage within the {{usage scope}}.
+
 Initialization {#initialization}
 ================================
 
@@ -691,7 +800,7 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
 ## Buffer Destruction ## {#buffer-destruction}
 
 An application that no longer requires a {{GPUBuffer}} can choose to lose
-access to it before garbage collection by calling {{GPUBuffer/destroy()}}. 
+access to it before garbage collection by calling {{GPUBuffer/destroy()}}.
 
 Note: This allows the user agent to reclaim the GPU memory associated with the {{GPUBuffer}}
  once all previously submitted operations using it are complete.
