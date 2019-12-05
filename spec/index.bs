@@ -202,13 +202,6 @@ dictionary GPUExtent3DDict {
 typedef (sequence<unsigned long> or GPUExtent3DDict) GPUExtent3D;
 </script>
 
-<script type=idl>
-typedef sequence<any> GPUMappedBuffer;
-</script>
-
-{{GPUMappedBuffer}} is always a sequence of 2 elements, of types {{GPUBuffer}}
-and {{ArrayBuffer}}, respectively.
-
 ## Internal Objects ## {#webgpu-internal-objects}
 
 An <dfn dfn>internal object</dfn> is a non-exposed conceptual WebGPU object.
@@ -473,8 +466,6 @@ interface GPUDevice : EventTarget {
     [SameObject] readonly attribute GPUQueue defaultQueue;
 
     GPUBuffer createBuffer(GPUBufferDescriptor descriptor);
-    GPUMappedBuffer createBufferMapped(GPUBufferDescriptor descriptor);
-    Promise<GPUMappedBuffer> createBufferMappedAsync(GPUBufferDescriptor descriptor);
     GPUTexture createTexture(GPUTextureDescriptor descriptor);
     GPUSampler createSampler(optional GPUSamplerDescriptor descriptor = {});
 
@@ -723,9 +714,9 @@ interface GPUBufferUsage {
 };
 </script>
 
-{{GPUBufferUsage/MAP_READ}} cannot be used with {{GPUBufferUsage/STORAGE}}.
-MAP_READ cannot ensure efficient mappability of buffers that may be written to as storage
-buffers.
+In order to guarantee immediate, efficient, and portable mapping, buffers
+marked for {{GPUBufferUsage/MAP_WRITE}} are only writable by the CPU,
+and cannot be also marked for {{GPUBufferUsage/COPY_DST}} or {{GPUBufferUsage/STORAGE}}.
 
 ## Buffer Mapping ## {#buffer-mapping}
 
@@ -737,16 +728,34 @@ interface GPUMap {
 };
 </script>
 
+{{GPUBuffer/map()}} returns null if the device is lost.
+
+Because MAP_WRITE is writable only by the CPU, the contents of the ArrayBuffer
+are unchanged between unmap and map. (Or, if the buffer has not been previously
+mapped, the initial buffer contents.
+
+If the contents of a mapping without {{GPUMap/WRITE}} are changed, on unmap(),
+the device is lost.
+Additionally, writing to a read-only ArrayBuffer returned from mapping without
+{{GPUMap/WRITE}} MAY throw an error.
+
+Only one mapping may be active per buffer at a time.
+
 With {{GPUQueue/createFence()}} and awaiting {{GPUFence/onCompletion()}}, it's possible
 to ensure that {{GPUBuffer/map()}} provides an efficient mapping to memory with a minimal
 number of copies.
 
 If applications do not ensure proper fencing, {{GPUBuffer/map()}} may provide a less
-efficient mapping. (likely requiring an extra allocation and copy) Implementations should
-provide warnings to surface when this overhead is incurred.
+efficient mapping. (such as requiring an extra allocation and copy) Implementations should
+provide warnings to inform when this overhead is incurred.
 
-{{GPUMap/READ}} and {{GPUMap/WRITE}} are not mutually exclusive, though such a combined
-mapping may incur more overhead than one or the other alone.
+{{GPUMap/READ}} will stall if its contents are stale. Because this condition is
+precisely identifiable, implementations SHOULD warn when {{GPUFence/onCompletion()}}
+has not guaranteed that {{GPUMap/READ}} is immediately satisfiable, even if it
+it happens to be ready.
+
+After {{GPUBuffer/unmap()}}, any new contents of the buffer will be visible to any
+subsequent {{GPUQueue.submit()}}.
 
 Textures {#textures}
 ====================
