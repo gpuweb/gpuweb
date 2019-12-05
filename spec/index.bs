@@ -612,12 +612,18 @@ GPUBuffer includes GPUObjectBase;
     : <dfn>\[[state]]</dfn> of type [=buffer state=].
     ::
         The current state of the {{GPUBuffer}}.
+
+    : <dfn>\[[readyAfterFenceID]]</dfn> of type [=unsigned long long=].
+    ::
+        The ID of the fence that must have completed before this buffer can
+        change {{[[state]]}} to "ready".
 </dl>
 
 Each {{GPUBuffer}} has a current <dfn dfn>buffer state</dfn> which is one of the following:
 
+ - "<dfn dfn for="buffer state">ready</dfn>" where the {{GPUBuffer}} is available for {{GPUBuffer/map()}} or {{GPUQueue.submit()}}.
  - "<dfn dfn for="buffer state">mapped</dfn>" where the {{GPUBuffer}} is available for CPU operations.
- - "<dfn dfn for="buffer state">unmapped</dfn>" where the {{GPUBuffer}} is available for GPU operations.
+ - "<dfn dfn for="buffer state">executing</dfn>" where the {{GPUBuffer}} is in-use for GPU operations.
  - "<dfn dfn for="buffer state">destroyed</dfn>" where the {{GPUBuffer}} is no longer available for any operations except {{GPUBuffer/destroy}}.
 
 Note:
@@ -714,9 +720,10 @@ interface GPUBufferUsage {
 };
 </script>
 
-In order to guarantee immediate, efficient, and portable mapping, buffers
-marked for {{GPUBufferUsage/MAP_WRITE}} are only writable by the CPU,
-and cannot be also marked for {{GPUBufferUsage/COPY_DST}} or {{GPUBufferUsage/STORAGE}}.
+There are no restrictions on combining buffer usage flags, but some combinations
+man incur additional overhead. (For example, MAP_READ and STORAGE may incur a
+higher than expected overhead of copies, as the implemention must keep MAP_READ
+buffer mapping data as fresh as Fences require)
 
 ## Buffer Mapping ## {#buffer-mapping}
 
@@ -728,34 +735,46 @@ interface GPUMap {
 };
 </script>
 
-{{GPUBuffer/map()}} returns null if the device is lost.
+## {{GPUBuffer/map()}} ##
 
-Because MAP_WRITE is writable only by the CPU, the contents of the ArrayBuffer
-are unchanged between unmap and map. (Or, if the buffer has not been previously
-mapped, the initial buffer contents.
+If the devices is lost, returns null.
 
-If the contents of a mapping without {{GPUMap/WRITE}} are changed, on unmap(),
-the device is lost.
-Additionally, writing to a read-only ArrayBuffer returned from mapping without
-{{GPUMap/WRITE}} MAY throw an error.
+If {{GPUBuffer/[[state]]}} is "executing", if {{GPUBuffer/[[readyAfterFenceID]]}}
+is greater than {{GPUQueue/[[readyFenceID]]}}, generate an error and return null.
 
-Only one mapping may be active per buffer at a time.
+Otherwise, {{GPUBuffer/[[state]]}} becomes "ready".
+
+If {{GPUBuffer/[[state]]}} is not "ready", returns null.
+(Only one mapping may be active per buffer at a time)
+
+If {{GPUBuffer/map()}} includes {{GPUMap/READ}} but the buffer is not marked for
+{{GPUBufferUsage/MAP_READ}}, generate an error and return null.
+If {{GPUBuffer/map()}} includes {{GPUMap/WRITE}} but the buffer is not marked for
+{{GPUBufferUsage/MAP_WRITE}}, generate an error and return null.
+
+When buffers are used in a {{GPUCommandBuffer}} sent successfully to
+{{GPUQueue.submit()}}, {{[[state]]}} becomes "executing", and {{[[readyAfterFenceID]]}}
+becomes {{GPUQueue/[[nextFenceID]]}}.
+
+On {{GPUQueue/createFence()}} and {{GPUQueue/signal()}}:
+* In {{GPUFence/[[pendingfenceIDBySignalValue]]}}, assign key signalValue to value
+  {{GPUQueue/[[nextFenceID]]}}.
+* Increment {{GPUQueue/[[nextFenceID]]}} by 1.
+
+When the Promise from {{GPUFence.onCompletion()}} resolves:
+* Set {{GPUQueue/[[readyFenceID]]}} to the larger of {{GPUQueue/[[readyFenceID]]}} or the value
+  of {{GPUFence/[[pendingfenceIDBySignalValue]]}} at key signalValue.
+* Remove {{GPUFence/[[pendingfenceIDBySignalValue]]}} at key signalValue.
+
+If {{GPUBuffer/map()}} does not include {{GPUMap/READ}}, reads from the ArrayBuffer are zeros.
+If {{GPUBuffer/map()}} does not include {{GPUMap/WRITE}}, writes to the ArrayBuffer are ignored.
 
 With {{GPUQueue/createFence()}} and awaiting {{GPUFence/onCompletion()}}, it's possible
 to ensure that {{GPUBuffer/map()}} provides an efficient mapping to memory with a minimal
 number of copies.
 
-If applications do not ensure proper fencing, {{GPUBuffer/map()}} may provide a less
-efficient mapping. (such as requiring an extra allocation and copy) Implementations should
-provide warnings to inform when this overhead is incurred.
-
-{{GPUMap/READ}} will stall if its contents are stale. Because this condition is
-precisely identifiable, implementations SHOULD warn when {{GPUFence/onCompletion()}}
-has not guaranteed that {{GPUMap/READ}} is immediately satisfiable, even if it
-it happens to be ready.
-
 After {{GPUBuffer/unmap()}}, any new contents of the buffer will be visible to any
-subsequent {{GPUQueue.submit()}}.
+subsequent {{GPUQueue.submit()}} or {{GPUBuffer/map()}}.
 
 Textures {#textures}
 ====================
