@@ -15,7 +15,10 @@ There is one other use case that is closely related to error handling:
 
  - *Waiting for Completion*: Waiting for completion of off-queue GPU operations (like object creation).
 
-Meanwhile, error handling should not make the API clunky to use.
+Meanwhile, error handling should not make the API clunky to use,
+and it should not encourage flaky code - in particular, a single system event
+should never send multiple competing signals to the application (e.g. device.lost and
+onadapteradded), so the application never has to worry about deduplicating signals.
 
 ## *Debugging*: Dev Tools
 
@@ -27,6 +30,14 @@ The extra overhead needs to be low enough that applications can still run while 
 <!-- calling this revision 6 -->
 
 ```webidl
+interface GPU {
+    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options = {});
+
+    attribute EventHandler onadapteradded;
+};
+```
+
+```webidl
 interface GPUDeviceLostInfo {
     readonly attribute DOMString message;
 };
@@ -35,6 +46,13 @@ partial interface GPUDevice {
     readonly attribute Promise<GPUDeviceLostInfo> lost;
 };
 ```
+
+The `GPU.onadapteradded` event fires when a new adapter is available.
+Handling this is optional.
+If the application was previously unable to initialize WebGPU,
+this is its chance to do so.
+If it is already running, it may choose to look through the new
+adapters to see if it wants to switch to one of them.
 
 `GPUAdapter.requestDevice` requests a device from the adapter.
 It returns a Promise which resolves when a device is ready.
@@ -57,6 +75,15 @@ class MyRenderer {
   constructor() {
     this.adapter = null;
     this.device = null;
+
+    navigator.gpu.addEventListener('adapteradded', () => {
+      // If in fallback and webgpu becomes available, switch to webgpu.
+      if (!this.adapter) {
+        begin();
+      }
+    });
+
+    begin();
   }
   async begin() {
     try {
