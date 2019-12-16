@@ -40,7 +40,7 @@ Buffers have an internal state machine that has three states:
 
 In the following a buffer's state is a shorthand for the buffer's state machine.
 Buffers created with `GPUDevice.createBuffer` start in the unmapped state.
-Buffers created with `GPUDevice.createBufferMapped` or `GPUDevice.createBufferMappedAsync` start in the mapped state.
+Buffers created with `GPUDevice.createBufferMapped` start in the mapped state.
 
 State transitions are the following:
 
@@ -100,12 +100,10 @@ A buffer can be created already mapped:
 ```webidl
 partial interface GPUDevice {
     (GPUBuffer, ArrayBuffer) createBufferMapped(GPUBufferDescriptor descriptor);
-    Promise<(GPUBuffer, ArrayBuffer)> createBufferMappedAsync(GPUBufferDescriptor descriptor);
 };
 ```
 
 `GPUDevice.createBufferMapped` returns a buffer in the mapped state along with an write mapping representing the whole range of the buffer.
-`GPUDevice.createBufferMappedAsync` returns the same values as a promise and provides more opportunities for optimization in implementations of the API.
 
 These entry points do not require the `MAP_WRITE` usage to be specified.
 The `MAP_WRITE` usage may be specified if the buffer needs to be re-mappable later on.
