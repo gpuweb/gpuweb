@@ -55,8 +55,6 @@ An app should never give up on getting WebGPU access due to
 `requestDevice` returning null or `GPUDevice.lost` resolving.
 It should only give up based on a `requestAdapter` rejection.
 (It should also give up on a `requestDevice` rejection, as that indicates an app programming error.)
-If `requestDevice` rejects, either the app has requested capabilities the adapter doesn't have,
-or the adapter has been lost and the app should `requestAdapter` again.
 
 ### Example Code
 
