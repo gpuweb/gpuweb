@@ -53,6 +53,7 @@ If the application was previously unable to initialize WebGPU,
 this is its chance to do so.
 If it is already running, it may choose to look through the new
 adapters to see if it wants to switch to one of them.
+`adapteradded` does not generally fire after device resets (TDRs).
 
 `GPUAdapter.requestDevice` requests a device from the adapter.
 It returns a Promise which resolves when a device is ready.
@@ -156,38 +157,42 @@ The tab is in the background, and one device is using a lot of resources.
       (Unless the adapter was lost, in which case they would have rejected.)
 
 A page begins loading in a tab, but then the tab is backgrounded.
- - On load, the page attempts creation of a device.
-    - `requestDevice` Promise will resolve.
-
-A device's adapter is physically unplugged from the system (but an integrated GPU is still available).
- - The same adapter, or a new adapter, is plugged back in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+ - In the background, on load, the page attempts creation of a device.
+    - `requestAdapter` Promise resolves when the tab is foregrounded.
 
 An app is running on an integrated adapter.
  - A new, discrete adapter is plugged in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - The `adapteradded` event fires. `requestAdapter` after this may return the new adapter.
 
 An app is running on a discrete adapter.
  - The adapter is physically unplugged from the system. An integrated GPU is still available.
-    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapter` gives the new adapter.
+    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapter` gives the integrated GPU.
  - The same adapter, or a new adapter, is plugged back in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - The `adapteradded` event fires. `requestAdapter` after this may return the new adapter.
 
 The device is lost because of an unexpected error in the implementation.
  - `device.lost` resolves, message = whatever the unexpected thing was.
+   (Likely, all adapters are also lost, due to gpu process restart.)
 
-A TDR-like scenario occurs.
- - The adapter is lost, which loses all devices on the adapter.
-   `device.lost` resolves on every device, message = adapter reset. Application must request adapter again.
- - (TODO: alternatively, adapter could be retained, but all devices on it are lost.)
+A TDR-like scenario occurs and the adapter can no longer be used.
+ - First:
+    - All devices on the adapter are lost, message = adapter reset.
+      The adapter is *not* yet lost, and `adapteradded` does *not* fire.
+      The application may `requestDevice` again immediately on the same adapter,
+      but it won't resolve until the adapter can be used again.
+      (`adapteradded` does not fire.)
+ - If the GPU does not recover, or the browser does not allow continued access:
+    - The adapter *is* lost. Any outstanding `requestDevice` calls against it return `null`.
+      The application can `requestAdapter`.
 
 All devices and adapters are lost (except for software?) because GPU access has been disabled by the browser (for this page or globally, e.g. due to unexpected GPU process crashes).
- - `device.lost` resolves on every device, message = whatever
+ - All adapters are lost, `device.lost` resolves on every device, message = whatever
+ - `requestAdapter` either rejects or returns a software adapter.
 
 WebGPU access has been disabled for the page.
- - `requestAdapter` rejects (or returns a software adapter).
+ - `requestAdapter` either rejects or returns a software adapter.
 
-The device is lost right as it's being returned by requestDevice.
+The device is lost right immediately after being returned by requestDevice.
  - `device.lost` resolves.
 
 ## Operation Errors and Internal Nullability
