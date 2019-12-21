@@ -17,7 +17,7 @@ There is one other use case that is closely related to error handling:
 
 Meanwhile, error handling should not make the API clunky to use,
 and it should not encourage flaky code - in particular, a single system event
-should never send multiple competing signals to the application (e.g. device.lost and
+should never send multiple competing signals to the application (e.g. requestAdapter resolve and
 onadapteradded), so the application never has to worry about deduplicating signals.
 
 ## *Debugging*: Dev Tools
