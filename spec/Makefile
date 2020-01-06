@@ -1,7 +1,7 @@
 all: index.html webgpu.idl
 
 index.html: index.bs
-	bikeshed --die-on=everything spec index.bs
+	bikeshed  spec index.bs
 
 webgpu.idl: index.bs extract-idl.py
 	python extract-idl.py index.bs > webgpu.idl

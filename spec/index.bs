@@ -827,9 +827,13 @@ Each {{GPUBuffer}} has a current <dfn dfn>buffer state</dfn> which is one of
 the following:
 
  - "<dfn dfn for="buffer state">mapped for reading</dfn>" where the {{GPUBuffer}} is
-     available for CPU operations.
+     available for CPU operations reading its content.
  - "<dfn dfn for="buffer state">mapped for writing</dfn>" where the {{GPUBuffer}} is
-     available for CPU operations.
+     available for CPU operations writing its content.
+ - "<dfn dfn for="buffer state">mapping pending for reading</dfn>" where the {{GPUBuffer}} is
+     being made available for reading its content.
+ - "<dfn dfn for="buffer state">mapping pending for writing</dfn>" where the {{GPUBuffer}} is
+     being made available for writing its content.
  - "<dfn dfn for="buffer state">unmapped</dfn>" where the {{GPUBuffer}} is
      available for GPU operations.
  - "<dfn dfn for="buffer state">destroyed</dfn>" where the {{GPUBuffer}} is
@@ -840,10 +844,11 @@ Note:
 {{GPUBuffer}} has been created.
 
 Note:
-At most one of {{GPUBuffer/[[mapping]]}} and {{GPUBuffer/[[mapping_promise]]}}
-is non-null and at least one of them is non-null if and only if the
-{{GPUBuffer/[[state]]}} is [=buffer state/mapped for reading=] or
-[=buffer state/mapped for writing=].
+{{GPUBuffer}}'s {{GPUBuffer/[[state]]}} is a state machine where the states are
+[=buffer state/unmapped=], [=buffer state/destroyed=], [=buffer state/mapped for reading=] /
+[=buffer state/mapped for writing=] along with a non-null {{GPUBuffer/[[mapping]]}}, or
+[=buffer state/mapping pending for reading=] / [=buffer state/mapping pending for writing=] along
+with a non-null {{GPUBuffer/[[mapping_promise]]}}.
 
 {{GPUBuffer}} is {{Serializable}}. It is a reference to an internal buffer
 object, and {{Serializable}} means that the reference can be *copied* between
@@ -970,8 +975,8 @@ requested asynchronously so that the user agent can ensure the GPU is finished
 using the {{GPUBuffer}} before the application gets its mapping. Mappings can
 be requested for reading with {{GPUBuffer/mapReadAsync}} or writing with
 {{GPUBuffer/mapWriteAsync}}. A mapped {{GPUBuffer}} cannot be used by the GPU
-and must be unmapped using {{GPUBuffer/unmap}} or {{GPUBuffer/destroy}} before
-it can be used by the GPU again.
+and must be unmapped using {{GPUBuffer/unmap}} before it can be used by the GPU
+again.
 
 <!-- TODO(kangz) add client-side validation that a mapped buffer can only be destroyed on the worker on which it was mapped -->
 
@@ -989,12 +994,15 @@ it can be used by the GPU again.
 
             1. Let |p| be a new {{Promise}}.
             1. Set the {{[[mapping_promise]]}} slot of |this| to |p|.
-            1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapped for reading=].
+            1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapping pending for reading=].
             1. Enqueue an operation on the [=Queue timeline=] that will execute the following:
 
                 1. Let |m| be a new {{ArrayBuffer}} of size the {{[[size]]}} of |this|.
                 1. Set the content of |m| to the content of |this|'s allocation.
-                1. Resolve |p| with |m| if it is not already rejected.
+                1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapped for reading=].
+                1. If |p| is pending:
+
+                    1. Resolve |p| with |m|.
 
             1. Return |p|.
         </div>
@@ -1014,11 +1022,14 @@ it can be used by the GPU again.
 
             1. Let |p| be a new {{Promise}}.
             1. Set the {{[[mapping_promise]]}} slot of |this| to |p|.
-            1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapped for writing=].
+            1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapping pending for writing=].
             1. Enqueue an operation on the [=Queue timeline=] that will execute the following:
 
                 1. Let |m| be a new {{ArrayBuffer}} of size the {{[[size]]}} of |this| that is filled with zeroes.
-                1. Resolve |p| with |m| if it is not already rejected.
+                1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapped for writing=].
+                1. If |p| is pending:
+
+                    1. Resolve |p| with |m|.
 
             1. Return |p|.
         </div>
@@ -1031,14 +1042,14 @@ it can be used by the GPU again.
     ::
         <div algorithm="GPUBuffer.unmap()">
 
-            1. If the {{[[state]]}} slot of |this| is not [=buffer state/mapped for reading=] or [=buffer state/mapped for writing=]:
+            1. If the {{[[state]]}} slot of |this| is [=buffer state/unmapped=] or [=buffer state/destroyed=]:
 
                 1. Record a validation error on the current scope.
                 1. Return.
 
             1. If the {{[[mapping_promise]]}} slot of |this| is not null:
 
-                1. Reject the promise in {{[[mapping_promise]]}}.
+                1. Reject {{[[mapping_promise]]}}.
                 1. Set the {{[[mapping_promise]]}} slot of |this| to null.
 
             1. If the {{[[mapping]]}} slot of |this| is not null:
