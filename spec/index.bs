@@ -181,7 +181,8 @@ Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web W
 
 ### Invalid Objects ### {#invalid-objects}
 
-An [=internal object=] object may be <dfn dfn>invalid</dfn>.
+If an object is sucessfully created, it is <dfn dfn>valid</dfn> at that moment.
+An [=internal object=] may be <dfn dfn>invalid</dfn>.
 It may become [=invalid=] during its lifetime, but it will never become valid again.
 
 <div class=note>
@@ -1427,7 +1428,6 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
     : <dfn>\[[bindings]]</dfn> of type sequence<{{GPUBindGroupLayoutBinding}}>.
     ::
         The set of {{GPUBindGroupLayoutBinding}}s this {{GPUBindGroupLayout}} describes.
-
 </dl>
 
 ### {{GPUDevice/createBindGroupLayout()|GPUDevice.createBindGroupLayout(GPUBindGroupLayoutDescriptor)}} ### {#GPUDevice-createBindGroupLayout}
@@ -1501,6 +1501,9 @@ If any of the following conditions are violated:
 
 ## GPUBindGroup ## {#bind-groups}
 
+A {{GPUBindGroup}} defines a set of resources to be bound together in a group
+    and how the resources are used in shader stages.
+
 <script type=idl>
 interface GPUBindGroup {
 };
@@ -1509,12 +1512,16 @@ GPUBindGroup includes GPUObjectBase;
 
 ### Bind Group Creation ### {#bind-group-creation}
 
+A {{GPUBindGroup}} is created via {{GPUDevice/createBindGroup()|GPUDevice.createBindGroup()}}.
+
 <script type=idl>
 dictionary GPUBindGroupDescriptor : GPUObjectDescriptorBase {
     required GPUBindGroupLayout layout;
     required sequence<GPUBindGroupBinding> bindings;
 };
 </script>
+
+A {{GPUBindGroupBinding}} describes a single resource to be bound in a {{GPUBindGroup}}.
 
 <script type=idl>
 typedef (GPUSampler or GPUTextureView or GPUBufferBinding) GPUBindingResource;
@@ -1533,7 +1540,99 @@ dictionary GPUBufferBinding {
 };
 </script>
 
-  * {{GPUBufferBinding/size}}: If undefined, specifies the range starting at {{GPUBufferBinding/offset}} and ending at the end of the buffer.
+  * {{GPUBufferBinding/size}}: If undefined, specifies the range starting at
+      {{GPUBufferBinding/offset}} and ending at the end of the buffer.
+
+A {{GPUBindGroup}} object has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUBindGroup">
+    : <dfn>\[[layout]]</dfn> of type {{GPUBindGroupLayout}}.
+    ::
+        The {{GPUBindGroupLayout}} associated with this {{GPUBindGroup}}.
+
+    : <dfn>\[[bindings]]</dfn> of type sequence<{{GPUBindGroupBinding}}>.
+    ::
+        The set of {{GPUBindGroupBinding}}s this {{GPUBindGroup}} describes.
+</dl>
+
+### {{GPUDevice/createBindGroup()|GPUDevice.createBindGroup(GPUBindGroupDescriptor)}} ### {#GPUDevice-createBindGroup}
+
+<div algorithm="GPUDevice.createBindGroup(descriptor)">
+
+The <dfn method for="GPUDevice">createBindGroup(|descriptor|)</dfn> method is used to create
+    {{GPUBindGroup}}s.
+
+1. Ensure [=bind group device validation=] is not violated.
+1. Ensure |descriptor|.{{GPUBindGroupDescriptor/layout}} is a [=valid=] {{GPUBindGroupLayout}}.
+1. Ensure the number of {{GPUBindGroupLayoutDescriptor/bindings}} of
+    |descriptor|.{{GPUBindGroupDescriptor/layout}} exactly equals to the number of
+    |descriptor|.{{GPUBindGroupDescriptor/bindings}}.
+1. For each {{GPUBindGroupBinding}} |bindingDescriptor| in
+    |descriptor|.{{GPUBindGroupDescriptor/bindings}}:
+    1. Ensure there is exactly one {{GPUBindGroupLayoutBinding}} |layoutBinding| in
+        {{GPUBindGroupLayoutDescriptor/bindings}} of |descriptor|.{{GPUBindGroupDescriptor/layout}}
+        such that |layoutBinding|.{{GPUBindGroupLayoutBinding/binding}} equals to
+        |bindingDescriptor|.{{GPUBindGroupBinding/binding}}.
+    1. If |layoutBinding|.{{GPUBindGroupLayoutBinding/type}} is
+        {{GPUBindingType/"sampler"}}:
+        1. Ensure |bindingDescriptor|.{{GPUBindGroupBinding/resource}} is a
+            valid {{GPUSampler}} object.
+    1. If |layoutBinding|.{{GPUBindGroupLayoutBinding/type}} is
+        {{GPUBindingType/"sampled-texture"}} or {{GPUBindingType/"storage-texture"}}.
+        1. Ensure |bindingDescriptor|.{{GPUBindGroupBinding/resource}} is a
+            valid {{GPUTextureView}} object.
+        1. Ensure [=texture view binding validation=] is not violated.
+    1. If |layoutBinding|.{{GPUBindGroupLayoutBinding/type}} is
+        {{GPUBindingType/"uniform-buffer"}} or {{GPUBindingType/"storage-buffer"}}
+        or {{GPUBindingType/"readonly-storage-buffer"}}.
+        1. Ensure |bindingDescriptor|.{{GPUBindGroupBinding/resource}} is a
+            valid {{GPUBufferBinding}} object.
+        1. Ensure [=buffer binding validation=] is not violated.
+1. Return a new {{GPUBindGroup}} object with:
+    - {{GPUBindGroup/[[layout]]}} = |descriptor|.{{GPUBindGroupDescriptor/layout}}
+    - {{GPUBindGroup/[[bindings]]}} = |descriptor|.{{GPUBindGroupDescriptor/bindings}}
+
+<b>Validation Conditions</b>
+
+<dl dfn-for="createBindGroup(descriptor)">
+If any of the following conditions are violated:
+    1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
+    1. Create a new [=invalid=] {{GPUBindGroup}} and return the result.
+
+<dfn>bind group device validation</dfn>: The {{GPUDevice}} must not be lost.
+
+<dfn>texture view binding validation</dfn>: Let |view| be
+    |bindingDescriptor|.{{GPUBindGroupBinding/resource}}, a {{GPUTextureView}}.
+    This |layoutBinding| must be compatible with this |view|. This requires:
+    1. Its |layoutBinding|.{{GPUBindGroupLayoutBinding/textureDimension}} must equal |view|'s
+        {{GPUTextureViewDescriptor/dimension}}.
+    1. Its |layoutBinding|.{{GPUBindGroupLayoutBinding/textureComponentType}} must be compatible
+        with |view|'s {{GPUTextureViewDescriptor/format}}.
+    1. If |layoutBinding|.{{GPUBindGroupLayoutBinding/multisampled}} is `true`, |view|'s texture's
+        {{GPUTextureDescriptor/sampleCount}} must be greater than 1.
+        Otherwise, if |bindingDescriptor|.{{GPUBindGroupLayoutBinding/multisampled}} is `false`,
+        |view|'s texture's {{GPUTextureDescriptor/sampleCount}} must be 1.
+    1. If |layoutBinding|.{{GPUBindGroupLayoutBinding/type}} is
+        {{GPUBindingType/"sampled-texture"}}, |view|'s texture's {{GPUTextureDescriptor/usage}}
+        must include {{GPUTextureUsage/SAMPLED}}.
+    1. If |layoutBinding|.{{GPUBindGroupLayoutBinding/type}} is
+        {{GPUBindingType/"storage-texture"}}, |view|'s texture's {{GPUTextureDescriptor/usage}}
+        must include {{GPUTextureUsage/STORAGE}}.
+
+<dfn>buffer binding validation</dfn>: Let |bufferBinding| be
+    |bindingDescriptor|.{{GPUBindGroupBinding/resource}}, a {{GPUBufferBinding}}.
+    This |layoutBinding| must be compatible with this |bufferBinding|. This requires:
+    1. If |layoutBinding|.{{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/"uniform-buffer"}},
+        the |bufferBinding|.{{GPUBufferBinding/buffer}}'s {{GPUBufferDescriptor/usage}} must include
+        {{GPUBufferUsage/UNIFORM}}.
+    1. If |layoutBinding|.{{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/"storage-buffer"}}
+        or {{GPUBindingType/"readonly-storage-buffer"}}, the
+        |bufferBinding|.{{GPUBufferBinding/buffer}}'s {{GPUBufferDescriptor/usage}} must include
+        {{GPUBufferUsage/STORAGE}}.
+    1. The bound part designated by |bufferBinding|.{{GPUBufferBinding/offset}} and
+        |bufferBinding|.{{GPUBufferBinding/size}} must reside inside the buffer.
+</dl>
+</div>
 
 ## GPUPipelineLayout ## {#pipeline-layout}
 
