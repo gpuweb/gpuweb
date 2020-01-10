@@ -782,8 +782,11 @@ its mapping.
 
 {{GPUBuffer|GPUBuffers}} can be created via the following functions:
 
- - {{GPUDevice/createBuffer(descriptor)|GPUDevice.createBuffer(descriptor)}} that returns a new unmapped buffer.
- - {{GPUDevice/createBufferMapped(descriptor)|GPUDevice.createBufferMapped(descriptor)}} that returns a mapped buffer and its mapping.
+ - {{GPUDevice/createBuffer(descriptor)|GPUDevice.createBuffer(descriptor)}}
+     that returns a new buffer in the [=buffer state/unmapped=] state.
+ - {{GPUDevice/createBufferMapped(descriptor)|GPUDevice.createBufferMapped(descriptor)}}
+     that returns a new buffer in the [=buffer state/mapped for writing=] state and its
+     mapping.
 
 <script type=idl>
 [Serializable]
@@ -811,16 +814,42 @@ GPUBuffer includes GPUObjectBase;
     : <dfn>\[[state]]</dfn> of type [=buffer state=].
     ::
         The current state of the {{GPUBuffer}}.
+
+    : <dfn>\[[mapping]]</dfn> of type {{ArrayBuffer}} or {{Promise}} or `null`.
+    ::
+        The mapping for this {{GPUBuffer}}.
 </dl>
 
-Each {{GPUBuffer}} has a current <dfn dfn>buffer state</dfn> which is one of the following:
+Each {{GPUBuffer}} has a current <dfn dfn>buffer state</dfn> on the [=Content timeline=]
+which is one of the following:
 
- - "<dfn dfn for="buffer state">mapped</dfn>" where the {{GPUBuffer}} is available for CPU operations.
- - "<dfn dfn for="buffer state">unmapped</dfn>" where the {{GPUBuffer}} is available for GPU operations.
- - "<dfn dfn for="buffer state">destroyed</dfn>" where the {{GPUBuffer}} is no longer available for any operations except {{GPUBuffer/destroy}}.
+ - "<dfn dfn for="buffer state">mapped for reading</dfn>" where the {{GPUBuffer}} is
+     available for CPU operations reading its content.
+ - "<dfn dfn for="buffer state">mapped for writing</dfn>" where the {{GPUBuffer}} is
+     available for CPU operations writing its content.
+ - "<dfn dfn for="buffer state">mapping pending for reading</dfn>" where the {{GPUBuffer}} is
+     being made available for reading its content.
+ - "<dfn dfn for="buffer state">mapping pending for writing</dfn>" where the {{GPUBuffer}} is
+     being made available for writing its content.
+ - "<dfn dfn for="buffer state">unmapped</dfn>" where the {{GPUBuffer}} is
+     available for GPU operations.
+ - "<dfn dfn for="buffer state">destroyed</dfn>" where the {{GPUBuffer}} is
+     no longer available for any operations except {{GPUBuffer/destroy}}.
 
 Note:
-{{GPUBuffer/[[size]]}} and {{GPUBuffer/[[usage]]}} are immutable once the {{GPUBuffer}} has been created.
+{{GPUBuffer/[[size]]}} and {{GPUBuffer/[[usage]]}} are immutable once the
+{{GPUBuffer}} has been created.
+
+<div class=note>
+    {{GPUBuffer}} has a state machine where the states are:
+
+     - [=buffer state/unmapped=] and [=buffer state/destroyed=] with a `null`
+        {{GPUBuffer/[[mapping]]}}
+     - [=buffer state/mapped for reading=] and [=buffer state/mapped for writing=]
+        with an {{ArrayBuffer}} typed {{GPUBuffer/[[mapping]]}}.
+     - [=buffer state/mapping pending for reading=] and [=buffer state/mapping pending for writing=]
+        with an {{Promise}} typed {{GPUBuffer/[[mapping]]}}.
+</div>
 
 {{GPUBuffer}} is {{Serializable}}. It is a reference to an internal buffer
 object, and {{Serializable}} means that the reference can be *copied* between
@@ -870,8 +899,32 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
             1. Set the {{GPUBuffer/[[size]]}} slot of |b| to the value of the {{GPUBufferDescriptor/size}} attribute of |descriptor|.
             1. Set the {{GPUBuffer/[[usage]]}} slot of |b| to the value of the {{GPUBufferDescriptor/usage}} attribute of |descriptor|.
             1. Set the {{GPUBuffer/[[state]]}} internal slot of |b| to [=buffer state/unmapped=].
+            1. Set the {{GPUBuffer/[[mapping]]}} internal slot of |b| to `null`.
             1. Set each byte of |b|'s allocation to zero.
             1. Return |b|.
+        </div>
+</dl>
+
+### {{GPUDevice/createBufferMapped(descriptor)|GPUDevice.createBufferMapped(descriptor)}} ### {#GPUDevice-createBufferMapped}
+
+<dl dfn-type="method" dfn-for="GPUDevice">
+    : <dfn>createBufferMapped(descriptor)</dfn>
+    ::
+        <div algorithm="GPUDevice.createBufferMapped(descriptor)">
+            1. If the result of [$validating GPUBufferDescriptor$](this, descriptor) is false:
+
+                1. Record a validation error in the current scope.
+                <!-- TODO(kangz): Once we have a description of the error monad, explain what the error buffer is. -->
+                1. Create an invalid {{GPUBuffer}} and return the result.
+
+            1. Let |b| be a new {{GPUBuffer}} object.
+            1. Let |m| be a zero-filled {{ArrayBuffer}} of size the {{GPUBuffer/[[size]]}} slot of |b|.
+            1. Set the {{GPUBuffer/[[size]]}} slot of |b| to the value of the {{GPUBufferDescriptor/size}} attribute of |descriptor|.
+            1. Set the {{GPUBuffer/[[usage]]}} slot of |b| to the value of the {{GPUBufferDescriptor/usage}} attribute of |descriptor|.
+            1. Set the {{GPUBuffer/[[state]]}} internal slot of |b| to [=buffer state/mapped for writing=].
+            1. Set the {{GPUBuffer/[[mapping]]}} internal slot of |b| to |m|.
+            1. Set each byte of |b|'s allocation to zero.
+            1. Return a sequence containing |b| and |m| in that order.
         </div>
 </dl>
 
@@ -881,14 +934,14 @@ An application that no longer requires a {{GPUBuffer}} can choose to lose
 access to it before garbage collection by calling {{GPUBuffer/destroy()}}.
 
 Note: This allows the user agent to reclaim the GPU memory associated with the {{GPUBuffer}}
- once all previously submitted operations using it are complete.
+once all previously submitted operations using it are complete.
 
 <dl dfn-type="method" dfn-for="GPUBuffer">
     : <dfn>destroy()</dfn>
     ::
         <div algorithm="GPUBuffer.destroy()">
             <!-- TODO(kangz) handle error buffers once we have a description of the error monad -->
-            1. If the {{[[state]]}} slot of |this| is [=buffer state/mapped=]
+            1. If the {{[[state]]}} slot of |this| is [=buffer state/mapped for reading=] or [=buffer state/mapped for writing=]:
 
                 1. Run the steps to unmap `"this"`
 
@@ -914,6 +967,113 @@ interface GPUBufferUsage {
 </script>
 
 ## Buffer Mapping ## {#buffer-mapping}
+
+An application can request to map a {{GPUBuffer}} to get its mapping which is
+an {{ArrayBuffer}} representing the {{GPUBuffer}}'s allocation. Mappings are
+requested asynchronously so that the user agent can ensure the GPU finished
+using the {{GPUBuffer}} before the application gets its mapping. Mappings can
+be requested for reading with {{GPUBuffer/mapReadAsync}} or writing with
+{{GPUBuffer/mapWriteAsync}}. A mapped {{GPUBuffer}} cannot be used by the GPU
+and must be unmapped using {{GPUBuffer/unmap}} before it can be used on the
+[=Queue timeline=].
+
+Issue: Add client-side validation that a mapped buffer can only be unmapped and destroyed on the worker on which it was mapped.
+
+### {{GPUBuffer/mapReadAsync|GPUDevice.mapReadAsync}} ### {#GPUBuffer-mapReadAsync}
+
+<dl dfn-type="method" dfn-for="GPUBuffer">
+    : <dfn>mapReadAsync()</dfn>
+    ::
+        <div algorithm="GPUBuffer.mapReadAsync()">
+
+            Issue: Handle error buffers once we have a description of the error monad.
+
+            1. If the {{[[usage]]}} slot of |this| doesn't contain the {{GPUBufferUsage/MAP_READ}} bit or
+                if {{[[state]]}} isn't [=buffer state/unmapped=]:
+
+                1. Record a validation error on the current scope.
+                1. Return [=a promise rejected with=] an {{AbortError}}.
+
+                Issue: Specify that the rejection happens on the device timeline.
+
+            1. Let |p| be a new {{Promise}}.
+            1. Set the {{[[mapping]]}} slot of |this| to |p|.
+            1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapping pending for reading=].
+            1. Enqueue an operation on the [=Queue timeline=] that will execute the following:
+
+                1. Let |m| be a new {{ArrayBuffer}} of size the {{[[size]]}} of |this|.
+                1. Set the content of |m| to the content of |this|'s allocation.
+                1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapped for reading=].
+                1. If |p| is pending:
+
+                    1. Resolve |p| with |m|.
+
+            1. Return |p|.
+        </div>
+</dl>
+
+### {{GPUBuffer/mapWriteAsync|GPUDevice.mapWriteAsync}} ### {#GPUBuffer-mapWriteAsync}
+
+<dl dfn-type="method" dfn-for="GPUBuffer">
+    : <dfn>mapWriteAsync()</dfn>
+    ::
+        <div algorithm="GPUBuffer.mapWriteAsync()">
+
+            Issue: Handle error buffers once we have a description of the error monad.
+
+            1. If the {{[[usage]]}} slot of |this| doesn't contain the {{GPUBufferUsage/MAP_WRITE}} bit or
+                if {{[[state]]}} isn't [=buffer state/unmapped=]:
+
+                1. Record a validation error on the current scope.
+                1. Return [=a promise rejected with=] an {{AbortError}}.
+
+                Issue: Specify that the rejection happens on the device timeline.
+
+            1. Let |p| be a new {{Promise}}.
+            1. Set the {{[[mapping]]}} slot of |this| to |p|.
+            1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapping pending for writing=].
+            1. Enqueue an operation on the [=Queue timeline=] that will execute the following:
+
+                1. Let |m| be a new {{ArrayBuffer}} of size the {{[[size]]}} of |this| that is filled with zeroes.
+                1. Set the {{[[state]]}} slot of |this| to [=buffer state/mapped for writing=].
+                1. If |p| is pending:
+
+                    1. Resolve |p| with |m|.
+
+            1. Return |p|.
+        </div>
+</dl>
+
+### {{GPUBuffer/unmap|GPUBuffer.unmap()}} ### {#GPUBuffer-unmap}
+
+<dl dfn-type="method" dfn-for="GPUBuffer">
+    : <dfn>unmap()</dfn>
+    ::
+        <div algorithm="GPUBuffer.unmap()">
+
+            1. If the {{[[state]]}} slot of |this| is [=buffer state/unmapped=] or [=buffer state/destroyed=]:
+
+                1. Record a validation error on the current scope.
+                1. Return.
+
+            1. If the {{[[mapping]]}} slot of |this| is a {{Promise}}:
+
+                1. [=Reject=] {{[[mapping]]}} with an {{AbortError}}.
+                1. Set the {{[[mapping]]}} slot of |this| to null.
+
+            1. If the {{[[mapping]]}} slot of |this| is an {{ArrayBuffer}}:
+
+                1. If the {{[[state]]}} slot of this is [=buffer state/mapped for writing=]:
+
+                    1. Enqueue an operation on the [=Queue timeline=] that updates |this|'s allocation to the content of the {{ArrayBuffer}} in the {{[[mapping]]}} slot of |this|.
+
+                1. Detach |this|.{{[[mapping]]}} from its content.
+                1. Set the {{[[mapping]]}} slot of |this| to null.
+
+            1. Set the {{[[state]]}} slot of |this| to [=buffer state/unmapped=].
+
+        </div>
+</dl>
 
 Textures {#textures}
 ====================
