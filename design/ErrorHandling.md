@@ -22,7 +22,7 @@ Meanwhile, error handling should not make the API clunky to use.
 Implementations should provide a way to enable synchronous validation, for example via a "break on WebGPU error" option in the developer tools.
 The extra overhead needs to be low enough that applications can still run while being debugged.
 
-## *Fatal Errors*: requestDevice and device.lost
+## *Fatal Errors*: requestAdapters, requestDevice, and device.lost
 
 <!-- calling this revision 6 -->
 
@@ -96,8 +96,9 @@ class MyRenderer {
   async ensureAdapter() {
     if (!this.adapter) {
       // If no adapter, get one.
-      // (If requestAdapter rejects, no matching adapter is available. Exit to fallback.)
-      this.adapter = await gpu.requestAdapter({ /* options */ });
+      // (If requestAdapters rejects, no matching adapter is available. Exit to fallback.)
+      const adapters = await navigator.gpu.requestAdapters({ /* options */ });
+      this.adapter = adapters[0]; // (Or, manually search through the returned adapters.)
     }
   }
   async ensureDeviceOnCurrentAdapter() {
@@ -134,17 +135,21 @@ A page begins loading in a tab, but then the tab is backgrounded.
 
 A device's adapter is physically unplugged from the system (but an integrated GPU is still available).
  - The same adapter, or a new adapter, is plugged back in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapters` call may return the new adapter.
+      (In the future, it might fire a "gpuadapterschanged" event.)
 
 An app is running on an integrated adapter.
  - A new, discrete adapter is plugged in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapters` call may return the new adapter.
+      (In the future, it might fire a "gpuadapterschanged" event.)
 
 An app is running on a discrete adapter.
  - The adapter is physically unplugged from the system. An integrated GPU is still available.
-    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapter` gives the new adapter.
+    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapters`
+      returns a new list excluding the discrete GPU, and including the integrated GPU.
  - The same adapter, or a new adapter, is plugged back in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapters` call may return the new adapter.
+      (In the future, it might fire a "gpuadapterschanged" event.)
 
 The device is lost because of an unexpected error in the implementation.
  - `device.lost` resolves, message = whatever the unexpected thing was.
@@ -158,7 +163,7 @@ All devices and adapters are lost (except for software?) because GPU access has 
  - `device.lost` resolves on every device, message = whatever
 
 WebGPU access has been disabled for the page.
- - `requestAdapter` rejects (or returns a software adapter).
+ - `requestAdapters` rejects (or returns a software adapter).
 
 The device is lost right as it's being returned by requestDevice.
  - `device.lost` resolves.
@@ -184,7 +189,7 @@ If an error is not captured, it may fire the Device's "unhandlederror" event (be
 
 Creation of the adapter and device.
 
-  - `gpu.requestAdapter`
+  - `gpu.requestAdapters`
   - `GPUAdapter.requestDevice`
 
 Handled by "Fatal Errors" above.
