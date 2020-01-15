@@ -2157,11 +2157,155 @@ This combination state is created as a single object
 and switched as one
 (by {{GPUComputePassEncoder/setPipeline(pipeline)|GPUComputePassEncoder.setPipeline}} or {{GPURenderEncoderBase/setPipeline(pipeline)|GPURenderEncoderBase.setPipeline}} correspondingly).
 
+## Base pipelines # {#pipeline-base}
+
 <script type=idl>
 dictionary GPUPipelineDescriptorBase : GPUObjectDescriptorBase {
-    required GPUPipelineLayout layout;
+    GPUPipelineLayout layout;
+};
+
+interface mixin GPUPipelineBase {
+    GPUBindGroupLayout getBindGroupLayout(unsigned long index);
 };
 </script>
+
+{{GPUPipelineBase}} has the following internal slots:
+<dl dfn-type=attribute dfn-for="GPUPipelineBase">
+    : <dfn>\[[layout]]</dfn> of type `GPUPipelineLayout`.
+    ::
+        The definition of the layout of resources which can be used with `this`.
+</dl>
+
+### <dfn method for=GPUPipelineBase>getBindGroupLayout(index)</dfn> ### {#pipelinebase-getBindGroupLayout}
+
+<div algorithm="GPUPipelineBase.getBindGroupLayout">
+    **Arguments:**
+
+        - {{unsigned long}} |index|
+
+    **Returns:** {{GPUBindGroupLayout}}
+
+    1. If |index| is greater or equal to {{GPULimits/maxBindGroups}}:
+
+        1. Throw a {{RangeError}}.
+
+    1. If |this| is not [=valid=]:
+
+        1. Return a new error {{GPUBindGroupLayout}}.
+
+    1. Return a new {{GPUBindGroupLayout}} object that references the same internal object as
+        |this|.{{GPUPipelineBase/[[layout]]}}.{{GPUPipelineLayout/[[bindGroupLayouts]]}}[|index|].
+
+    Note: Only returning new {{GPUBindGroupLayout}} objects ensures no synchronization is necessary
+        between the [=Content timeline=] and the [=Device timeline=].
+
+</div>
+
+### Default pipeline layout ### {#default-pipeline-layout}
+
+A {{GPUPipelineBase}} object that was created without a {{GPUPipelineDescriptorBase/layout}}
+has a default layout created and used instead.
+
+<div algorithm="default pipeline layout creation">
+
+    1. Let |groupDescs| be a sequence of |device|.{{device/[[limits]]}}.{{GPULimits/maxBindGroups}}
+        new {{GPUBindGroupLayoutDescriptor}} objects.
+    1. For each |groupDesc| in |groupDescs|:
+
+        1. Set |groupDesc|.{{GPUBindGroupLayoutDescriptor/entries}} to an empty sequence.
+
+    1. For each {{GPUProgrammableStageDescriptor}} |stageDesc| in the descriptor used to create the pipeline:
+
+        1. Let |stageInfo| be the "reflection information" for |stageDesc|.
+
+            Issue: Define the reflection information concept so that this spec can interface with the WGSL
+                spec and get information what the interface is for a {{GPUShaderModule}} for a specific
+                entrypoint.
+
+        1. Let |shaderStage| be the {{GPUShaderStageFlags}} for |stageDesc|.{{GPUProgrammableStageDescriptor/entryPoint}}
+            in |stageDesc|.{{GPUProgrammableStageDescriptor/module}}.
+        1. For each resource |resource| in |stageInfo|'s resource interface:
+
+            1. Let |group| be |resource|'s "group" decoration.
+            1. Let |binding| be |resource|'s "binding" decoration.
+            1. Let |entry| be a new {{GPUBindGroupLayoutEntry}}.
+            1. Set |entry|.{{GPUBindGroupLayoutEntry/binding}} to |binding|.
+            1. Set |entry|.{{GPUBindGroupLayoutEntry/visibility}} to |shaderStage|.
+            1. If |resource| is for a sampler binding:
+
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/type}} to
+                        {{GPUBindingType/sampler}}.
+
+            1. If |resource| is for a comparison sampler binding:
+
+                1. Set |entry|.{{GPUBindGroupLayoutEntry/type}} to {{GPUBindingType/comparison-sampler}}.
+
+            1. If |resource| is for a buffer binding:
+
+                1. Set |entry|.{{GPUBindGroupLayoutEntry/hasDynamicOffset}} to false.
+
+                1. If |resource| is for a uniform buffer:
+
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/type}} to {{GPUBindingType/uniform-buffer}}.
+
+                1. If |resource| is for a read-only storage buffer:
+
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/type}} to {{GPUBindingType/readonly-storage-buffer}}.
+
+                1. If |resource| is for a storage buffer:
+
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/type}} to {{GPUBindingType/storage-buffer}}.
+
+            1. If |resource| is for a texture binding:
+
+                1. Set |entry|.{{GPUBindGroupLayoutEntry/textureComponentType}} to |resource|'s component type.
+                1. Set |entry|.{{GPUBindGroupLayoutEntry/viewDimension}} to |resource|'s dimension.
+                1. If |resource| is multisampled:
+
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/multisampled}} to true.
+
+                1. If |resource| is for a sampled texture:
+
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/type}} to {{GPUBindingType/sampled-texture}}.
+
+                1. If |resource| is for a read-only storage texture:
+
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/type}} to {{GPUBindingType/readonly-storage-texture}}.
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}} to |resource|'s format.
+
+                1. If |resource| is for a write-only storage texture:
+
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/type}} to {{GPUBindingType/writeonly-storage-texture}}.
+                    1. Set |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}} to |resource|'s format.
+
+            1. If |groupDescs|[|group|] has an entry |previousEntry| with {{GPUBindGroupLayoutEntry/binding}} equal to |binding|:
+
+                1. If |previousEntry| is equal to |entry| up to {{GPUBindGroupLayoutEntry/visibility}}:
+
+                    1. Add the bits set in |entry|.{{GPUBindGroupLayoutEntry/visibility}} into |previousEntry|.{{GPUBindGroupLayoutEntry/visibility}}
+
+                1. Else
+
+                    1. Return null (which will cause the creation of the pipeline to fail).
+
+            1. Else
+
+                1. Append |entry| to |groupDescs|[|group|].
+
+    1. Let |groupLayouts| be a new sequence.
+    1. For each |groupDesc| in |groupDescs|:
+
+        1. Append |device|.{{GPUDevice/createBindGroupLayout()}}(|groupDesc|) to |groupLayouts|.
+
+    1. Let |desc| be a new {{GPUPipelineLayoutDescriptor}}.
+    1. Set |desc|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}} to |groupLayouts|.
+    1. Return |device|.{{GPUDevice/createPipelineLayout()}}(|desc|).
+
+    Issue: This fills the pipeline layout with empty bindgroups. Revisit once the behavior of empty bindgroups is specified.
+
+</div>
+
+### GPUProgrammableStageDescriptor ### {#GPUProgrammableStageDescriptor}
 
 <script type=idl>
 dictionary GPUProgrammableStageDescriptor {
@@ -2246,6 +2390,7 @@ Stages of a compute [=pipeline=]:
 interface GPUComputePipeline {
 };
 GPUComputePipeline includes GPUObjectBase;
+GPUComputePipeline includes GPUPipelineBase;
 </script>
 
 ### Creation ### {#compute-pipeline-creation}
@@ -2310,6 +2455,7 @@ Issue: we need a deeper description of these stages
 interface GPURenderPipeline {
 };
 GPURenderPipeline includes GPUObjectBase;
+GPURenderPipeline includes GPUPipelineBase;
 </script>
 
 ### Creation ### {#render-pipeline-creation}
