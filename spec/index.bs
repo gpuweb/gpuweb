@@ -27,6 +27,12 @@ spec: webidl; urlPrefix: https://heycam.github.io/webidl/#
         text: resolve; url: resolve
 </pre>
 
+<style>
+.validusage {
+    border-color: #88e !important;
+}
+</style>
+
 
 Introduction {#intro}
 =====================
@@ -143,9 +149,9 @@ application doesn't cause GPU unresponsiveness for more than a few seconds.
 These measures are similar to those used in WebGL.
 
 ## Fingerprinting ## {#security-fingerprint}
-WebGPU defines the lowest allowed limits and capabilities of any {{GPUAdapter}}.
+WebGPU defines the required limits and capabilities of any {{GPUAdapter}}.
 and encourages applications to target these standard limits. The actual result from
-{{GPU/requestAdapter()}} may have higher limits, and could be subject to finger printing.
+{{GPU/requestAdapter()}} may have [=better=] limits, and could be subject to fingerprinting.
 
 
 Terminology &amp; Conventions {#terminology-and-conventions}
@@ -269,7 +275,8 @@ has components working on different timelines in parallel:
 
 : <dfn dfn>Device timeline</dfn>
 :: Associated with the GPU device operations
-    that are issued by the user agent. It includes creation of GPU resources
+    that are issued by the user agent.
+    It includes creation of adapters, devicies, and GPU resources
     and state objects, which are typically synchronous operations from the point
     of view of the user agent part that controls the GPU,
     but can live in a separate OS process.
@@ -430,6 +437,20 @@ Applications can hold onto multiple [=adapters=] at once (via {{GPUAdapter}})
 and two of these could refer to different instances of the same physical
 configuration (e.g. if the GPU was reset or disconnected and reconnected).
 
+An [=adapter=] has the following internal slots:
+
+<dl dfn-type=attribute dfn-for=adapter>
+    : <dfn>\[[extensions]]</dfn>, of type sequence<{{GPUExtensionName}}>, readonly
+    ::
+        The extensions which can be used to create devices on this adapter.
+
+    : <dfn>\[[limits]]</dfn>, of type {{GPULimits}}, readonly
+    ::
+        The [=better|best=] limits which can be used to create devices on this adapter.
+
+        Each adapter limit must be the same or [=better=] than its default value in {{GPULimits}}.
+</dl>
+
 [=Adapters=] are exposed via {{GPUAdapter}}.
 
 ## Devices ## {#devices}
@@ -451,12 +472,28 @@ A [=device=] has the following internal slots:
     : <dfn>\[[adapter]]</dfn>, of type [=adapter=], readonly
     ::
         The [=adapter=] from which this device was created.
+
+    : <dfn>\[[extensions]]</dfn>, of type sequence<{{GPUExtensionName}}>, readonly
+    ::
+        The extensions which can be used on this device.
+        No additional extensions can be used, even if the underlying [=adapter=] can support them.
+
+    : <dfn>\[[limits]]</dfn>, of type {{GPULimits}}, readonly
+    ::
+        The limits which can be used on this device.
+        No [=better=] limits can be used, even if the underlying [=adapter=] can support them.
 </dl>
 
-When a [=device=] is created, it has exactly the capabilities requested
-in {{GPUAdapter/requestDevice()}}.
-These capabilities are enforced upon the usage of objects on the [=device=],
-even if the underlying [=adapter=] can support higher capabilities.
+<div algorithm>
+    When <dfn dfn>a new device</dfn> |device| is created from [=adapter=] |adapter|
+    with {{GPUDeviceDescriptor}} |descriptor|:
+
+      - Set |device|.{{device/[[adapter]]}} to |adapter|.
+
+      - Set |device|.{{device/[[extensions]]}} to |descriptor|.{{GPUDeviceDescriptor/extensions}}.
+
+      - Set |device|.{{device/[[limits]]}} to |descriptor|.{{GPUDeviceDescriptor/limits}}.
+</div>
 
 [=Devices=] are exposed via {{GPUDevice}}.
 
@@ -516,14 +553,19 @@ interface GPU {
     chooses according to the provided |options|.
 
     Returns [=a new promise=], |promise|.
+    On the [=Device timeline=], the following steps occur:
 
-      - If the user agent chooses to return an adapter,
-        |promise| [=resolves=] with a new {{GPUAdapter}} encapsulating
-        a new [=adapter=].
+      - If the user agent chooses to return an adapter:
+
+          - The user agent chooses an [=adapter=] |adapter| according to the rules in
+            [[#adapter-selection]].
+
+          - |promise| [=resolves=] with a new {{GPUAdapter}} encapsulating |adapter|.
+
       - Otherwise, |promise| [=rejects=] with an {{OperationError}}.
-
-    Issue: Figure out how to integrate the options.
 </div>
+
+#### Adapter Selection #### {#adapter-selection}
 
 <dfn dictionary>GPURequestAdapterOptions</dfn>
 provides hints to the user agent indicating what
@@ -624,7 +666,7 @@ interface GPUAdapter {
 
         : <dfn>extensions</dfn>
         ::
-            A sequence containing the {{GPUExtensionName}}s of the extensions supported by the adapter.
+            Accessor for `this`.{{GPUAdapter/[[adapter]]}}.{{adapter/[[extensions]]}}.
     </dl>
 
   - These internal slots:
@@ -643,35 +685,89 @@ interface GPUAdapter {
     **Arguments:**
         - optional {{GPUDeviceDescriptor}} |descriptor| = {}
 
-    **Returns:** |promise|, of type Promise<{{GPUDevice}}>
+    **Returns:** |promise|, of type Promise<{{GPUDevice}}>.
 
     Requests a [=device=] from the [=adapter=].
 
     Returns [=a new promise=], |promise|.
+    On the [=Device timeline=], the following steps occur:
 
-      - If the following requirements are met, |promise| [=resolves=] to a new
-        {{GPUDevice}} object encapsulating a new [=device=], which MUST
-        have exactly the capabilities described by |descriptor|.
+      - If the user agent can fulfill the request and
+        the [$requestDevice Valid Usage|valid usage$] rules are met:
 
-        Issue: Figure out how to integrate the requirements.
+          - |promise| [=resolves=] to a new {{GPUDevice}} object encapsulating
+            [=a new device=] with the capabilities described by |descriptor|.
 
       - Otherwise, |promise| [=rejects=] with an {{OperationError}}.
 </div>
+
+<div algorithm class=validusage>
+    <dfn abstract-op>requestDevice Valid Usage</dfn>
+
+    Given an [=adapter=] |adapter| and a {{GPUDeviceDescriptor}} |descriptor|,
+    the following validation rules apply:
+
+      - The set of {{GPUExtensionName}} values in
+        |descriptor|.{{GPUDeviceDescriptor/extensions}}
+        must be a subset of those in |adapter|.{{adapter/[[extensions]]}}.
+
+      - For each type of limit in {{GPULimits}}, the value of that limit in
+        |descriptor|.{{GPUDeviceDescriptor/limits}}
+        must be no [=better=] than the value of that limit in
+        |adapter|.{{adapter/[[limits]]}}.
+</div>
+
+#### <dfn dictionary>GPUDeviceDescriptor</dfn> #### {#gpudevicedescriptor}
+
+{{GPUDeviceDescriptor}} describes a device request.
 
 <script type=idl>
 dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
     sequence<GPUExtensionName> extensions = [];
     GPULimits limits = {};
-
-    // TODO: are other things configurable like queues?
 };
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPUDeviceDescriptor>
+    : <dfn>extensions</dfn>
+    ::
+        The set of {{GPUExtensionName}} values in this sequence defines the exact set of
+        extensions that must be enabled on the device.
+
+    : <dfn>limits</dfn>
+    ::
+        Defines the exact limits that must be enabled on the device.
+</dl>
+
+#### <dfn enum>GPUExtensionName</dfn> #### {#gpuextensionname}
+
+Each {{GPUExtensionName}} identifies a set of functionality which, if available,
+allows additional usages of WebGPU that would have otherwise been invalid.
 
 <script type=idl>
 enum GPUExtensionName {
-    "anisotropic-filtering"
+    "texture-compression-bc"
 };
 </script>
+
+<dl dfn-type=enum-value dfn-for=GPUExtensionName>
+    : <dfn>"texture-compression-bc"</dfn>
+    ::
+        Issue: Write a spec section for this, and link to it.
+</dl>
+
+#### <dfn dictionary>GPULimits</dfn> #### {#gpulimits}
+
+{{GPULimits}} describes various limits in the usage of WebGPU on a device.
+
+One limit value may be <dfn dfn>better</dfn> than another.
+For each limit, "better" is defined.
+
+Note:
+Setting "better" limits may not necessarily be desirable.
+While they enable strictly more programs to be valid, they may have a performance impact.
+Because of this, and to improve portability across devices and implementations,
+applications should generally request the "worst" limits that work for their content.
 
 <script type=idl>
 dictionary GPULimits {
@@ -686,9 +782,104 @@ dictionary GPULimits {
 };
 </script>
 
-{{GPUDeviceDescriptor}} has the following members:
+<dl dfn-type=dict-member dfn-for=GPULimits>
+    : <dfn>maxBindGroups</dfn>
+    ::
+        The maximum number of {{GPUBindGroupLayout|GPUBindGroupLayouts}}
+        allowed in {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
+        when creating a {{GPUPipelineLayout}}.
 
-Issue: Fill this in.
+        Higher is [=better=].
+
+    : <dfn>maxDynamicUniformBuffersPerPipelineLayout</dfn>
+    ::
+        The maximum number of {{GPUBindGroupLayoutDescriptor/bindings}} for which:
+
+          - {{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/"uniform-buffer"}}, and
+          - {{GPUBindGroupLayoutBinding/hasDynamicOffset}} is true,
+
+        across all {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
+        when creating a {{GPUPipelineLayout}}.
+
+        Higher is [=better=].
+
+    : <dfn>maxDynamicStorageBuffersPerPipelineLayout</dfn>
+    ::
+        The maximum number of {{GPUBindGroupLayoutDescriptor/bindings}} for which:
+
+          - {{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/"storage-buffer"}}, and
+          - {{GPUBindGroupLayoutBinding/hasDynamicOffset}} is true,
+
+        across all {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
+        when creating a {{GPUPipelineLayout}}.
+
+        Higher is [=better=].
+
+    : <dfn>maxSampledTexturesPerShaderStage</dfn>
+    ::
+        For each possible {{GPUShaderStage}} `stage`,
+        the maximum number of {{GPUBindGroupLayoutDescriptor/bindings}} for which:
+
+          - {{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/"sampled-texture"}}, and
+          - {{GPUBindGroupLayoutBinding/visibility}} includes `stage`,
+
+        across all {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
+        when creating a {{GPUPipelineLayout}}.
+
+        Higher is [=better=].
+
+    : <dfn>maxSamplersPerShaderStage</dfn>
+    ::
+        For each possible {{GPUShaderStage}} `stage`,
+        the maximum number of {{GPUBindGroupLayoutDescriptor/bindings}} for which:
+
+          - {{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/"sampler"}}, and
+          - {{GPUBindGroupLayoutBinding/visibility}} includes `stage`,
+
+        across all {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
+        when creating a {{GPUPipelineLayout}}.
+
+        Higher is [=better=].
+
+    : <dfn>maxStorageBuffersPerShaderStage</dfn>
+    ::
+        For each possible {{GPUShaderStage}} `stage`,
+        the maximum number of {{GPUBindGroupLayoutDescriptor/bindings}} for which:
+
+          - {{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/"storage-buffer"}}, and
+          - {{GPUBindGroupLayoutBinding/visibility}} includes `stage`,
+
+        across all {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
+        when creating a {{GPUPipelineLayout}}.
+
+        Higher is [=better=].
+
+    : <dfn>maxStorageTexturesPerShaderStage</dfn>
+    ::
+        For each possible {{GPUShaderStage}} `stage`,
+        the maximum number of {{GPUBindGroupLayoutDescriptor/bindings}} for which:
+
+          - {{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/"storage-texture"}}, and
+          - {{GPUBindGroupLayoutBinding/visibility}} includes `stage`,
+
+        across all {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
+        when creating a {{GPUPipelineLayout}}.
+
+        Higher is [=better=].
+
+    : <dfn>maxUniformBuffersPerShaderStage</dfn>
+    ::
+        For each possible {{GPUShaderStage}} `stage`,
+        the maximum number of {{GPUBindGroupLayoutDescriptor/bindings}} for which:
+
+          - {{GPUBindGroupLayoutBinding/type}} is {{GPUBindingType/uniform-buffer}}, and
+          - {{GPUBindGroupLayoutBinding/visibility}} includes `stage`,
+
+        across all {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
+        when creating a {{GPUPipelineLayout}}.
+
+        Higher is [=better=].
+</dl>
 
 ## <dfn interface>GPUDevice</dfn> ## {#gpu-device}
 
