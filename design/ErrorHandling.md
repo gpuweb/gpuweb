@@ -22,9 +22,15 @@ Meanwhile, error handling should not make the API clunky to use.
 Implementations should provide a way to enable synchronous validation, for example via a "break on WebGPU error" option in the developer tools.
 The extra overhead needs to be low enough that applications can still run while being debugged.
 
-## *Fatal Errors*: requestDevice and device.lost
+## *Fatal Errors*: requestAdapter, requestDevice, and device.lost
 
 <!-- calling this revision 6 -->
+
+```webidl
+interface GPU {
+    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options = {});
+};
+```
 
 ```webidl
 interface GPUDeviceLostInfo {
@@ -36,9 +42,21 @@ partial interface GPUDevice {
 };
 ```
 
+`GPU.requestAdapter` requests an adapter from the user agent.
+It returns a Promise which resolves when an adapter is ready.
+The Promise may not resolve for a long time - for example, the browser
+could delay until a background tab is foregrounded, to make sure the right
+adapter is chosen at the time the tab is foregrounded (in case the system
+state, such as battery state, has changed).
+If it rejects, the app knows for sure that its request could not be fulfilled
+(at least, in the current system state...); it does not need to retry with the
+same `GPURequestAdapterOptions`.
+
 `GPUAdapter.requestDevice` requests a device from the adapter.
 It returns a Promise which resolves when a device is ready.
-The Promise may not resolve for a long time - it resolves when the browser is ready for the application to bring up (or restore) its content.
+The Promise may not resolve for a long time - for example, even if the
+adapter is still valid, the browser could delay until a background tab is
+foregrounded, to make sure that system resources are conserved until then.
 If the adapter is lost and therefore unable to create a device, `requestDevice()` returns null.
 If the `options` are invalid (e.g. they exceed the limits of the adapter), `requestDevice()` rejects.
 
@@ -52,9 +70,12 @@ All further operations on the device and its objects are errors.
 The `"validationerror"` event will no longer fire. (This makes all further operations no-ops.)
 
 An app should never give up on getting WebGPU access due to
-`requestDevice` returning null or `GPUDevice.lost` resolving.
-It should only give up based on a `requestAdapter` rejection.
-(It should also give up on a `requestDevice` rejection, as that indicates an app programming error.)
+`requestDevice` returning `null` or `GPUDevice.lost` resolving.
+Instead of giving up, the app should try again starting with `requestAdapter`.
+
+It *should* give up based on a `requestAdapter` rejection.
+(It should also give up on a `requestDevice` rejection, as that indicates an app
+programming error - the request was invalid, e.g. not compatible with the adapter.)
 
 ### Example Code
 
@@ -121,18 +142,24 @@ class MyRenderer {
 Two independent applications are running on the same webpage against two devices on the same adapter.
 The tab is in the background, and one device is using a lot of resources.
  - The browser chooses to lose the heavier device.
-    - `device.lost` resolves, message = recovering device resources
-    - (App calls `requestDevice` on any adapter, but it doesn't resolve yet.)
+    - `device.lost` resolves, message = reclaiming device resources
+    - (If the app calls `requestDevice` on the same adapter, or `requestAdapter`,
+       it does not resolve until the tab is foregrounded.)
  - Later, the browser might choose to lose the smaller device too.
-    - `device.lost` resolves, message = recovering device resources
-    - (App calls `requestDevice` on any adapter, but it doesn't resolve yet.)
- - Later, the tab is brought to the foreground.
-    - Both `requestDevice` Promises resolve.
-      (Unless the adapter was lost, in which case they would have rejected.)
+    - `device.lost` resolves, message = reclaiming device resources
+    - (If the app calls `requestDevice` on the same adapter, or `requestAdapter`,
+       it does not resolve until the tab is foregrounded.)
+ - The system configuration changes (e.g. laptop is unplugged).
+    - Since the adapter is no longer used, the UA may choose to lose it and
+      reject any outstanding `requestDevice` promises.
+      (Perhaps not until the tab is foregrounded.)
+    - (If the app calls `requestAdapter`, it does not resolve until the tab is foregrounded.)
 
 A page begins loading in a tab, but then the tab is backgrounded.
- - On load, the page attempts creation of a device.
-    - `requestDevice` Promise will resolve.
+ - On load, the page attempts creation of an adapter.
+    - The browser may or may not provide a WebGPU adapter yet - if it doesn't,
+      then when the page is foregrounded, the `requestAdapter` Promise will resolve.
+      (This allows the browser to choose an adapter based on the latest system state.)
 
 A device's adapter is physically unplugged from the system (but an integrated GPU is still available).
  - The same adapter, or a new adapter, is plugged back in.
