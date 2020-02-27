@@ -140,7 +140,7 @@ This is also expressed as “the last thing I need is another shader language”
 (See https://xkcd.com/927/)
 
 For developers invested in the SPIR-V ecosystem for Vulkan and OpenGL,
-the key will be convertibility between WGLSL and SPIR-V.
+the key will be convertibility between WGSL and SPIR-V.
 For shaders that only use WebGPU features, WebGPU Community Group
 members expect to develop tooling to faithfully convert between WGSL
 and “Shader” SPIR-V.
