@@ -3,7 +3,8 @@
 ## What is the shader language for WebGPU?
 
 WebGPU will use a new shader language “WebGPU Shader Language”,
-or “WGSL” for short.
+or “WGSL” for short. This is a shading language which is designed specifically
+for, and in tandem with, WebGPU.
 
 It is under development, but will have the following traits:
 
@@ -13,7 +14,11 @@ It is under development, but will have the following traits:
 *   It directly represents block-structured programming, including
     sequence, selection (if/else), and repetition (looping).
 *   It can be faithfully and simply converted to and from SPIR-V
-    “Shader” modules that only use GPU features available in WebGPU.
+    which only uses features available in WebGPU.
+*   It can be faithfully and simply converted to Metal Shading Language
+    which only uses features available in WebGPU.
+*   It can be faithfully and simply converted to HLSL
+    which only uses features available in WebGPU.
 
 The W3C WebGPU community group agreed to this direction during the
 February 2020 face-to-face meeting in Redmond.
@@ -25,8 +30,6 @@ The W3C WebGPU Community Group does not prescribe a particular
 pronunciation of “WGSL”.
 
 You can say it letter-by-letter, like “W G S L”.
-
-You can say it as a single word, like “wiggzle”, “wiggles”, or “wigsel”.
 
 
 ## What does a WGSL shader look like?
@@ -96,7 +99,9 @@ loop {
 }
 ```
 
-
+This syntax is still under heavy development.
+If you have ideas for improvement, or constructive criticism,
+please file issues on the [issue tracker](https://github.com/gpuweb/gpuweb/issues/new?assignees=&labels=wgsl&template=wgsl.md&title=).
 
 ## Where can I find the spec?
 
@@ -108,7 +113,7 @@ See https://github.com/gpuweb/gpuweb/tree/master/wgsl
 
 WGSL is the shader language for WebGPU.
 Any browser implementing WebGPU will be required to accept shaders in WGSL.
-Specifically, the WebGPU conformance test suite will use shaders written
+Specifically, the WebGPU conformance test suite will only use shaders written
 in WGSL.
 
 Browser support for WGSL is expected to be developed over time, along
@@ -130,8 +135,8 @@ for handling WGSL, including parsing, validation, and compilation.
 
 At this time, we expect at least three essentially independent
 implementations of WGSL ingestion as part of browser support for WebGPU.
-Independent implementation serves as an important check on the quality
-of the WGSL and WebGPU specifications.
+We expect the existence of these independent implementations to lead to a
+community and culture of competition and innovation, rather than stagnation.
 
 
 ## What about my existing shaders, compilers, and other tooling?
@@ -139,19 +144,15 @@ of the WGSL and WebGPU specifications.
 This is also expressed as “the last thing I need is another shader language”.
 (See https://xkcd.com/927/)
 
-For developers invested in the SPIR-V ecosystem for Vulkan and OpenGL,
-the key will be convertibility between WGSL and SPIR-V.
-For shaders that only use WebGPU features, WebGPU Community Group
-members expect to develop tooling to faithfully convert between WGSL
-and “Shader” SPIR-V.
-By “faithful”, we mean that all salient properties of a shader should
-be preserved by a round trip conversion between the two ways of writing
-the shader: e.g. it should retain its semantics and its performance
-characteristics.
-Furthermore, those WebGPU Community Group members plan to add an option
-to existing mainstream SPIR-V compilers to emit WGSL directly.
-We expect other SPIR-V tooling (e.g. fuzzers, optimizers) can be reused,
-via the addition of a conversion step between WGSL and SPIR-V at their
-I/O boundaries.
+WGSL is a new language. Over time, we expect a collection of compilers will
+be created to compile between WGSL and most/all other popular shading
+languages. We also expect an ecosystem of shading language tools, like
+optimizers, compressors, preprocessors, fuzzers, etc. will be created for WGSL.
+Some of these tools will undoubtedly be created by the
+community at large, and some of these tools are currently under development
+by members of the WebGPU standardization group.
 
-
+WGSL is intentionally designed to not deviate much from the facilities, concepts,
+syntax, and behavior of existing shading languages (see the language design
+goals above). This decision was made intentionally to ease the burden of
+tools developers and maintainers.
