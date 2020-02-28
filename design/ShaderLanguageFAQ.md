@@ -2,8 +2,8 @@
 
 ## What is the shader language for WebGPU?
 
-WebGPU will use a new shader language “WebGPU Shader Language”,
-or “WGSL” for short.
+WebGPU will use a new shader language "WebGPU Shader Language",
+or "WGSL" for short.
 
 WGSL is designed for use with WebGPU, and the two are being
 designed together.
@@ -26,12 +26,12 @@ The W3C WebGPU community group agreed to this direction during the
 February 2020 face-to-face meeting in Redmond.
 
 
-## How do you pronounce “WGSL”?
+## How do you pronounce "WGSL"?
 
 The W3C WebGPU Community Group does not prescribe a particular
-pronunciation of “WGSL”.
+pronunciation of "WGSL".
 
-You can say it letter-by-letter, like “W G S L”.
+You can say it letter-by-letter, like "W G S L".
 
 Other pronunciations are likely to emerge, and the community will
 find its favourites.
@@ -156,15 +156,15 @@ of the WGSL and WebGPU specifications.
 
 ## What about my existing shaders, compilers, and other tooling?
 
-This is also expressed as “the last thing I need is another shader language”.
+This is also expressed as "the last thing I need is another shader language".
 (See https://xkcd.com/927/)
 
 For developers invested in the SPIR-V ecosystem for Vulkan and OpenGL,
 the key will be convertibility between WGSL and SPIR-V.
 For shaders that only use WebGPU features, WebGPU Community Group
 members expect to develop tooling to faithfully convert between WGSL
-and “Shader” SPIR-V.
-By “faithful”, we mean that all salient properties of a shader should
+and "Shader" SPIR-V.
+By "faithful", we mean that all salient properties of a shader should
 be preserved by a round trip conversion between the two ways of writing
 the shader: e.g. it should retain its semantics and its performance
 characteristics.
