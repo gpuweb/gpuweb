@@ -5,7 +5,12 @@
 WebGPU will use a new shader language “WebGPU Shader Language”,
 or “WGSL” for short.
 
-It is under development, but will have the following traits:
+WGSL is designed for use with WebGPU, and the two are being
+designed together.
+Offshoots of WGSL may appear over time, but that is beyond the
+scope of WebGPU and the W3C WebGPU Community Group.
+
+WGSL is under development, but will have the following traits:
 
 *   It is a text-based language.
 *   It is suitable for humans to read and write.
@@ -14,6 +19,8 @@ It is under development, but will have the following traits:
     sequence, selection (if/else), and repetition (looping).
 *   It can be faithfully and simply converted to and from SPIR-V
     “Shader” modules that only use GPU features available in WebGPU.
+*   With reasonable effort, it can be faithfully converted to other
+    shading languages such as HLSL and Metal Shading Language.
 
 The W3C WebGPU community group agreed to this direction during the
 February 2020 face-to-face meeting in Redmond.
@@ -26,12 +33,29 @@ pronunciation of “WGSL”.
 
 You can say it letter-by-letter, like “W G S L”.
 
-You can say it as a single word, like “wiggzle”, “wiggles”, or “wigsel”.
+Other pronunciations are likely to emerge, and the community will
+find its favourites.
+
+
+## Where can I find the spec?
+
+The WGSL spec will be developed on the WebGPU Community Group area on GitHub.
+See https://github.com/gpuweb/gpuweb/tree/master/wgsl
+
+
+## Where do I provide feedback on WGSL?
+
+To provide feedabck on WGSL, file an issue on the spec repo site:
+https://github.com/gpuweb/gpuweb/issues
+
+Please use a `[wgsl]` prefix on the issue title.
+A Community Group member with write access to the repo will apply a
+[`wgsl` label](https://github.com/gpuweb/gpuweb/issues?q=is%3Aissue+is%3Aopen+label%3Awgsl).
 
 
 ## What does a WGSL shader look like?
 
-WGSL has not yet been specified.
+WGSL has not yet been specified, and is actively being designed.
 However, early prototyping work indicates the language can have a look
 and feel as represented in the following examples:
 
@@ -96,24 +120,20 @@ loop {
 }
 ```
 
-
-
-## Where can I find the spec?
-
-The WGSL spec will be developed on the WebGPU Community Group area on GitHub.
-See https://github.com/gpuweb/gpuweb/tree/master/wgsl
+Again, please note that WGSL is still under heavy development at this time.
+See above for how you can provide feedback.
 
 
 ## What browsers support WGSL?
 
 WGSL is the shader language for WebGPU.
 Any browser implementing WebGPU will be required to accept shaders in WGSL.
-Specifically, the WebGPU conformance test suite will use shaders written
+Specifically, the WebGPU conformance test suite will only use shaders written
 in WGSL.
 
-Browser support for WGSL is expected to be developed over time, along
-with the development of WGSL itself.
-
+WGSL being a brand new effort, no browsers implement it at this time.
+Support for WGSL is expected to replace support for other shading languages
+in all WebGPU prototypes before WebGPU is released.
 
 ## Will browsers accept other shader languages for WebGPU?
 
