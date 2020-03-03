@@ -7,6 +7,7 @@ We'll use the [wiki](https://github.com/gpuweb/gpuweb/wiki) as the main source o
 related to the work. This repository will hold the actual specification, examples, etc.
 
 Work-in-progress specification: https://gpuweb.github.io/gpuweb/
+
 Work-in-progress WGSL specification: https://gpuweb.github.io/gpuweb/wgsl.html
 
 ## Charter
