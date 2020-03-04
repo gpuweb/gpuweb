@@ -42,6 +42,14 @@ find its favourites.
 The WGSL spec will be developed on the WebGPU Community Group area on GitHub.
 See https://github.com/gpuweb/gpuweb/tree/master/wgsl
 
+## What do you mean by "faithful" and "simply"?
+
+For further clarification, see [gpuweb issue
+586](https://github.com/gpuweb/gpuweb/issues/586).
+
+We plan to update the Goals section of the WGSL spec itself.
+(See https://github.com/gpuweb/gpuweb/pull/588)
+
 
 ## Where do I provide feedback on WGSL?
 
