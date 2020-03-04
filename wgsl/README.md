@@ -7,7 +7,7 @@ to the language itself are found in the [Goals](https://gpuweb.github.io/gpuweb/
 section of the specification. Criteria which guide our development of the language are:
 
  * The burden for adding constructs to the language is to show why the construct
-   is needed, not to show why it should not be added
+   is needed.
 
 
 ## Generating the specification
