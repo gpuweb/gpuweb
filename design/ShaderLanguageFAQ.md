@@ -45,7 +45,7 @@ See https://github.com/gpuweb/gpuweb/tree/master/wgsl
 
 ## Where do I provide feedback on WGSL?
 
-To provide feedabck on WGSL, file an issue on the spec repo site:
+To provide feedback on WGSL, file an issue on the spec repo site:
 https://github.com/gpuweb/gpuweb/issues
 
 Please use a `[wgsl]` prefix on the issue title.
