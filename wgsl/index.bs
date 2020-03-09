@@ -1,0 +1,1582 @@
+<pre class='metadata'>
+Title: WebGPU Shading Language
+Shortname: WGSL
+Level: 1
+Status: w3c/ED
+Group: webgpu
+URL: https://gpuweb.github.io/gpuweb/wgsl.html
+
+!Participate: <a href="https://github.com/gpuweb/gpuweb/issues/new?labels=wgsl">File an issue</a> (<a href="https://github.com/gpuweb/gpuweb/issues?q=is%3Aissue+is%3Aopen+label%3Awgsl">open issues</a>)
+
+Editor: dan sinclair, Google http://www.google.com, dsinclair@google.com
+Abstract: Shading language for WebGPU.
+Markup Shorthands: markdown yes
+Markup Shorthands: idl no
+</pre>
+
+<style>
+tr:nth-child(2n) {
+  background-color: #f0f0f0;
+}
+thead {
+  background-color: #f0f0f0;
+  font-weight: bold;
+}
+</style>
+
+# Introduction # {#intro}
+
+<div class='example'>
+  <xmp highlight='rust'>
+    [[location 0]] var<out> gl_FragColor : vec4<f32>;
+    fn main() -> void {
+        gl_FragColor = vec4<f32>(0.4, 0.4, 0.8, 1.0);
+        return;
+    }
+    entry_point fragment = main;
+  </xmp>
+</div>
+
+
+## Goals ## {#goals}
+
+ * Trivially convertable to SPIR-V
+ * Constructs are defined as normative references to their SPIR-V counterparts
+ * All features in [SHORTNAME] are directly translatable to SPIR-V. (No polymorphism, no general pointers, no overloads, etc)
+ * Features and semantics are exactly the ones of SPIR-V
+ * Each item in this spec *must* provide the mapping to SPIR-V for the construct
+
+# Formal Type Definitions # {#formal-types}
+
+Note: For the syntax of declaring types in [SHORTNAME] please see the [[#grammar]].
+
+Programs calculate values. Each value in [SHORTNAME] belongs to exactly one *type*.
+A type is a set of (mathematical) values.
+
+We distinguish between the concept of a type and the syntax in [SHORTNAME] to denote that type.
+In many cases the spelling of a type in this document is the same as its [SHORTNAME] syntax.
+The spelling is different for structure types, or types containing structures.
+
+## Scalar Types ## {#scalar-types}
+<table class='data'>
+  <thead>
+   <tr><td>Type<td>Category<td>Description
+  </thead>
+  <tr><td>`bool`<td>Boolean<td>Values are true or false
+  <tr><td>`i32`<td>Numeric scalar<td>32 bit signed integer, two's complement representation
+  <tr><td>`u32`<td>Numeric scalar<td>32 bit unsigned integer
+  <tr><td>`f32`<td>Numeric scalar<td>32 bit IEEE 754 floating point number, including infinities and NaNs
+</table>
+
+## Vector Types ## {#vector-types}
+<table class='data'>
+  <thead>
+    <tr><td>Type<td>Description
+  </thead>
+  <tr><td>vec*N*<*T*><td>Vector of *N* elements of type *T*.
+                          *N* must be in {2, 3, 4} and *T*
+                          must be one of the [[#scalar-types]].
+                          We say *T* is the component type of the vector
+</table>
+
+<div class='example' heading='Vector'>
+  <xmp highlight='rust'>
+    vec2<f32>  # is a vector of two f32s.
+  </xmp>
+</div>
+
+## Matrix Types ## {#matrix-types}
+<table class='data'>
+  <thead>
+    <tr><td>Type<td>Description
+  </thead>
+  <tr><td>mat*N*x*M*<*T*><td>Matrix of *N* columns and *M* rows, where
+                                *N* and *M* are both in {2, 3, 4}.
+                                *T* must be *f32*.
+</table>
+
+<div class='example' heading='Matrix'>
+  <xmp highlight='rust'>
+    mat2x3<f32>  # is a 2 column, 3 row matrix of 32-bit floats.
+  </xmp>
+</div>
+
+## Array Types ## {#array-types}
+<table class='data'>
+  <thead>
+    <tr><td>Type<td>Description
+  </thead>
+  <tr><td>array<*E*,*N*><td>An *N*-element array of elements of type *E*.<br>
+  <tr><td>array<*E*><td>A runtime-sized array of elements of type *E*,
+                       also known as a runtime array.
+                       These may only appear in specific contexts.<br>
+</table>
+
+Issue: (dneto): Complete description of `Array<E,N>`
+
+Issue: (dneto): the last element of a struct defining the contents of a storage buffer.
+
+## Structure Types ## {#struct-types}
+<table class='data'>
+  <thead>
+    <tr><td>Type<td>Description
+  </thead>
+  <tr><td>struct<*T1*,...,*Tn*><td>An ordered tuple of *N* members of types
+                                    *T1* through *Tn*, with *N8 being an
+                                    integer greater than 0.
+</table>
+
+<div class='example' heading="Structure">
+  <xmp highlight='rust'>
+    type foo = struct {
+      a : i32;
+      b : vec2<f32>;
+    }
+  </xmp>
+</div>
+
+## Pointer Types ## {#pointer-types}
+<table class='data'>
+  <thead>
+    <tr><td>Type<td>Description
+  </thead>
+  <tr><td>ptr<*SC*,*T*><td>Pointer (or reference) to storage in [[#storage-class]] *SC*
+                            which can hold a value of the [[#storable-types]] *T*.
+                            Here, *T* is the known as the *pointee* type.
+</table>
+
+Note: We've described a SPIR-V logical pointer type.
+
+<div class='example' heading='Pointer'>
+  <xmp highlight='rust'>
+    ptr<storage_buffer, i32>
+    ptr<private, array<i32, 12>>
+  </xmp>
+</div>
+
+## Storable types ## {#storable-types}
+
+The following types are *storable*:
+
+* [[#scalar-types]]
+* [[#vector-types]]
+* [[#matrix-types]]
+* [[#array-types]] if its element type is storable.
+* [[#struct-types]] if all its members are storable.
+
+Note: SPIR-V logical pointers are not storable.
+
+## Composite types ## {#composite-types}
+
+A type is *composite* if its values have a well-defined internal
+structure of typed *components*.
+
+The following types are *composite types*:
+
+* [[#vector-types]]
+* [[#matrix-types]]
+* [[#array-types]]
+* [[#struct-types]]
+
+[SHORTNAME] has operations for:
+
+* extracting one of the components of a composite value
+* creating a new composite value from an old one by replacing one of its components
+* creating a new composite value from components
+
+## Typed storage ## {#typed-storage}
+
+In [SHORTNAME], a value of [[#storable-types]] may be stored in memory, for later retrieval.
+
+A pointer value *P* supports the following operations:
+
+<table class='data'>
+  <tr><td>P.Write(V)<td>Place a value V into the referenced storage.
+               V’s type must match P’s pointee type.
+  <tr><td>P.Read()<td>An evaluation yielding the value currently in the P’s
+             referenced storage.  The result type is P's pointee type.
+  <tr><td>P.Subaccess(K)<td>Valid for pointers with a composite pointee type where
+                   *K* must evaluate to an integer between 0 and one
+                   less than the number of components in *P*’s pointee type.
+                   The subaccess evaluation yields a pointer to the storage for
+                   the K’th component within P’s referenced storage,
+                   using zero-based indexing. If P's storage class is SC, and
+                   the K'th member of P's pointee type is of type T, then
+                   the result type is `ptr<SC,T>`.
+</table>
+
+Note: Assignment of swizzled values is not permitted (SubaccessSwizzle).<br>
+           e.g. `vec4<i32> v; v.xz = vec2<i32>(0, 1);` is not allowed.
+
+## Pointer evaluation ## {#pointer-evaluation}
+
+A pointer may appear in exactly the following contexts
+
+<table class='data'>
+  <tr><td>Indexing<td>
+A subaccessing evaluation
+* E.g. `a[12]`
+    * If `a` is a pointer to an array, this evaluates to *a.Subaccess(12)*
+
+* E.g. `s.foo`
+    * If `s` is a pointer to a structure of type *S*, `k` is the index of the `foo` element of *S*, this evaluates to *s.Subaccess(k)*
+
+  <tr><td>Assigning (L-Value)<td>
+On the left hand side of an assignment operation, and the right hand side
+matches the pointee type of the pointer.
+* E.g. `v = 12;` assuming prior declaration `var v : i32`
+
+  <tr><td>Copying<td>
+On the right hand side of a const-declaration, and the type of the
+const-declaration matches the pointer type.
+* E.g. `const v2 : ptr<private,i32> = v;`  assuming prior declaration
+        `var<private> v:i32`
+
+  <tr><td>Parameter<td>
+Used in a function call, where the function’s parameter type matches the
+pointer type.
+
+  <tr><td>Reading (R-Value)<td>
+Any other context.  Evaluates to *P.Read()*, yielding a value of *P*’s pointee
+type.
+</table>
+
+## Variables ## {#variables}
+
+A variable is a named reference to storage that can contain a value of a
+particular type.
+
+Two types are associated with a variable: its store type (the type of value
+that may be placed in the referenced storage) and its reference type (the type
+of the variable itself).  If a variable has store type T and storage class S,
+then its reference type is pointer-to-T-in-S.
+
+A *variable declaration*
+
+* Determines the variable’s name, storage class, and store type (and hence its reference type)
+* Ensures the execution environment allocates storage for a value of the store type, for the lifetime of the variable.
+* Two variables with overlapping lifetimes must not have overlapping storage.
+
+# Grammar # {#grammar}
+
+## Scoping ## {#scoping}
+
+Scoping is the set of rules determining where a variable may be used.
+
+Issue: (dneto) also lifetime.
+
+There are multiple levels of scoping depending on how and where things are
+declared.
+
+Note: Shadow variables are not allowed in [SHORTNAME]. A variable must not be defined
+         in a given scope or any scope above the current one.
+
+## Module Scope ## {#module-scope}
+Any variable declared outside a function is at module scope.
+
+## Function Scope ## {#function-scope}
+Variables declared within a function are at function scope. The variable is
+visible at any scoping level which comes after the variable declaration in the
+source code. The variable is not visible until it is declared.
+
+## Comments ## {#comments}
+Comments begin with a # and continue to the end of the current line. There are no multi-line comments.
+
+## Precedence ## {#precedence}
+
+Issue: (dsinclair) Write out precedence rules. Matches c and glsl rules ....
+
+
+## Type Promotions ## {#type-promotions}
+There are no implicit type promotions in [SHORTNAME]. If you want to convert between
+types you must use the cast syntax to do it.
+
+<div class='example'>
+  <xmp highlight='rust'>
+    var e : f32 = 3;    # error: literal is the wrong type
+
+    var f : f32 = 1.0;
+
+    var t : i32 = i32(f);
+  </xmp>
+</div>
+
+The non-promotion extends to vector classes as well. There are no overrides to
+shorten vector declarations based on the type or number of elements provided.
+If you want `vec4<f32>` you must provide 4 float values in the constructor.
+
+
+## Identifiers and Numeric Literals ## {#ident-and-numerical-literal}
+<table class='data'>
+  <thead>
+    <tr><td>Token<td>Definition
+  </thead>
+  <tr><td>`FLOAT_LITERAL`<td>(-?[0-9]*.[0-9]+ | -?[0-9]+.[0-9]*)(e(+|-)?[0-9]+)?
+  <tr><td>`INT_LITERAL`<td>-?0x[0-9a-fA-F]+ | 0 | -?[1-9][0-9]*
+  <tr><td>`UINT_LITERAL`<td>0x[0-9a-fA-F]+u | 0u | [1-9][0-9]*u
+  <tr><td>`IDENT`<td>[a-zA-Z][0-9a-zA-Z_]*
+  <tr><td>`STRING_LITERAL`<td> "[^"]*"
+</table>
+
+Note: literals are parsed greedy. This means that for statements like `a -5`
+      this will *not* parse as `a` `minus` `5` but instead as `a` `-5` which
+      may be unexpected. A space must be inserted after the `-` if the first
+      expression is desired.
+
+### Default Values ### {#default-values}
+
+* `i32` and `u32` default to `0`
+* `f32` defaults to `0.0`
+* `bool` defaults to `false`
+* An `N`-element vector of type `T` defaults to an `N`-element vector of the default value for `T`
+* An `array` defaults to the correct size with the default value for each element
+* A `struct` defaults to the default value for each element
+
+## Keywords ## {#keywords}
+
+<table class='data'>
+  <thead>
+    <tr><td>Token<td>Definition
+  </thead>
+  <tr><td>`ARRAY`<td>array
+  <tr><td>`BOOL`<td>bool
+  <tr><td>`FLOAT32`<td>f32
+  <tr><td>`INT32`<td>i32
+  <tr><td>`MAT2x2`<td>mat2x2  # column x row
+  <tr><td>`MAT2x3`<td>mat2x3  # column x row
+  <tr><td>`MAT2x4`<td>mat2x4  # column x row
+  <tr><td>`MAT3x2`<td>mat3x2  # column x row
+  <tr><td>`MAT3x3`<td>mat3x3  # column x row
+  <tr><td>`MAT3x4`<td>mat3x4  # column x row
+  <tr><td>`MAT4x2`<td>mat4x2  # column x row
+  <tr><td>`MAT4x3`<td>mat4x3  # column x row
+  <tr><td>`MAT4x4`<td>mat4x4  # column x row
+  <tr><td>`POINTER`<td>ptr
+  <tr><td>`STRUCT`<td>struct
+  <tr><td>`UINT32`<td>u32
+  <tr><td>`VEC2`<td>vec2
+  <tr><td>`VEC3`<td>vec3
+  <tr><td>`VEC4`<td>vec4
+  <tr><td>`VOID`<td>void
+  <tr><td><td>
+  <tr><td>`ALL`<td>all
+  <tr><td>`ANY`<td>any
+  <tr><td>`AS`<td>as
+  <tr><td>`BINDING`<td>binding
+  <tr><td>`BLOCK`<td>block
+  <tr><td>`BREAK`<td>break
+  <tr><td>`BUILTIN`<td>builtin
+  <tr><td>`CASE`<td>case
+  <tr><td>`CAST`<td>cast
+  <tr><td>`COARSE`<td>coarse
+  <tr><td>`COMPUTE`<td>compute
+  <tr><td>`CONST`<td>const
+  <tr><td>`CONTINUE`<td>continue
+  <tr><td>`CONTINUING`<td>continuing
+  <tr><td>`DEFAULT`<td>default
+  <tr><td>`DOT`<td>dot
+  <tr><td>`DPDX`<td>dpdx
+  <tr><td>`DPDY`<td>dpdy
+  <tr><td>`FWIDTH`<td>fwidth
+  <tr><td>`ELSE`<td>else
+  <tr><td>`ELSE_IF`<td>elseif
+  <tr><td>`ENTRY_POINT`<td>entry_point
+  <tr><td>`FALLTHROUGH`<td>fallthrough
+  <tr><td>`FALSE`<td>false
+  <tr><td>`FINE`<td>fine
+  <tr><td>`FN`<td>fn
+  <tr><td>`FRAG_COORD`<td>frag_coord
+  <tr><td>`FRAG_DEPTH`<td>frag_depth
+  <tr><td>`FRAGMENT`<td>fragment
+  <tr><td>`FRONT_FACING`<td>front_facing
+  <tr><td>`FUNCTION`<td>function
+  <tr><td>`GLOBAL_INVOC_ID`<td>global_invocation_id
+  <tr><td>`IF`<td>if
+  <tr><td>`IMAGE`<td>image
+  <tr><td>`IMPORT_`<td>import
+  <tr><td>`IN`<td>in
+  <tr><td>`INSTANCE_IDX`<td>instance_idx
+  <tr><td>`IS_NAN`<td>is_nan
+  <tr><td>`IS_INF`<td>is_inf
+  <tr><td>`IS_FINITE`<td>is_finite
+  <tr><td>`IS_NORMAL`<td>is_normal
+  <tr><td>`KILL`<td>kill
+  <tr><td>`LOCAL_INVOC_ID`<td>local_invocation_id
+  <tr><td>`LOCAL_INVOC_IDX`<td>local_invocation_idx
+  <tr><td>`LOCATION`<td>location
+  <tr><td>`LOOP`<td>loop
+  <tr><td>`NOP`<td>nop
+  <tr><td>`NUM_WORKGROUPS`<td>num_workgroups
+  <tr><td>`OFFSET`<td>offset
+  <tr><td>`OUT`<td>out
+  <tr><td>`OUTER_PRODUCT`<td>outer_product
+  <tr><td>`POSITION`<td> position
+  <tr><td>`PREMREGE`<td>premerge
+  <tr><td>`PRIVATE`<td>private
+  <tr><td>`PUSH_CONSTANT`<td>push_constant
+  <tr><td>`REGARDLESS`<td>regardless
+  <tr><td>`RETURN`<td>return
+  <tr><td>`SET`<td>set
+  <tr><td>`STORAGE_BUFFER`<td>storage_buffer
+  <tr><td>`SWITCH`<td>switch
+  <tr><td>`TRUE`<td>true
+  <tr><td>`TYPE`<td>type
+  <tr><td>`UNIFORM`<td>uniform
+  <tr><td>`UNIFORM_CONSTANT`<td>uniform_constant
+  <tr><td>`UNLESS`<td>unless
+  <tr><td>`VAR`<td>var
+  <tr><td>`VERTEX_`<td>vertex
+  <tr><td>`VERTEX_IDX`<td>vertex_idx
+  <tr><td>`WORKGROUP`<td>workgroup
+  <tr><td>`WORKGROUP_SIZE`<td>workgroup_size
+</table>
+
+## Reserved Keywords ## {#reserved-keywords}
+The following is a list of keywords which are reserved for future expansion.
+
+<table class='data'>
+  <tr>
+    <td>asm
+    <td>bf16
+    <td>do
+    <td>enum
+    <td>f16
+  <tr>
+    <td>f64
+    <td>for
+    <td>i8
+    <td>i16
+    <td>i64
+  <tr>
+    <td>let
+    <td>typedef
+    <td>u8
+    <td>u16
+    <td>u64
+  <tr>
+    <td>using
+    <td>while
+    <td>
+    <td>
+    <td>
+</table>
+
+## Syntactic Tokens ## {#syntactic-tokens}
+<table class='data'>
+  <tr><td>`AND`<td>&
+  <tr><td>`AND_AND`<td>&&
+  <tr><td>`ARROW`<td>->
+  <tr><td>`ATTR_LEFT`<td>[[
+  <tr><td>`ATTR_RIGHT`<td>]]
+  <tr><td>`FORWARD_SLASH`<td>/
+  <tr><td>`BANG`<td>!
+  <tr><td>`BRACE_LEFT`<td>[
+  <tr><td>`BRACE_RIGHT`<td>]
+  <tr><td>`BRACKET_LEFT`<td> {
+  <tr><td>`BRACKET_RIGHT`<td>}
+  <tr><td>`COLON`<td>:
+  <tr><td>`COMMA`<td>,
+  <tr><td>`EQUAL`<td>=
+  <tr><td>`EQUAL_EQUAL`<td>==
+  <tr><td>`NOT_EQUAL`<td>!==
+  <tr><td>`GREATER_THAN`<td>>
+  <tr><td>`GREATER_THAN_EQUAL`<td>>=
+  <tr><td>`LESS_THAN`<td><
+  <tr><td>`LESS_THAN_EQUAL`<td><=
+  <tr><td>`MOD`<td>%
+  <tr><td>`MINUS`<td>-
+  <tr><td>`NAMESPACE`<td>::
+  <tr><td>`PERIOD`<td>.
+  <tr><td>`PLUS`<td>+
+  <tr><td>`OR`<td>|
+  <tr><td>`OR_OR`<td>||
+  <tr><td>`PAREN_LEFT`<td>(
+  <tr><td>`PAREN_RIGHT`<td>)
+  <tr><td>`SEMICOLON`<td>;
+  <tr><td>`STAR`<td>*
+  <tr><td>`XOR`<td>^
+</table>
+
+## Preamble ## {#preamble}
+[SHORTNAME] is focused on WebGPU shaders. As such, the following is defined for all
+shaders which are generated:
+
+<div class='example' heading='Preamble'>
+  <xmp>
+....
+OpCapability Shader
+OpCapability VulkanMemoryModel
+OpMemoryModel Logical VulkanKHR
+....
+  </xmp>
+</div>
+
+While we recognize that most Vulkan devices will not support VulkanMemoryModel
+we expect the SPIR-V generated to be converted by SPIRV-Tools after the fact
+to make the shader compatible.
+
+<pre class='def'>
+translation_unit
+  : global_decl* EOF
+</pre>
+
+## Global Declarations ## {#global-decls}
+<pre class='def'>
+global_decl
+  : SEMICOLON
+  | import_decl SEMICOLON
+  | global_variable_decl SEMICLON
+  | global_constant_decl SEMICOLON
+  | entry_point_decl SEMICOLON
+  | type_alias SEMICOLON
+  | function_decl
+</pre>
+
+## Imports ## {#imports}
+There is one import provided which is `GLSL.std.450`. All other uses of `import`
+will be rejected by [SHORTNAME] as being unknown. All uses of the imported methods must
+be prefixed by the import name as provided after the `as` keyword.
+
+<pre class='def'>
+import_decl
+  : IMPORT STRING_LITERAL AS (IDENT NAMESPACE)* IDENT
+</pre>
+
+The methods defined in `GLSL.std.450` become available with the given prefix.
+The initial import will add an `OpExtInstImport` instruction to the SPIR-V
+module header and each usage of a GLSL method will add the appropriate
+`OpExtIns` invocation.
+
+<div class='example' heading='Import'>
+  <xmp>
+    import "GLSL.std.450" as std::glsl;
+      %1 = OpExtInstImport "GLSL.std.450"
+  </xmp>
+</div>
+
+## Module Variables ## {#module-variables}
+
+<pre class='def'>
+global_variable_decl
+  : variable_decoration_list variable_decl
+  | variable_decoration_list variable_decl EQUAL const_expr
+
+global_constant_decl
+  : CONST variable_ident_decl EQUAL const_expr
+
+variable_decoration_list
+  : ATTR_LEFT (variable_decoration COMMA)* variable_decoration ATTR_RIGHT
+
+variable_decoration
+  : LOCATION INT_LITERAL
+  | BUILTIN builtin_decoration
+  | BINDING INT_LITERAL
+  | SET INT_LITERAL
+</pre>
+
+<div class='example' heading="Variable Decorations">
+  <xmp>
+    [[location 2]]
+       OpDecorate %gl_FragColor Location 2
+     
+    [[binding 3, set 4]]
+       OpDecorate %gl_FragColor Binding 3
+       OpDecorate %gl_FragColor DescriptorSet 4
+  </xmp>
+</div>
+
+<pre class='def'>
+builtin_decoration
+  : POSITION
+  | VERTEX_IDX
+  | INSTANCE_IDX
+  | FRONT_FACING
+  | FRAG_COORD
+  | FRAG_DEPTH
+  | NUM_WORKGROUPS
+  | WORKGROUP_SIZE
+  | LOCAL_INVOC_ID
+  | LOCAL_INVOC_IDX
+  | GLOBAL_INVOC_ID
+</pre>
+
+<div class='example' heading="Builtin Decorations">
+  <xmp>
+    [[builtin position]]
+          OpDecorate %gl_Position BuiltIn Position
+
+    [[builtin vertex_idx]]
+          OpDecorate %gl_VertexId BuiltIn VertexId
+
+    [[builtin instance_idx]]
+          OpDecorate %gl_InstanceId BuiltIn InstanceIndex
+
+    [[builtin front_facing]]
+          OpDecorate %gl_FrontFacing BuiltIn FrontFacing
+
+    [[builtin frag_coord]]
+          OpDecorate %gl_FragCoord BuiltIn FragCoord
+
+    [[builtin frag_depth]]
+          OpDecorate %gl_FragDepth BuiltIn FragDepth
+
+    [[builtin num_workgroups]]
+          OpDecorate %gl_NumWorkGroups BuiltIn NumWorkgroups
+
+    [[builtin workgroup_size]]
+          OpDecorate %gl_WorkGroupSize BuiltIn WorkgroupSize
+
+    [[builtin local_invocation_id]]
+          OpDecorate %gl_LocalInvocationID BuiltIn LocalInvocationId
+
+    [[builtin local_invocation_idx]]
+          OpDecorate %gl_LocalInvocationIndex BuiltIn LocalInvocationIndex
+
+    [[builtin global_invocation_id]]
+          OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+  </xmp>
+</div>
+
+The usages of the variable builtin decorations is further restricted in the
+type, function decorations and storage class.
+
+<table class='data' caption='Copy of WebGPU SPIR-V Environment Spec: Built-In Variables'>
+  <thead>
+    <tr><td>Name<td>Type<td>Restrictions
+  </thead>
+    <tr><td>position<td>vec4<f32><td>Vertex Output
+    <tr><td>vertex_idx<td>i32<td>Vertex Input
+    <tr><td>instance_idx<td>i32<td>Vertex Input
+    <tr><td>front_facing<td>bool<td>Fragment Input
+    <tr><td>frag_coord<td>vec4<f32><td>Fragment Input
+    <tr><td>frag_depth<td>f32<td>Fragment Output
+    <tr><td>num_workgroups<td>vec3<i32><td>Compute Input
+    <tr><td>workgroup_size<td>vec3<i32><td>Compute Input
+    <tr><td>local_invocation_id<td>vec3<i32><td>Compute Input
+    <tr><td>global_invocation_id<td>vec3<i32><td>Compute Input
+    <tr><td>local_invocation_idx<td>i32<td>Compute Input
+</table>
+
+<pre class='def'>
+variable_decl
+  : VAR variable_storage_decoration? variable_ident_decl
+
+variable_ident_decl
+  : IDENT COLON type_decl
+
+variable_storage_decoration:
+  : LESS_THAN storage_class GREATER_THAN
+</pre>
+
+## Initializers ## {#initializers}
+A variable must be in the `Output`, `Private` or `Function` storage
+class in order to have an initializer. As well, all variables in the
+`Output`, `Private` and `Function` storage class must have an initializer.
+
+<div class='example' heading='Global Scope'>
+  <xmp>
+    var bar : f32     # Error. Must have storage class. E.g. private
+     
+    [[location 3]] var<in> foo : f32;
+
+                        OpName %foo "foo"
+                        OpDecorate %foo Location 3
+               %float = OpTypeFloat 32
+    %_ptr_Input_float = OpTypePointer Input %float
+                 %foo = OpVariable %_ptr_Input_float Input
+
+    type S = [[block]] struct {
+      f : vec4<f32>;
+      a : array<i32>;
+    };
+    var<storage_buffer> buf : S;
+
+                            OpDecorate %S Block
+                   %float = OpTypeFloat 32
+                 %v4float = OpTypeVector %float 4
+       %_runtimearr_float = OpTypeRuntimeArray %float
+                       %S = OpTypeStruct %v4float %_runtimearr_float
+    %_ptr_StorageBuffer_S = OpTypePointer StorageBuffer %S
+                 %buf = OpVariable %_ptr_StorageBuffer_S StorageBuffer
+  </xmp>
+</div>
+
+<div class='example' heading='Function Scope'>
+  <xmp>
+    var foo : f32 = 2.5;
+
+                           OpName %i "i"
+                  %float = OpTypeFloat 32
+              %float_2_5 = OpConstant %float 2.5
+    %_ptr_Function_float = OpTypePointer Function %float
+                          ...
+                     %fn = OpFunction ...
+                  %i = OpVariable %_ptr_Function_float Function %float_2_5
+  </xmp>
+</div>
+
+## Type Alias ## {#type-alias}
+
+<pre class='def'>
+type_alias
+  : TYPE IDENT EQUAL type_decl
+  | TYPE IDENT EQUAL struct_decl
+</pre>
+
+<div class='example' heading='Type Alias'>
+  <xmp>
+    type Arr = array<i32, 5>;
+
+    type ResType = struct {
+      sf0 : vec4<f32>;
+      sf1 : vec4<i32>;
+    };
+
+    type RTArr = [[stride 16]] array<vec4<f32>>;
+
+    type S = [[block]] struct {
+      [[offset 0]] a : f32;
+      [[offset 4]] b : f32;
+      [[offset 16]] data : RTArr;
+    };
+  </xmp>
+</div>
+
+## Type Declarations ## {#type-declarations}
+
+<pre class='def'>
+type_decl
+  : IDENT
+  | BOOL
+  | FLOAT32
+  | INT32
+  | UINT32
+  | VEC2 LESS_THAN type_decl GREATER_THAN
+  | VEC3 LESS_THAN type_decl GREATER_THAN
+  | VEC3 LESS_THAN type_decl GREATER_THAN
+  | PTR LESS_THAN storage_class, type_decl GREATER_THAN
+  | ARRAY LESS_THAN type_decl COMMA INT_LITERAL GREATER_THAN
+  | ARRAY LESS_THAN type_decl GREATER_THAN
+  | MAT2x2 LESS_THAN type_decl GREATER_THAN
+  | MAT2x3 LESS_THAN type_decl GREATER_THAN
+  | MAT2x4 LESS_THAN type_decl GREATER_THAN
+  | MAT3x2 LESS_THAN type_decl GREATER_THAN
+  | MAT3x3 LESS_THAN type_decl GREATER_THAN
+  | MAT3x4 LESS_THAN type_decl GREATER_THAN
+  | MAT4x2 LESS_THAN type_decl GREATER_THAN
+  | MAT4x3 LESS_THAN type_decl GREATER_THAN
+  | MAT4x4 LESS_THAN type_decl GREATER_THAN
+</pre>
+
+<div class='example' heading="Type Declarations">
+  <xmp>
+    identifier
+      Allows to specify types created by the type command
+
+    bool
+       %1 = OpTypeBool
+
+    f32
+       %2 = OpTypeFloat 32
+
+    i32
+       %3 = OpTypeInt 32 1
+
+    u32
+       %4 = OpTypeInt 32 0
+
+    struct { i : i32; j : u32; x : f32; y : f32; }
+       %foo = OpTypeStruct %3 %4 %2 %2 ;  assuming above SPIR-V types
+
+    vec2<f32>
+        %7 = OpTypeVector %float 2
+
+    array<f32, 4>
+       %uint_4 = OpConstant %uint 4  
+            %9 = OpTypeArray %float %uint_4
+
+    array<f32>
+       %rtarr = OpTypeRuntimeArray %float
+
+    mat2x3<f32>
+       %vec = OpTypeVector %float 3
+         %6 = OpTypeMatrix %vec 2
+  </xmp>
+</div>
+
+## Storage Classes ## {#storage-class}
+
+<pre class='def'>
+storage_class
+  : INPUT
+  | OUTPUT
+  | UNIFORM
+  | WORKGROUP
+  | UNIFORM_CONSTANT
+  | STORAGE_BUFFER
+  | IMAGE
+  | PUSH_CONSTANT
+  | PRIVATE
+  | FUNCTION
+</pre>
+
+<table class='data'>
+  <thead>
+    <tr><td>Name<td>SPIR-V Storage Class
+  </thead>
+  <tr><td>input<td>Input
+  <tr><td>output<td>Output
+  <tr><td>uniform<td>Uniform
+  <tr><td>workgroup<td>Workgroup
+  <tr><td>uniform_constant<td>UniformConstant
+  <tr><td>storage_buffer<td>StorageBuffer
+  <tr><td>image<td>Image
+  <tr><td>push_constant<td>PushConstant
+  <tr><td>private<td>Private
+  <tr><td>function<td>Function
+</table>
+
+## Structures ## {#structures}
+
+<pre class='def'>
+struct_decl
+  : struct_decoration_decl? STRUCT struct_body_decl
+
+struct_decoration_decl
+  : ATTR_LEFT struct_decoration ATTR_RIGHT
+
+struct_decoration
+  : BLOCK
+
+struct_body_decl
+  : BRACKET_LEFT struct_member* BRACKET_RIGHT
+
+struct_member
+  : struct_member_decoration_decl variable_ident_decl SEMICOLON
+
+struct_member_decoration_decl
+  :
+  | ATTR_LEFT (struct_member_decoration COMMA)* struct_member_decoration ATTR_RIGHT
+
+struct_member_decoration
+  : OFFSET INT_LITERAL
+</pre>
+
+Note: Layout decorations are required if the struct is used in an SSBO, UBO or
+           Push Constant.  Otherwise, the layout will be ignored.
+
+Issue: (dneto): MatrixStride, RowMajor, ColMajor layout decorations are needed for matrices.
+
+<div class='example' heading='Structure'>
+  <xmp>
+    type my_struct = struct {
+      [[offset 0]] a : f32;
+      [[offset 4]] b : vec4<f32>;
+    };
+
+                  OpName %my_struct "my_struct"
+                  OpMemberName %my_struct 0 "a"
+                  OpMemberDecorate %my_struct 0 Offset 0
+                  OpMemberName %my_struct 1 "b"
+                  OpMemberDecorate %my_struct 1 Offset 4
+     %my_struct = OpTypeStruct %float %v4float
+  </xmp>
+</div>
+
+## Functions ## {#functions}
+
+Recursion is not permitted in [SHORTNAME].
+
+Functions must end with a `return` statement. The return may be given with a
+value to be returned.
+
+Function names must be unique over all functions and all variables in the
+module.
+
+<pre class='def'>
+function_decl
+  : function_header body_stmt
+
+function_type_decl
+  : type_decl
+  | VOID
+
+function_header
+  : FN IDENT PAREN_LEFT param_list PAREN_RIGHT ARROW function_type_decl
+
+param_list
+  :
+  | (variable_ident_decl COMMA)* variable_ident_decl
+</pre>
+
+<div class='example' heading='Function'>
+  <xmp>
+    void
+        %6 = OpTypeVoid
+
+    fn my_func(i : i32, b : f32) -> i32 {
+      return 2;
+    }
+
+               OpName %my_func "my_func"
+               OpName %a "a"
+               OpName %b "b"
+    %my_func = OpFunction %int None %10
+          %a = OpFunctionParameter %_ptr_Function_int
+          %b = OpFunctionParameter %_ptr_Function_float
+         %14 = OpLabel
+               OpReturnValue %int_2 
+               OpFunctionEnd
+  </xmp>
+</div>
+
+## Entry Points ## {#entry-points}
+The `entry_point` declares an entry point into the module. The entry points may
+be forward declarations but the functions referenced must be declared in the
+file.
+
+The input and output parameters to the entry point are determined by which
+global variables are used in the function and any called functions.
+
+<pre class='def'>
+entry_point_decl:
+   : ENTRY_POINT pipeline_stage EQUAL IDENT
+   | ENTRY_POINT pipeline_stage AS STRING_LITERAL EQUAL IDENT
+   | ENTRY_POINT pipeline_stage AS IDENT EQUAL IDENT
+
+pipeline_stage
+  : VERTEX
+  | FRAGMENT
+  | COMPUTE
+</pre>
+
+<div class='example' heading='Entry Point'>
+  <xmp>
+    entry_point vertex = main
+       OpEntryPoint Vertex %vtx_main "vtx_main" %gl_FragColor
+
+    entry_point fragment as “frag_main” = main
+       OpEntryPoint Fragment %main "frag_main" %gl_FragColor
+
+    entry_point compute = comp_main
+       OpEntryPoint GLCompute %comp_main "comp_main" %gl_FragColor
+  </xmp>
+</div>
+
+## Statements ## {#statements}
+
+<pre class='def'>
+body_stmt:
+  : BRACKET_LEFT statements BRACKET_RIGHT
+
+paren_rhs_stmt
+  : PAREN_LEFT logical_or_expression PAREN_RIGHT
+
+statements
+  : statement*
+
+statement
+  : SEMICOLON
+  | RETURN logical_or_expression SEMICOLON
+      OpReturn 
+      OpReturnValue
+  | if_stmt
+  | unless_stmt
+  | regardless_stmt
+  | switch_stmt
+  | loop_stmt
+  | variable_stmt SEMICOLON
+  | break_stmt SEMICOLON
+  | continue_stmt SEMICOLON
+  | KILL SEMICOLON
+  | NOP SEMICOLON
+  | assignment_stmt SEMICOLON
+
+break_stmt
+  : BREAK ({IF | UNLESS} paren_rhs_stmt)?
+
+continue_stmt
+  : CONTINUE ({IF | UNLESS} paren_rhs_stmt)?
+
+variable_stmt
+  : variable_decl
+  | variable_decl EQUAL logical_or_expression
+  | CONST variable_ident_decl EQUAL logical_or_expression
+</pre>
+
+## If Statement ## {#if-statement}
+<pre class='def'>
+if_stmt
+  : IF paren_rhs_stmt body_stmt {(elseif_stmt else_stmt?) | (else_stmt premerge_stmt?)}
+
+elseif_stmt
+  :ELSE_IF paren_rhs_stmt body_stmt elseif_stmt?
+
+else_stmt
+  : ELSE body_stmt
+
+premerge_stmt
+  : PREMERGE body_stmt
+</pre>
+
+The `premerge` option won't be typically used. It exists to cover the case where
+a block can exist in SPIR-V which comes before the merge block if a branch
+conditional but is run by both blocks in the branch conditional.
+
+## Unless Statement ## {#unless-statement}
+
+<pre class='def'>
+unless_stmt
+  : UNLESS paren_rhs_stmt body_stmt
+</pre>
+
+## Regardless Statement ## {#regardless-statement}
+
+<pre class='def'>
+regardless_stmt
+  : REGARDLESS paren_rhs_stmt body_stmt
+</pre>
+
+The `regardless` statement will probably not be used in most cases but exists to
+handle a specific case in SPIR-V. If you have an `OpBranchConditional` where both
+targets are the same block.
+
+## Switch Statement ## {#switch-statement}
+<pre class='def'>
+switch_stmt
+  : SWITCH paren_rhs_stmt BRACKET_LEFT switch_body+ BRACKET_RIGHT
+
+switch_body
+  : CASE const_literal COLON BRACKET_LEFT case_body BRACKET_RIGHT
+  | DEFAULT COLON BRACKET_LEFT case_body BRACKET_RIGHT
+
+case_body
+  :
+  | statement case_body
+  | FALLTHROUGH SEMICOLON
+</pre>
+
+## Loop Statement ## {#loop-statement}
+
+<pre class='def'>
+loop_stmt
+  : LOOP BRACKET_LEFT statements continuing_stmt? BRACKET_RIGHT
+
+continuing_stmt:
+  : CONTINUING body_stmt
+</pre>
+
+The loop statement is one of the biggest divergences from other shader
+languages. The structure of the statement is designed to closely match the block
+ordering requirements for a loop in SPIR-V.
+
+<div class='example' heading='GLSL Loop'>
+  <xmp>
+    int a = 2;
+    for (int i = 0; i < 4; i++) {
+      a *= 2
+    }
+  </xmp>
+</div>
+
+<div class='example' heading="[SHORTNAME] Loop">
+  <xmp>
+    const a : i32 = 2;
+    var i : i32 = 0; <1>
+    loop () {
+      break if (i >= 4);
+
+      a = a * 2;
+
+      continuing {  <2>
+        i = i + 1;
+      }
+    }
+  </xmp>
+</div>
+* <1> the initializer is listed before the loop
+* <2> the continue construct is placed at the end of the `loop`.
+
+### Other Looping Constructs ### {#other-looping}
+
+Note: This is *proposed* but not in the [SHORTNAME] spec yet
+
+The `for(var i : i32 = 0; i < 4; i = i + 1) {}` statement is syntactic sugar on
+top of the [[#loop-statement]].
+
+The `while(i < 4) {}` is syntactic sugar on top of the [[#loop-statement]]
+where there is no `continuing` construct.
+
+## Expression statement ## {#expression-statement}
+<pre class='def'>
+primary_expression
+  : (IDENT NAMESPACE)* IDENT
+  | type_decl PAREN_LEFT argument_expression_list PAREN_RIGHT
+  | const_literal
+  | paren_rhs_stmt
+  | CAST LESS_THAN type_decl GREATER_THAN paren_rhs_stmt
+      OpConvertFToU
+      OpConvertFToS
+      OpConvertSToF
+      OpConvertUToF
+      OpUConvert
+      OpSConvert
+      OpFConvert
+  | AS LESS_THAN type_decl GREATER_THAN paren_rhs_stmt
+      OpBitcast
+ 
+postfix_expression
+  :
+  | BRACE_LEFT logical_or_expression BRACE_RIGHT postfix_expression
+  | PAREN_LEFT argument_expression_list* PAREN_RIGHT postfix_expression
+  | PERIOD IDENT postfix_expression
+ 
+argument_expression_list
+  : (logical_or_expression COMMA)* logical_or_expression
+ 
+unary_expression
+  : primary_expression postfix_expression
+  | MINUS unary_expression
+      OpSNegate
+      OpFNegate
+  | BANG unary_expression
+      OpNot
+  | ANY PAREN_LEFT IDENT PAREN_RIGHT
+      OpAny
+  | ALL PAREN_LEFT IDENT PAREN_RIGHT
+      OpAll
+  | IS_NAN PAREN_LEFT IDENT PAREN_RIGHT
+      OpIsNan
+  | IS_INF PAREN_LEFT IDENT PAREN_RIGHT
+      OpIsInf
+  | IS_FINITE PAREN_LEFT IDENT PAREN_RIGHT
+      OpIsFinite
+  | IS_NORMAL PAREN_LEFT IDENT PAREN_RIGHT
+      OpIsNormal
+  | DOT PAREN_LEFT IDENT COMMA IDENT PAREN_RIGHT
+      OpDot
+  | OUTER_PRODUCT PAREN_LEFT IDENT COMMA IDENT PAREN_RIGHT
+      OpOuterProduct
+  | DPDX (LESS_THAN derivative_modifier GREATER_THAN)? PAREN_LEFT IDENT PAREN_RIGHT
+       OpDPdx
+       OpDPdxFine
+       OpDPdxCoarse
+  | DPDY (LESS_THAN derivative_modifier GREATER_THAN)? PAREN_LEFT IDENT PAREN_RIGHT
+       OpDPdy
+       OpDPdyFine
+       OpDPdyCoarse
+  | FWIDTH (LESS_THAN derivative_modifier GREATER_THAN)? PAREN_LEFT IDENT PAREN_RIGHT
+      OpFwidth
+      OpFwidthFine
+      OpFwidthCoarse
+
+Issue: (dsinclair): Add following. Do we want to add the regular versions as well?
+# | unord_greater_than_equal(a, b)
+#      OpFUordGreaterThanEqual
+# | unord_greater_than(a, b)
+#       OpFUordGreaterThan
+# | unord_less_than_equal(a, b)
+#      OpFUordLessThanEqual
+# | unord_less_than(a, b)
+#      OpFUordLessThan
+# | unord_not_equal(a, b)
+#      OpFUordNotEqual 
+# | unord_equal(a, b)
+#      OpFUordEqual 
+# | signed_greater_than_equal(a, b)
+#      OpSGreaterThanEqual
+# | signed_greater_than(a, b)
+#      OpSGreaterThan
+# | signed_less_than_equal(a, b)
+#      OpSLessThanEqual
+# | signed_less_than(a, b)
+#      OpSLessThan
+
+derivative_modiifer
+  : FINE
+  | COARSE
+
+multiplicative_expression
+  : unary_expression
+  | multiplicative_expression STAR unary_expression
+      OpVectorTimesScalar
+      OpMatrixTimesScalar
+      OpVectorTimesMatrix
+      OpMatrixTimesVector
+      OpMatrixTimesMatrix
+      OpIMul
+      OpFMul
+  | multiplicative_expression FORWARD_SLASH unary_expression
+      OpUDiv
+      OpSDiv
+      OpFDiv
+  | multiplicative_expression MODULO unary_expression
+      OpUMOd
+      OpSMod
+      OpFMod
+
+additive_expression
+  : multiplicative_expression
+  | additive_expression PLUS multiplicative_expression
+      OpIAdd
+      OpFAdd
+  | additive_expression MINUS multiplicative_expression
+      OpFSub
+      OpISub
+
+shift_expression
+  : additive_expression
+  | shift_expression LESS_THAN LESS_THAN additive_expression
+        OpShiftLeftLogical
+  | shift_expression GREATER_THAN GREATER_THAN additive_expression
+        OpShiftRightLogical
+  | shift_expression GREATER_THAN GREATER_THAN GREATER_THAN additive_expression
+        OpShiftRightArithmetic
+
+relational_expression
+  : shift_expression
+  | relational_expression LESS_THAN shift_expression
+        OpULessThan
+        OpFOrdLessThan
+  | relational_expression GREATER_THAN shift_expression
+        OpUGreaterThan
+        OpFOrdGreaterThan
+  | relational_expression LESS_THAN_EQUAL shift_expression
+        OpULessThanEqual
+        OpFOrdLessThanEqual
+  | relational_expression GREATER_THAN_EQUAL shift_expression
+        OpUGreaterThanEqual
+        OpFOrdGreaterThanEqual
+  
+equality_expression
+  : relational_expression
+  | relational_expression EQUAL_EQUAL relational_expression
+        OpIEqual
+        OpFOrdEqual
+  | relational_expression NOT_EQUAL relational_expression
+        OpINotEqual
+        OpFOrdNotEqual
+
+and_expression
+  : equality_expression
+  | and_expression AND equality_expression
+       OpBitwiseAnd
+
+exclusive_or_expression
+  : and_expression
+  | exclusive_or_expression XOR and_expression
+       OpBitwiseXor
+
+inclusive_or_expression
+  : exclusive_or_expression
+  | inclusive_or_expression OR exclusive_or_expression
+       OpBitwiseOr
+
+logical_and_expression
+  : inclusive_or_expression
+  | logical_and_expression AND_AND inclusive_or_expression
+      OpLogicalAnd
+
+logical_or_expression
+  : logical_and_expression
+  | logical_or_expression OR_OR logical_and_expression
+      OpLogicalOr
+
+assignment_stmt
+  : unary_expression EQUAL logical_or_expression
+      If unary_expression is a variable
+       OpLoad
+      If unary_expression is a const, this is just an assignment the ssa var
+</pre>
+
+## Literal Statement ## {#literal-statement}
+<pre class='def'>
+const_literal
+  : INT_LITERAL
+  | UINT_LITERAL
+  | FLOAT_LITERAL
+  | TRUE
+  | FALSE
+
+const_expr
+  : type_decl PAREN_LEFT (const_expr COMMA)? const_expr PAREN_RIGHT
+  | const_literal
+</pre>
+
+
+<div class='example' heading='Constants'>
+  <xmp>
+    -1
+       %a = OpConstant %int -1
+
+    2
+       %b = OpConstant %uint 2
+
+    3.2
+       %c = OpConstant %float 3.2
+
+    true
+        %d = OpConstantTrue
+
+    false 
+        %e = OpConstant False
+
+    vec4<f32>(1.2, 2.3, 3.4, 2.3)
+        %f0 = OpConstant %float 1.2
+        %f1 = OpConstant %float 2.3
+        %f2 = OpConstant %float 3.4
+         %f = OpConstantComposite %v4float %f0 %f1 %f2 %f1
+  </xmp>
+</div>
+
+# Validation # {#validation}
+
+Each validation item will be given a unique ID and a test must be provided
+when the validation is added. The tests will reference the validation ID in
+the test name.
+
+* v-0001: Only allowed import is “GLSL.std.450”
+* v-0002: Functions must end with a return statement.
+* v-0003: At least one of vertex, fragment or compute shader must be present.
+* v-0004: Recursion is not allowed.
+* v-0005: Functions must be declared before use.
+* v-0006: Variables must be defined before use.
+* v-0007: Structures must be defined before use.
+* v-0008: All members of a switch must end with a return, break or fallthrough.
+* v-0009: break is only permitted in for and switch constructs.
+* v-0010: continue only permitted in for
+* v-0011: Global variable names must be unique
+* v-0012: Structure names must be unique
+* v-0013: Variables declared in a function must be unique between that function
+          and any global variables.
+* v-0014: Variables declared in a function must have unique names
+* v-0015: Runtime arrays may only appear as the last member of a struct
+* v-0016: Function names must be unique
+* v-0017: Builtin decorations must have the correct types
+* v-0018: Builtin decorations must be used with the correct shader type and
+          storage class
+* v-0019: Functions used in entry points must exist
+* v-0020: The pair of `<entry point name, pipeline stage>` must be unique in the
+          module
+* v-0021: Can not re-assign a constant.
+* v-0022: Global variables must have a storage class
+
+# Type Checking # {#type-checking}
+
+Type checking is the process of mapping terms in the [SHORTNAME] source language to [[#formal-types]].
+
+Generally, we start by determining types for the smallest [SHORTNAME] source phrases, and then build up
+via combining rules.
+
+If we can derive a type for the whole [SHORTNAME] source program via the type rules, then we say
+the program is *well-typed*.  Otherwise there is a type error and is not a valid
+[SHORTNAME] program.
+
+
+Issue: (dneto) complete
+
+## Preamble for those familiar with formal type checking ## {#type-check-preamble}
+
+Much of it can be bottom-up, like usual.
+
+The interesting bit is that the type of a pointer expression is either straightforward pointer
+type itself, or the pointee type, depending on its [[#pointer-evaluation]] context:
+
+* In Indexing, Assigning (LValue), and Copying contexts, the pointer expression denotes a pointer value.
+* In a Parameter context:
+ * If the parameter type matches the pointer expression's straightforward pointer type, then the expression denotes that pointer type.
+ * Otherwise the pointer expression denotes a value of the pointee type, being the value loaded (at that time) from the referenced storage.
+* In a Reading (RValue) context, the pointer expression denotes a value of the pointee type.
+
+## How to read the rules ## {#type-check-how-to-read}
+
+A *type assertion* is a mapping from some [SHORTNAME] source expression to an [SHORTNAME] type. When we write
+
+*e* : *T*
+
+we are saying the [SHORTNAME] expression *e* is of type *T*
+In the rules below, the [SHORTNAME] source expression will often have placeholders in *italics* that
+represent sub-expressions in the grammar.
+
+In the following tables, each row represents a type deduction rule:
+If the conditions in the precondition column are satisfied, then
+the type assertion in the conclusion column is also satisfied.
+
+For convenience, we will use the following shorthands:
+
+<table class='data'>
+  <tr><td>*Scalar*<td>[[#scalar-types]], one of bool, i32, u32, f32
+  <tr><td>*BoolVec*<td>[[#vector-types]] with bool component
+  <tr><td>*Int*<td>i32 or u32
+  <tr><td>*IntVec*<td>[[#vector-types]] with an *Int8 component
+  <tr><td>*Integral*<td>*Int* or [[#vector-types]] with an *Int*component
+  <tr><td>*FloatVec*<td>[[#vector-types]] with f32 component
+  <tr><td>*Floating*<td>f32 or *FloatVec*
+  <tr><td>*Arity(T)*<td>number of components in [[#vector-types]] *T*
+</table>
+
+Issue: (dneto): Do we have to explicitly list the type environment Gamma? That's confusing to newcomers.
+
+## Literal and unary expression type rules ## {#literal-and-unary}
+
+<table class='data'>
+  <caption>Scalar literal type rules</caption>
+  <thead>
+    <tr><td>Precondition<td>Conclusion<td>Notes
+  </thead>
+  <tr><td><td>`true` : bool<td>OpConstantTrue %bool
+  <tr><td><td>`false` : bool<td>OpConstantFalse %bool
+  <tr><td><td>*INT_LITERAL* : i32<td>OpConstant %int *literal*
+  <tr><td><td>*UINT_LITERAL* : u32<td>OpConstant %uint *literal*
+  <tr><td><td>*FLOAT_LITERAL* : f32<td>OpConstant %float *literal*
+</table>
+
+<table class='data'>
+  <caption>Boolean constructor type rules</capiton>
+  <thead>
+    <tr><td>Precondition<td>Conclusion<td>Notes
+  </thead>
+  <tr><td>*e* : bool<td>`bool(e)` : bool<td>Pass-through (OpCopyObject)
+</table>
+
+<table class='data'>
+  <caption>Numeric scalar constructor type rules</caption>
+  <thead>
+    <tr><td>Precondition<td>Conclusion<td>Notes
+  </thead>
+  <tr><td>*e* : i32<td>`i32(e)` : i32<td>Pass-through (OpCopyObject)
+  <tr><td>*e* : u32<td>`i32(e)` : i32<td>Reinterpretation of bits (OpBitcast)
+  <tr><td>*e* : f32<td>`i32(e)` : i32<td>Value conversion, including invalid cases (OpConvertFToS)
+  <tr><td>*e* : i32<td>`u32(e)` : u32<td>Reinterpretation of bits (OpBitcast)
+  <tr><td>*e* : u32<td>`u32(e)` : u32<td>Pass-through (OpCopyObject)
+  <tr><td>*e* : f32<td>`u32(e)` : u32<td>Value conversion, including invalid cases (OpConvertFToU)
+  <tr><td>*e* : i32<td>`f32(e)` : f32<td>Value conversion, including invalid cases (OpConvertSToF)
+  <tr><td>*e* : u32<td>`f32(e)` : f32<td>Value conversion, including invalid cases (OpConvertUToF)
+  <tr><td>*e* : f32<td>`f32(e)` : f32<td>Pass-through (OpCopyObject)
+</table>
+
+<table class='data'>
+  <caption>Vector constructor type rules, where *T* is a scalar type</caption>
+  <thead>
+    <tr><td>Precondition<td>Conclusion<td>Notes
+  </thead>
+  <tr>
+    <td>*e1* : *T*<br>
+        *e2* : *T*
+    <td>`vec2<T>(e1,e2)` : vec2<*T*>
+    <td>OpCompositeConstruct
+  <tr>
+    <td>*e1* : *T*<br>
+        *e2* : *T*<br>
+        *e3* : *T*
+    <td>`vec3<T>(e1,e2,e3)` : vec3<*T*>
+    <td>OpCompositeConstruct
+  <tr>
+    <td>*e1* : *T*<br>
+        *e2* : *T*<br>
+        *e3* : *T*<br>
+        *e4* : *T*
+    <td>`vec4<T>(e1,e2,e3,e4)` : vec4<*T*>
+    <td>OpCompositeConstruct
+  <tr>
+    <td>*e1* : *T*<br>
+        *e2* : vec2<*T*>
+    <td>`vec3<T>(e1,e2)` : vec3<*T*><br>
+        `vec3<T>(e2,e1)` : vec3<*T*>
+    <td>OpCompositeConstruct
+  <tr>
+    <td>*e1* : *T*<br>
+        *e2* : *T*<br>
+        *e3* : vec2<*T*>
+    <td>`vec4<T>(e1,e2,e3)` : vec4<*T*><br>
+        `vec4<T>(e1,e3,e2)` : vec4<*T*><br>
+        `vec4<T>(e3,e1,e2)` : vec4<*T*>
+    <td>OpCompositeConstruct
+  <tr>
+    <td>*e1* : vec2<*T*><br>
+        *e2* : vec2<*T*>
+    <td>`vec4<T>(e1,e2)` : vec4<*T*>
+    <td>OpCompositeConstruct
+  <tr>
+    <td>*e1* : *T*<br>
+        *e2* : vec3<*T*>
+    <td>`vec4<T>(e1,e2)` : vec4<*T*><br>
+        `vec4<T>(e2,e1)` : vec4<*T*>
+    <td>OpCompositeConstruct
+</table>
+
+<table class='data'>
+  <caption>Matrix constructor type rules</caption>
+  <thead>
+    <tr><td>Precondition<td>Conclusion<td>Notes
+  </thead>
+  <tr>
+    <td>*e1* : vec2<f32><br>
+        *e2* : vec2<f32><br>
+        *e3* : vec2<f32><br>
+        *e4* : vec2<f32>
+    <td>`mat2x2<f32>(e1,e2)` : mat2x2<f32><br>
+        `mat3x2<f32>(e1,e2,e3)` : mat3x2<f32><br>
+        `mat4x2<f32>(e1,e2,e3,e4)` : mat4x2<f32>
+    <td>Column by column construction.<br>
+        OpCompositeConstruct
+  <tr>
+    <td>*e1* : vec3<f32><br>
+        *e2* : vec3<f32><br>
+        *e3* : vec3<f32><br>
+        *e4* : vec3<f32>
+    <td>`mat2x3<f32>(e1,e2)` : mat2x3<f32><br>
+        `mat3x3<f32>(e1,e2,e3)` : mat3x3<f32><br>
+        `mat4x3<f32>(e1,e2,e3,e4)` : mat4x3<f32>
+    <td>Column by column construction.<br>
+        OpCompositeConstruct
+  <tr>
+    <td>*e1* : vec4<f32><br>
+        *e2* : vec4<f32><br>
+        *e3* : vec4<f32><br>
+        *e4* : vec4<f32>
+    <td>`mat2x4<f32>(e1,e2)` : mat2x4<f32><br>
+        `mat3x4<f32>(e1,e2,e3)` : mat3x4<f32><br>
+        `mat4x4<f32>(e1,e2,e3,e4)` : mat4x4<f32>
+    <td>Column by column construction.<br>
+        OpCompositeConstruct
+</table>
+
+<table class='data'>
+  <caption>Unary operators</caption>
+  <thead>
+    <tr><td>Precondition<td>Conclusion<td>Notes
+  </thead>
+  <tr><td>*e* : *T*, *T* is *Integral*<td>`-e` : *T*<td>OpSNegate
+  <tr><td>*e* : *T*, *T* is *Floating*<td>`-e` : *T*<td>OpFNegate
+  <tr><td>*e* : bool<td>`!e` : *bool*<td>OpLogicalNot
+  <tr><td>*e* : *BoolVec*<td>`any(e)` : bool<td>OpAny
+  <tr><td>*e* : *BoolVec*<td>`all(e)` : bool<td>OpAll
+  <tr><td>*e* : f32<td>`is_nan(e)` : bool<td>OpIsNan
+  <tr><td>*e* : *T*, *T* is *FloatVec*<td>`is_nan(e)` : bool<*N*>, where *N = Arity(T)*<td>OpIsNan
+  <tr><td>*e* : f32<td>`is_inf(e)` : bool<td>OpIsInf
+  <tr><td>*e* : *T*, *T* is *FloatVec*<td>`is_inf(e)` : bool<*N*>, where *N = Arity(T)*<td>OpIsInf
+  <tr><td>*e* : f32<td>`is_finite(e)` : bool<td>OpIsFinite
+  <tr><td>*e* : *T*, *T* is *FloatVec*<td>`is_finite(e)` : bool<*N*>, where *N = Arity(T)*<td>OpIsFinite
+  <tr><td>*e* : f32<td>`is_normal(e)` : bool<td>OpIsNormal
+  <tr><td>*e* : *T*, *T* is *FloatVec*<td>`is_normal(e)` : bool<*N*>, where *N = Arity(T)*<td>OpIsNormal
+</table>
+
+Issue: (dneto): remaining unary operators
+
+# Glossary # {#glossary}
+
+<table class='data'>
+  <thead>
+    <tr><td>Term<td>Definition
+  </thead>
+  <tr><td>Dominates
+      <td>Basic block `A` *dominates* basic block `B` if:
+          * `A` and `B` are both in the same function `F`
+          * Every control flow path in `F` that goes to `B` must also to through `A`
+  <tr><td>Strictly dominates
+      <td>`A` *strictly dominates* `B` if `A` dominates `B` and `A != B`
+  <tr><td>DomBy(A)
+      <td>The basic blocks dominated by `A`
+</table>
+

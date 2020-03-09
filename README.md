@@ -8,6 +8,8 @@ related to the work. This repository will hold the actual specification, example
 
 Work-in-progress specification: https://gpuweb.github.io/gpuweb/
 
+Work-in-progress WGSL specification: https://gpuweb.github.io/gpuweb/wgsl.html
+
 ## Charter
 
 The [charter for this group](https://gpuweb.github.io/admin/cg-charter.html) is
