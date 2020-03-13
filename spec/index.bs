@@ -397,10 +397,10 @@ transition is impossible due to the hardware limitations.
 We define these places as <dfn dfn>usage scopes</dfn>:
 each [=subresource=] must not change usage within the [=usage scope=].
 
-For example, binding the same buffer for {{GPUBufferUsage/STORAGE}} as well as for
-{{GPUBufferUsage/VERTEX}} within the same {{GPURenderPassEncoder}} would put the encoder
+For example, binding the same buffer for {{GPUBufferUsage/STORAGE|GPUBufferUsage.STORAGE}} as well as for
+{{GPUBufferUsage/VERTEX|GPUBufferUsage.VERTEX}} within the same {{GPURenderPassEncoder}} would put the encoder
 as well as the owning {{GPUCommandEncoder}} into the error state. Since
-{{GPUBufferUsage/STORAGE}} is the only [=mutating usage=] for a buffer
+{{GPUBufferUsage/STORAGE|GPUBufferUsage.STORAGE}} is the only [=mutating usage=] for a buffer
 that is valid inside a render pass, if it's present,
 this buffer can't be used in any other way within this pass.
 
@@ -412,6 +412,34 @@ for the [=usage scope=] of this render pass.
 
 Issue(gpuweb/gpuweb#514): Document read-only states for depth views.
 
+## Synchronization ## {#programming-model-synchronization}
+
+For each [=subresource=] of a [=physical resource=], the usage is tracked on the [=Queue timeline=].
+
+Issue: This section will need to be redacted to support multiple queues.
+
+The [=Queue timeline=] could be split into a sequence of [=usage scopes=]:
+within each scope the usage of the [=subresource=] stays unchanged,
+and the implementation transitions the [=subresource=] to the new usage
+at the [=usage scope=] boundaries.
+
+This specification defines the following [=usage scopes=]:
+  1. an individual command on a {{GPUCommandEncoder}}, such as {{GPUCommandEncoder/copyBufferToTexture()|GPUCommandEncoder.copyBufferToTexture}}.
+  2. an individual command on a {{GPUComputePassEncoder}}, such as {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|GPUProgrammablePassEncoder.setBindGroup}}.
+  3. the whole {{GPURenderPassEncoder}}.
+
+Note: calling {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|GPUProgrammablePassEncoder.setBindGroup}}
+adds the {{GPUBindGroup/[[usedBuffers]]}} and {{GPUBindGroup/[[usedTextures]]}} to the [=usage scope=]
+regarless of whether the shader or {{GPUPipelineLayout}} actually depends on these bindings.
+Similarly {{GPURenderEncoderBase/setIndexBuffer()|GPURenderEncoderBase.setIndexBuffer}}
+add the index buffer to the usage scope (as {{GPUBufferUsage/INDEX|GPUBufferUsage.INDEX}})
+regarless of whether the indexed draw calls are used afterwards.
+
+The [=usage scopes=] are validated at {{GPUCommandEncoder/finish()|GPUCommandEncoder.finish}} time.
+The implementation performs the <dfn dfn>usage scope validation</dfn> by composing
+the union of all usage flags of each [=subresources=] used in the [=usage scope=].
+A {{GPUValidationError}} is generated in the current scope with appropriate error message
+if that contains a [=mutating usage=] combined with any other usage.
 
 Core Internal Objects {#core-internal-objects}
 ==============================================
@@ -1772,6 +1800,13 @@ A {{GPUBindGroup}} object has the following internal slots:
     : <dfn>\[[bindings]]</dfn> of type sequence<{{GPUBindGroupEntry}}>.
     ::
         The set of {{GPUBindGroupEntry}}s this {{GPUBindGroup}} describes.
+    : <dfn>\[[usedBuffers]]</dfn> of type maplike<{{GPUBuffer}}, {{GPUBufferUsage}}>.
+    ::
+        The set of buffers used by this bind group and the corresponding usage flags.
+    : <dfn>\[[usedTextures]]</dfn> of type maplike<{{GPUTexture}} [=subresource=], {{GPUTextureUsage}}>.
+    ::
+        The set of texure subresources used by this bind group. Each subresource is
+        stored with the union of usage flags that apply to it.
 </dl>
 
 ### {{GPUDevice/createBindGroup()|GPUDevice.createBindGroup(GPUBindGroupDescriptor)}} ### {#GPUDevice-createBindGroup}
@@ -1816,6 +1851,8 @@ The <dfn method for="GPUDevice">createBindGroup(|descriptor|)</dfn> method is us
 1. Return a new {{GPUBindGroup}} object with:
     - {{GPUBindGroup/[[layout]]}} = |descriptor|.{{GPUBindGroupDescriptor/layout}}
     - {{GPUBindGroup/[[bindings]]}} = |descriptor|.{{GPUBindGroupDescriptor/bindings}}
+    - {{GPUBindGroup/[[usedBuffers]]}} = union of the buffer usages across the bindings
+    - {{GPUBindGroup/[[usedTextures]]}} = union of the texture subresources usages across the bindings
 
 <b>Validation Conditions</b>
 
@@ -1839,21 +1876,26 @@ If any of the following conditions are violated:
         |view|'s texture's {{GPUTextureDescriptor/sampleCount}} must be 1.
     1. If |layoutBinding|.{{GPUBindGroupLayoutEntry/type}} is
         {{GPUBindingType/"sampled-texture"}}, |view|'s texture's {{GPUTextureDescriptor/usage}}
-        must include {{GPUTextureUsage/SAMPLED}}.
+        must include {{GPUTextureUsage/SAMPLED}}. Each texture's [=subresource=] seen by the |view|
+        is added to {{GPUBindGroup/[[usedTextures]]}} with {{GPUTextureUsage/SAMPLED}} flag.
     1. If |layoutBinding|.{{GPUBindGroupLayoutEntry/type}} is
         {{GPUBindingType/"readonly-storage-texture"}} or {{GPUBindingType/"writeonly-storage-texture"}},
         |view|'s texture's {{GPUTextureDescriptor/usage}} must include {{GPUTextureUsage/STORAGE}}.
+        Each texture's [=subresource=] seen by the |view|
+        is added to {{GPUBindGroup/[[usedTextures]]}} with {{GPUTextureUsage/STORAGE}} flag.
 
 <dfn>buffer binding validation</dfn>: Let |bufferBinding| be
     |bindingDescriptor|.{{GPUBindGroupEntry/resource}}, a {{GPUBufferBinding}}.
     This |layoutBinding| must be compatible with this |bufferBinding|. This requires:
     1. If |layoutBinding|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"uniform-buffer"}},
         the |bufferBinding|.{{GPUBufferBinding/buffer}}'s {{GPUBufferDescriptor/usage}} must include
-        {{GPUBufferUsage/UNIFORM}}.
+        {{GPUBufferUsage/UNIFORM}}. The buffer is added to {{GPUBindGroup/[[usedBuffers]]}} map
+        with {{GPUBufferUsage/UNIFORM}} flag.
     1. If |layoutBinding|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"storage-buffer"}}
         or {{GPUBindingType/"readonly-storage-buffer"}}, the
         |bufferBinding|.{{GPUBufferBinding/buffer}}'s {{GPUBufferDescriptor/usage}} must include
-        {{GPUBufferUsage/STORAGE}}.
+        {{GPUBufferUsage/STORAGE}}. The buffer is added to {{GPUBindGroup/[[usedBuffers]]}} map
+        with {{GPUBufferUsage/STORAGE}} flag.
     1. The bound part designated by |bufferBinding|.{{GPUBufferBinding/offset}} and
         |bufferBinding|.{{GPUBufferBinding/size}} must reside inside the buffer.
 </dl>
@@ -2544,6 +2586,8 @@ GPUQueue includes GPUObjectBase;
 {{GPUQueue/submit(commandBuffers)}} does nothing and produces an error if any of the following is true:
 
  - Any {{GPUBuffer}} referenced in any element of `commandBuffers` isn't in the `"unmapped"` [=buffer state=].
+ - Any of the [=usage scopes=] contained in the command buffers fail the [=usage scope validation=].
+
 
 ## GPUFence ## {#fence}
 
