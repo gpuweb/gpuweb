@@ -41,4 +41,4 @@ for line in inputfile:
         idlLineList.append(line)
 
 headerTemplate = Template(HEADER)
-print headerTemplate.substitute(YEAR=date.today().year) + "\n\n\n".join(idlList)
+print(headerTemplate.substitute(YEAR=date.today().year) + "\n\n\n".join(idlList))
