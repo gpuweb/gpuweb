@@ -372,8 +372,6 @@ Note: literals are parsed greedy. This means that for statements like `a -5`
   <tr><td>`COARSE`<td>coarse
   <tr><td>`COMPUTE`<td>compute
   <tr><td>`CONST`<td>const
-  <tr><td>`CONTINUE`<td>continue
-  <tr><td>`CONTINUING`<td>continuing
   <tr><td>`DEFAULT`<td>default
   <tr><td>`DOT`<td>dot
   <tr><td>`DPDX`<td>dpdx
@@ -985,16 +983,13 @@ statement
   | loop_stmt
   | variable_stmt SEMICOLON
   | break_stmt SEMICOLON
-  | continue_stmt SEMICOLON
   | KILL SEMICOLON
   | NOP SEMICOLON
   | assignment_stmt SEMICOLON
 
 break_stmt
   : BREAK ({IF | UNLESS} paren_rhs_stmt)?
-
-continue_stmt
-  : CONTINUE ({IF | UNLESS} paren_rhs_stmt)?
+  | BREAK INT_LITERAL?
 
 variable_stmt
   : variable_decl
@@ -1058,52 +1053,95 @@ case_body
 
 <pre class='def'>
 loop_stmt
-  : LOOP BRACKET_LEFT statements continuing_stmt? BRACKET_RIGHT
-
-continuing_stmt:
-  : CONTINUING body_stmt
+  : LOOP BRACKET_LEFT statements BRACKET_RIGHT
 </pre>
 
 The loop statement is one of the biggest divergences from other shader
 languages. The structure of the statement is designed to closely match the block
 ordering requirements for a loop in SPIR-V.
 
+
+<div class='example' heading='General GLSL Loop Form'>
+  <xmp>
+    for (A; B; C) {
+      D
+      if (E) break;
+      if (F) continue;
+      G
+      break;
+    }
+  </xmp>
+</div>
+
+<div class='example' heading="General [SHORTNAME] Loop Form">
+  <xmp>
+    A
+    loop {
+      if (B) break;
+      loop {
+        D
+        if (E) break 2; // Break outer loop
+        if (F) break 1; // Break inner to continue outer loop
+        G
+        break; // `break` implies `break 1`
+      }
+      C
+    }
+  </xmp>
+</div>
+
 <div class='example' heading='GLSL Loop'>
   <xmp>
-    int a = 2;
+    int total_weight = 0;
     for (int i = 0; i < 4; i++) {
-      a *= 2;
+      int weight = u_weights[i];
+      if (weight == -1) break; // Stop on -1.
+      if (weight < -1) continue; // Ignore <-1.
+      total_weight += weight;
     }
   </xmp>
 </div>
 
 <div class='example' heading="[SHORTNAME] Loop">
   <xmp>
-    const a : i32 = 2;
+    var total_weight : i32 = 0;
     var i : i32 = 0; <1>
     loop {
-      break if (i >= 4);
-
-      a = a * 2;
-
-      continuing {  <2>
-        i = i + 1;
+      if (i < 4) break;
+      loop {
+        const weight = u_weights[i];
+        if (weight == -1) break 2; // Stop on -1.
+        if (weight < -1) break 1; // Ignore <-1.
+        total_weight = total_weight + weight;
+        break;
       }
+      i = i + 1;
     }
   </xmp>
 </div>
-* <1> the initializer is listed before the loop
-* <2> the continue construct is placed at the end of the `loop`.
 
-### Other Looping Constructs ### {#other-looping}
+### Other Proposed Looping Constructs ### {#other-looping}
 
 Note: This is *proposed* but not in the [SHORTNAME] spec yet
 
-The `for(var i : i32 = 0; i < 4; i = i + 1) {}` statement is syntactic sugar on
+The `for(var i : i32 = 0; i < 4; i = i + 1) {CODE}` statement is syntactic sugar on
 top of the [[#loop-statement]].
 
-The `while(i < 4) {}` is syntactic sugar on top of the [[#loop-statement]]
-where there is no `continuing` construct.
+It would be equivalent to
+
+<div class='example' heading="[SHORTNAME] Loop">
+  <xmp>
+    var i : i32 = 0; <1>
+    loop {
+      if (i < 4) break;
+      loop {
+        CODE
+        break;
+      }
+      i = i + 1;
+    }
+  </xmp>
+</div>
 
 ## Expression statement ## {#expression-statement}
 <pre class='def'>
@@ -1367,6 +1405,7 @@ the test name.
           module
 * v-0021: Can not re-assign a constant.
 * v-0022: Global variables must have a storage class
+* v-0023: N in `break N;` is greater than its loop depth.
 
 # Type Checking # {#type-checking}
 
