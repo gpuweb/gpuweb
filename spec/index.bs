@@ -2434,25 +2434,34 @@ dictionary GPUBufferCopyView {
 A {{GPUBufferCopyView}} is a view of a [=buffer=] as an array of <dfn dfn>images</dfn>,
 used when copying data between a [=texture=] and a [=buffer=].
 
-  - For {{GPUTextureDimension/2d}} textures, data is copied between one [=image=] and one [=array layer=].
-  - For {{GPUTextureDimension/3d}} textures, data is copied between one [=image=] and one depth [=slice=].
+  - For {{GPUTextureDimension/2d}} textures, data is copied between one or multiple contiguous [=images=] and [=array layers=].
+  - For {{GPUTextureDimension/3d}} textures, data is copied between one or multiple contiguous [=images=] and depth [=slices=].
+
+Issue: Define images more precisely. In particular, define them as being comprised of [=texel blocks=].
+
+Issue: Define the exact copy semantics, by reference to common algorithms shared by the copy methods.
 
 <dl dfn-type=dict-member dfn-for=GPUBufferCopyView>
     : <dfn>bytesPerRow</dfn>
     ::
-        The stride, in bytes, between the beginning of each row of data and
-        the subsequent row.
+        The stride, in bytes, between the beginning of each row of [=texel blocks=] and the subsequent row.
 
     : <dfn>rowsPerImage</dfn>
     ::
-        {{GPUBufferCopyView/rowsPerImage}} &times; {{GPUBufferCopyView/bytesPerRow}}
-        is the stride, in bytes, between the beginning of each [=image=] of data
-        and the subsequent [=image=].
-
-        Note:
-        {{GPUBufferCopyView/rowsPerImage}} must be zero for copies with a `copySize.depth` of 1,
-        and must be greater than zero otherwise.
+        {{GPUBufferCopyView/rowsPerImage}} &divide; [=texel block height=] &times;
+        {{GPUBufferCopyView/bytesPerRow}} is the stride, in bytes, between the beginning of each [=image=]
+        of data and the subsequent [=image=].
 </dl>
+
+<div algorithm class=validusage>
+
+<dfn abstract-op>GPUBufferCopyView Valid Usage</dfn>
+
+Given a {{GPUBufferCopyView}} |bufferCopyView|, the following validation rules apply:
+  - |bufferCopyView|.{{GPUBufferCopyView/buffer}} must be a [=valid=] {{GPUBuffer}}.
+  - |bufferCopyView|.{{GPUBufferCopyView/bytesPerRow}} must be a multiple of 256.
+
+</div>
 
 ### <dfn dictionary>GPUTextureCopyView</dfn> ### {#gpu-texture-copy-view}
 
@@ -2465,12 +2474,30 @@ dictionary GPUTextureCopyView {
 };
 </script>
 
-A {{GPUTextureCopyView}} is a view of a sub-region of a [=texture=] [=subresource=] with the initial offset {{GPUOrigin3D}} in
-texels, used when copying data from or to a {{GPUTexture}}.
-
-  - For {{GPUTextureDimension/2d}} textures, data is copied from or to one [=mipmap level=] and one [=array layer=] of the [=texture=].
+A {{GPUTextureCopyView}} is a view of a sub-region of one or multiple contiguous [=texture=] [=subresources=] with the initial
+offset {{GPUOrigin3D}} in texels, used when copying data from or to a {{GPUTexture}}.
 
   * {{GPUTextureCopyView/origin}}: If unspecified, defaults to `[0, 0, 0]`.
+
+<div algorithm class=validusage>
+
+<dfn abstract-op>GPUTextureCopyView Valid Usage</dfn>
+
+  Given a {{GPUTextureCopyView}} |textureCopyView|, let
+  - |blockWidth| be the [=texel block width=] of |textureCopyView|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
+  - |blockHeight| be the [=texel block height=] of |textureCopyView|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
+
+  The following validation rules apply:
+  - |textureCopyView|.{{GPUTextureCopyView/texture}} must be a [=valid=] {{GPUTexture}}.
+  - The {{GPUTexture/[[sampleCount]]}} of |textureCopyView|.{{GPUTextureCopyView/texture}} must be 1.
+  - |textureCopyView|.{{GPUTextureCopyView/mipLevel}} must be less than the {{GPUTexture/[[mipLevelCount]]}} of
+    |textureCopyView|.{{GPUTextureCopyView/texture}}.
+  - If the |textureCopyView|.{{GPUTextureCopyView/texture}} is {{GPUTextureDimension/1d}} or {{GPUTextureDimension/3d}}:
+    - |textureCopyView|.{{GPUTextureCopyView/arrayLayer}} must be zero.
+  - |textureCopyView|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/x}} must be a multiple of |blockWidth|.
+  - |textureCopyView|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/y}} must be a multiple of |blockHeight|.
+
+</div>
 
 Issue(gpuweb/gpuweb#69): Define the copies with {{GPUTextureDimension/1d}} and {{GPUTextureDimension/3d}} textures.
 
@@ -2525,6 +2552,106 @@ dictionary GPUImageBitmapCopyView {
 
         Issue(gpuweb/gpuweb#69): figure out how to handle overflows in the spec.
     </div>
+</div>
+
+### <dfn method for=GPUCommandEncoder>copyBufferToTexture(source, destination, copySize)</dfn> ### {#GPUCommandEncoder-copyBufferToTexture}
+
+<div algorithm="GPUCommandEncoder.copyBufferToTexture">
+
+  **Arguments:**
+    - {{GPUBufferCopyView}} |source|
+    - {{GPUTextureCopyView}} |destination|
+    - {{GPUExtent3D}} |copySize|
+
+  **Returns:** void
+
+  Encode a command into the {{GPUCommandEncoder}} that copies data from a sub-region of a
+  {{GPUBuffer}} to a sub-region of one or multiple continuous {{GPUTexture}} [=subresources=].
+
+  |source| and |copySize| define the region of the source buffer.
+
+  |destination| and |copySize| define the region of the destination texture [=subresource=].
+
+</div>
+
+<div algorithm class=validusage>
+
+<dfn abstract-op>copyBufferToTexture Valid Usage</dfn>
+
+Given a {{GPUCommandEncoder}} |encoder| and the arguments {{GPUBufferCopyView}} |source|,
+{{GPUTextureCopyView}} |destination|, {{GPUExtent3D}} |copySize|, let
+  - |blockWidth| be the [=texel block width=] of |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
+  - |blockHeight| be the [=texel block height=] of |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
+  - |blockSize| be the [=texel block size=] of |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
+  - |bytesInACompleteRow| be |blockSize| &times; |copySize|.[=Extent3D/width=] &div; |blockWidth|.
+  - |bytesInACompleteImage| be |bytesInACompleteRow| &times; |copySize|.[=Extent3D/height=] &div; |blockHeight|.
+  - |requiredBytesInCopy| be calculated with the following algorithm assuming all the parameters are [=valid=]:
+    ```
+    if (copySize.width == 0 || copySize.height == 0 || copySize.depth == 0) {
+        requiredBytesInCopy = 0;
+    } else {
+        GPUSize64 texelBlockRowsPerImage = source.rowsPerImage / blockHeight;
+        GPUSize64 bytesPerImage = source.bytesPerRow * texelBlockRowsPerImage;
+        GPUSize64 bytesInLastSlice =
+            source.bytesPerRow * (copySize.height / blockHeight - 1) + (copySize.width / blockWidth * blockSize);
+        requiredBytesInCopy = bytesPerImage * (copySize.depth - 1) + bytesInLastSlice;
+    }
+    ```
+
+  The following validation rules apply:
+
+  For |encoder|:
+  - |encoder|.{{GPUCommandEncoder/copyBufferToTexture()}} must not be called when a {{GPURenderPassEncoder}}
+    is active on |encoder|.
+  - |encoder|.{{GPUCommandEncoder/copyBufferToTexture()}} must not be called when a {{GPUComputePassEncoder}}
+    is active on |encoder|.
+
+  For |source|:
+  - |source| must be [=valid=].
+  - |source|.{{GPUBufferCopyView/buffer}}.{{GPUBuffer/[[usage]]}} must contain {{GPUBufferUsage/COPY_SRC}}.
+
+  For |destination|:
+  - |destination| must be [=valid=].
+  - |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[textureUsage]]}} must contain
+    {{GPUTextureUsage/COPY_DST}}.
+
+  For |copySize|:
+  - If the {{GPUTexture/[[dimension]]}} of |destination|.{{GPUTextureCopyView/texture}} is
+    {{GPUTextureDimension/1d}}:
+    - Both |copySize|.[=Extent3D/height=] and [=Extent3D/depth=] must be 1.
+
+  For the copy being in-bounds:
+  - If |source|.{{GPUBufferCopyView/rowsPerImage}} is not 0, it must be greater than or equal to
+    |copySize|.[=Extent3D/height=].
+  - (|source|.{{GPUBufferCopyView/offset}} &add; |requiredBytesInCopy|) must not overflow a {{GPUSize64}}.
+  - (|source|.{{GPUBufferCopyView/offset}} &add; |requiredBytesInCopy|) must be smaller than or equal to
+    |source|.{{GPUBufferCopyView/buffer}}.{{GPUBuffer/[[size]]}}.
+  - If the {{GPUTexture/[[dimension]]}} of |destination|.{{GPUTextureCopyView/texture}} is
+    {{GPUTextureDimension/2d}}:
+    - (|destination|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/x}} &add; |copySize|.[=Extent3D/width=]) must be less than or equal to the width of the [=physical size=] of |destination|.{{GPUTextureCopyView/texture}} [=subresource=] at [=mipmap level=] {{GPUTextureCopyView/mipLevel}}.
+    - (|destination|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/y}} &add; |copySize|.[=Extent3D/height=]) must be less than or equal to the height of the [=physical size=] of |destination|.{{GPUTextureCopyView/texture}} [=subresource=] at [=mipmap level=] {{GPUTextureCopyView/mipLevel}}
+    - (|destination|.{{GPUTextureCopyView/arrayLayer}} &add; |copySize|.[=Extent3D/depth=]) must be less than or equal to the depth of the [=Extent3D/depth=] of the |destination|.{{GPUTextureCopyView/texture}}.
+
+  For the texel block alignments:
+  - |source|.{{GPUBufferCopyView/rowsPerImage}} must be a multiple of |blockHeight|.
+  - |copySize|.[=Extent3D/width=] must be a multiple of |blockWidth|.
+  - |copySize|.[=Extent3D/height=] must be a multiple of |blockHeight|.
+  - |source|.{{GPUBufferCopyView/offset}} must be a multiple of |blockSize|.
+
+  For other members in |source|:
+  - If |copySize|.[=Extent3D/height=] is greater than 1:
+    - |source|.{{GPUBufferCopyView/bytesPerRow}} must be greater than or equal to the number of |bytesInACompleteRow|.
+  - If |copySize|.[=Extent3D/depth=] is greater than 1:
+    - |source|.{{GPUBufferCopyView/rowsPerImage}} must be greater than or equal to the number of |bytesInACompleteImage|.
+
+Issue(gpuweb/gpuweb#69): Define the copies with {{GPUTextureDimension/1d}} and
+{{GPUTextureDimension/3d}} textures.
+
+Issue(gpuweb/gpuweb#537): Additional restrictions on rowsPerImage if needed.
+
+Issue(gpuweb/gpuweb#652): Define the copies with {{GPUTextureFormat/"depth24plus"}} and
+{{GPUTextureFormat/"depth24plus-stencil8"}}.
+
 </div>
 
 ## Programmable Passes ## {#programmable-passes}
