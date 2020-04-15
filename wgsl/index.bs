@@ -1053,14 +1053,21 @@ case_body
 <pre class='def'>
 loop_stmt
   : LOOP BRACKET_LEFT statements continuing_stmt? BRACKET_RIGHT
-
-continuing_stmt:
-  : CONTINUING body_stmt
 </pre>
 
-The loop statement is one of the biggest divergences from other shader
-languages. The structure of the statement is designed to closely match the block
-ordering requirements for a loop in SPIR-V.
+The loop construct causes a block of statements, the *loop body*, to execute repeatedly.
+
+This repetition can be interrupted by a [[#break-statement]], `return`, or `kill`.
+
+Optionally, the last statement in the loop body may be a 
+[[#continuing-statement]].
+It is only required when the loop body has a [[#continue-statement]].
+
+Note: The loop statement is one of the biggest differences from other shader
+languages.
+This design directly expresses loop idioms commonly found in compiled code.
+In particular, placing the loop update statements at the end of the loop body
+allows them to naturally use values defined in the loop body.
 
 <div class='example' heading='GLSL Loop'>
   <xmp>
@@ -1074,20 +1081,49 @@ ordering requirements for a loop in SPIR-V.
 <div class='example' heading="[SHORTNAME] Loop">
   <xmp>
     const a : i32 = 2;
-    var i : i32 = 0; <1>
+    var i : i32 = 0;      // <1>
     loop {
       break if (i >= 4);
 
       a = a * 2;
 
-      continuing {  <2>
-        i = i + 1;
+      i = i + 1;
+    }
+  </xmp>
+</div>
+* <1> The initialization is listed before the loop.
+
+<div class='example' heading='GLSL Loop with continue'>
+  <xmp>
+    int a = 2;
+    const int step = 1;
+    for (int i = 0; i < 4; i += step) {
+      if (i % 2 == 0) continue;
+      a *= 2;
+    }
+  </xmp>
+</div>
+
+<div class='example' heading="[SHORTNAME] Loop with continue">
+  <xmp>
+    const a : i32 = 2;
+    var i : i32 = 0;
+    loop {
+      break if (i >= 4);
+
+      const step : i32 = 1;
+
+      continue if (i % 2 == 0);
+
+      a = a * 2;
+
+      continuing {   // <2>
+        i = i + step;
       }
     }
   </xmp>
 </div>
-* <1> the initializer is listed before the loop
-* <2> the continue construct is placed at the end of the `loop`.
+* <2> The continue construct is placed at the end of the `loop`, and is only required when the loop has a `continue` statement.
 
 ### Other Looping Constructs ### {#other-looping}
 
@@ -1098,6 +1134,77 @@ top of the [[#loop-statement]].
 
 The `while(i < 4) {}` is syntactic sugar on top of the [[#loop-statement]]
 where there is no `continuing` construct.
+
+## Break statement ## {#break-statement}
+
+<pre class='def'>
+break_stmt
+  : BREAK ({IF | UNLESS} paren_rhs_stmt)?
+</pre>
+
+Use a `break` statement to transfer control to the first statement
+after the body of the nearest-enclosing [[#loop-statement]]
+or [[#switch-statement]].
+
+The `break` statement has three forms:
+
+* `break` followed by an `if`-qualified condition: transfers control if the condition evaluates to `true`.
+* `break` followed by an `unless`-qualified condition: transfers control if the condition evaluates to `false`.
+* `break` without a qualifying clause: always transfers control.
+
+When a `break` statement is placed such that it would exit from a loop's [[#continuing-statement]],
+the break statement must appear last in that [[#continuing-statement]].
+
+## Continue statement ## {#continue-statement}
+
+<pre class='def'>
+continue_stmt
+  : CONTINUE ({IF | UNLESS} paren_rhs_stmt)?
+</pre>
+
+Use a `continue` statement to transfer control forward to the [[#continuing-statement]] at the end
+of the body of the nearest-enclosing [[#loop-statement]]. 
+
+The `continue` statement has three forms:
+
+* `continue` followed by an `if`-qualified condition: transfers control when the condition evaluates to `true`.
+* `continue` followed by an `unless`-qualified condition: transfers control when the condition evaluates to `false`
+* `continue` without a qualifying clause: always transfers control.
+
+A `continue` statement must not be placed such that it would transfer
+control to an enclosing [[#continuing-statement]].  (It is a *forward* branch.)
+
+A `continue` statement must not be placed such that it would transfer
+control past a declaration used in the targeted continuing construct.
+
+<div class='example' heading="Invalid continue bypasses declaration">
+  <xmp>
+    var i : i32 = 0;
+    loop {
+      break if (i >= 4);
+      if (i % 2 == 0) continue; // <3>
+
+      const step : i32 = 2;
+
+      continuing {
+        i = i + step;
+      }
+    }
+  </xmp>
+</div>
+* <3> The `continue` is invalid because it bypasses the declaration of `step` used in the `continuing` construct
+
+## Continuing statement ## {#continuing-statement}
+
+<pre>
+continuing_stmt:
+  : CONTINUING body_stmt
+</pre>
+
+A *continuing* construct is a block of statements to be executed at the end of a loop iteration.
+The construct is optional.  It is only required when the loop body has a [[#continue-statement]].
+
+The block of statements must not contain a return or kill statement.
 
 ## Expression statement ## {#expression-statement}
 <pre class='def'>
@@ -1306,7 +1413,7 @@ the test name.
 * v-0006: Variables must be defined before use.
 * v-0007: Structures must be defined before use.
 * v-0008: All members of a switch must end with a return, break or fallthrough.
-* v-0009: break is only permitted in for and switch constructs.
+* v-0009: break is only permitted in loop and switch constructs.
 * v-0010: continue only permitted in for
 * v-0011: Global variable names must be unique
 * v-0012: Structure names must be unique
