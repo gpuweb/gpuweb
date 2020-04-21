@@ -1768,7 +1768,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
 
     The <dfn method for="GPUDevice">createBindGroupLayout(|descriptor|)</dfn> method is used to create {{GPUBindGroupLayout}}s.
 
-    1. Ensure [=device validation=] is not violated.
+    1. Ensure [=bind group layout device validation=] is not violated.
     1. Let |layout| be a new valid {{GPUBindGroupLayout}} object.
     1. For each {{GPUBindGroupLayoutEntry}} |bindingDescriptor| in |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
         1. Ensure |bindingDescriptor|.{{GPUBindGroupLayoutEntry/binding}} does not violate [=binding validation=].
@@ -1796,7 +1796,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
             1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
             1. Create a new [=invalid=] {{GPUBindGroupLayout}} and return the result.
 
-        <dfn>device validation</dfn>: The {{GPUDevice}} must not be lost.
+        <dfn>bind group layout device validation</dfn>: The {{GPUDevice}} must not be lost.
 
         <dfn>binding validation</dfn>: Each |bindingDescriptor|.{{GPUBindGroupLayoutEntry/binding}} in |descriptor| must be unique.
 
@@ -1830,7 +1830,21 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
     </div>
 </div>
 
-## GPUBindGroup ## {#gpu-bindgroup}
+### Compatibility ### {#bind-group-compatibility}
+
+<div algorithm>
+Two {{GPUBindGroupLayout}} objects |a| and |b| are considered <dfn dfn>equivalent</dfn> if all of the following conditions are true:
+
+  1. |a|.{{GPUBindGroupLayout/[[entries]]}}.length == |b|.{{GPUBindGroupLayout/[[entries]]}}
+  2. For each entry in |a|.{{GPUBindGroupLayout/[[entries]]}} there is an equivalent entry in |b|.{{GPUBindGroupLayout/[[entries]]}}
+
+</div>
+
+Issue: should the equivalence be relaxed for {{GPUBindGroupLayoutEntry}} fields that are not relevant to the actual bindings (e.g. {{GPUBindGroupLayoutEntry/textureComponentType}} for buffer bindings)?
+
+If bind groups layouts are [=equivalent=] they can be interchangeably used in all contents.
+
+## GPUBindGroup ## {#gpu-bind-group}
 
 A {{GPUBindGroup}} defines a set of resources to be bound together in a group
     and how the resources are used in shader stages.
@@ -1993,13 +2007,47 @@ A {{GPUBindGroup}} object has the following internal slots:
 
 ## GPUPipelineLayout ## {#pipeline-layout}
 
+A {{GPUPipelineLayout}} defines the mapping between resources of all {{GPUBindGroup}} objects set up during command encoding in {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup}}, and the shaders of the pipeline set by {{GPURenderEncoderBase/setPipeline(pipeline)|GPURenderEncoderBase.setPipeline}} or {{GPUComputePassEncoder/setPipeline(pipeline)|GPUComputePassEncoder.setPipeline}}.
+
 <script type=idl>
+[Serializable]
 interface GPUPipelineLayout {
 };
 GPUPipelineLayout includes GPUObjectBase;
 </script>
 
+{{GPUPipelineLayout}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUPipelineLayout">
+    : <dfn>\[[bindGroupLayouts]]</dfn> of type sequence<{{GPUBindGroupLayout}}>.
+    ::
+        The {{GPUBindGroupLayout}} objects provided at creation in {{GPUPipelineLayoutDescriptor/bindGroupLayouts|GPUPipelineLayoutDescriptor.bindGroupLayouts}}.
+</dl>
+
+Using the same {{GPUPipelineLayout}} for many {{GPURenderPipeline}} or {{GPUComputePipeline}} pipelines guarantees that the user agent doesn't need to rebind any resources internally when there is a switch between these pipelines.
+
+<div class="example">
+{{GPUComputePipeline}} object X was created with {{GPUPipelineLayout/[[bindGroupLayouts]]|GPUPipelineLayout.bindGroupLayouts}} A, B, C. {{GPUComputePipeline}} object Y was created with {{GPUPipelineLayout/[[bindGroupLayouts]]|GPUPipelineLayout.bindGroupLayouts}} A, D, C. Supposing the command encoding sequence has two dispatches:
+
+  1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(0, ...)}}
+  1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(1, ...)}}
+  1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(2, ...)}}
+  1. {{GPUComputePassEncoder/setPipeline(pipeline)|setPipeline(X)}}
+  1. {{GPUComputePassEncoder/dispatch(x, y, z)|dispatch()}}
+  1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(1, ...)}}
+  1. {{GPUComputePassEncoder/setPipeline(pipeline)|setPipeline(Y)}}
+  1. {{GPUComputePassEncoder/dispatch(x, y, z)|dispatch()}}
+
+In this scenario, the user agent would have to re-bind the group slot 2 for the second dispatch, even though neither the {{GPUBindGroupLayout}} at index 2 of {{GPUPipelineLayout/[[bindGroupLayouts]]|GPUPipelineLayout.bindGrouplayouts}}, or the {{GPUBindGroup}} at slot 2, change.
+</div>
+
+Issue: should this example and the note be moved to some "best practices" document?
+
+Note: the expected usage of the {{GPUPipelineLayout}} is placing the most common and the least frequently changing bind groups at the "bottom" of the layout, meaning lower bind group slot numbers, like 0 or 1. The more frequently a bind group needs to change between draw calls, the higher its index should be. This general guideline allows the user agent to minimize state changes between draw calls, and consequently lower the CPU overhead.
+
 ### Creation ### {#pipeline-layout-creation}
+
+A {{GPUPipelineLayout}} is created via {{GPUDevice/createPipelineLayout()|GPUDevice.createPipelineLayout()}}.
 
 <script type=idl>
 dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
@@ -2007,6 +2055,34 @@ dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
 };
 </script>
 
+### {{GPUDevice}}.<dfn method for=GPUDevice>createPipelineLayout(descriptor)</dfn> ### {#device-create-pipeline-layout}
+
+<div algorithm=GPUDevice.createPipelineLayout>
+    **Arguments:**
+        - {{GPUPipelineLayoutDescriptor}} |descriptor|
+
+    **Returns:** {{GPUPipelineLayout}}.
+
+    1. Ensure [=pipeline layout device validation=] is not violated.
+    1. Ensure [=pipeline layout entries validation=] is not violated.
+    1. Let |pl| be a new {{GPUPipelineLayout}} object.
+    1. Set the |pl|.{{GPUPipelineLayout/[[bindGroupLayouts]]}} to |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}.
+    1. Return |pl|.
+
+    <div class=validusage dfn-for=GPUDevice.createPipelineLayout>
+        <dfn abstract-op>Valid Usage</dfn>
+
+        If any of the following conditions are violated:
+            1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
+            1. Create a new [=invalid=] {{GPUPipelineLayout}} and return the result.
+
+        <dfn>pipeline layout device validation</dfn>: The {{GPUDevice}} must not be lost.
+
+        <dfn>pipeline layout entries validation</dfn>: There must be {{GPULimits/maxBindGroups|GPULimits.maxBindGroups}} or fewer elements in |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}. All these {{GPUBindGroupLayout}} entries have to be valid.
+    </div>
+</div>
+
+Note: two {{GPUPipelineLayout}} objects are considered [=equivalent=] for any usage if their internal {{GPUPipelineLayout/[[bindGroupLayouts]]}} sequences contain {{GPUBindGroupLayout}} objects that are [=equivalent=].
 
 # Shader Modules # {#shader-modules}
 
