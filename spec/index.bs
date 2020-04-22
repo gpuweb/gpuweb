@@ -57,7 +57,7 @@ WebGPU sees physical GPU hardware as {{GPUAdapter}}s. It provides a connection t
 {{GPUShaderModule}} contains [=shader=] code. The other resources,
 such as {{GPUSampler}} or {{GPUBindGroup}}, configure the way [=physical resources=] are used by the GPU.
 
-GPUs execute commands encoded in {{GPUCommandBuffer}}s by feeding data through a <dfn>pipeline</dfn>,
+GPUs execute commands encoded in {{GPUCommandBuffer}}s by feeding data through a [=pipeline=],
 which is a mix of fixed-function and programmable stages. Programmable stages execute
 <dfn dfn>shaders</dfn>, which are special programs designed to run on GPU hardware.
 Most of the state of a [=pipeline=] is defined by
@@ -2009,6 +2009,13 @@ A {{GPUBindGroup}} object has the following internal slots:
 
 A {{GPUPipelineLayout}} defines the mapping between resources of all {{GPUBindGroup}} objects set up during command encoding in {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup}}, and the shaders of the pipeline set by {{GPURenderEncoderBase/setPipeline(pipeline)|GPURenderEncoderBase.setPipeline}} or {{GPUComputePassEncoder/setPipeline(pipeline)|GPUComputePassEncoder.setPipeline}}.
 
+The full binding address of a resource can be defined as a trio of:
+  1. shader stage mask, to which the resource is visible
+  2. bind group index
+  3. binding number
+
+The components of this address can also be seen as the binding space of a pipeline. A {{GPUBindGroup}} (with the corresponding {{GPUBindGroupLayout}}) covers that space for a fixed bind group index. The contained bindings need to be a superset of the resources used by the shader at this bind group index.
+
 <script type=idl>
 [Serializable]
 interface GPUPipelineLayout {
@@ -2112,6 +2119,24 @@ dictionary GPUShaderModuleDescriptor : GPUObjectDescriptorBase {
 
 # Pipelines # {#pipelines}
 
+A <dfn dfn>pipeline</dfn>, be it {{GPUComputePipeline}} or {{GPURenderPipeline}},
+represents the complete function done by a combination of the GPU hardware, the driver,
+and the user agent, that process the input data in the shape of bindings and vertex buffers,
+and produces some output, like the colors in the output render targets.
+
+Structurally, the [=pipeline=] consists of a sequence of programmable stages (shaders)
+and fixed-function states, such as the blending modes.
+
+Note: Internally, depending on the target platform,
+the driver may convert some of the fixed-function states into shader code,
+and link it together with the shaders provided by the user.
+This linking is one of the reason the object is created as a whole.
+
+This combination state is created as a single object
+(by {{GPUDevice/createComputePipeline(descriptor)|GPUDevice.createComputePipeline()}} or {{GPUDevice/createRenderPipeline(descriptor)|GPUDevice.createRenderPipeline()}}),
+and switched as one
+(by {{GPUComputePassEncoder/setPipeline(pipeline)|GPUComputePassEncoder.setPipeline}} or {{GPURenderEncoderBase/setPipeline(pipeline)|GPURenderEncoderBase.setPipeline}} correspondingly).
+
 <script type=idl>
 dictionary GPUPipelineDescriptorBase : GPUObjectDescriptorBase {
     required GPUPipelineLayout layout;
@@ -2122,11 +2147,81 @@ dictionary GPUPipelineDescriptorBase : GPUObjectDescriptorBase {
 dictionary GPUProgrammableStageDescriptor {
     required GPUShaderModule module;
     required DOMString entryPoint;
-    // TODO: other stuff like specialization constants?
 };
 </script>
 
+A {{GPUProgrammableStageDescriptor}} describes the entry point in the user-provided
+{{GPUShaderModule}} that controls one of the programmable stages of a [=pipeline=].
+
+<dl dfn-type="abstract-op">
+    : <dfn>validating GPUProgrammableStageDescriptor</dfn>(stage, descriptor, layout)
+    ::
+        <div algorithm="validation GPUProgrammableStageDescriptor(stage, descriptor, layout)">
+            **Arguments:**
+                - {{GPUShaderStage}} |stage|
+                - {{GPUProgrammableStageDescriptor}} |descriptor|
+                - {{GPUPipelineLayout}} |layout|
+
+            1. If the |descriptor|.{{GPUProgrammableStageDescriptor/module}} is not
+                a [=valid=] {{GPUShaderModule}} return false.
+            1. If the |descriptor|.{{GPUProgrammableStageDescriptor/module}} doesn't contain
+                an entry point at |stage| named |descriptor|.{{GPUProgrammableStageDescriptor/entryPoint}} return false.
+            1. For each |binding| that is [=statically used=] by the shader entry point,
+                if the result of [$validating shader binding$](|binding|, |layout|) is false, return false.
+            1. Return true.
+        </div>
+</dl>
+<dl dfn-type="abstract-op">
+    : <dfn>validating shader binding</dfn>(binding, layout)
+    ::
+        <div algorithm="validation of shader binding(binding, layout)">
+            **Arguments:**
+                - shader |binding|, reflected from the shader module
+                - {{GPUPipelineLayout}} |layout|
+
+            Consider the shader |binding| annotation of |bindIndex| for the
+            binding index and |bindGroup| for the bind group index.
+
+            Return true if all of the following conditions are satisfied.
+
+            1. |layout|.{{GPUPipelineLayout/[[bindGroupLayouts]]}}[|bindGroup|] contains
+                a {{GPUBindGroupLayoutEntry}} |entry| whose |entry|.{{GPUBindGroupLayoutEntry/binding}} == |bindIndex|.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampler"}},
+                the |binding| has to be a non-comparison sampler.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"comparison-sampler"}},
+                the |binding| has to be a comparison sampler.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampled-texture"}},
+                the |binding| has to be a sampled texture with the component type of |entry|.{{GPUBindGroupLayoutEntry/textureComponentType}}.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"readonly-storage-texture"}},
+                the |binding| has to be a read-only storage texture with format of |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"writeonly-storage-texture"}},
+                the |binding| has to be a writable storage texture with format of |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"uniform-buffer"}},
+                the |binding| has to be a uniform buffer.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"storage-buffer"}},
+                the |binding| has to be a storage buffer.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"readonly-storage-buffer"}},
+                the |binding| has to be a read-only storage buffer.
+        </div>
+</dl>
+
+Issue: is there a match/switch statement in bikeshed?
+
+A resource binding is considered to be <dfn dfn>statically used</dfn> by a shader entry point
+if and only if it's reachable by the control flow graph of the shader module,
+starting at the entry point.
+
 ## GPUComputePipeline ## {#compute-pipeline}
+
+A {{GPUComputePipeline}} is a kind of [=pipeline=] that controls the compute shader stage,
+and can be used in {{GPUComputePassEncoder}}.
+
+Compute inputs and outputs are all contained in the bindings,
+according to the given {{GPUPipelineLayout}}.
+The outputs correspond to {{GPUBindingType/"storage-buffer"}} and {{GPUBindingType/"writeonly-storage-texture"}} binding types.
+
+Stages of a compute [=pipeline=]:
+  1. Compute shader
 
 <script type=idl>
 [Serializable]
@@ -2143,7 +2238,54 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 };
 </script>
 
+### {{GPUDevice/createComputePipeline()|GPUDevice.createComputePipeline(GPUComputePipelineDescriptor)}} ### {#device-createComputePipeline}
+
+<div algorithm="GPUDevice.createComputePipeline">
+    **Arguments:**
+        - {{GPUComputePipelineDescriptor}} |descriptor|
+
+    **Returns:** {{GPUComputePipeline}}.
+
+    The <dfn method for="GPUDevice">createComputePipeline(|descriptor|)</dfn> method is used to create {{GPUComputePipeline}}s.
+
+    If any of the conditions below are violated:
+        1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
+        1. Create a new [=invalid=] {{GPUComputePipeline}} and return the result.
+
+    1. Ensure the {{GPUDevice}} is not lost.
+    1. Ensure the |descriptor|.{{GPUPipelineDescriptorBase/layout}} is a [=valid=] {{GPUPipelineLayout}}.
+    1. Ensure the [$validating GPUProgrammableStageDescriptor$]({{GPUShaderStage/COMPUTE}},
+        |descriptor|.{{GPUComputePipelineDescriptor/computeStage}}, |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+</div>
+
 ## GPURenderPipeline ## {#render-pipeline}
+
+A {{GPURenderPipeline}} is a kind of [=pipeline=] that controls the vertex
+and fragment shader stages, and can be used in {{GPURenderPassEncoder}}
+as well as {{GPURenderBundleEncoder}}.
+
+Render [=pipeline=] inputs are:
+  - bindings, according to the given {{GPUPipelineLayout}}
+  - vertex and index buffers, described by {{GPUVertexStateDescriptor}}
+  - the color attachments, described by {{GPUColorStateDescriptor}}
+  - optionally, the depth-stencil attachment, described by {{GPUDepthStencilStateDescriptor}}
+
+Render [=pipeline=] outputs are:
+  - bindings of types {{GPUBindingType/"storage-buffer"}} and {{GPUBindingType/"writeonly-storage-texture"}}
+  - the color attachments, described by {{GPUColorStateDescriptor}}
+  - optionally, depth-stencil attachment, described by {{GPUDepthStencilStateDescriptor}}
+
+Stages of a render [=pipeline=]:
+  1. Vertex fetch, controlled by {{GPUVertexStateDescriptor}}
+  2. Vertex shader
+  3. Primitive assembly, controlled by {{GPUPrimitiveTopology}}
+  4. Rasterization, controlled by {{GPURasterizationStateDescriptor}}
+  5. Fragment shader
+  6. Stencil test and operation, controlled by {{GPUDepthStencilStateDescriptor}}
+  7. Depth test, controlled by {{GPUDepthStencilStateDescriptor}}
+  8. Output merging, contolled by {{GPUColorStateDescriptor}}
+
+Issue: we need a deeper description of these stages
 
 <script type=idl>
 [Serializable]
@@ -2168,11 +2310,107 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     GPUSize32 sampleCount = 1;
     GPUSampleMask sampleMask = 0xFFFFFFFF;
     boolean alphaToCoverageEnabled = false;
-    // TODO: other properties
 };
 </script>
 
-  * {{GPURenderPipelineDescriptor/sampleCount}}: Number of MSAA samples.
+  * {{GPURenderPipelineDescriptor/vertexState}} describes
+    the vertex shader entry point of the [=pipeline=]
+  * {{GPURenderPipelineDescriptor/fragmentStage}} describes
+    the fragment shader entry point of the [=pipeline=]. If it's "null", the [[#no-color-output]] mode is enabled.
+  * {{GPURenderPipelineDescriptor/primitiveTopology}} configures
+    the primitive assembly stage of the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/rasterizationState}} configures
+    the rasterization stage of the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/colorStates}} describes
+    the color attachments that are written by the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/depthStencilState}} describes
+    the optional depth-stencil attachment that is written by the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/vertexState}} configures
+    the vertex fetch stage of the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/sampleCount}} is
+    the number of MSAA samples that each attachment has to have.
+  * {{GPURenderPipelineDescriptor/sampleMask}} is
+    a binary mask of MSAA samples, according to [#sample-masking]].
+  * {{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} enables the [[#alpha-to-coverage]] mode.
+
+### No Color Output ### {#no-color-output}
+
+In no-color-output mode, [=pipeline=] does not produce any color attachment outputs,
+and the {{GPURenderPipelineDescriptor/colorStates}} is expected to be empty.
+
+The [=pipeline=] still performs rasterization and produces depth values
+based on the vertex position output. The depth testing and stencil operations can still be used.
+
+### Alpha to Coverage ### {#alpha-to-coverage}
+
+In alpha-to-coverage mode, an additional <dfn dfn>alpha-to-coverage mask</dfn>
+of MSAA samples is generated based on the |alpha| component of the
+fragment shader output value of the {{GPURenderPipelineDescriptor/colorStates}}[0].
+
+The algorithm of producing the extra mask is platform-dependent. It guarantees that:
+  - if |alpha| is 0.0 or less, the result is 0x0
+  - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
+  - if |alpha| is greater than some other |alpha1|,
+    then the produced sample mask has at least as many bits set to 1 as the mask for |alpha1|
+
+### Sample Masking ### {#sample-masking}
+
+The <dfn dfn>final sample mask</dfn> for a pixel is computed as:
+[=rasterization mask=] & {{GPURenderPipelineDescriptor/sampleMask}} & [=shader-output mask=].
+
+Only the lower {{GPURenderPipelineDescriptor/sampleCount}} bits of the mask are considered.
+
+If the least-significant bit at position |N| of the [=final sample mask=] has value of "0",
+the sample color outputs (corresponding to sample |N|) to all attachments of the fragment shader are discarded.
+Also, no depth test or stencil operations are executed on the relevant samples of the depth-stencil attachment.
+
+Note: the color output for sample |N| is produced by the fragment shader execution
+with SV_SampleIndex == |N| for the current pixel.
+If the fragment sahder doesn't use this semantics, it's only executed once per pixel.
+
+The <dfn dfn>rasterization mask</dfn> is produced by the rasterization stage,
+based on the shape of the rasterized polygon. The samples incuded in the shape get the relevant
+bits 1 in the mask.
+
+The <dfn dfn>shader-output mask</dfn> takes the output value of SV_Coverage semantics in the fragment shader.
+If the semantics is not [=statically used=] by the shader, and {{GPURenderPipelineDescriptor/alphaToCoverageEnabled}}
+is enabled, the [=shader-output mask=] becomes the [=alpha-to-coverage mask=]. Otherwise, it defaults to 0xFFFFFFFF.
+
+Issue: link to the semantics of SV_SampleIndex and SV_Coverage in WGSL spec.
+
+### {{GPUDevice/createRenderPipeline()|GPUDevice.createRenderPipeline(GPURenderPipelineDescriptor)}} ### {#device-createRenderPipeline}
+
+<div algorithm="GPUDevice.createRenderPipeline">
+    **Arguments:**
+        - {{GPURenderPipelineDescriptor}} |descriptor|
+
+    **Returns:** {{GPURenderPipeline}}.
+
+    The <dfn method for="GPUDevice">createRenderPipeline(|descriptor|)</dfn> method is used to create {{GPURenderPipeline}}s.
+
+    If any of the conditions below are violated:
+        1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
+        1. Create a new [=invalid=] {{GPURenderPipeline}} and return the result.
+
+    1. Ensure the {{GPUDevice}} is not lost.
+    1. Ensure the |descriptor|.{{GPUPipelineDescriptorBase/layout}} is
+        a [=valid=] {{GPUPipelineLayout}}.
+    1. Ensure the [$validating GPUProgrammableStageDescriptor$]({{GPUShaderStage/VERTEX}},
+        |descriptor|.{{GPURenderPipelineDescriptor/vertexStage}},
+        |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}} is not "null",
+        ensure the [$validating GPUProgrammableStageDescriptor$]({{GPUShaderStage/FRAGMENT}},
+        |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}},
+        |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} is true,
+        ensure |descriptor|.{{GPURenderPipelineDescriptor/sampleCount}} is greater than 1.
+    2. If the output SV_Coverage semantics is [=statically used=] by |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}},
+        ensure |descriptor|.{{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} is false.
+</div>
+
+Issue: Need a more detailed validation of the render states.
+
+Issue: Need description of the render states.
 
 ### Primitive Topology ### {#primitive-topology}
 
