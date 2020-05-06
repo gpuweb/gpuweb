@@ -57,7 +57,7 @@ WebGPU sees physical GPU hardware as {{GPUAdapter}}s. It provides a connection t
 {{GPUShaderModule}} contains [=shader=] code. The other resources,
 such as {{GPUSampler}} or {{GPUBindGroup}}, configure the way [=physical resources=] are used by the GPU.
 
-GPUs execute commands encoded in {{GPUCommandBuffer}}s by feeding data through a <dfn>pipeline</dfn>,
+GPUs execute commands encoded in {{GPUCommandBuffer}}s by feeding data through a [=pipeline=],
 which is a mix of fixed-function and programmable stages. Programmable stages execute
 <dfn dfn>shaders</dfn>, which are special programs designed to run on GPU hardware.
 Most of the state of a [=pipeline=] is defined by
@@ -1127,16 +1127,13 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
 
 <!-- TODO(kangz): Describe what are the {{device}} [[allowed buffer usages]] -->
 
-<dl dfn-type="abstract-op">
-    : <dfn>validating GPUBufferDescriptor</dfn>(device, descriptor)
-    ::
-        <div algorithm="validation GPUBufferDescriptor(device, descriptor)">
-            1. If device is lost return false.
-            1. If any of the bits of |descriptor|'s {{GPUBufferDescriptor/usage}} aren't present in this device's [[allowed buffer usages]] return false.
-            1. If both the {{GPUBufferUsage/MAP_READ}} and {{GPUBufferUsage/MAP_WRITE}} bits of |descriptor|'s {{GPUBufferDescriptor/usage}} attribute are set, return false.
-            1. Return true.
-        </div>
-</dl>
+<div algorithm>
+    <dfn abstract-op>validating GPUBufferDescriptor</dfn>(device, descriptor)
+        1. If device is lost return false.
+        1. If any of the bits of |descriptor|'s {{GPUBufferDescriptor/usage}} aren't present in this device's [[allowed buffer usages]] return false.
+        1. If both the {{GPUBufferUsage/MAP_READ}} and {{GPUBufferUsage/MAP_WRITE}} bits of |descriptor|'s {{GPUBufferDescriptor/usage}} attribute are set, return false.
+        1. Return true.
+</div>
 
 ### {{GPUDevice/createBuffer(descriptor)|GPUDevice.createBuffer(descriptor)}} ### {#GPUDevice-createBuffer}
 
@@ -1751,9 +1748,10 @@ enum GPUBindingType {
 A {{GPUBindGroupLayout}} object has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUBindGroupLayout">
-    : <dfn>\[[entries]]</dfn> of type sequence<{{GPUBindGroupLayoutEntry}}>.
+    : <dfn>\[[entryMap]]</dfn> of type map<u32, {{GPUBindGroupLayoutEntry}}>.
     ::
-        The set of {{GPUBindGroupLayoutEntry}}s this {{GPUBindGroupLayout}} describes.
+        The map of binding indices pointing to the {{GPUBindGroupLayoutEntry}}s,
+        which this {{GPUBindGroupLayout}} describes.
 </dl>
 
 ### {{GPUDevice/createBindGroupLayout()|GPUDevice.createBindGroupLayout(GPUBindGroupLayoutDescriptor)}} ### {#GPUDevice-createBindGroupLayout}
@@ -1768,7 +1766,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
 
     The <dfn method for="GPUDevice">createBindGroupLayout(|descriptor|)</dfn> method is used to create {{GPUBindGroupLayout}}s.
 
-    1. Ensure [=device validation=] is not violated.
+    1. Ensure [=bind group layout device validation=] is not violated.
     1. Let |layout| be a new valid {{GPUBindGroupLayout}} object.
     1. For each {{GPUBindGroupLayoutEntry}} |bindingDescriptor| in |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
         1. Ensure |bindingDescriptor|.{{GPUBindGroupLayoutEntry/binding}} does not violate [=binding validation=].
@@ -1786,7 +1784,8 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
             , ensure [=storage texture validation=] is not violated.
         1. If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/sampler}}
             , ensure [=sampler validation=] is not violated.
-        1. Insert |bindingDescriptor| into |layout|.{{GPUBindGroupLayout/[[entries]]}}.
+        1. Insert |bindingDescriptor| into |layout|.{{GPUBindGroupLayout/[[entryMap]]}}
+            with the key of |bindingDescriptor|/{{GPUBindGroupLayoutEntry/binding}}.
     1. Return |layout|.
 
     <div class=validusage dfn-for=GPUDevice.createBindGroupLayout>
@@ -1796,7 +1795,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
             1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
             1. Create a new [=invalid=] {{GPUBindGroupLayout}} and return the result.
 
-        <dfn>device validation</dfn>: The {{GPUDevice}} must not be lost.
+        <dfn>bind group layout device validation</dfn>: The {{GPUDevice}} must not be lost.
 
         <dfn>binding validation</dfn>: Each |bindingDescriptor|.{{GPUBindGroupLayoutEntry/binding}} in |descriptor| must be unique.
 
@@ -1830,7 +1829,35 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
     </div>
 </div>
 
-## GPUBindGroup ## {#gpu-bindgroup}
+### Compatibility ### {#bind-group-compatibility}
+
+<div algorithm>
+Two {{GPUBindGroupLayout}} objects |a| and |b| are considered <dfn dfn>group-equivalent</dfn>
+if and only if, for any binding number |binding|, one of the following is true:
+    - it's missing from both |a|.{{GPUBindGroupLayout/[[entryMap]]}} and |b|.{{GPUBindGroupLayout/[[entryMap]]}}.
+    - |a|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|] is [=entry-equivalent=] to |b|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|]
+</div>
+
+<div algorithm>
+Two {{GPUBindGroupLayoutEntry}} entries |a| and |b| are considered <dfn dfn>entry-equivalent</dfn> if all of the conditions are true:
+
+    1. |a|.{{GPUBindGroupLayoutEntry/binding}} == |b|.{{GPUBindGroupLayoutEntry/binding}}
+    1. |a|.{{GPUBindGroupLayoutEntry/visibility}} == |b|.{{GPUBindGroupLayoutEntry/visibility}}
+    1. |a|.{{GPUBindGroupLayoutEntry/type}} == |b|.{{GPUBindGroupLayoutEntry/type}}
+    1. if |a|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"uniform-buffer"}}, {{GPUBindingType/"storage-buffer"}}, or {{GPUBindingType/"readonly-storage-buffer"}}, then:
+        - |a|.{{GPUBindGroupLayoutEntry/hasDynamicOffset}} == |b|.{{GPUBindGroupLayoutEntry/hasDynamicOffset}}
+    1. if |a|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampled-texture"}}, then:
+        - |a|.{{GPUBindGroupLayoutEntry/viewDimension}} == |b|.{{GPUBindGroupLayoutEntry/viewDimension}}
+        - |a|.{{GPUBindGroupLayoutEntry/textureComponentType}} == |b|.{{GPUBindGroupLayoutEntry/textureComponentType}}
+        - |a|.{{GPUBindGroupLayoutEntry/multisampled}} == |b|.{{GPUBindGroupLayoutEntry/multisampled}}
+    1. if |a|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"readonly-storage-texture"}} or {{GPUBindingType/"writeonly-storage-texture"}}, then:
+        - |a|.{{GPUBindGroupLayoutEntry/viewDimension}} == |b|.{{GPUBindGroupLayoutEntry/viewDimension}}
+        - |a|.{{GPUBindGroupLayoutEntry/storageTextureFormat}} == |b|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}
+</div>
+
+If bind groups layouts are [=group-equivalent=] they can be interchangeably used in all contents.
+
+## GPUBindGroup ## {#gpu-bind-group}
 
 A {{GPUBindGroup}} defines a set of resources to be bound together in a group
     and how the resources are used in shader stages.
@@ -1993,13 +2020,54 @@ A {{GPUBindGroup}} object has the following internal slots:
 
 ## GPUPipelineLayout ## {#pipeline-layout}
 
+A {{GPUPipelineLayout}} defines the mapping between resources of all {{GPUBindGroup}} objects set up during command encoding in {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup}}, and the shaders of the pipeline set by {{GPURenderEncoderBase/setPipeline(pipeline)|GPURenderEncoderBase.setPipeline}} or {{GPUComputePassEncoder/setPipeline(pipeline)|GPUComputePassEncoder.setPipeline}}.
+
+The full binding address of a resource can be defined as a trio of:
+  1. shader stage mask, to which the resource is visible
+  2. bind group index
+  3. binding number
+
+The components of this address can also be seen as the binding space of a pipeline. A {{GPUBindGroup}} (with the corresponding {{GPUBindGroupLayout}}) covers that space for a fixed bind group index. The contained bindings need to be a superset of the resources used by the shader at this bind group index.
+
 <script type=idl>
+[Serializable]
 interface GPUPipelineLayout {
 };
 GPUPipelineLayout includes GPUObjectBase;
 </script>
 
+{{GPUPipelineLayout}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUPipelineLayout">
+    : <dfn>\[[bindGroupLayouts]]</dfn> of type sequence<{{GPUBindGroupLayout}}>.
+    ::
+        The {{GPUBindGroupLayout}} objects provided at creation in {{GPUPipelineLayoutDescriptor/bindGroupLayouts|GPUPipelineLayoutDescriptor.bindGroupLayouts}}.
+</dl>
+
+Note: using the same {{GPUPipelineLayout}} for many {{GPURenderPipeline}} or {{GPUComputePipeline}} pipelines guarantees that the user agent doesn't need to rebind any resources internally when there is a switch between these pipelines.
+
+<div class="example">
+{{GPUComputePipeline}} object X was created with {{GPUPipelineLayout/[[bindGroupLayouts]]|GPUPipelineLayout.bindGroupLayouts}} A, B, C. {{GPUComputePipeline}} object Y was created with {{GPUPipelineLayout/[[bindGroupLayouts]]|GPUPipelineLayout.bindGroupLayouts}} A, D, C. Supposing the command encoding sequence has two dispatches:
+
+  1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(0, ...)}}
+  1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(1, ...)}}
+  1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(2, ...)}}
+  1. {{GPUComputePassEncoder/setPipeline(pipeline)|setPipeline(X)}}
+  1. {{GPUComputePassEncoder/dispatch(x, y, z)|dispatch()}}
+  1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(1, ...)}}
+  1. {{GPUComputePassEncoder/setPipeline(pipeline)|setPipeline(Y)}}
+  1. {{GPUComputePassEncoder/dispatch(x, y, z)|dispatch()}}
+
+In this scenario, the user agent would have to re-bind the group slot 2 for the second dispatch, even though neither the {{GPUBindGroupLayout}} at index 2 of {{GPUPipelineLayout/[[bindGroupLayouts]]|GPUPipelineLayout.bindGrouplayouts}}, or the {{GPUBindGroup}} at slot 2, change.
+</div>
+
+Issue: should this example and the note be moved to some "best practices" document?
+
+Note: the expected usage of the {{GPUPipelineLayout}} is placing the most common and the least frequently changing bind groups at the "bottom" of the layout, meaning lower bind group slot numbers, like 0 or 1. The more frequently a bind group needs to change between draw calls, the higher its index should be. This general guideline allows the user agent to minimize state changes between draw calls, and consequently lower the CPU overhead.
+
 ### Creation ### {#pipeline-layout-creation}
+
+A {{GPUPipelineLayout}} is created via {{GPUDevice/createPipelineLayout()|GPUDevice.createPipelineLayout()}}.
 
 <script type=idl>
 dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
@@ -2007,6 +2075,41 @@ dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
 };
 </script>
 
+### {{GPUDevice}}.<dfn method for=GPUDevice>createPipelineLayout(descriptor)</dfn> ### {#device-create-pipeline-layout}
+
+<div algorithm=GPUDevice.createPipelineLayout>
+    **Arguments:**
+        - {{GPUPipelineLayoutDescriptor}} |descriptor|
+
+    **Returns:** {{GPUPipelineLayout}}.
+
+    1. Ensure [=pipeline layout device validation=] is not violated.
+    1. Ensure [=pipeline layout entries validation=] is not violated.
+    1. Let |pl| be a new {{GPUPipelineLayout}} object.
+    1. Set the |pl|.{{GPUPipelineLayout/[[bindGroupLayouts]]}} to |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}.
+    1. Return |pl|.
+
+    <div class=validusage dfn-for=GPUDevice.createPipelineLayout>
+        <dfn abstract-op>Valid Usage</dfn>
+
+        If any of the following conditions are violated:
+            1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
+            1. Create a new [=invalid=] {{GPUPipelineLayout}} and return the result.
+
+        <dfn>pipeline layout device validation</dfn>: The {{GPUDevice}} must not be lost.
+
+        <dfn>pipeline layout entries validation</dfn>:
+        There must be {{GPULimits/maxBindGroups|GPULimits.maxBindGroups}} or fewer
+        elements in |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}.
+        All these {{GPUBindGroupLayout}} entries have to be valid.
+    </div>
+
+    Issue: there will be more limits applicable to the whole pipeline layout.
+</div>
+
+Note: two {{GPUPipelineLayout}} objects are considered equivalent for any usage
+if their internal {{GPUPipelineLayout/[[bindGroupLayouts]]}} sequences contain
+{{GPUBindGroupLayout}} objects that are [=group-equivalent=].
 
 # Shader Modules # {#shader-modules}
 
@@ -2036,6 +2139,24 @@ dictionary GPUShaderModuleDescriptor : GPUObjectDescriptorBase {
 
 # Pipelines # {#pipelines}
 
+A <dfn dfn>pipeline</dfn>, be it {{GPUComputePipeline}} or {{GPURenderPipeline}},
+represents the complete function done by a combination of the GPU hardware, the driver,
+and the user agent, that process the input data in the shape of bindings and vertex buffers,
+and produces some output, like the colors in the output render targets.
+
+Structurally, the [=pipeline=] consists of a sequence of programmable stages (shaders)
+and fixed-function states, such as the blending modes.
+
+Note: Internally, depending on the target platform,
+the driver may convert some of the fixed-function states into shader code,
+and link it together with the shaders provided by the user.
+This linking is one of the reason the object is created as a whole.
+
+This combination state is created as a single object
+(by {{GPUDevice/createComputePipeline(descriptor)|GPUDevice.createComputePipeline()}} or {{GPUDevice/createRenderPipeline(descriptor)|GPUDevice.createRenderPipeline()}}),
+and switched as one
+(by {{GPUComputePassEncoder/setPipeline(pipeline)|GPUComputePassEncoder.setPipeline}} or {{GPURenderEncoderBase/setPipeline(pipeline)|GPURenderEncoderBase.setPipeline}} correspondingly).
+
 <script type=idl>
 dictionary GPUPipelineDescriptorBase : GPUObjectDescriptorBase {
     required GPUPipelineLayout layout;
@@ -2046,11 +2167,79 @@ dictionary GPUPipelineDescriptorBase : GPUObjectDescriptorBase {
 dictionary GPUProgrammableStageDescriptor {
     required GPUShaderModule module;
     required DOMString entryPoint;
-    // TODO: other stuff like specialization constants?
 };
 </script>
 
+A {{GPUProgrammableStageDescriptor}} describes the entry point in the user-provided
+{{GPUShaderModule}} that controls one of the programmable stages of a [=pipeline=].
+
+<div algorithm>
+    <dfn abstract-op>validating GPUProgrammableStageDescriptor</dfn>(stage, descriptor, layout)
+        **Arguments:**
+            - {{GPUShaderStage}} |stage|
+            - {{GPUProgrammableStageDescriptor}} |descriptor|
+            - {{GPUPipelineLayout}} |layout|
+
+        1. If the |descriptor|.{{GPUProgrammableStageDescriptor/module}} is not
+            a [=valid=] {{GPUShaderModule}} return false.
+        1. If the |descriptor|.{{GPUProgrammableStageDescriptor/module}} doesn't contain
+            an entry point at |stage| named |descriptor|.{{GPUProgrammableStageDescriptor/entryPoint}} return false.
+        1. For each |binding| that is [=statically used=] by the shader entry point,
+            if the result of [$validating shader binding$](|binding|, |layout|) is false, return false.
+        1. Return true.
+</div>
+
+<div algorithm>
+    <dfn abstract-op>validating shader binding</dfn>(binding, layout)
+    **Arguments:**
+        - shader |binding|, reflected from the shader module
+        - {{GPUPipelineLayout}} |layout|
+
+    Consider the shader |binding| annotation of |bindIndex| for the
+    binding index and |bindGroup| for the bind group index.
+
+    Return true if all of the following conditions are satisfied:
+
+        1. |layout|.{{GPUPipelineLayout/[[bindGroupLayouts]]}}[|bindGroup|] contains
+            a {{GPUBindGroupLayoutEntry}} |entry| whose |entry|.{{GPUBindGroupLayoutEntry/binding}} == |bindIndex|.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampler"}},
+            the |binding| has to be a non-comparison sampler.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"comparison-sampler"}},
+            the |binding| has to be a comparison sampler.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampled-texture"}},
+            the |binding| has to be a sampled texture with the component type of |entry|.{{GPUBindGroupLayoutEntry/textureComponentType}},
+            and it must be multisampled if and only if |entry|.{{GPUBindGroupLayoutEntry/multisampled}} is true.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"readonly-storage-texture"}},
+            the |binding| has to be a read-only storage texture with format of |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"writeonly-storage-texture"}},
+            the |binding| has to be a writable storage texture with format of |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"uniform-buffer"}},
+            the |binding| has to be a uniform buffer.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"storage-buffer"}},
+            the |binding| has to be a storage buffer.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"readonly-storage-buffer"}},
+            the |binding| has to be a read-only storage buffer.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampled-texture"}}, {{GPUBindingType/"readonly-storage-texture"}}, or {{GPUBindingType/"writeonly-storage-texture"}},
+            the shader view dimension of the texture has to match |entry|.{{GPUBindGroupLayoutEntry/viewDimension}}.
+</div>
+
+Issue: is there a match/switch statement in bikeshed?
+
+A resource binding is considered to be <dfn dfn>statically used</dfn> by a shader entry point
+if and only if it's reachable by the control flow graph of the shader module,
+starting at the entry point.
+
 ## GPUComputePipeline ## {#compute-pipeline}
+
+A {{GPUComputePipeline}} is a kind of [=pipeline=] that controls the compute shader stage,
+and can be used in {{GPUComputePassEncoder}}.
+
+Compute inputs and outputs are all contained in the bindings,
+according to the given {{GPUPipelineLayout}}.
+The outputs correspond to {{GPUBindingType/"storage-buffer"}} and {{GPUBindingType/"writeonly-storage-texture"}} binding types.
+
+Stages of a compute [=pipeline=]:
+  1. Compute shader
 
 <script type=idl>
 [Serializable]
@@ -2067,7 +2256,54 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 };
 </script>
 
+### {{GPUDevice/createComputePipeline()|GPUDevice.createComputePipeline(GPUComputePipelineDescriptor)}} ### {#device-createComputePipeline}
+
+<div algorithm="GPUDevice.createComputePipeline">
+    **Arguments:**
+        - {{GPUComputePipelineDescriptor}} |descriptor|
+
+    **Returns:** {{GPUComputePipeline}}.
+
+    The <dfn method for="GPUDevice">createComputePipeline(|descriptor|)</dfn> method is used to create {{GPUComputePipeline}}s.
+
+    If any of the conditions below are violated:
+        1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
+        1. Create a new [=invalid=] {{GPUComputePipeline}} and return the result.
+
+    1. Ensure the {{GPUDevice}} is not lost.
+    1. Ensure the |descriptor|.{{GPUPipelineDescriptorBase/layout}} is a [=valid=] {{GPUPipelineLayout}}.
+    1. Ensure the [$validating GPUProgrammableStageDescriptor$]({{GPUShaderStage/COMPUTE}},
+        |descriptor|.{{GPUComputePipelineDescriptor/computeStage}}, |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+</div>
+
 ## GPURenderPipeline ## {#render-pipeline}
+
+A {{GPURenderPipeline}} is a kind of [=pipeline=] that controls the vertex
+and fragment shader stages, and can be used in {{GPURenderPassEncoder}}
+as well as {{GPURenderBundleEncoder}}.
+
+Render [=pipeline=] inputs are:
+  - bindings, according to the given {{GPUPipelineLayout}}
+  - vertex and index buffers, described by {{GPUVertexStateDescriptor}}
+  - the color attachments, described by {{GPUColorStateDescriptor}}
+  - optionally, the depth-stencil attachment, described by {{GPUDepthStencilStateDescriptor}}
+
+Render [=pipeline=] outputs are:
+  - bindings of types {{GPUBindingType/"storage-buffer"}} and {{GPUBindingType/"writeonly-storage-texture"}}
+  - the color attachments, described by {{GPUColorStateDescriptor}}
+  - optionally, depth-stencil attachment, described by {{GPUDepthStencilStateDescriptor}}
+
+Stages of a render [=pipeline=]:
+  1. Vertex fetch, controlled by {{GPUVertexStateDescriptor}}
+  2. Vertex shader
+  3. Primitive assembly, controlled by {{GPUPrimitiveTopology}}
+  4. Rasterization, controlled by {{GPURasterizationStateDescriptor}}
+  5. Fragment shader
+  6. Stencil test and operation, controlled by {{GPUDepthStencilStateDescriptor}}
+  7. Depth test and write, controlled by {{GPUDepthStencilStateDescriptor}}
+  8. Output merging, controlled by {{GPUColorStateDescriptor}}
+
+Issue: we need a deeper description of these stages
 
 <script type=idl>
 [Serializable]
@@ -2092,11 +2328,112 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     GPUSize32 sampleCount = 1;
     GPUSampleMask sampleMask = 0xFFFFFFFF;
     boolean alphaToCoverageEnabled = false;
-    // TODO: other properties
 };
 </script>
 
-  * {{GPURenderPipelineDescriptor/sampleCount}}: Number of MSAA samples.
+  * {{GPURenderPipelineDescriptor/vertexState}} describes
+    the vertex shader entry point of the [=pipeline=]
+  * {{GPURenderPipelineDescriptor/fragmentStage}} describes
+    the fragment shader entry point of the [=pipeline=]. If it's "null", the [[#no-color-output]] mode is enabled.
+  * {{GPURenderPipelineDescriptor/primitiveTopology}} configures
+    the primitive assembly stage of the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/rasterizationState}} configures
+    the rasterization stage of the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/colorStates}} describes
+    the color attachments that are written by the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/depthStencilState}} describes
+    the optional depth-stencil attachment that is written by the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/vertexState}} configures
+    the vertex fetch stage of the [=pipeline=].
+  * {{GPURenderPipelineDescriptor/sampleCount}} is
+    the number of MSAA samples that each attachment has to have.
+  * {{GPURenderPipelineDescriptor/sampleMask}} is
+    a binary mask of MSAA samples, according to [#sample-masking]].
+  * {{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} enables the [[#alpha-to-coverage]] mode.
+
+### No Color Output ### {#no-color-output}
+
+In no-color-output mode, [=pipeline=] does not produce any color attachment outputs,
+and the {{GPURenderPipelineDescriptor/colorStates}} is expected to be empty.
+
+The [=pipeline=] still performs rasterization and produces depth values
+based on the vertex position output. The depth testing and stencil operations can still be used.
+
+### Alpha to Coverage ### {#alpha-to-coverage}
+
+In alpha-to-coverage mode, an additional <dfn dfn>alpha-to-coverage mask</dfn>
+of MSAA samples is generated based on the |alpha| component of the
+fragment shader output value of the {{GPURenderPipelineDescriptor/colorStates}}[0].
+
+The algorithm of producing the extra mask is platform-dependent. It guarantees that:
+  - if |alpha| is 0.0 or less, the result is 0x0
+  - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
+  - if |alpha| is greater than some other |alpha1|,
+    then the produced sample mask has at least as many bits set to 1 as the mask for |alpha1|
+
+### Sample Masking ### {#sample-masking}
+
+The <dfn dfn>final sample mask</dfn> for a pixel is computed as:
+[=rasterization mask=] & {{GPURenderPipelineDescriptor/sampleMask}} & [=shader-output mask=].
+
+Only the lower {{GPURenderPipelineDescriptor/sampleCount}} bits of the mask are considered.
+
+If the least-significant bit at position |N| of the [=final sample mask=] has value of "0",
+the sample color outputs (corresponding to sample |N|) to all attachments of the fragment shader are discarded.
+Also, no depth test or stencil operations are executed on the relevant samples of the depth-stencil attachment.
+
+Note: the color output for sample |N| is produced by the fragment shader execution
+with SV_SampleIndex == |N| for the current pixel.
+If the fragment shader doesn't use this semantics, it's only executed once per pixel.
+
+The <dfn dfn>rasterization mask</dfn> is produced by the rasterization stage,
+based on the shape of the rasterized polygon. The samples incuded in the shape get the relevant
+bits 1 in the mask.
+
+The <dfn dfn>shader-output mask</dfn> takes the output value of SV_Coverage semantics in the fragment shader.
+If the semantics is not [=statically used=] by the shader, and {{GPURenderPipelineDescriptor/alphaToCoverageEnabled}}
+is enabled, the [=shader-output mask=] becomes the [=alpha-to-coverage mask=]. Otherwise, it defaults to 0xFFFFFFFF.
+
+Issue: link to the semantics of SV_SampleIndex and SV_Coverage in WGSL spec.
+
+### {{GPUDevice/createRenderPipeline()|GPUDevice.createRenderPipeline(GPURenderPipelineDescriptor)}} ### {#device-createRenderPipeline}
+
+<div algorithm="GPUDevice.createRenderPipeline">
+    **Arguments:**
+        - {{GPURenderPipelineDescriptor}} |descriptor|
+
+    **Returns:** {{GPURenderPipeline}}.
+
+    The <dfn method for="GPUDevice">createRenderPipeline(|descriptor|)</dfn> method is used to create {{GPURenderPipeline}}s.
+
+    If any of the conditions below are violated:
+        1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
+        1. Create a new [=invalid=] {{GPURenderPipeline}} and return the result.
+
+    1. Ensure the {{GPUDevice}} is not lost.
+    1. Ensure the |descriptor|.{{GPUPipelineDescriptorBase/layout}} is
+        a [=valid=] {{GPUPipelineLayout}}.
+    1. Ensure the [$validating GPUProgrammableStageDescriptor$]({{GPUShaderStage/VERTEX}},
+        |descriptor|.{{GPURenderPipelineDescriptor/vertexStage}},
+        |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}} is not "null",
+        ensure the [$validating GPUProgrammableStageDescriptor$]({{GPUShaderStage/FRAGMENT}},
+        |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}},
+        |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+    1. Ensure the |descriptor|.{{GPURenderPipelineDescriptor/colorStates}}.length is less than or equal to 4.
+    1. Ensure [$validating GPUVertexStateDescriptor$](|descriptor|.{{GPURenderPipelineDescriptor/vertexState}},
+        |descriptor|.{{GPURenderPipelineDescriptor/vertexStage}}) passes.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} is true,
+        ensure |descriptor|.{{GPURenderPipelineDescriptor/sampleCount}} is greater than 1.
+    2. If the output SV_Coverage semantics is [=statically used=] by |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}},
+        ensure |descriptor|.{{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} is false.
+</div>
+
+Issue: need a proper limit for the maximum number of color targets.
+
+Issue: need a more detailed validation of the render states.
+
+Issue: need description of the render states.
 
 ### Primitive Topology ### {#primitive-topology}
 
@@ -2344,6 +2681,45 @@ dictionary GPUVertexAttributeDescriptor {
 };
 </script>
 
+<div algorithm>
+    <dfn abstract-op>validating GPUVertexBufferLayoutDescriptor</dfn>(descriptor, vertexStage)
+    **Arguments:**
+        - {{GPUVertexBufferLayoutDescriptor}} |descriptor|
+        - {{GPUProgrammableStageDescriptor}} |vertexStage|
+
+    Return true, if and only if, all of the following conditions are true:
+
+        1. |descriptor|.{{GPUVertexBufferLayoutDescriptor/attributes}}.length is less than or equal to 16.
+        1. |descriptor|.{{GPUVertexBufferLayoutDescriptor/arrayStride}} is less then or equal to 2048.
+        1. Any attribute |at| in the list |descriptor|.{{GPUVertexBufferLayoutDescriptor/attributes}} has
+            |at|.{{GPUVertexAttributeDescriptor/offset} + sizeOf(|at|.{{GPUVertexAttributeDescriptor/format}} less or equal to
+            |descriptor|.{{GPUVertexBufferLayoutDescriptor/arrayStride}}.
+        1. For every vertex attribute in the shader reflection of |vertexStage|.{{GPUProgrammableStageDescriptor/module}}
+            that is know to be [=statically used=] by |vertexStage|.{{GPUProgrammableStageDescriptor/entryPoint}},
+            there is a corresponding |at| element of |descriptor|.{{GPUVertexBufferLayoutDescriptor/attributes}} that:
+            1. The shader format is |at|.{{GPUVertexAttributeDescriptor/format}}.
+            2. The shader location is |at|.{{GPUVertexAttributeDescriptor/shaderLocation}}.
+</div>
+
+Issue(https://github.com/gpuweb/gpuweb/issues/693): add a limit to the number of vertex attributes
+
+<div algorithm>
+    <dfn abstract-op>validating GPUVertexStateDescriptor</dfn>(descriptor, vertexStage)
+    **Arguments:**
+        - {{GPUVertexStateDescriptor}} |descriptor|
+        - {{GPUProgrammableStageDescriptor}} |vertexStage|
+
+    Return true, if and only if, all of the following conditions are true:
+
+        1. |descriptor|.{{GPUVertexStateDescriptor/vertexBuffers}}.length is less than or equal to 8
+        1. Each |vertexBuffer| layout descriptor in the list |descriptor|.{{GPUVertexStateDescriptor/vertexBuffers}}
+            passes [$validating GPUVertexBufferLayoutDescriptor$](|vertexBuffer|, |vertexStage|)
+        1. Each |at| in the union of all {{GPUVertexAttributeDescriptor}}
+            across |descriptor|.{{GPUVertexStateDescriptor/vertexBuffers}} has a distinct
+            |at|.{{GPUVertexAttributeDescriptor/shaderLocation}} value.
+</div>
+
+Issue(https://github.com/gpuweb/gpuweb/issues/693): add a limit to the number of vertex buffers
 
 # Command Buffers # {#command-buffers}
 
@@ -2489,7 +2865,6 @@ offset {{GPUOrigin3D}} in texels, used when copying data from or to a {{GPUTextu
 
   The following validation rules apply:
   - |textureCopyView|.{{GPUTextureCopyView/texture}} must be a [=valid=] {{GPUTexture}}.
-  - The {{GPUTexture/[[sampleCount]]}} of |textureCopyView|.{{GPUTextureCopyView/texture}} must be 1.
   - |textureCopyView|.{{GPUTextureCopyView/mipLevel}} must be less than the {{GPUTexture/[[mipLevelCount]]}} of
     |textureCopyView|.{{GPUTextureCopyView/texture}}.
   - If the |textureCopyView|.{{GPUTextureCopyView/texture}} is {{GPUTextureDimension/1d}} or {{GPUTextureDimension/3d}}:
@@ -2554,7 +2929,110 @@ dictionary GPUImageBitmapCopyView {
     </div>
 </div>
 
-### <dfn method for=GPUCommandEncoder>copyBufferToTexture(source, destination, copySize)</dfn> ### {#GPUCommandEncoder-copyBufferToTexture}
+### Copy Between Buffer and Texture ### {#copy-between-buffer-texture}
+
+WebGPU provides {{GPUCommandEncoder/copyBufferToTexture()}} for buffer-to-texture copies and
+{{GPUCommandEncoder/copyTextureToBuffer()}} for texture-to-buffer copies.
+
+The following definitions and validation rules apply to both {{GPUCommandEncoder/copyBufferToTexture()}}
+and {{GPUCommandEncoder/copyTextureToBuffer()}}.
+
+[=textureCopyView subresource size=] and [=Valid Texture Copy Range=] also applies to
+{{GPUCommandEncoder/copyTextureToTexture()}}.
+
+<div algorithm="textureCopyView subresource size">
+
+<dfn dfn>textureCopyView subresource size</dfn>
+
+  **Arguments:**
+    - {{GPUTextureCopyView}} |textureCopyView|
+
+  **Returns:**
+    - {{GPUExtent3D}}
+
+  The [=textureCopyView subresource size=] of |textureCopyView| is calculated as follows:
+
+  Its [=Extent3D/width=], [=Extent3D/height=] and [=Extent3D/depth=] are the width, height, and depth, respectively,
+  of the [=physical size=] of |textureCopyView|.{{GPUTextureCopyView/texture}} [=subresource=] at [=mipmap level=]
+  |textureCopyView|.{{GPUTextureCopyView/mipLevel}}.
+
+</div>
+
+<div algorithm class=validusage>
+
+<dfn dfn>Valid Buffer Copy Range</dfn>
+
+Given a {{GPUBufferCopyView}} |bufferCopyView|, a {{GPUTextureFormat}} |format| and a {{GPUExtent3D}}
+|copySize|, let
+  - |blockWidth| be the [=texel block width=] of |format|.
+  - |blockHeight| be the [=texel block height=] of |format|.
+  - |blockSize| be the [=texel block size=] of |format|.
+  - |bytesInACompleteRow| be |blockSize| &times; |copySize|.[=Extent3D/width=] &div; |blockWidth|.
+  - |bytesInACompleteImage| be |bytesInACompleteRow| &times; |copySize|.[=Extent3D/height=] &div; |blockHeight|.
+  - |requiredBytesInCopy| be calculated with the following algorithm assuming all the parameters are [=valid=]:
+    ```
+    if (copySize.width == 0 || copySize.height == 0 || copySize.depth == 0) {
+        requiredBytesInCopy = 0;
+    } else {
+        GPUSize64 texelBlockRowsPerImage = bufferCopyView.rowsPerImage / blockHeight;
+        GPUSize64 bytesPerImage = bufferCopyView.bytesPerRow * texelBlockRowsPerImage;
+        GPUSize64 bytesInLastSlice =
+            bufferCopyView.bytesPerRow * (copySize.height / blockHeight - 1) + (copySize.width / blockWidth * blockSize);
+        requiredBytesInCopy = bytesPerImage * (copySize.depth - 1) + bytesInLastSlice;
+    }
+    ```
+
+  The following validation rules apply:
+
+  For the copy being in-bounds:
+  - If |bufferCopyView|.{{GPUBufferCopyView/rowsPerImage}} is not 0, it must be greater than or equal to
+    |copySize|.[=Extent3D/height=].
+  - (|bufferCopyView|.{{GPUBufferCopyView/offset}} + |requiredBytesInCopy|) must not overflow a {{GPUSize64}}.
+  - (|bufferCopyView|.{{GPUBufferCopyView/offset}} + |requiredBytesInCopy|) must be smaller than or equal to
+    |bufferCopyView|.{{GPUBufferCopyView/buffer}}.{{GPUBuffer/[[size]]}}.
+
+  For the texel block alignments:
+  - |bufferCopyView|.{{GPUBufferCopyView/rowsPerImage}} must be a multiple of |blockHeight|.
+  - |bufferCopyView|.{{GPUBufferCopyView/offset}} must be a multiple of |blockSize|.
+
+  For other members in |bufferCopyView|:
+  - If |copySize|.[=Extent3D/height=] is greater than 1:
+    - |bufferCopyView|.{{GPUBufferCopyView/bytesPerRow}} must be greater than or equal to the number of |bytesInACompleteRow|.
+  - If |copySize|.[=Extent3D/depth=] is greater than 1:
+    - |bufferCopyView|.{{GPUBufferCopyView/rowsPerImage}} must be greater than or equal to the number of |bytesInACompleteImage|.
+
+</div>
+
+<div algorithm class=validusage>
+
+<dfn dfn>Valid Texture Copy Range</dfn>
+
+Given a {{GPUTextureCopyView}} |textureCopyView| and a {{GPUExtent3D}} |copySize|, let
+  - |blockWidth| be the [=texel block width=] of |textureCopyView|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
+  - |blockHeight| be the [=texel block height=] of |textureCopyView|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
+
+The following validation rules apply:
+
+  - If the {{GPUTexture/[[dimension]]}} of |textureCopyView|.{{GPUTextureCopyView/texture}} is
+    {{GPUTextureDimension/1d}}:
+    - Both |copySize|.[=Extent3D/height=] and [=Extent3D/depth=] must be 1.
+  - If the {{GPUTexture/[[dimension]]}} of |textureCopyView|.{{GPUTextureCopyView/texture}} is
+    {{GPUTextureDimension/2d}}:
+    - (|textureCopyView|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/x}} + |copySize|.[=Extent3D/width=]), (|textureCopyView|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/y}} + |copySize|.[=Extent3D/height=]) and (|textureCopyView|.{{GPUTextureCopyView/arrayLayer}} + |copySize|.[=Extent3D/depth=]) must be less than or equal to the [=Extent3D/width=], [=Extent3D/height=], and [=Extent3D/depth=], respectively, of the [=textureCopyView subresource size=] of |textureCopyView|.
+  - |copySize|.[=Extent3D/width=] must be a multiple of |blockWidth|.
+  - |copySize|.[=Extent3D/height=] must be a multiple of |blockHeight|.
+
+</div>
+
+Issue(gpuweb/gpuweb#69): Define the copies with {{GPUTextureDimension/1d}} and
+{{GPUTextureDimension/3d}} textures.
+
+Issue(gpuweb/gpuweb#537): Additional restrictions on rowsPerImage if needed.
+
+Issue(gpuweb/gpuweb#652): Define the copies with {{GPUTextureFormat/"depth24plus"}} and
+{{GPUTextureFormat/"depth24plus-stencil8"}}.
+
+#### <dfn method for=GPUCommandEncoder>copyBufferToTexture(source, destination, copySize)</dfn> #### {#GPUCommandEncoder-copyBufferToTexture}
 
 <div algorithm="GPUCommandEncoder.copyBufferToTexture">
 
@@ -2579,26 +3057,7 @@ dictionary GPUImageBitmapCopyView {
 <dfn abstract-op>copyBufferToTexture Valid Usage</dfn>
 
 Given a {{GPUCommandEncoder}} |encoder| and the arguments {{GPUBufferCopyView}} |source|,
-{{GPUTextureCopyView}} |destination|, {{GPUExtent3D}} |copySize|, let
-  - |blockWidth| be the [=texel block width=] of |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
-  - |blockHeight| be the [=texel block height=] of |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
-  - |blockSize| be the [=texel block size=] of |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
-  - |bytesInACompleteRow| be |blockSize| &times; |copySize|.[=Extent3D/width=] &div; |blockWidth|.
-  - |bytesInACompleteImage| be |bytesInACompleteRow| &times; |copySize|.[=Extent3D/height=] &div; |blockHeight|.
-  - |requiredBytesInCopy| be calculated with the following algorithm assuming all the parameters are [=valid=]:
-    ```
-    if (copySize.width == 0 || copySize.height == 0 || copySize.depth == 0) {
-        requiredBytesInCopy = 0;
-    } else {
-        GPUSize64 texelBlockRowsPerImage = source.rowsPerImage / blockHeight;
-        GPUSize64 bytesPerImage = source.bytesPerRow * texelBlockRowsPerImage;
-        GPUSize64 bytesInLastSlice =
-            source.bytesPerRow * (copySize.height / blockHeight - 1) + (copySize.width / blockWidth * blockSize);
-        requiredBytesInCopy = bytesPerImage * (copySize.depth - 1) + bytesInLastSlice;
-    }
-    ```
-
-  The following validation rules apply:
+{{GPUTextureCopyView}} |destination| and {{GPUExtent3D}} |copySize|, the following validation rules apply:
 
   For |encoder|:
   - |encoder|.{{GPUCommandEncoder/copyBufferToTexture()}} must not be called when a {{GPURenderPassEncoder}}
@@ -2614,45 +3073,137 @@ Given a {{GPUCommandEncoder}} |encoder| and the arguments {{GPUBufferCopyView}} 
   - |destination| must be [=valid=].
   - |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[textureUsage]]}} must contain
     {{GPUTextureUsage/COPY_DST}}.
+  - |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[sampleCount]]}} must be 1.
 
-  For |copySize|:
-  - If the {{GPUTexture/[[dimension]]}} of |destination|.{{GPUTextureCopyView/texture}} is
-    {{GPUTextureDimension/1d}}:
-    - Both |copySize|.[=Extent3D/height=] and [=Extent3D/depth=] must be 1.
-
-  For the copy being in-bounds:
-  - If |source|.{{GPUBufferCopyView/rowsPerImage}} is not 0, it must be greater than or equal to
-    |copySize|.[=Extent3D/height=].
-  - (|source|.{{GPUBufferCopyView/offset}} &add; |requiredBytesInCopy|) must not overflow a {{GPUSize64}}.
-  - (|source|.{{GPUBufferCopyView/offset}} &add; |requiredBytesInCopy|) must be smaller than or equal to
-    |source|.{{GPUBufferCopyView/buffer}}.{{GPUBuffer/[[size]]}}.
-  - If the {{GPUTexture/[[dimension]]}} of |destination|.{{GPUTextureCopyView/texture}} is
-    {{GPUTextureDimension/2d}}:
-    - (|destination|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/x}} &add; |copySize|.[=Extent3D/width=]) must be less than or equal to the width of the [=physical size=] of |destination|.{{GPUTextureCopyView/texture}} [=subresource=] at [=mipmap level=] {{GPUTextureCopyView/mipLevel}}.
-    - (|destination|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/y}} &add; |copySize|.[=Extent3D/height=]) must be less than or equal to the height of the [=physical size=] of |destination|.{{GPUTextureCopyView/texture}} [=subresource=] at [=mipmap level=] {{GPUTextureCopyView/mipLevel}}
-    - (|destination|.{{GPUTextureCopyView/arrayLayer}} &add; |copySize|.[=Extent3D/depth=]) must be less than or equal to the depth of the [=Extent3D/depth=] of the |destination|.{{GPUTextureCopyView/texture}}.
-
-  For the texel block alignments:
-  - |source|.{{GPUBufferCopyView/rowsPerImage}} must be a multiple of |blockHeight|.
-  - |copySize|.[=Extent3D/width=] must be a multiple of |blockWidth|.
-  - |copySize|.[=Extent3D/height=] must be a multiple of |blockHeight|.
-  - |source|.{{GPUBufferCopyView/offset}} must be a multiple of |blockSize|.
-
-  For other members in |source|:
-  - If |copySize|.[=Extent3D/height=] is greater than 1:
-    - |source|.{{GPUBufferCopyView/bytesPerRow}} must be greater than or equal to the number of |bytesInACompleteRow|.
-  - If |copySize|.[=Extent3D/depth=] is greater than 1:
-    - |source|.{{GPUBufferCopyView/rowsPerImage}} must be greater than or equal to the number of |bytesInACompleteImage|.
-
-Issue(gpuweb/gpuweb#69): Define the copies with {{GPUTextureDimension/1d}} and
-{{GPUTextureDimension/3d}} textures.
-
-Issue(gpuweb/gpuweb#537): Additional restrictions on rowsPerImage if needed.
-
-Issue(gpuweb/gpuweb#652): Define the copies with {{GPUTextureFormat/"depth24plus"}} and
-{{GPUTextureFormat/"depth24plus-stencil8"}}.
+  For the copy ranges:
+  - [=Valid Buffer Copy Range=] applies to |source|, |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}
+    and |copySize|.
+  - [=Valid Texture Copy Range=] applies to |destination| and |copySize|.
 
 </div>
+
+#### <dfn method for=GPUCommandEncoder>copyTextureToBuffer(source, destination, copySize)</dfn> #### {#GPUCommandEncoder-copyTextureToBuffer}
+
+<div algorithm="GPUCommandEncoder.copyTextureToBuffer">
+
+  **Arguments:**
+    - {{GPUTextureCopyView}} |source|
+    - {{GPUBufferCopyView}} |destination|
+    - {{GPUExtent3D}} |copySize|
+
+  **Returns:** void
+
+  Encode a command into the {{GPUCommandEncoder}} that copies data from a sub-region of one or multiple continuous
+  {{GPUTexture}} [=subresources=]to a sub-region of a {{GPUBuffer}}.
+
+  |source| and |copySize| define the region of the source texture [=subresource=].
+
+  |destination| and |copySize| define the region of the destination buffer.
+
+</div>
+
+<div algorithm class=validusage>
+
+<dfn abstract-op>copyTextureToBuffer Valid Usage</dfn>
+
+Given a {{GPUCommandEncoder}} |encoder| and the arguments {{GPUTextureCopyView}} |source|,
+{{GPUBufferCopyView}} |destination|, {{GPUExtent3D}} |copySize|, the following validation rules apply:
+
+  For |encoder|:
+  - |encoder|.{{GPUCommandEncoder/copyTextureToBuffer()}} must not be called when a {{GPURenderPassEncoder}}
+    is active on |encoder|.
+  - |encoder|.{{GPUCommandEncoder/copyTextureToBuffer()}} must not be called when a {{GPUComputePassEncoder}}
+    is active on |encoder|.
+
+  For |source|:
+  - |source| must be [=valid=].
+  - |source|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[textureUsage]]}} must contain
+    {{GPUTextureUsage/COPY_SRC}}.
+  - |source|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[sampleCount]]}} must be 1.
+
+  For |destination|:
+  - |destination| must be [=valid=].
+  - |destination|.{{GPUBufferCopyView/buffer}}.{{GPUBuffer/[[usage]]}} must contain {{GPUBufferUsage/COPY_DST}}.
+
+  For the copy ranges:
+  - [=Valid Buffer Copy Range=] applies to |destination|, |source|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}
+    and |copySize|.
+  - [=Valid Texture Copy Range=] applies to |source| and |copySize|.
+
+</div>
+
+### <dfn method for=GPUCommandEncoder>copyTextureToTexture(source, destination, copySize)</dfn> ### {#GPUCommandEncoder-copyTextureToTexture}
+
+<div algorithm="GPUCommandEncoder.copyTextureToTexture">
+
+  **Arguments:**
+    - {{GPUTextureCopyView}} |source|
+    - {{GPUTextureCopyView}} |destination|
+    - {{GPUExtent3D}} |copySize|
+
+  **Returns:** void
+
+  Encode a command into the {{GPUCommandEncoder}} that copies data from a sub-region of one
+  or multiple contiguous {{GPUTexture}} [=subresources=] to another sub-region of one or
+  multiple continuous {{GPUTexture}} [=subresources=].
+
+  |source| and |copySize| define the region of the source texture [=subresources=].
+
+  |destination| and |copySize| define the region of the destination texture [=subresources=].
+
+</div>
+
+<div algorithm class=validusage>
+
+<dfn abstract-op>copyTextureToTexture Valid Usage</dfn>
+
+Given a {{GPUCommandEncoder}} |encoder| and the arguments {{GPUTextureCopyView}} |source|,
+{{GPUTextureCopyView}} |destination|, {{GPUExtent3D}} |copySize|, let
+
+  - A |copy of the whole subresource| be the command |encoder|.{{GPUCommandEncoder/copyTextureToTexture()}} whose parameters |source|, |destination| and |copySize| meet the following conditions:
+    - The [=textureCopyView subresource size=] of |source| must be equal to |copySize|.
+    - The [=textureCopyView subresource size=] of |destination| must be equal to |copySize|.
+
+The following validation rules apply:
+
+  For |encoder|:
+  - |encoder|.{{GPUCommandEncoder/copyTextureToTexture()}} must not be called when a {{GPURenderPassEncoder}}
+    is active on |encoder|.
+  - |encoder|.{{GPUCommandEncoder/copyTextureToTexture()}} must not be called when a {{GPUComputePassEncoder}}
+    is active on |encoder|.
+
+  For |source|:
+  - |source| must be [=valid=].
+  - |source|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[textureUsage]]}} must contain
+    {{GPUTextureUsage/COPY_SRC}}.
+
+  For |destination|:
+  - |destination| must be [=valid=].
+  - |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[textureUsage]]}} must contain
+    {{GPUTextureUsage/COPY_DST}}.
+
+  For the texture {{GPUTexture/[[sampleCount]]}}:
+  - |source|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[sampleCount]]}} must be equal to |destination|.
+    {{GPUTextureCopyView/texture}}.{{GPUTexture/[[sampleCount]]}}.
+  - If |source|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[sampleCount]]}} is greater than 1:
+    - The copy with |source|, |destination| and |copySize| must be a |copy of the whole subresource|.
+
+  For the texture {{GPUTexture/[[format]]}}:
+  - |source|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}} must be equal to |destination|.
+    {{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}}.
+  - If |source|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}} is a depth-stencil format:
+    - The copy with |source|, |destination| and |copySize| must be a |copy of the whole subresource|.
+
+  For the copy ranges:
+  - [=Valid Texture Copy Range=] applies to |source| and |copySize|.
+  - [=Valid Texture Copy Range=] applies to |destination| and |copySize|.
+  - If |source|.{{GPUTextureCopyView/texture}} is the same as |destination|.{{GPUTextureCopyView/texture}}:
+    - The [=subresource=] at [=mipmap level=] |source|.{{GPUTextureCopyView/mipLevel}} and [=array layer=] |source|.{{GPUTextureCopyView/arrayLayer}} must be different from the [=subresource=] at [=mipmap level=] |destination|.{{GPUTextureCopyView/mipLevel}} and [=array layer=] |destination|.{{GPUTextureCopyView/arrayLayer}}.
+
+</dfn>
+
+</div>
+
 
 ## Programmable Passes ## {#programmable-passes}
 

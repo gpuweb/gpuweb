@@ -165,7 +165,7 @@ function bufferSubData(device, destBuffer, destOffset, srcArrayBuffer) {
     const encoder = device.createCommandEncoder();
     encoder.copyBufferToBuffer(srcBuffer, 0, destBuffer, destOffset, byteCount);
     const commandBuffer = encoder.finish();
-    const queue = device.getQueue();
+    const queue = device.defaultQueue;
     queue.submit([commandBuffer]);
 
     srcBuffer.destroy();
@@ -181,7 +181,7 @@ upload buffers:
 
 ```js
 function AutoRingBuffer(device, chunkSize) {
-    const queue = device.getQueue();
+    const queue = device.defaultQueue;
     let availChunks = [];
 
     function Chunk() {
