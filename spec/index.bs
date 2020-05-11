@@ -385,8 +385,10 @@ which can be split into two groups:
 Issue(gpuweb/gpuweb#296): Consider merging all read-only usages.
 
 Textures may consist of separate [=mipmap levels=] and [=array layers=],
-which can be used differently at any given time. For the matter of usage validation,
-we'll call them <dfn dfn>subresources</dfn>.
+which can be used differently at any given time.
+Each such <dfn dfn>subresource</dfn> is uniquely identified by a
+[=texture=], [=mipmap level=], and
+(for {{GPUTextureDimension/2d}} textures only) [=array layer=].
 
 The **main usage rule** is that any [=subresource=]
 at any given time can only be in either:
@@ -3090,7 +3092,6 @@ Given a {{GPUBufferCopyView}} |bufferCopyView|, the following validation rules a
 dictionary GPUTextureCopyView {
     required GPUTexture texture;
     GPUIntegerCoordinate mipLevel = 0;
-    GPUIntegerCoordinate arrayLayer = 0;
     GPUOrigin3D origin = {};
 };
 </script>
@@ -3112,10 +3113,8 @@ offset {{GPUOrigin3D}} in texels, used when copying data from or to a {{GPUTextu
   - |textureCopyView|.{{GPUTextureCopyView/texture}} must be a [=valid=] {{GPUTexture}}.
   - |textureCopyView|.{{GPUTextureCopyView/mipLevel}} must be less than the {{GPUTexture/[[mipLevelCount]]}} of
     |textureCopyView|.{{GPUTextureCopyView/texture}}.
-  - If the |textureCopyView|.{{GPUTextureCopyView/texture}} is {{GPUTextureDimension/1d}} or {{GPUTextureDimension/3d}}:
-    - |textureCopyView|.{{GPUTextureCopyView/arrayLayer}} must be zero.
-  - |textureCopyView|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/x}} must be a multiple of |blockWidth|.
-  - |textureCopyView|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/y}} must be a multiple of |blockHeight|.
+  - |textureCopyView|.{{GPUTextureCopyView/origin}}.[=Origin3D/x=] must be a multiple of |blockWidth|.
+  - |textureCopyView|.{{GPUTextureCopyView/origin}}.[=Origin3D/y=] must be a multiple of |blockHeight|.
 
 </div>
 
@@ -3263,7 +3262,12 @@ The following validation rules apply:
     - Both |copySize|.[=Extent3D/height=] and [=Extent3D/depth=] must be 1.
   - If the {{GPUTexture/[[dimension]]}} of |textureCopyView|.{{GPUTextureCopyView/texture}} is
     {{GPUTextureDimension/2d}}:
-    - (|textureCopyView|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/x}} + |copySize|.[=Extent3D/width=]), (|textureCopyView|.{{GPUTextureCopyView/origin}}.{{GPUOrigin3DDict/y}} + |copySize|.[=Extent3D/height=]) and (|textureCopyView|.{{GPUTextureCopyView/arrayLayer}} + |copySize|.[=Extent3D/depth=]) must be less than or equal to the [=Extent3D/width=], [=Extent3D/height=], and [=Extent3D/depth=], respectively, of the [=textureCopyView subresource size=] of |textureCopyView|.
+     -  (|textureCopyView|.{{GPUTextureCopyView/origin}}.[=Origin3D/x=] + |copySize|.[=Extent3D/width=]),
+        (|textureCopyView|.{{GPUTextureCopyView/origin}}.[=Origin3D/y=] + |copySize|.[=Extent3D/height=]), and
+        (|textureCopyView|.{{GPUTextureCopyView/origin}}.[=Origin3D/z=] + |copySize|.[=Extent3D/depth=])
+        must be less than or equal to the
+        [=Extent3D/width=], [=Extent3D/height=], and [=Extent3D/depth=], respectively,
+        of the [=textureCopyView subresource size=] of |textureCopyView|.
   - |copySize|.[=Extent3D/width=] must be a multiple of |blockWidth|.
   - |copySize|.[=Extent3D/height=] must be a multiple of |blockHeight|.
 
@@ -3403,7 +3407,7 @@ Given a {{GPUCommandEncoder}} |encoder| and the arguments {{GPUTextureCopyView}}
 <dfn abstract-op>copyTextureToTexture Valid Usage</dfn>
 
 Given a {{GPUCommandEncoder}} |encoder| and the arguments {{GPUTextureCopyView}} |source|,
-{{GPUTextureCopyView}} |destination|, {{GPUExtent3D}} |copySize|, let
+{{GPUTextureCopyView}} |destination|, {{GPUExtent3D}} |copySize|, let:
 
   - A |copy of the whole subresource| be the command |encoder|.{{GPUCommandEncoder/copyTextureToTexture()}} whose parameters |source|, |destination| and |copySize| meet the following conditions:
     - The [=textureCopyView subresource size=] of |source| must be equal to |copySize|.
@@ -3442,11 +3446,25 @@ The following validation rules apply:
   For the copy ranges:
   - [=Valid Texture Copy Range=] applies to |source| and |copySize|.
   - [=Valid Texture Copy Range=] applies to |destination| and |copySize|.
-  - If |source|.{{GPUTextureCopyView/texture}} is the same as |destination|.{{GPUTextureCopyView/texture}}:
-    - The [=subresource=] at [=mipmap level=] |source|.{{GPUTextureCopyView/mipLevel}} and [=array layer=] |source|.{{GPUTextureCopyView/arrayLayer}} must be different from the [=subresource=] at [=mipmap level=] |destination|.{{GPUTextureCopyView/mipLevel}} and [=array layer=] |destination|.{{GPUTextureCopyView/arrayLayer}}.
+  - The [$set of subresources for texture copy$](|source|, |copySize|) and
+     the  [$set of subresources for texture copy$](|destination|, |copySize|) must be disjoint.
 
-</dfn>
+</div>
 
+<div algorithm>
+    The <dfn abstract-op>set of subresources for texture copy</dfn>(|textureCopyView|, |copySize|)
+    is the set containing:
+
+      - If |textureCopyView|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[dimension]]}}
+        is {{GPUTextureDimension/"2d"}}:
+          - For each |arrayLayer| of the |copySize|.[=Extent3D/depth=] [=array layers=]
+            starting at |textureCopyView|.{{GPUTextureCopyView/origin}}.[=Origin3D/z=]:
+              - The [=subresource=] of |textureCopyView|.{{GPUTextureCopyView/texture}} at
+                [=mipmap level=] |textureCopyView|.{{GPUTextureCopyView/mipLevel}} and
+                [=array layer=] |arrayLayer|.
+      - Otherwise:
+          - The [=subresource=] of |textureCopyView|.{{GPUTextureCopyView/texture}} at
+            [=mipmap level=] |textureCopyView|.{{GPUTextureCopyView/mipLevel}}.
 </div>
 
 
@@ -3959,6 +3977,24 @@ dictionary GPUOrigin3DDict {
 typedef (sequence<GPUIntegerCoordinate> or GPUOrigin3DDict) GPUOrigin3D;
 </script>
 
+An <dfn dfn>Origin3D</dfn> is a {{GPUOrigin3D}}.
+[=Origin3D=] is a spec namespace for the following definitions:
+<!-- This is silly, but provides convenient syntax for the spec. -->
+
+<div algorithm="GPUOrigin3D accessors" dfn-for=Origin3D>
+    For a given {{GPUOrigin3D}} value |origin|, depending on its type, the syntax:
+
+      - |origin|.<dfn dfn>x</dfn> refers to
+        either {{GPUOrigin3DDict}}.{{GPUOrigin3DDict/x}}
+        or the first item of the sequence.
+      - |origin|.<dfn dfn>y</dfn> refers to
+        either {{GPUOrigin3DDict}}.{{GPUOrigin3DDict/y}}
+        or the second item of the sequence.
+      - |origin|.<dfn dfn>z</dfn> refers to
+        either {{GPUOrigin3DDict}}.{{GPUOrigin3DDict/z}}
+        or the third item of the sequence.
+</div>
+
 <script type=idl>
 dictionary GPUExtent3DDict {
     required GPUIntegerCoordinate width;
@@ -3975,13 +4011,13 @@ An <dfn dfn>Extent3D</dfn> is a {{GPUExtent3D}}.
 <div algorithm="GPUExtent3D accessors" dfn-for=Extent3D>
     For a given {{GPUExtent3D}} value |extent|, depending on its type, the syntax:
 
-      * |extent|.<dfn dfn>width</dfn> refers to
+      - |extent|.<dfn dfn>width</dfn> refers to
         either {{GPUExtent3DDict}}.{{GPUExtent3DDict/width}}
         or the first item of the sequence.
-      * |extent|.<dfn dfn>height</dfn> refers to
+      - |extent|.<dfn dfn>height</dfn> refers to
         either {{GPUExtent3DDict}}.{{GPUExtent3DDict/height}}
         or the second item of the sequence.
-      * |extent|.<dfn dfn>depth</dfn> refers to
+      - |extent|.<dfn dfn>depth</dfn> refers to
         either {{GPUExtent3DDict}}.{{GPUExtent3DDict/depth}}
         or the third item of the sequence.
 </div>
@@ -3999,5 +4035,3 @@ and {{ArrayBuffer}}, respectively.
 Eventually all of these should disappear but they are useful to avoid warning while building the specification.
 
 [=vertex buffer=]
-[=Extent3D/width=]
-[=Extent3D/height=]
