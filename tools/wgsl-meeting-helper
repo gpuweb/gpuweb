@@ -3,9 +3,13 @@
 const yargs = require("yargs");
 const { Octokit } = require("@octokit/rest");
 
-// The identifier for the meeting discussion column in the WGSL project.
+const GPUWEB_ORG = "gpuweb";
+const GPUWEB_REPOSITORY = "gpuweb";
+
+// The identifiers for some columns in the WGSL project.
 // You can list all the columns by calling this script with the "project-info" command.
 
+const WGSL_UNDER_DISCUSSION_COLUMN = 8444327;
 const WGSL_MEETING_COLUMN = 8898490;
 
 const TOKEN_ENV_NAME = "GPUWEB_GITHUB_TOKEN";
@@ -25,12 +29,12 @@ async function agenda(kit, column) {
         if (card.note) {
             console.log(`- ${card.note}`);
         } else {
-            // Check if the card is an issue. https://api.github.com/repos/gpuweb/gpuweb/issues/569
+            // Check if the card is an issue. e.g. https://api.github.com/repos/gpuweb/gpuweb/issues/569
             const url = card.content_url;
             const matches = /gpuweb\/gpuweb\/issues\/(\d+)$/.exec(url);
             if (matches) {
                 const issueIdentifier = matches[1];
-                const issue = await kit.issues.get({ owner: "gpuweb", repo: "gpuweb", issue_number: issueIdentifier });
+                const issue = await kit.issues.get({ owner: GPUWEB_ORG, repo: GPUWEB_REPOSITORY, issue_number: issueIdentifier });
                 console.log(`- ${issue.data.title.replace(/\s*\[wgsl\]\s*/i, "")} (#${issueIdentifier})`);
                 console.log(`  ${issue.data.html_url}`);
             }
@@ -39,8 +43,24 @@ async function agenda(kit, column) {
     }
 }
 
+async function sortMVP(kit, column) {
+    const cards = await kit.projects.listCards({ column_id: column });
+    for (let card of cards.data.reverse()) { // Do it in reverse so order is preserved.
+        const url = card.content_url;
+        const matches = /gpuweb\/gpuweb\/issues\/(\d+)$/.exec(url);
+        if (matches) {
+            const issueIdentifier = matches[1];
+            const issue = await kit.issues.get({ owner: GPUWEB_ORG, repo: GPUWEB_REPOSITORY, issue_number: issueIdentifier });
+            if (issue.data.milestone && issue.data.milestone.title == "MVP") {
+                console.log(`Moving MVP issue #${issueIdentifier} to top of column`);
+                await kit.projects.moveCard({ card_id: card.id, position: "top" });
+            }
+        }
+    }
+}
+
 async function projectInfo(kit) {
-    const projects = await kit.projects.listForOrg({ org: "gpuweb" });
+    const projects = await kit.projects.listForOrg({ org: GPUWEB_ORG });
     for (let project of projects.data) {
         console.log(`Columns for project "${project.name}" (id: ${project.id})`);
         console.log("----");
@@ -63,8 +83,15 @@ const argumentProcessor = yargs
         }
     })
     .command({
+        command: "sort-mvp",
+        desc: "Sorts the Under Discussion column in WGSL to put MVP topics at the top.",
+        handler: () => {
+            run(sortMVP, WGSL_UNDER_DISCUSSION_COLUMN);
+        }
+    })
+    .command({
         command: "project-info",
-        desc: "Build the meeting agenda from the WGSL Github Project.",
+        desc: "Dumps info on the projects in GPUWeb.",
         handler: () => {
             run(projectInfo);
         }
