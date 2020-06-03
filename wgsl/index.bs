@@ -153,6 +153,66 @@ Issue: (dneto): the last element of a struct defining the contents of a storage 
   </xmp>
 </div>
 
+## Storable types ## {#storable-types}
+
+The following types are *storable*:
+
+* [[#scalar-types]]
+* [[#vector-types]]
+* [[#matrix-types]]
+* [[#array-types]] if its element type is storable.
+* [[#struct-types]] if all its members are storable.
+
+### Zero values ### {#zero-value}
+
+Each storable type *T* has a unique *zero value*, written in WGSL as the type followed by an empty pair of parentheses: *T* `()`.
+
+The zero values are as follows:
+
+* `bool()` is `false`
+* `i32()` is 0
+* `u32()` is 0
+* `f32()` is 0.0
+* The zero value for an *N*-element vector of type *T* is the *N*-element vector of the zero value for *T*.
+* The zero value for an *N*-element array with storable element type *E* is an array of *N* elements of the zero value for *E*.
+* The zero value for a storable structure type *S* is the structure value *S* with zero-valued members.
+
+<div class='example' heading="Zero-valued vectors">
+  <xmp highlight='rust'>
+    vec2<f32>()                 # The zero-valued vector of two f32 elements.
+    vec2<f32>(0.0, 0.0)         # The same value, written explicitly.
+
+    vec3<i32>()                 # The zero-valued vector of four i32 elements.
+    vec3<i32>(0, 0, 0)          # The same value, written explicitly.
+  </xmp>
+</div>
+
+<div class='example' heading="Zero-valued arrays">
+  <xmp highlight='rust'>
+    array<bool,2>()               # The zero-valued array of two booleans.
+    array<bool,2>(false, false)   # The same value, written explicitly.
+  </xmp>
+</div>
+
+<div class='example' heading="Zero-valued structures">
+  <xmp highlight='rust'>
+    type Student = struct {
+      grade : i32;
+      GPA : f32;
+      attendance : array<bool,4>;
+    };
+
+    # The zero value for Student
+    Student()
+
+    # The same value, written explicitly.
+    Student(0, 0.0, array<bool,4>(false,false,false,false))
+
+    # The same value, written with zero-valued members.
+    Student(i32(), f32(), array<bool,4>())
+  </xmp>
+</div>
+
 ## Pointer Types ## {#pointer-types}
 <table class='data'>
   <thead>
@@ -165,24 +225,14 @@ Issue: (dneto): the last element of a struct defining the contents of a storage 
 
 Note: We've described a SPIR-V logical pointer type.
 
+Note: Pointers are not storable.
+
 <div class='example' heading='Pointer'>
   <xmp highlight='rust'>
     ptr<storage_buffer, i32>
     ptr<private, array<i32, 12>>
   </xmp>
 </div>
-
-## Storable types ## {#storable-types}
-
-The following types are *storable*:
-
-* [[#scalar-types]]
-* [[#vector-types]]
-* [[#matrix-types]]
-* [[#array-types]] if its element type is storable.
-* [[#struct-types]] if all its members are storable.
-
-Note: SPIR-V logical pointers are not storable.
 
 ## Composite types ## {#composite-types}
 
@@ -262,18 +312,44 @@ type.
 ## Variables ## {#variables}
 
 A variable is a named reference to storage that can contain a value of a
-particular type.
+particular storable type.
 
-Two types are associated with a variable: its store type (the type of value
-that may be placed in the referenced storage) and its reference type (the type
-of the variable itself).  If a variable has store type T and storage class S,
-then its reference type is pointer-to-T-in-S.
+Two types are associated with a variable: its *store type* (the type of value
+that may be placed in the referenced storage) and its *reference type* (the type
+of the variable itself).  If a variable has store type *T* and storage class *S*,
+then its reference type is pointer-to-*T*-in-*S*.
 
 A *variable declaration*
 
 * Determines the variable’s name, storage class, and store type (and hence its reference type)
 * Ensures the execution environment allocates storage for a value of the store type, for the lifetime of the variable.
-* Two variables with overlapping lifetimes must not have overlapping storage.
+* Optionally have an *initializer* expression, if the variable is in the `Private`, `Function`, or `Output` [[#storage-class]].
+    If present, the intiailizer's type must match the store type of the variable.
+
+Two variables with overlapping lifetimes must not have overlapping storage.
+
+When a variable is created, its storage contains an initial value as follows:
+
+* For variables in the `Private`, `Function`, or `Output` storage classes:
+    * The zero value for the store type, if the variable declaration has no initializer.
+    * Otherwise, it is the result of evaluating the initializer expression at that point in the program execution.
+* For variables in other storage classes, the execution environment provides the initial value.
+
+Issue: (dneto) It feels like this needs some reorganization. Perhaps "Evaluation and Execution" between [[#formal-types]] and [[#grammar]].
+
+<div class='example' header='Variable initial values'>
+  Consider the following snippet of WGSL:
+  <xmp highlight='rust'>
+    var i: i32;         # Initial value is 0.  Not recommended style.
+    loop {
+      var twice: i32 = 2 * i;   # Re-evaluated each iteration.
+      i = i + 1;
+      break if (i == 5);
+    }
+  </xmp>
+  The loop body will execute five times.
+  Variable `i` will take on values 0, 1, 2, 3, 4, 5, and variable `twice` will take on values 0, 2, 4, 6, 8.
+</div>
 
 <div class='example'>
   Consider the following snippet of WGSL:
@@ -360,15 +436,6 @@ Note: literals are parsed greedy. This means that for statements like `a -5`
       this will *not* parse as `a` `minus` `5` but instead as `a` `-5` which
       may be unexpected. A space must be inserted after the `-` if the first
       expression is desired.
-
-### Default Values ### {#default-values}
-
-* `i32` and `u32` default to `0`
-* `f32` defaults to `0.0`
-* `bool` defaults to `false`
-* An `N`-element vector of type `T` defaults to an `N`-element vector of the default value for `T`
-* An `array` defaults to the correct size with the default value for each element
-* A `struct` defaults to the default value for each element
 
 ## Keywords ## {#keywords}
 
@@ -660,53 +727,6 @@ variable_ident_decl
 variable_storage_decoration:
   : LESS_THAN storage_class GREATER_THAN
 </pre>
-
-## Initializers ## {#initializers}
-A variable must be in the `Output`, `Private` or `Function` storage
-class in order to have an initializer. As well, all variables in the
-`Output`, `Private` and `Function` storage class must have an initializer.
-
-<div class='example' heading='Global Scope'>
-  <xmp>
-    var bar : f32     # Error. Must have storage class. E.g. private
-
-    [[location 3]] var<in> foo : f32;
-
-                        OpName %foo "foo"
-                        OpDecorate %foo Location 3
-               %float = OpTypeFloat 32
-    %_ptr_Input_float = OpTypePointer Input %float
-                 %foo = OpVariable %_ptr_Input_float Input
-
-    type S = [[block]] struct {
-      f : vec4<f32>;
-      a : array<i32>;
-    };
-    var<storage_buffer> buf : S;
-
-                            OpDecorate %S Block
-                   %float = OpTypeFloat 32
-                 %v4float = OpTypeVector %float 4
-       %_runtimearr_float = OpTypeRuntimeArray %float
-                       %S = OpTypeStruct %v4float %_runtimearr_float
-    %_ptr_StorageBuffer_S = OpTypePointer StorageBuffer %S
-                 %buf = OpVariable %_ptr_StorageBuffer_S StorageBuffer
-  </xmp>
-</div>
-
-<div class='example' heading='Function Scope'>
-  <xmp>
-    var foo : f32 = 2.5;
-
-                           OpName %i "i"
-                  %float = OpTypeFloat 32
-              %float_2_5 = OpConstant %float 2.5
-    %_ptr_Function_float = OpTypePointer Function %float
-                          ...
-                     %fn = OpFunction ...
-                  %i = OpVariable %_ptr_Function_float Function %float_2_5
-  </xmp>
-</div>
 
 ## Type Alias ## {#type-alias}
 
@@ -1535,6 +1555,7 @@ Issue: (dneto): Do we have to explicitly list the type environment Gamma? That's
   <thead>
     <tr><td>Precondition<td>Conclusion<td>Notes
   </thead>
+  <tr><td><td>`bool()` : bool<td>Zero value (OpConstantNull for bool)
   <tr><td>*e* : bool<td>`bool(e)` : bool<td>Pass-through (OpCopyObject)
 </table>
 
@@ -1543,6 +1564,9 @@ Issue: (dneto): Do we have to explicitly list the type environment Gamma? That's
   <thead>
     <tr><td>Precondition<td>Conclusion<td>Notes
   </thead>
+  <tr><td><td>`i32()` : i32<td>Zero value (OpConstantNull for i32)
+  <tr><td><td>`u32()` : u32<td>Zero value (OpConstantNull for u32)
+  <tr><td><td>`f32()` : f32<td>Zero value (OpConstantNull for f32)
   <tr><td>*e* : i32<td>`i32(e)` : i32<td>Pass-through (OpCopyObject)
   <tr><td>*e* : u32<td>`i32(e)` : i32<td>Reinterpretation of bits (OpBitcast)
   <tr><td>*e* : f32<td>`i32(e)` : i32<td>Value conversion, including invalid cases (OpConvertFToS)
@@ -1559,6 +1583,21 @@ Issue: (dneto): Do we have to explicitly list the type environment Gamma? That's
   <thead>
     <tr><td>Precondition<td>Conclusion<td>Notes
   </thead>
+  <tr>
+    <td>
+    <td>`vec2<T>()` : vec2<*T*>
+    <td>Zero value (OpConstantNull)
+  <tr>
+  <tr>
+    <td>
+    <td>`vec3<T>()` : vec3<*T*>
+    <td>Zero value (OpConstantNull)
+  <tr>
+  <tr>
+    <td>
+    <td>`vec4<T>()` : vec4<*T*>
+    <td>Zero value (OpConstantNull)
+  <tr>
   <tr>
     <td>*e1* : *T*<br>
         *e2* : *T*
@@ -1610,6 +1649,27 @@ Issue: (dneto): Do we have to explicitly list the type environment Gamma? That's
     <tr><td>Precondition<td>Conclusion<td>Notes
   </thead>
   <tr>
+    <td>
+    <td>`mat2x2<f32>()` : mat2x2<f32><br>
+        `mat3x2<f32>()` : mat3x2<f32><br>
+        `mat4x2<f32>()` : mat4x2<f32>
+    <td>Zero value (OpConstantNull)
+  <tr>
+  <tr>
+    <td>
+    <td>`mat2x3<f32>()` : mat2x3<f32><br>
+        `mat3x3<f32>()` : mat3x3<f32><br>
+        `mat4x3<f32>()` : mat4x3<f32>
+    <td>Zero value (OpConstantNull)
+  <tr>
+  <tr>
+    <td>
+    <td>`mat2x4<f32>()` : mat2x4<f32><br>
+        `mat3x4<f32>()` : mat3x4<f32><br>
+        `mat4x4<f32>()` : mat4x4<f32>
+    <td>Zero value (OpConstantNull)
+  <tr>
+  <tr>
     <td>*e1* : vec2<f32><br>
         *e2* : vec2<f32><br>
         *e3* : vec2<f32><br>
@@ -1640,6 +1700,50 @@ Issue: (dneto): Do we have to explicitly list the type environment Gamma? That's
     <td>Column by column construction.<br>
         OpCompositeConstruct
 </table>
+
+<table class='data'>
+  <caption>Array constructor type rules</caption>
+  <thead>
+    <tr><td>Precondition<td>Conclusion<td>Notes
+  </thead>
+  <tr>
+    <td>*e1* : *T*<br>
+        ...<br>
+        *eN* : *T*<br>
+    <td>`array<`*T*,*N*`>(e1,...,eN)` : array<*T*, *N*>
+    <td>Construction of an array from elements
+  <tr>
+    <td>*T* is storable
+    <td>`array<`*T*,*N*`>()` : array<*T*, *N*>
+    <td>Zero-valued array (OpConstantNull)
+  <tr>
+
+<table class='data'>
+  <caption>Structure constructor type rules</caption>
+  <thead>
+    <tr><td>Precondition<td>Conclusion<td>Notes
+  </thead>
+  <tr>
+    <td>*e1* : *T1*<br>
+        ...<br>
+        *eN* : *TN*<br>
+        *T1* is storable<br>
+        ...<br>
+        *TN* is storable<br>
+        S is a type alias for a structure type with members having types *T1* ... *TN*
+    <td>`S(e1,...,eN)` : S
+    <td>Construction of a structure from members
+  <tr>
+    <td>*e1* : *T1*<br>
+        ...<br>
+        *eN* : *TN*<br>
+        *T1* is storable<br>
+        ...<br>
+        *TN* is storable<br>
+        `S` is a type alias for a structure type with members having types *T1* ... *TN*
+    <td>`S()` : S
+    <td>Zero-valued structure (OpConstantNull)
+  <tr>
 
 <table class='data'>
   <caption>Unary operators</caption>
