@@ -28,7 +28,7 @@ The extra overhead needs to be low enough that applications can still run while 
 
 ```webidl
 interface GPU {
-    Promise<GPUAdapter> requestAdapter(optional GPURequestAdapterOptions options = {});
+    Promise<GPUAdapter?> requestAdapter(optional GPURequestAdapterOptions options = {});
 };
 ```
 
@@ -48,9 +48,10 @@ The Promise may not resolve for a long time - for example, the browser
 could delay until a background tab is foregrounded, to make sure the right
 adapter is chosen at the time the tab is foregrounded (in case the system
 state, such as battery state, has changed).
-If it rejects, the app knows for sure that its request could not be fulfilled
+If it returns `null`, the app knows for sure that its request could not be fulfilled
 (at least, in the current system state...); it does not need to retry with the
 same `GPURequestAdapterOptions`.
+If the `options` are invalid (currently impossible), `requestAdapter()` rejects.
 
 `GPUAdapter.requestDevice` requests a device from the adapter.
 It returns a Promise which resolves when a device is ready.
@@ -58,9 +59,10 @@ The Promise may not resolve for a long time - for example, even if the
 adapter is still valid, the browser could delay until a background tab is
 foregrounded, to make sure that system resources are conserved until then.
 If the adapter is lost and therefore unable to create a device, `requestDevice()` returns null.
-If the `options` are invalid (e.g. they exceed the limits of the adapter), `requestDevice()` rejects.
+If the `descriptor` is invalid (e.g. it exceeds the limits of the adapter), `requestDevice()` rejects.
 
-The `GPUDevice` may be lost if something goes fatally wrong on the device (e.g. unexpected driver error, crash, or native device loss).
+The `GPUDevice` may be lost if something goes fatally wrong on the device
+(e.g. unexpected driver error, crash, or native device loss).
 The `GPUDevice` provides a promise, `device.lost`, which resolves when the device is lost.
 It will **never** reject and may be pending forever.
 
@@ -73,11 +75,13 @@ An app should never give up on getting WebGPU access due to
 `requestDevice` returning `null` or `GPUDevice.lost` resolving.
 Instead of giving up, the app should try again starting with `requestAdapter`.
 
-It *should* give up based on a `requestAdapter` rejection.
+It *should* give up based on a `requestAdapter` returning `null` or rejecting.
 (It should also give up on a `requestDevice` rejection, as that indicates an app
 programming error - the request was invalid, e.g. not compatible with the adapter.)
 
 ### Example Code
+
+**NOTE:** this example (and possibly the init API) still needs significant rework!
 
 ```js
 class MyRenderer {
@@ -86,14 +90,14 @@ class MyRenderer {
     this.device = null;
   }
   async begin() {
-    try {
-      await this.initWebGPU();
-    } catch (e) {
-      console.error(e);
+    const usingWebGPU = await this.initWebGPU();
+    if (!usingWebGPU) {
       this.initFallback();
     }
   }
-  initFallback() { /* try WebGL, 2D Canvas, or other fallback */ }
+  initFallback() {
+    // Try WebGL, 2D Canvas, or other fallback.
+  }
   async initWebGPU() {
     // Stop rendering. (If there was already a device, WebGPU calls made before
     // the app notices the device is lost are okay - they are no-ops.)
@@ -101,31 +105,35 @@ class MyRenderer {
 
     // Keep current adapter (but make a new one if there isn't a current one.)
     await tryEnsureDeviceOnCurrentAdapter();
+    if (!this.adapter) return false;
     // If the device is null, the adapter was lost. Try a new adapter.
     // Continue doing this until one is found or an error is thrown.
     while (!this.device) {
       this.adapter = null;
       await tryEnsureDeviceOnCurrentAdapter();
+      if (!this.adapter) return false;
     }
 
     // ... Upload resources, etc.
+    return true;
   }
   async tryEnsureDeviceOnCurrentAdapter() {
     // If no adapter, get one.
     // If we can't, rejects and the app falls back.
     if (!this.adapter) {
       // If no adapter, get one.
-      // (If requestAdapter rejects, no matching adapter is available. Exit to fallback.)
       this.adapter = await gpu.requestAdapter({ /* options */ });
+      // If requestAdapter resolves to null, no matching adapter is available.
+      // Exit to fallback.
+      if (!this.adapter) return;
     }
 
     // Try to get a device.
     //   null => try new adapter
     //   rejection => options were invalid (app programming error)
     this.device = await this.adapter.requestDevice({ /* options */ });
-    if (!this.device) {
-      return;
-    }
+    if (!this.device) return;
+
     // When the device is lost, just try to get a device again.
     device.lost.then((info) => {
       console.error("Device was lost.", info);
@@ -187,7 +195,7 @@ All devices and adapters are lost (except for software?) because GPU access has 
  - `device.lost` resolves on every device, message = whatever
 
 WebGPU access has been disabled for the page.
- - `requestAdapter` rejects (or returns a software adapter).
+ - `requestAdapter` returns null (or a software adapter).
 
 The device is lost right as it's being returned by requestDevice.
  - `device.lost` resolves.
