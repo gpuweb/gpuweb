@@ -291,8 +291,7 @@ either a `GPUOutOfMemoryError` or a `GPUValidationError` object containing infor
 An error scope captures an error if its filter matches the type of the error scope:
 `pushErrorScope('out-of-memory')` captures `GPUOutOfMemoryError`s;
 `pushErrorScope('validation')` captures `GPUValidationError`s.
-`pushErrorScope('none')` never captures errors, but can be used to detect operation completion.
-The filter mechanism prevents developers from accidentally silencing validation errors when trying to do fallible allocation or wait for completion.
+The filter mechanism prevents developers from, e.g., accidentally silencing validation errors when trying to do fallible allocation.
 
 If an error scope captures an error, the error is not passed down to the enclosing error scope.
 Each error scope stores only the **first error** it captures, and returns that error when the scope is popped.
@@ -310,7 +309,6 @@ That is, when a `GPUDevice` is posted to a Worker for the first time, the new `G
 
 ```webidl
 enum GPUErrorFilter {
-    "none",
     "out-of-memory",
     "validation"
 };
@@ -348,22 +346,18 @@ async function tryCreateBuffer(device, desc) {
 
 ### *Waiting for Completion*
 
-Since error scope results only return once the enclosed operations are complete, a `none` error scope can be used to detect completion of off-queue operations.
+Using a `validation` error scope can tell an application when validation has
+completed, but is otherwise not intended to signal completion.
+
 (On-queue operation completion can be detected with `GPUFence`.)
+
+For pipeline creation, there are `createReadyComputePipeline` and
+`createReadyRenderPipeline`.
 
 #### Example: createReadyRenderPipeline
 
-```js
-async function createReadyRenderPipeline(device, desc) {
-  device.pushErrorScope('none');
-  const pipeline = device.createRenderPipeline(desc);
-  await device.popErrorScope(); // always resolves to null
-  return pipeline;
-}
-```
-
 `createReadyRenderPipeline` is asynchronous.
-`requestAnimationFrame`'s callback is not treated as asynchronous - only the first task is guaranteed to occur before the frame is displayed.
+Note `requestAnimationFrame`'s callback is not treated as asynchronous - only the first task is guaranteed to occur before the frame is displayed.
 
 ```js
 class Renderer {
@@ -476,7 +470,7 @@ device.addEventListener('uncapturederror', (event) => {
 
  - Should there be a maximum error scope depth?
 
- - Or should error scope balance be enforced by changing the API to e.g. `device.withErrorScope('none', () => { device.stuff(); /*...*/ })`?
+ - Or should error scope balance be enforced by changing the API to e.g. `device.withErrorScope('validation', () => { device.stuff(); /*...*/ })`?
 
  - Should the error scope filter be a bitfield?
 
