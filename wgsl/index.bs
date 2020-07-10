@@ -567,23 +567,44 @@ TODO(dsinclair): Need gather operations
 
 ## Scoping ## {#scoping}
 
-Scoping is the set of rules determining where a variable may be used.
+A declaration introduces a name, given by an identifier token.
+Scoping is the set of rules determining where that name may be used, in relation to
+the position of the declaration in the program.
+If a name may be used at a particular point in the program, then we say it is *in scope*.
 
 Issue: (dneto) also lifetime.
 
 There are multiple levels of scoping depending on how and where things are
 declared.
 
-Note: Shadow variables are not allowed in [SHORTNAME]. A variable must not be defined
-         in a given scope or any scope above the current one.
+A declaration must not introduce a name when that name is already in scope at the start
+of the declaration.
+That is, shadow names are not allowed in [SHORTNAME].
 
-## Module Scope ## {#module-scope}
-Any variable declared outside a function is at module scope.
+### Module Scope ### {#module-scope}
 
-## Function Scope ## {#function-scope}
-Variables declared within a function are at function scope. The variable is
-visible at any scoping level which comes after the variable declaration in the
-source code. The variable is not visible until it is declared.
+A variable or constant declared outside a function is at *module scope*.
+The name is available for use immediately after its declaration statement, until the end
+of the program.
+
+A function declaration is always at module scope.
+The function name is available for use after its declaration, until the end of the program.
+
+### Function Scope ### {#function-scope}
+
+The names in the parameter list of a function definition are available for use in the body
+of the function.
+During a particular function evaluation,
+the parameter names denote the values specified to the function call expression or statement
+which initiated the function evaluation;
+the names and values are associated by position.
+
+A variable or constant declared in a declaration statement in a function body is in *function scope*.
+The name is available for use immedately after its declaration statement,
+and until the end of the brace-delimited list of statements immediately enclosing the declaration.
+
+A variable or constant declared in the first clause of a `for` statement is available for use in the second
+and third clauses and in the body of the `for` statement.
 
 ## Comments ## {#comments}
 Comments begin with a # and continue to the end of the current line. There are no multi-line comments.
@@ -1328,6 +1349,12 @@ param_list
   <tr><td>is_normal(float) -&gt; bool<td>OpIsNormal
   <tr><td>dot(vecN<f32>, vecN<f32>) -&gt; float<td>OpDot
   <tr><td>outer_product(vecN<f32>, vecM<f32>) -&gt; matNxM<f32><td>OpOuterProduct
+  <tr><td>select(*T*,*T*,bool) -&gt; *T*<td>
+       For scalar or vector type *T*.
+       `select(a,b,c)` evaluates to *a* when *c* is true, and *b* otherwise.
+  <tr><td>select(vec*N*<*T*>,vec*N*<*T*>,vec*N*<bool>) -&gt; vec*N*<*T*><td>
+       For scalar type *T*.
+       `select(a,b,c)` evaluates to a vector with component *i* being `select(a[i], b[i], c[i])`.
 </table>
 
 ## Entry Points ## {#entry-points}
@@ -1370,7 +1397,7 @@ body_stmt:
   : BRACE_LEFT statements BRACE_RIGHT
 
 paren_rhs_stmt
-  : PAREN_LEFT logical_or_expression PAREN_RIGHT
+  : PAREN_LEFT short_circuit_or_expression PAREN_RIGHT
 
 statements
   : statement*
@@ -1395,7 +1422,7 @@ statement
 
 <pre class='def'>
 return_stmt
-  : RETURN logical_or_expression?
+  : RETURN short_circuit_or_expression?
 </pre>
 
 A `return` statement ends execution of the current function.
@@ -1414,8 +1441,8 @@ The type of the return value must match the return type of the function.
 <pre class='def'>
 variable_stmt
   : variable_decl
-  | variable_decl EQUAL logical_or_expression
-  | CONST variable_ident_decl EQUAL logical_or_expression
+  | variable_decl EQUAL short_circuit_or_expression
+  | CONST variable_ident_decl EQUAL short_circuit_or_expression
 </pre>
 
 ## If Statement ## {#if-statement}
@@ -1573,7 +1600,7 @@ for_stmt
 
 for_header
   : (variable_stmt | assignment_stmt | func_call_stmt)? SEMICOLON
-     logical_or_expression? SEMICOLON
+     short_circuit_or_expression? SEMICOLON
      (assignment_stmt | func_call_stmt)?
 </pre>
 
@@ -1765,12 +1792,12 @@ primary_expression
 
 postfix_expression
   :
-  | BRACKET_LEFT logical_or_expression BRACKET_RIGHT postfix_expression
+  | BRACKET_LEFT short_circuit_or_expression BRACKET_RIGHT postfix_expression
   | PAREN_LEFT argument_expression_list* PAREN_RIGHT postfix_expression
   | PERIOD IDENT postfix_expression
 
 argument_expression_list
-  : (logical_or_expression COMMA)* logical_or_expression
+  : (short_circuit_or_expression COMMA)* short_circuit_or_expression
 
 unary_expression
   : singular_expression
@@ -1845,30 +1872,25 @@ equality_expression
 and_expression
   : equality_expression
   | and_expression AND equality_expression
-       OpBitwiseAnd
 
 exclusive_or_expression
   : and_expression
   | exclusive_or_expression XOR and_expression
-       OpBitwiseXor
 
 inclusive_or_expression
   : exclusive_or_expression
   | inclusive_or_expression OR exclusive_or_expression
-       OpBitwiseOr
 
-logical_and_expression
+short_circuit_and_expression
   : inclusive_or_expression
-  | logical_and_expression AND_AND inclusive_or_expression
-      OpLogicalAnd
+  | short_circuit_and_expression AND_AND inclusive_or_expression
 
-logical_or_expression
-  : logical_and_expression
-  | logical_or_expression OR_OR logical_and_expression
-      OpLogicalOr
+short_circuit_or_expression
+  : short_circuit_and_expression
+  | short_circuit_or_expression OR_OR short_circuit_and_expression
 
 assignment_stmt
-  : singular_expression EQUAL logical_or_expression
+  : singular_expression EQUAL short_circuit_or_expression
       If singular_expression is a variable, this maps to OpStore to the variable.
       Otherwise, singular expression is a pointer expression in an Assigning (L-value) context
       which maps to OpAccessChain followed by OpStore
@@ -2314,34 +2336,50 @@ Issue: (dneto): Bitwise-complement is under discussion.  https://github.com/gpuw
   <thead>
     <tr><td>Precondition<td>Conclusion<td>Notes
   </thead>
-  <tr><td>*e1* : *T*<br>
-          *e2* : *T*<br>
-          *T* is *Int*
-       <td class="nowrap">`e1 << e2` : *T*
-       <td>Shift *e1* left by *e2* bits (OpShiftLeftLogical)
-  <tr><td>*e1* : *T*<br>
-          *e2* : *T*<br>
-          *T* is *IntVec*
-       <td class="nowrap">`e1 << e2` : *T*
-       <td>Component-wise shift left (OpShiftLeftLogical)
-  <tr><td>*e1* : u32<br>
-          *e2* : u32<br>
-       <td class="nowrap">`e1 >> e2` : u32
-       <td>Logical shift *e1* right by *e2* bits, i.e. inserting zero at most significant bits (OpShiftRightLogical)
-  <tr><td>*e1* : *T*<br>
-          *e2* : *T*<br>
-          *T* is vec*N*&lt;u32&gt;
-       <td class="nowrap">`e1 >> e2` : *T*
-       <td>Component-wise logical shift right (OpShiftRightLogical)
-  <tr><td>*e1* : i32<br>
-          *e2* : i32<br>
-       <td class="nowrap">`e1 >> e2` : i32
-       <td>Arithmetic shift *e1* right by *e2* bits, i.e. replicating the sign bit of *e1* at most significant bits (OpShiftRightArithmetic)
-  <tr><td>*e1* : *T*<br>
-          *e2* : *T*<br>
-          *T* is vec*N*&lt;i32&gt;
-       <td class="nowrap">`e1 >> e2` : *T*
-       <td>Component-wise arithmetic shift right (OpShiftRightArithmetic)
+  <tr algorithm="scalar shift left"><td>|e1| : |T|<br>
+          |e2| : u32<br>
+          |T| is *Int*
+       <td class="nowrap">|e1| `<<` |e2| : |T|
+       <td>Shift left:<br>
+           Shift |e1| left, inserting zero bits at the least significant positions,
+           and discarding the most significant bits.
+           The number of bits to shift is the value of |e2| modulo the bit width of |e1|.<br>
+           (OpShiftLeftLogical)
+  <tr algorithm="vector shift left"><td>|e1| : vec|N|&lt;|T|&gt;<br>
+          |e2| : vec|N|&lt;u32&gt;<br>
+          |T| is *Int*
+       <td class="nowrap">|e1| `<<` |e2| : vec|N|&lt;|T|&gt;
+       <td>Component-wise shift left:<br>
+           Component |i| of the result is `(`|e1|`[`|i|`] << `|e2|`[`|i|`])`<br>
+           (OpShiftLeftLogical)
+  <tr algorithm="scalar logical shift right"><td>|e1| : u32<br>
+          |e2| : u32<br>
+       <td class="nowrap">|e1| `>>` |e2| `: u32`
+       <td >Logical shift right:<br>
+           Shift |e1| right, inserting zero bits at the most significant positions,
+           and discarding the least significant bits.
+           The number of bits to shift is the value of |e2| modulo the bit width of |e1|.
+           (OpShiftRightLogical)
+  <tr algorithm="vector logical shift right"><td>|e1| : vec|N|&lt;u32&gt;<br>
+          |e2| : u32<br>
+       <td class="nowrap">|e1| `>>` |e2| : vec|N|&lt;u32&gt;
+       <td>Component-wise logical shift right:<br>
+           Component |i| of the result is `(`|e1|`[`|i|`] >> `|e2|`[`|i|`])`
+           (OpShiftRightLogical)
+  <tr algorithm="scalar arithmetic shift right"><td>|e1| : i32<br>
+          |e2| : u32<br>
+       <td class="nowrap">|e1| `>>` |e2| : i32
+       <td>Arithmetic shift right:<br>
+           Shift |e1| right, copying the sign bit of |e1| into the most significant positions,
+           and discarding the least significant bits.
+           The number of bits to shift is the value of |e2| modulo the bit width of |e1|.
+           (OpShiftRightArithmetic)
+  <tr algorithm="vector arithmetic shift right"><td>|e1| : vec|N|&lt;i32&gt;<br>
+          |e2| : vec|N|&lt;u32&gt;<br>
+       <td class="nowrap">|e1| `>>` |e2| : vec|N|&lt;i32&gt;
+       <td>Component-wise arithmetic shift right:<br>
+           Component |i| of the result is `(`|e1|`[`|i|`] >> `|e2|`[`|i|`])`
+           (OpShiftRightArithmetic)
 </table>
 
 <table class='data'>
@@ -2353,17 +2391,17 @@ Issue: (dneto): Bitwise-complement is under discussion.  https://github.com/gpuw
           *e2* : *T*<br>
           *T* is *Integral*
        <td class="nowrap">`e1 | e2` : *T*
-       <td>Bitwise-or (OpBitwiseOr)
+       <td>Bitwise-or
   <tr><td>*e1* : *T*<br>
           *e2* : *T*<br>
           *T* is *Integral*
        <td class="nowrap">`e1 & e2` : *T*
-       <td>Bitwise-and (OpBitwiseAnd)
+       <td>Bitwise-and
   <tr><td>*e1* : *T*<br>
           *e2* : *T*<br>
           *T* is *Integral*
        <td class="nowrap">`e1 ^ e2` : *T*
-       <td>Bitwise-exclusive-or (OpBitwiseXor)
+       <td>Bitwise-exclusive-or
 </table>
 
 <table class='data'>
@@ -2548,10 +2586,16 @@ Issue: (dneto): Bitwise-complement is under discussion.  https://github.com/gpuw
   <thead>
     <tr><td>Precondition<td>Conclusion<td>Notes
   </thead>
-  <tr><td>*e1* : bool<br>*e2* : bool<td>`e1 || e2` : bool<td>Logical or (OpLogicalOr)
-  <tr><td>*e1* : bool<br>*e2* : bool<td>`e1 && e2` : bool<td>Logical and (OpLogicalAnd)
-  <tr><td>*e1* : *T*<br>*e2* : *T*<br>*T* is *BoolVec*<td>`e1 || e2` : *T*<td>Component-wise logical or (OpLogicalOr)
-  <tr><td>*e1* : *T*<br>*e2* : *T*<br>*T* is *BoolVec*<td>`e1 && e2` : *T*<td>Component-wise logical and (OpLogicalAnd)
+  <tr><td>*e1* : bool<br>*e2* : bool<td>`e1 || e2` : bool<td>
+    Short-circuiting "or". Yields `true` if either `e1` or `e2` are true; evaluates `e2` only if `e1` is false.
+  <tr><td>*e1* : bool<br>*e2* : bool<td>`e1 && e2` : bool<td>
+    Short-circuiting "and". Yields `true` if both `e1` and `e2` are true; evaluates `e2` only if `e1` is true.
+  <tr><td>*e1* : bool<br>*e2* : bool<td>`e1 | e2` : bool<td>
+    Logical "or". Evaluates both `e1` and `e2`; yields `true` if either are `true`.
+  <tr><td>*e1* : bool<br>*e2* : bool<td>`e1 & e2` : bool<td>
+    Logical "and". Evaluates both `e1` and `e2`; yields `true` if both are `true`.
+  <tr><td>*e1* : *T*<br>*e2* : *T*<br>*T* is *BoolVec*<td>`e1 | e2` : *T*<td>Component-wise logical "or"
+  <tr><td>*e1* : *T*<br>*e2* : *T*<br>*T* is *BoolVec*<td>`e1 & e2` : *T*<td>Component-wise logical "and"
 </table>
 
 # Glossary # {#glossary}
