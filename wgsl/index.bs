@@ -84,6 +84,15 @@ Note: literals are parsed greedy. This means that for statements like `a -5`
       may be unexpected. A space must be inserted after the `-` if the first
       expression is desired.
 
+<pre class='def'>
+const_literal
+  : INT_LITERAL
+  | UINT_LITERAL
+  | FLOAT_LITERAL
+  | TRUE
+  | FALSE
+</pre>
+
 
 ## Keywords TODO ## {#keywords}
 
@@ -768,6 +777,8 @@ array_decoration
 
 # Variable and const # {#variables}
 
+TODO: *Stub* (describe what a constant is): A constant is a name for a value, declared via a `const` declaration.
+
 A variable is a named reference to storage that can contain a value of a
 particular storable type.
 
@@ -844,30 +855,43 @@ Issue: (dneto) It feels like this needs some reorganization. Perhaps "Evaluation
   such that the redundant loads are eliminated.
 </div>
 
-## Module Scope ## {#module-scope}
+## Module Scope Variables ## {#module-scope-variables}
 
 A variable or constant declared outside a function is at *module scope*.
 The name is available for use immediately after its declaration statement, until the end
 of the program.
 
-A function declaration is always at module scope.
-The function name is available for use after its declaration, until the end of the program.
+<pre class='def'>
+global_variable_decl
+  : variable_decoration_list? variable_decl
+  | variable_decoration_list? sampler_or_texture_decl
+  | variable_decoration_list? variable_decl EQUAL const_expr
 
-## Function Scope ## {#function-scope}
+global_constant_decl
+  : CONST variable_ident_decl EQUAL const_expr
 
-The names in the parameter list of a function definition are available for use in the body
-of the function.
-During a particular function evaluation,
-the parameter names denote the values specified to the function call expression or statement
-which initiated the function evaluation;
-the names and values are associated by position.
+variable_decoration_list
+  : ATTR_LEFT (variable_decoration COMMA)* variable_decoration ATTR_RIGHT
 
-A variable or constant declared in a declaration statement in a function body is in *function scope*.
-The name is available for use immedately after its declaration statement,
-and until the end of the brace-delimited list of statements immediately enclosing the declaration.
+variable_decoration
+  : LOCATION INT_LITERAL
+  | BUILTIN IDENT
+  | BINDING INT_LITERAL
+  | SET INT_LITERAL
+</pre>
 
-A variable or constant declared in the first clause of a `for` statement is available for use in the second
-and third clauses and in the body of the `for` statement.
+<div class='example' heading="Variable Decorations">
+  <xmp>
+    [[location 2]]
+       OpDecorate %gl_FragColor Location 2
+
+    [[binding 3, set 4]]
+       OpDecorate %gl_FragColor Binding 3
+       OpDecorate %gl_FragColor DescriptorSet 4
+  </xmp>
+</div>
+
+See [[#builtin-variables]] for the decorations for specifying built-in variables.
 
 ## Module Constants ## {#module-constants}
 
@@ -929,12 +953,51 @@ global_const_decoration
 
 global_const_initializer
   : EQUAL const_expr
+
+const_expr
+  : type_decl PAREN_LEFT (const_expr COMMA)* const_expr PAREN_RIGHT
+  | const_literal
 </pre>
+
+<div class='example' heading='Constants'>
+  <xmp>
+    -1
+       %a = OpConstant %int -1
+
+    2
+       %b = OpConstant %uint 2
+
+    3.2
+       %c = OpConstant %float 3.2
+
+    true
+        %d = OpConstantTrue
+
+    false
+        %e = OpConstant False
+
+    vec4<f32>(1.2, 2.3, 3.4, 2.3)
+        %f0 = OpConstant %float 1.2
+        %f1 = OpConstant %float 2.3
+        %f2 = OpConstant %float 3.4
+         %f = OpConstantComposite %v4float %f0 %f1 %f2 %f1
+  </xmp>
+</div>
 
 Issue(dneto): The WebGPU pipeline creation API must specify how API-supplied values are mapped to
 shader scalar values.  For booleans, I suggest using a 32-bit integer, where only 0 maps to `false`.
 If [SHORTNAME] gains non-32-bit numeric scalars, I recommend overridable constants continue being 32-bit
 numeric types.
+
+## Function Scope Variables ## {#function-scope-variables}
+
+A variable or constant declared in a declaration statement in a function body is in *function scope*.
+The name is available for use immedately after its declaration statement,
+and until the end of the brace-delimited list of statements immediately enclosing the declaration.
+
+A variable or constant declared in the first clause of a `for` statement is available for use in the second
+and third clauses and in the body of the `for` statement.
+
 
 ## Never-alias assumption TODO ## {#never-alias-assumption}
 
@@ -1060,9 +1123,137 @@ TODO: *Stub*. Call to function returning non-void, is an expression.
 
 TODO: *Stub*: how to write each of the abstract pointer operations
 
+## Expression Grammar Summary ## {#expression-grammar}
+
+<pre class='def'>
+primary_expression
+  : (IDENT NAMESPACE)* IDENT
+  | type_decl PAREN_LEFT argument_expression_list* PAREN_RIGHT
+  | const_literal
+  | paren_rhs_statement
+  | CAST LESS_THAN type_decl GREATER_THAN paren_rhs_statement
+      OpConvertFToU
+      OpConvertFToS
+      OpConvertSToF
+      OpConvertUToF
+      OpUConvert
+      OpSConvert
+      OpFConvert
+  | AS LESS_THAN type_decl GREATER_THAN paren_rhs_statement
+      OpBitcast
+
+postfix_expression
+  :
+  | BRACKET_LEFT short_circuit_or_expression BRACKET_RIGHT postfix_expression
+  | PAREN_LEFT argument_expression_list* PAREN_RIGHT postfix_expression
+  | PERIOD IDENT postfix_expression
+
+argument_expression_list
+  : (short_circuit_or_expression COMMA)* short_circuit_or_expression
+
+unary_expression
+  : singular_expression
+  | MINUS unary_expression
+      OpSNegate
+      OpFNegate
+  | BANG unary_expression
+      OpNot
+
+singular_expression
+  : primary_expression postfix_expression
+
+multiplicative_expression
+  : unary_expression
+  | multiplicative_expression STAR unary_expression
+      OpVectorTimesScalar
+      OpMatrixTimesScalar
+      OpVectorTimesMatrix
+      OpMatrixTimesVector
+      OpMatrixTimesMatrix
+      OpIMul
+      OpFMul
+  | multiplicative_expression FORWARD_SLASH unary_expression
+      OpUDiv
+      OpSDiv
+      OpFDiv
+  | multiplicative_expression MODULO unary_expression
+      OpUMOd
+      OpSMod
+      OpFMod
+
+additive_expression
+  : multiplicative_expression
+  | additive_expression PLUS multiplicative_expression
+      OpIAdd
+      OpFAdd
+  | additive_expression MINUS multiplicative_expression
+      OpFSub
+      OpISub
+
+shift_expression
+  : additive_expression
+  | shift_expression SHIFT_LEFT additive_expression
+        OpShiftLeftLogical
+  | shift_expression SHIFT_RIGHT additive_expression
+        OpShiftRightLogical or OpShiftRightArithmetic
+
+relational_expression
+  : shift_expression
+  | relational_expression LESS_THAN shift_expression
+        OpULessThan
+        OpFOrdLessThan
+  | relational_expression GREATER_THAN shift_expression
+        OpUGreaterThan
+        OpFOrdGreaterThan
+  | relational_expression LESS_THAN_EQUAL shift_expression
+        OpULessThanEqual
+        OpFOrdLessThanEqual
+  | relational_expression GREATER_THAN_EQUAL shift_expression
+        OpUGreaterThanEqual
+        OpFOrdGreaterThanEqual
+
+equality_expression
+  : relational_expression
+  | relational_expression EQUAL_EQUAL relational_expression
+        OpIEqual
+        OpFOrdEqual
+  | relational_expression NOT_EQUAL relational_expression
+        OpINotEqual
+        OpFOrdNotEqual
+
+and_expression
+  : equality_expression
+  | and_expression AND equality_expression
+
+exclusive_or_expression
+  : and_expression
+  | exclusive_or_expression XOR and_expression
+
+inclusive_or_expression
+  : exclusive_or_expression
+  | inclusive_or_expression OR exclusive_or_expression
+
+short_circuit_and_expression
+  : inclusive_or_expression
+  | short_circuit_and_expression AND_AND inclusive_or_expression
+
+short_circuit_or_expression
+  : short_circuit_and_expression
+  | short_circuit_or_expression OR_OR short_circuit_and_expression
+</pre>
+
+
 # Statements TODO # {#statements}
 
 ## Assignment TODO ## {#assignment}
+
+<pre class='def'>
+assignment_statement
+  : singular_expression EQUAL short_circuit_or_expression
+      If singular_expression is a variable, this maps to OpStore to the variable.
+      Otherwise, singular expression is a pointer expression in an Assigning (L-value) context
+      which maps to OpAccessChain followed by OpStore
+</pre>
 
 ### Writing to a variable TODO ### {#writing-to-var}
 
@@ -1072,7 +1263,7 @@ TODO: *Stub*: how to write each of the abstract pointer operations
 
 ### Sequence TODO ### {#sequence-statement}
 
-### If/elseif/else statement TODO ### {#if-statement}
+### If/elseif/else Statement TODO ### {#if-statement}
 
 <pre class='def'>
 if_statement
@@ -1086,7 +1277,7 @@ else_statement
 </pre>
 
 
-### Switch statement ### {#switch-statement}
+### Switch Statement ### {#switch-statement}
 
 <pre class='def'>
 switch_statement
@@ -1387,7 +1578,7 @@ control past a declaration used in the targeted continuing construct.
 </div>
 * <3> The `continue` is invalid because it bypasses the declaration of `step` used in the `continuing` construct
 
-### Continuing statement ## {#continuing-statement}
+### Continuing Statement ### {#continuing-statement}
 
 <pre class='def'>
 continuing_statement:
@@ -1399,7 +1590,7 @@ The construct is optional.
 
 The block of statements must not contain a return or discard statement.
 
-### Return TODO ### {#return-statement}
+### Return ### {#return-statement}
 
 <pre class='def'>
 return_statement
@@ -1484,6 +1675,9 @@ module header and each usage of a GLSL method will add the appropriate
 
 # Functions TODO # {#functions}
 
+A function declaration is always at module scope.
+The function name is available for use after its declaration, until the end of the program.
+
 Functions must end with a `return` statement. The return may be given with a
 value to be returned.
 
@@ -1529,6 +1723,15 @@ param_list
 
 
 ## Function declaration TODO ## {#function-declaration}
+
+TODO: *Stub*
+
+The names in the parameter list of a function definition are available for use in the body
+of the function.
+During a particular function evaluation,
+the parameter names denote the values specified to the function call expression or statement
+which initiated the function evaluation;
+the names and values are associated by position.
 
 ## Function calls TODO ## {#func-call-semantics}
 
@@ -1601,6 +1804,26 @@ TODO: *Stub*. Location-sizing of types, non-overlap among variables referenced w
 
 ### Input-output matching rules TODO ### {#input-output-matching}
 
+# WGSL program # {#wgsl-module}
+
+<pre class='def'>
+translation_unit
+  : global_decl* EOF
+</pre>
+
+<pre class='def'>
+global_decl
+  : SEMICOLON
+  | import_decl SEMICOLON
+  | global_variable_decl SEMICOLON
+  | global_constant_decl SEMICOLON
+  | entry_point_decl SEMICOLON
+  | type_alias SEMICOLON
+  | struct_decl SEMICOLON
+  | function_decl
+</pre>
+
+
 # Execution TODO # {#execution}
 
 ## Invocation of an entry point TODO ## {#invocation-of-an-entry-point}
@@ -1644,7 +1867,7 @@ TODO: *Stub*: Expression evaluation
 ### Arrayed resource access TODO ### {#arrayed-resource-access}
 
 
-# Grammar # {#grammar}
+# Keyword and Token Summary # {#grammar}
 
 ## Keyword Summary ## {#keyword-summary}
 
@@ -1859,226 +2082,9 @@ The following is a list of keywords which are reserved for future expansion.
 </table>
 
 
-## Global Declarations ## {#global-decls}
-<pre class='def'>
-translation_unit
-  : global_decl* EOF
-</pre>
-
-<pre class='def'>
-global_decl
-  : SEMICOLON
-  | import_decl SEMICOLON
-  | global_variable_decl SEMICOLON
-  | global_constant_decl SEMICOLON
-  | entry_point_decl SEMICOLON
-  | type_alias SEMICOLON
-  | struct_decl SEMICOLON
-  | function_decl
-</pre>
-
-
-## Module Variables ## {#module-variables}
-
-<pre class='def'>
-global_variable_decl
-  : variable_decoration_list? variable_decl
-  | variable_decoration_list? sampler_or_texture_decl
-  | variable_decoration_list? variable_decl EQUAL const_expr
-
-global_constant_decl
-  : CONST variable_ident_decl EQUAL const_expr
-
-variable_decoration_list
-  : ATTR_LEFT (variable_decoration COMMA)* variable_decoration ATTR_RIGHT
-
-variable_decoration
-  : LOCATION INT_LITERAL
-  | BUILTIN IDENT
-  | BINDING INT_LITERAL
-  | SET INT_LITERAL
-</pre>
-
-<div class='example' heading="Variable Decorations">
-  <xmp>
-    [[location 2]]
-       OpDecorate %gl_FragColor Location 2
-
-    [[binding 3, set 4]]
-       OpDecorate %gl_FragColor Binding 3
-       OpDecorate %gl_FragColor DescriptorSet 4
-  </xmp>
-</div>
-
-See [[#builtin-variables]] for the decorations for specifying built-in variables.
-
-
-
-## Expression statement ## {#expression-statement}
-<pre class='def'>
-primary_expression
-  : (IDENT NAMESPACE)* IDENT
-  | type_decl PAREN_LEFT argument_expression_list* PAREN_RIGHT
-  | const_literal
-  | paren_rhs_statement
-  | CAST LESS_THAN type_decl GREATER_THAN paren_rhs_statement
-      OpConvertFToU
-      OpConvertFToS
-      OpConvertSToF
-      OpConvertUToF
-      OpUConvert
-      OpSConvert
-      OpFConvert
-  | AS LESS_THAN type_decl GREATER_THAN paren_rhs_statement
-      OpBitcast
-
-postfix_expression
-  :
-  | BRACKET_LEFT short_circuit_or_expression BRACKET_RIGHT postfix_expression
-  | PAREN_LEFT argument_expression_list* PAREN_RIGHT postfix_expression
-  | PERIOD IDENT postfix_expression
-
-argument_expression_list
-  : (short_circuit_or_expression COMMA)* short_circuit_or_expression
-
-unary_expression
-  : singular_expression
-  | MINUS unary_expression
-      OpSNegate
-      OpFNegate
-  | BANG unary_expression
-      OpNot
-
-singular_expression
-  : primary_expression postfix_expression
-
-multiplicative_expression
-  : unary_expression
-  | multiplicative_expression STAR unary_expression
-      OpVectorTimesScalar
-      OpMatrixTimesScalar
-      OpVectorTimesMatrix
-      OpMatrixTimesVector
-      OpMatrixTimesMatrix
-      OpIMul
-      OpFMul
-  | multiplicative_expression FORWARD_SLASH unary_expression
-      OpUDiv
-      OpSDiv
-      OpFDiv
-  | multiplicative_expression MODULO unary_expression
-      OpUMOd
-      OpSMod
-      OpFMod
-
-additive_expression
-  : multiplicative_expression
-  | additive_expression PLUS multiplicative_expression
-      OpIAdd
-      OpFAdd
-  | additive_expression MINUS multiplicative_expression
-      OpFSub
-      OpISub
-
-shift_expression
-  : additive_expression
-  | shift_expression SHIFT_LEFT additive_expression
-        OpShiftLeftLogical
-  | shift_expression SHIFT_RIGHT additive_expression
-        OpShiftRightLogical or OpShiftRightArithmetic
-
-relational_expression
-  : shift_expression
-  | relational_expression LESS_THAN shift_expression
-        OpULessThan
-        OpFOrdLessThan
-  | relational_expression GREATER_THAN shift_expression
-        OpUGreaterThan
-        OpFOrdGreaterThan
-  | relational_expression LESS_THAN_EQUAL shift_expression
-        OpULessThanEqual
-        OpFOrdLessThanEqual
-  | relational_expression GREATER_THAN_EQUAL shift_expression
-        OpUGreaterThanEqual
-        OpFOrdGreaterThanEqual
-
-equality_expression
-  : relational_expression
-  | relational_expression EQUAL_EQUAL relational_expression
-        OpIEqual
-        OpFOrdEqual
-  | relational_expression NOT_EQUAL relational_expression
-        OpINotEqual
-        OpFOrdNotEqual
-
-and_expression
-  : equality_expression
-  | and_expression AND equality_expression
-
-exclusive_or_expression
-  : and_expression
-  | exclusive_or_expression XOR and_expression
-
-inclusive_or_expression
-  : exclusive_or_expression
-  | inclusive_or_expression OR exclusive_or_expression
-
-short_circuit_and_expression
-  : inclusive_or_expression
-  | short_circuit_and_expression AND_AND inclusive_or_expression
-
-short_circuit_or_expression
-  : short_circuit_and_expression
-  | short_circuit_or_expression OR_OR short_circuit_and_expression
-
-assignment_statement
-  : singular_expression EQUAL short_circuit_or_expression
-      If singular_expression is a variable, this maps to OpStore to the variable.
-      Otherwise, singular expression is a pointer expression in an Assigning (L-value) context
-      which maps to OpAccessChain followed by OpStore
-</pre>
-
-## Literal Statement ## {#literal-statement}
-<pre class='def'>
-const_literal
-  : INT_LITERAL
-  | UINT_LITERAL
-  | FLOAT_LITERAL
-  | TRUE
-  | FALSE
-
-const_expr
-  : type_decl PAREN_LEFT (const_expr COMMA)* const_expr PAREN_RIGHT
-  | const_literal
-</pre>
-
-
-<div class='example' heading='Constants'>
-  <xmp>
-    -1
-       %a = OpConstant %int -1
-
-    2
-       %b = OpConstant %uint 2
-
-    3.2
-       %c = OpConstant %float 3.2
-
-    true
-        %d = OpConstantTrue
-
-    false
-        %e = OpConstant False
-
-    vec4<f32>(1.2, 2.3, 3.4, 2.3)
-        %f0 = OpConstant %float 1.2
-        %f1 = OpConstant %float 2.3
-        %f2 = OpConstant %float 3.4
-         %f = OpConstantComposite %v4float %f0 %f1 %f2 %f1
-  </xmp>
-</div>
-
 # Validation # {#validation}
+
+TODO: Move these to the subject-matter sections.
 
 Each validation item will be given a unique ID and a test must be provided
 when the validation is added. The tests will reference the validation ID in
@@ -2113,6 +2119,8 @@ the test name.
 * v-0024: Entry point functions return void
 
 # Type Checking # {#type-checking}
+
+TODO: Move detailed tables to subject matter sections, e.g. expressions
 
 Type checking is the process of mapping terms in the [SHORTNAME] source language to [[#types]].
 
@@ -2817,7 +2825,7 @@ TODO: list storage class and shader stage restrictions.
     <tr><td>local_invocation_idx<td>u32<td>Compute Input
 </table>
 
-# Appendix: Built-in functions # {#builtin-functions}
+# Built-in functions # {#builtin-functions}
 
 Certain functions are always available in a [SHORTNAME] program,
 and are provided by the implementation.
@@ -2940,7 +2948,11 @@ TODO(dsinclair): Add Level-of-Detail via explicit gradient. "Grad" image operand
 TODO(dsinclair): Need gather operations
 </pre>
 
+## Atomic built-in functions ## {#atomic-builtin-functions}
+
 # Glossary # {#glossary}
+
+TODO: Remove terms unused in the rest of the specification.
 
 <table class='data'>
   <thead>
@@ -2955,8 +2967,6 @@ TODO(dsinclair): Need gather operations
   <tr><td>DomBy(A)
       <td>The basic blocks dominated by `A`
 </table>
-
-## Atomic built-in functions ## {#atomic-builtin-functions}
 
 # MATERIAL TO BE MOVED TO A NEW HOME # {#junkyard}
 
