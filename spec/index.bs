@@ -601,20 +601,36 @@ the user behind an `ArrayBuffer`, thus avoiding any data copies.
 
 ### Resource Usages ### {#programming-model-resource-usages}
 
-Buffers and textures can be used by the GPU in multiple ways,
-which can be split into two groups:
-
-: <dfn dfn>Read-only usage</dfn>s
-:: Usages like
-    {{GPUBufferUsage/VERTEX|GPUBufferUsage.VERTEX}} or
-    {{GPUTextureUsage/SAMPLED|GPUTextureUsage.SAMPLED}}
-    don't change the contents of a resource.
-
-: <dfn dfn>Mutating usage</dfn>s
-:: Usages like {{GPUBufferUsage/STORAGE|GPUBufferUsage.STORAGE}}
-    do change the contents of a resource.
-
-Issue(gpuweb/gpuweb#296): Consider merging all read-only usages.
+A [=physical resource=] can be used on GPU in one of the following <dfn dfn>internal usage</dfn>s:
+<dl dfn-type=dfn dfn-for="internal usage">
+    : <dfn>copy-source</dfn>
+    ::  Source of a copy operation. Preserves the contents.
+        Allowed by {{GPUBufferUsage/COPY_SRC}} or {{GPUTextureUsage/COPY_SRC}}.
+    : <dfn>copy-destination</dfn>
+    ::  Destination of a copy operation.
+        Allowed by {{GPUBufferUsage/COPY_DST}} or {{GPUTextureUsage/COPY_DST}}.
+    : <dfn>input</dfn>
+    :: Buffer with input data for draw or dispatch calls. Preserves the contents.
+        Allowed by {{GPUBufferUsage/INDEX}}, {{GPUBufferUsage/VERTEX}}, or {{GPUBufferUsage/INDIRECT}}.
+    : <dfn>uniform</dfn>
+    ::  Resource bindings that are uniformly accessed by the shaders. Preserves the contents.
+        Allowed by {{GPUBufferUsage/UNIFORM}} or {{GPUTextureUsage/SAMPLED}}.
+    : <dfn>storage</dfn>
+    ::  Writable storage resource binding.
+        Allowed by {{GPUBufferUsage/STORAGE}} or {{GPUTextureUsage/STORAGE}}.
+    : <dfn>storage-read</dfn>
+    ::  Read-only storage resource bindings. Preserves the contents.
+        Allowed by {{GPUBufferUsage/STORAGE}} or {{GPUTextureUsage/STORAGE}}.
+    : <dfn>attachment</dfn>
+    :: Texture used as an output attachment in a render pass.
+        Allowed by {{GPUTextureUsage/OUTPUT_ATTACHMENT}}.
+    : <dfn>attachment-read</dfn>
+    :: Texture used as a read-only output attachment in a render pass. Preserves the contents.
+        Allowed by {{GPUTextureUsage/OUTPUT_ATTACHMENT}}.
+    : <dfn>query-resolve</dfn>
+    ::  Query resolve buffer.
+        Allowed by {{GPUBufferUsage/QUERY_RESOLVE}}.
+</dl>
 
 Textures may consist of separate [=mipmap levels=] and [=array layers=],
 which can be used differently at any given time.
@@ -622,34 +638,39 @@ Each such <dfn dfn>subresource</dfn> is uniquely identified by a
 [=texture=], [=mipmap level=], and
 (for {{GPUTextureDimension/2d}} textures only) [=array layer=].
 
-The **main usage rule** is that any [=subresource=]
-at any given time can only be in either:
-  - a combination of [=read-only usage=]s
-  - a single [=mutating usage=]
+Some [=internal usage=]s are compatible with others.
+That means an implementation can consider multiple usages active at the same time.
+There is a limited set of <dfn dfn>allowed usage set</dfn>, where each usage is compatible with the other:
+  - [=copy-source=], [=input=], [=uniform=], [=storage-read=] - in any combination, including repeating any of the usage
+  - [=copy-destination=] - singular usage
+  - [=storage=], [=storage-read=] - in any combination
+  - [=attachment=] - singular usage
+  - [=attachment-read=], [=uniform=] - in any combination
+  - [=query-resolve=] - singular usage
 
-Enforcing this rule allows the API to limit when data races can occur
-when working with memory. That property makes applications written against
+Enforcing that the usages are only combined into one of the [=allowed usage set=]s
+allows the API to limit when data races can occur when working with memory.
+That property makes applications written against
 WebGPU more likely to run without modification on different platforms.
 
 Generally, when an implementation processes an operation that uses a [=subresource=]
 in a different way than its current usage allows, it schedules a transition of the resource
 into the new state. In some cases, like within an open {{GPURenderPassEncoder}}, such a
 transition is impossible due to the hardware limitations.
-We define these places as <dfn dfn>usage scopes</dfn>:
-each [=subresource=] must not change usage within the [=usage scope=].
+We define these places as <dfn dfn>usage scopes</dfn>.
+The **main usage rule** is that each [=subresource=] usage within any [=usage scope=]
+must be a subset of one of the [=allowed usage set=]s.
 
-For example, binding the same buffer for {{GPUBufferUsage/STORAGE|GPUBufferUsage.STORAGE}} as well as for
-{{GPUBufferUsage/VERTEX|GPUBufferUsage.VERTEX}} within the same {{GPURenderPassEncoder}} would put the encoder
-as well as the owning {{GPUCommandEncoder}} into the error state. Since
-{{GPUBufferUsage/STORAGE|GPUBufferUsage.STORAGE}} is the only [=mutating usage=] for a buffer
-that is valid inside a render pass, if it's present,
-this buffer can't be used in any other way within this pass.
+For example, binding the same buffer for [=storage=] as well as for
+[=input=] within the same {{GPURenderPassEncoder}} would put the encoder
+as well as the owning {{GPUCommandEncoder}} into the error state.
+There is no [=allowed usage set=] that contains this combination.
 
 The [=subresources=] of textures included in the views provided to
 {{GPURenderPassColorAttachmentDescriptor/attachment|GPURenderPassColorAttachmentDescriptor.attachment}} and
 {{GPURenderPassColorAttachmentDescriptor/resolveTarget|GPURenderPassColorAttachmentDescriptor.resolveTarget}}
-are considered to have {{GPUTextureUsage/OUTPUT_ATTACHMENT}}
-for the [=usage scope=] of this render pass.
+are considered to have either [=attachment=] or [=attachment-read=] usage for the
+[=usage scope=] of this render pass, depending on the descriptor flags.
 
 The <dfn dfn>physical size</dfn> of a {{GPUTexture}} [=subresource=] is the dimension of the {{GPUTexture}}
 [=subresource=] in texels that includes the possible extra paddings to form complete [=texel blocks=] in the
@@ -666,8 +687,6 @@ Considering a {{GPUTexture}} in BC format whose {{GPUTexture/[[textureSize]]}} i
 the {{GPUTexture}} at [=mipmap level=] 2, the sampling hardware uses {15, 15, 1} as the size of the [=subresource=],
 while its [=physical size=] is {16, 16, 1} as the block-compression algorithm can only operate on 4x4 [=texel blocks=].
 </div>
-
-Issue(gpuweb/gpuweb#514): Document read-only states for depth views.
 
 ### Synchronization ### {#programming-model-synchronization}
 
@@ -701,7 +720,7 @@ The [=usage scopes=] are validated at {{GPUCommandEncoder/finish()|GPUCommandEnc
 The implementation performs the <dfn dfn>usage scope validation</dfn> by composing
 the set of all [=usage flags=] of each [=subresource=] used in the [=usage scope=].
 A {{GPUValidationError}} is generated in the current scope with an appropriate error message
-if that union contains a [=mutating usage=] combined with any other usage.
+if that set is not within any of the [=allowed usage set=]s.
 
 
 ## Core Internal Objects ## {#core-internal-objects}
