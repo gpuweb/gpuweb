@@ -2418,10 +2418,14 @@ enum GPUBindingType {
 A {{GPUBindGroupLayout}} object has the following methods:
 
 <dl dfn-type=attribute dfn-for="GPUBindGroupLayout">
-    : <dfn>\[[entryMap]]</dfn> of type `map<u32, {{GPUBindGroupLayoutEntry}}>`.
+    : <dfn>\[[entryMap]]</dfn> of type map&lt;{{GPUSize32}}, {{GPUBindGroupLayoutEntry}}&gt.
     ::
         The map of binding indices pointing to the {{GPUBindGroupLayoutEntry}}s,
         which this {{GPUBindGroupLayout}} describes.
+
+    : <dfn>\[[dynamicOffsetCount]]</dfn> of type {{GPUSize32}}.
+    ::
+        The number of buffer bindings with dynamic offsets in this {{GPUBindGroupLayout}}.
 </dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
@@ -2516,6 +2520,8 @@ A {{GPUBindGroupLayout}} object has the following methods:
                                 error message.
                             1. Make |layout| [=invalid=] and return |layout|.
 
+                    1. Set |layout|.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}} to the number of
+                        entries in |descriptor| where {{GPUBindGroupLayoutEntry/hasDynamicOffset}} is `true`.
                     1. For each {{GPUBindGroupLayoutEntry}} |bindingDescriptor| in
                         |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
                         1. Insert |bindingDescriptor| into |layout|.{{GPUBindGroupLayout/[[entryMap]]}}
@@ -4588,6 +4594,10 @@ interface mixin GPUProgrammablePassEncoder {
     : <dfn>\[[debug_group_stack]]</dfn> of type `sequence<USVString>`.
     ::
         A stack of active debug group labels.
+
+    : <dfn>\[[bind_groups]]</dfn>, of type map&lt;index, {{GPUBindGroup}}&gt;
+    ::
+        The current {{GPUBindGroup}} for each index, initially empty.
 </dl>
 
 ## Bind Groups ## {#programmable-passes-bind-groups}
@@ -4600,21 +4610,34 @@ interface mixin GPUProgrammablePassEncoder {
             **Called on:** {{GPUProgrammablePassEncoder}} this.
 
             **Arguments:**
-            <!--The overload appears to be confusing bikeshed, and it ends up expecting this to
+            <pre class=argumentdef for="GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)">
+                |index|: The index to set the bind group at.
+                |bindGroup|: Bind group to use for subsequent render or compute commands.
+
+                <!--The overload appears to be confusing bikeshed, and it ends up expecting this to
                 define the arguments for the 5-arg variant of the method, despite the "for"
                 explicitly pointing at the 3-arg variant.-->
-            <!--pre class=argumentdef for="GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)">
-                index:
-                bindGroup:
-                dynamicOffsets:
-            </pre-->
+                <!--|dynamicOffsets|: Array containing buffer offsets in bytes for each entry in
+                    |bindGroup| with marked as {{GPUBindGroupLayoutEntry/hasDynamicOffset}}.-->
+            </pre>
 
             Issue: Resolve bikeshed conflict when using `argumentdef` with
                 {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}}.
 
             **Returns:** void
 
-            Issue: Describe {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}} algorithm steps.
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+            <div class=device-timeline>
+                1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
+                    <div class=validusage>
+                        - |bindGroup| is [=valid=].
+                        - |bindGroup|.{{GPUObjectBase/[[device]]}} is |this|.{{GPUObjectBase/[[device]]}}.
+                        - |index| &lt; {{GPULimits/maxBindGroups|GPULimits.maxBindGroups}}.
+                        - dynamicOffsets.length is
+                            |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}}.
+                    </div>
+                1. Set |this|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}[|index|] to be |bindGroup|.
+            </div>
         </div>
 
     : <dfn>setBindGroup(index, bindGroup, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength)</dfn>
@@ -4625,16 +4648,30 @@ interface mixin GPUProgrammablePassEncoder {
 
             **Arguments:**
             <pre class=argumentdef for="GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength)">
-                index:
-                bindGroup:
-                dynamicOffsetsData:
-                dynamicOffsetsDataStart:
-                dynamicOffsetsDataLength:
+                |index|: The index to set the bind group at.
+                |bindGroup|: Bind group to use for subsequent render or compute commands.
+                |dynamicOffsetsData|: Array containing buffer offsets in bytes for each entry in
+                    |bindGroup| with marked as {{GPUBindGroupLayoutEntry/hasDynamicOffset}}.
+                |dynamicOffsetsDataStart|: Offset in elements into |dynamicOffsetsData| where the
+                    buffer offset data begins.
+                |dynamicOffsetsDataLength|: Number of buffer offsets to read from |dynamicOffsetsData|.
             </pre>
 
             **Returns:** void
 
-            Issue: Describe {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength)}} algorithm steps.
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+            <div class=device-timeline>
+                1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
+                    <div class=validusage>
+                        - |bindGroup| is [=valid=].
+                        - |bindGroup|.{{GPUObjectBase/[[device]]}} is |this|.{{GPUObjectBase/[[device]]}}.
+                        - |index| &lt; {{GPULimits/maxBindGroups|GPULimits.maxBindGroups}}.
+                        - |dynamicOffsetsDataLength| is
+                            |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}}.
+                        - |dynamicOffsetsDataStart| + |dynamicOffsetsDataLength| &le; |dynamicOffsetsData|.length.
+                    </div>
+                1. Set |this|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}[|index|] to be |bindGroup|.
+            </div>
         </div>
 </dl>
 
@@ -4938,10 +4975,6 @@ GPURenderPassEncoder includes GPURenderEncoderBase;
     : <dfn>\[[vertex_buffers]]</dfn>, of type map&lt;slot, {{GPUBuffer}}&gt;
     ::
         The current {{GPUBuffer}}s to read vertex data from for each slot, initially empty.
-
-    : <dfn>\[[bind_groups]]</dfn>, of type map&lt;index, {{GPUBindGroup}}&gt;
-    ::
-        The current {{GPUBindGroup}}s to to render with for each index, initially empty.
 </dl>
 
 {{GPURenderPassEncoder}} has the following internal slots:
@@ -5203,12 +5236,12 @@ enum GPUStoreOp {
 
             **Returns:** void
 
-            Issue the following steps on the [=Device timeline=] of |this|:
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |pipeline| is [=valid=].
-                        - |pipeline|.{{GPUObjectBase/[[device]]}} is |this|.
+                        - |pipeline|.{{GPUObjectBase/[[device]]}} is |this|.{{GPUObjectBase/[[device]]}}.
 
                         Issue: Validate that |pipeline| is compatible with the render pass descriptor.
                     </div>
@@ -5234,12 +5267,12 @@ enum GPUStoreOp {
 
             **Returns:** void
 
-            Issue the following steps on the [=Device timeline=] of |this|:
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |buffer| is [=valid=].
-                        - |buffer|.{{GPUObjectBase/[[device]]}} is |this|.
+                        - |buffer|.{{GPUObjectBase/[[device]]}} is |this|.{{GPUObjectBase/[[device]]}}.
                         - |buffer|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/INDEX}}.
                         - |offset| + |size| &le; |buffer|.{{GPUBuffer/[[size]]}}.
                     </div>
@@ -5267,12 +5300,12 @@ enum GPUStoreOp {
 
             **Returns:** void
 
-            Issue the following steps on the [=Device timeline=] of |this|:
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |buffer| is [=valid=].
-                        - |buffer|.{{GPUObjectBase/[[device]]}} is |this|.
+                        - |buffer|.{{GPUObjectBase/[[device]]}} is |this|.{{GPUObjectBase/[[device]]}}.
                         - |buffer|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/VERTEX}}.
                         - |slot| &lt; [=maximum number of vertex buffers=].
                         - |offset| + |size| &le; |buffer|.{{GPUBuffer/[[size]]}}.
@@ -5352,12 +5385,12 @@ enum GPUStoreOp {
 
             **Returns:** void
 
-            Issue the following steps on the [=Device timeline=] of |this|:
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |indirectBuffer| is [=valid=].
-                        - |indirectBuffer|.{{GPUObjectBase/[[device]]}} is |this|.
+                        - |indirectBuffer|.{{GPUObjectBase/[[device]]}} is |this|.{{GPUObjectBase/[[device]]}}.
                         - |indirectBuffer|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/INDIRECT}}.
                         - |indirectOffset| + sizeof([=indirect draw parameters=]) &le;
                             |indirectBuffer|.{{GPUBuffer/[[size]]}}.
@@ -5395,12 +5428,12 @@ enum GPUStoreOp {
 
             **Returns:** void
 
-            Issue the following steps on the [=Device timeline=] of |this|:
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |indirectBuffer| is [=valid=].
-                        - |indirectBuffer|.{{GPUObjectBase/[[device]]}} is |this|.
+                        - |indirectBuffer|.{{GPUObjectBase/[[device]]}} is |this|.{{GPUObjectBase/[[device]]}}.
                         - |indirectBuffer|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/INDIRECT}}.
                         - |indirectOffset| + sizeof([=indirect drawIndexed parameters=]) &le;
                             |indirectBuffer|.{{GPUBuffer/[[size]]}}.
