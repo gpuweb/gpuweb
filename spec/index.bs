@@ -601,61 +601,79 @@ the user behind an `ArrayBuffer`, thus avoiding any data copies.
 
 ### Resource Usages ### {#programming-model-resource-usages}
 
-Buffers and textures can be used by the GPU in multiple ways,
-which can be split into two groups:
-
-: <dfn dfn>Read-only usage</dfn>s
-:: Usages like
-    {{GPUBufferUsage/VERTEX|GPUBufferUsage.VERTEX}} or
-    {{GPUTextureUsage/SAMPLED|GPUTextureUsage.SAMPLED}}
-    don't change the contents of a resource.
-
-: <dfn dfn>Mutating usage</dfn>s
-:: Usages like {{GPUBufferUsage/STORAGE|GPUBufferUsage.STORAGE}}
-    do change the contents of a resource.
-
-Issue(gpuweb/gpuweb#296): Consider merging all read-only usages.
+A [=physical resource=] can be used on GPU in one of the following <dfn dfn>internal usage</dfn>s:
+<dl dfn-type=dfn dfn-for="internal usage">
+    : <dfn>input</dfn>
+    :: Buffer with input data for draw or dispatch calls. Preserves the contents.
+        Allowed by {{GPUBufferUsage/INDEX}}, {{GPUBufferUsage/VERTEX}}, or {{GPUBufferUsage/INDIRECT}}.
+    : <dfn>constant</dfn>
+    ::  Resource bindings that are constant from the shader point of view. Preserves the contents.
+        Allowed by {{GPUBufferUsage/UNIFORM}} or {{GPUTextureUsage/SAMPLED}}.
+    : <dfn>storage</dfn>
+    ::  Read-write storage resource binding.
+        Allowed by {{GPUBufferUsage/STORAGE}}.
+    : <dfn>storage-read</dfn>
+    ::  Read-only storage resource bindings. Preserves the contents.
+        Allowed by {{GPUBufferUsage/STORAGE}} or {{GPUTextureUsage/STORAGE}}.
+    : <dfn>storage-write</dfn>
+    ::  Write-only storage resource bindings.
+        Allowed by {{GPUTextureUsage/STORAGE}}.
+    : <dfn>attachment</dfn>
+    :: Texture used as an output attachment in a render pass.
+        Allowed by {{GPUTextureUsage/OUTPUT_ATTACHMENT}}.
+    : <dfn>attachment-read</dfn>
+    ::  Texture used as a read-only attachment in a render pass. Preserves the contents.
+        Allowed by {{GPUTextureUsage/OUTPUT_ATTACHMENT}}.
+</dl>
 
 Textures may consist of separate [=mipmap levels=] and [=array layers=],
 which can be used differently at any given time.
-Each such <dfn dfn>subresource</dfn> is uniquely identified by a
+Each such <dfn dfn>texture subresource</dfn> is uniquely identified by a
 [=texture=], [=mipmap level=], and
 (for {{GPUTextureDimension/2d}} textures only) [=array layer=].
 
-The **main usage rule** is that any [=subresource=]
-at any given time can only be in either:
-  - a combination of [=read-only usage=]s
-  - a single [=mutating usage=]
+We define <dfn dfn>subresource</dfn> to be either a whole buffer, or a [=texture subresource=].
 
-Enforcing this rule allows the API to limit when data races can occur
-when working with memory. That property makes applications written against
+<div algorithm="compatible usage list">
+Some [=internal usage=]s are compatible with others. A [=subresource=] can be in a state
+that combines multiple usages together. We consider a list |U| to be 
+a <dfn dfn>compatible usage list</dfn> if (and only if) it satisfies any of the following rules:
+    - Each usage in |U| is [=internal usage/input=], [=internal usage/constant=], or [=internal usage/storage-read=].
+    - Each usage in |U| is [=internal usage/storage=] or [=internal usage/storage-read=].
+    - Each usage in |U| is [=internal usage/storage-write=].
+    - Each usage in |U| is [=internal usage/attachment-read=], [=internal usage/storage-read=], or [=internal usage/constant=].
+    - |U| contains exactly one element: [=internal usage/attachment=].
+</div>
+
+Enforcing that the usages are only combined into a [=compatible usage list=]
+allows the API to limit when data races can occur in working with memory.
+That property makes applications written against
 WebGPU more likely to run without modification on different platforms.
 
 Generally, when an implementation processes an operation that uses a [=subresource=]
 in a different way than its current usage allows, it schedules a transition of the resource
 into the new state. In some cases, like within an open {{GPURenderPassEncoder}}, such a
 transition is impossible due to the hardware limitations.
-We define these places as <dfn dfn>usage scopes</dfn>:
-each [=subresource=] must not change usage within the [=usage scope=].
+We define these places as <dfn dfn>usage scopes</dfn>.
 
-For example, binding the same buffer for {{GPUBufferUsage/STORAGE|GPUBufferUsage.STORAGE}} as well as for
-{{GPUBufferUsage/VERTEX|GPUBufferUsage.VERTEX}} within the same {{GPURenderPassEncoder}} would put the encoder
-as well as the owning {{GPUCommandEncoder}} into the error state. Since
-{{GPUBufferUsage/STORAGE|GPUBufferUsage.STORAGE}} is the only [=mutating usage=] for a buffer
-that is valid inside a render pass, if it's present,
-this buffer can't be used in any other way within this pass.
+The **main usage rule** is, for any one [=subresource=], its list of [=internal usages=]
+within one [=usage scope=] must be a [=compatible usage list=].
+
+For example, binding the same buffer for [=internal usage/storage=] as well as for
+[=internal usage/input=] within the same {{GPURenderPassEncoder}} would put the encoder
+as well as the owning {{GPUCommandEncoder}} into the error state.
+This combination of usages does not make a [=compatible usage list=].
 
 The [=subresources=] of textures included in the views provided to
 {{GPURenderPassColorAttachmentDescriptor/attachment|GPURenderPassColorAttachmentDescriptor.attachment}} and
 {{GPURenderPassColorAttachmentDescriptor/resolveTarget|GPURenderPassColorAttachmentDescriptor.resolveTarget}}
-are considered to have {{GPUTextureUsage/OUTPUT_ATTACHMENT}}
-for the [=usage scope=] of this render pass.
+are considered to be used as [=internal usage/attachment=] for the [=usage scope=] of this render pass.
 
-The <dfn dfn>physical size</dfn> of a {{GPUTexture}} [=subresource=] is the dimension of the {{GPUTexture}}
-[=subresource=] in texels that includes the possible extra paddings to form complete [=texel blocks=] in the
-[=subresource=].
+The <dfn dfn>physical size</dfn> of a [=texture subresource=] is the dimension of the
+[=texture subresource=] in texels that includes the possible extra paddings
+to form complete [=texel blocks=] in the [=subresource=].
 
-  - For pixel-based {{GPUTextureFormat}}s, the [=physical size=] is always equal to the size of the [=subresource=]
+  - For pixel-based {{GPUTextureFormat}}s, the [=physical size=] is always equal to the size of the [=texture subresource=]
     used in the sampling hardwares.
   - {{GPUTexture}}s in block-based compressed {{GPUTextureFormat}}s always have a [=mipmap level=] 0 whose {{GPUTexture/[[textureSize]]}}
     is a multiple of the [=texel block size=], but the lower mipmap levels might not be the multiple of the [=texel block size=] and can
@@ -663,27 +681,22 @@ The <dfn dfn>physical size</dfn> of a {{GPUTexture}} [=subresource=] is the dime
 
 <div class="example">
 Considering a {{GPUTexture}} in BC format whose {{GPUTexture/[[textureSize]]}} is {60, 60, 1}, when sampling
-the {{GPUTexture}} at [=mipmap level=] 2, the sampling hardware uses {15, 15, 1} as the size of the [=subresource=],
+the {{GPUTexture}} at [=mipmap level=] 2, the sampling hardware uses {15, 15, 1} as the size of the [=texture subresource=],
 while its [=physical size=] is {16, 16, 1} as the block-compression algorithm can only operate on 4x4 [=texel blocks=].
 </div>
-
-Issue(gpuweb/gpuweb#514): Document read-only states for depth views.
 
 ### Synchronization ### {#programming-model-synchronization}
 
 For each [=subresource=] of a [=physical resource=], its set of
-[=usage flags=] is tracked on the [=Queue timeline=].
-<dfn dfn>Usage flags</dfn> are {{GPUBufferUsage}} or {{GPUTextureUsage}} flags,
-according to the type of the subresource.
+[=internal usage=] flags is tracked on the [=Queue timeline=].
 
 Issue: This section will need to be revised to support multiple queues.
 
 On the [=Queue timeline=], there is an ordered sequence of [=usage scopes=].
 Each item on the timeline is contained within exactly one scope.
-For the duration of each scope, the set of [=usage flags=] of any given
+For the duration of each scope, the set of [=internal usage=] flags of any given
 [=subresource=] is constant.
-A [=subresource=] may transition to new usages
-at the boundaries between [=usage scope=]s.
+A [=subresource=] may transition to new usages at the boundaries between [=usage scope=]s.
 
 This specification defines the following [=usage scopes=]:
   1. an individual command on a {{GPUCommandEncoder}}, such as {{GPUCommandEncoder/copyBufferToTexture()|GPUCommandEncoder.copyBufferToTexture}}.
@@ -691,17 +704,17 @@ This specification defines the following [=usage scopes=]:
   3. the whole {{GPURenderPassEncoder}}.
 
 Note: calling {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|GPUProgrammablePassEncoder.setBindGroup}}
-adds the {{GPUBindGroup/[[usedBuffers]]}} and {{GPUBindGroup/[[usedTextures]]}} to the [=usage scope=]
+adds the {{GPUBindGroup/[[usedResources]]}} to the [=usage scope=]
 regardless of whether the shader or {{GPUPipelineLayout}} actually depends on these bindings.
 Similarly {{GPURenderEncoderBase/setIndexBuffer()|GPURenderEncoderBase.setIndexBuffer}}
-add the index buffer to the usage scope (as {{GPUBufferUsage/INDEX|GPUBufferUsage.INDEX}})
+add the index buffer to the usage scope (as [=internal usage/input=])
 regardless of whether the indexed draw calls are used afterwards.
 
 The [=usage scopes=] are validated at {{GPUCommandEncoder/finish()|GPUCommandEncoder.finish}} time.
 The implementation performs the <dfn dfn>usage scope validation</dfn> by composing
-the set of all [=usage flags=] of each [=subresource=] used in the [=usage scope=].
+the list of all [=internal usage=] flags of each [=subresource=] used in the [=usage scope=].
 A {{GPUValidationError}} is generated in the current scope with an appropriate error message
-if that union contains a [=mutating usage=] combined with any other usage.
+if that list is not a [=compatible usage list=].
 
 
 ## Core Internal Objects ## {#core-internal-objects}
@@ -1460,10 +1473,10 @@ interface GPUBufferUsage {
                 - |this| is a [=valid=] {{GPUDevice}}.
                 - |descriptor|.{{GPUBufferDescriptor/usage}} is a subset of |this|.[[allowed buffer usages]].
                 - If |descriptor|.{{GPUBufferDescriptor/usage}} contains {{GPUBufferUsage/MAP_READ}}:
-                    - |descriptor|.{{GPUBufferDescriptor/usage}} contains no other [=usage flags=]
+                    - |descriptor|.{{GPUBufferDescriptor/usage}} contains no other flags
                         except {{GPUBufferUsage/COPY_DST}}.
                 - If |descriptor|.{{GPUBufferDescriptor/usage}} contains {{GPUBufferUsage/MAP_WRITE}}:
-                    - |descriptor|.{{GPUBufferDescriptor/usage}} contains no other [=usage flags=]
+                    - |descriptor|.{{GPUBufferDescriptor/usage}} contains no other flags
                         except {{GPUBufferUsage/COPY_SRC}}.
                 - If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
                     - |descriptor|.{{GPUBufferDescriptor/size}} is a multiple of 4.
@@ -2622,14 +2635,10 @@ A {{GPUBindGroup}} object has the following internal slots:
     ::
         The set of {{GPUBindGroupEntry}}s this {{GPUBindGroup}} describes.
 
-    : <dfn>\[[usedBuffers]]</dfn> of type maplike<{{GPUBuffer}}, {{GPUBufferUsageFlags}}>.
+    : <dfn>\[[usedResources]]</dfn> of type map<[=subresource=], list<[=internal usage=]>>.
     ::
-        The set of buffers used by this bind group and the corresponding usage flags.
-
-    : <dfn>\[[usedTextures]]</dfn> of type maplike<{{GPUTexture}} [=subresource=], {{GPUTextureUsageFlags}}>.
-    ::
-        The set of texure subresources used by this bind group. Each subresource is
-        stored with the union of usage flags that apply to it.
+        The set of buffer and texture [=subresource=]s used by this bind group,
+        associated with lists of the [=internal usage=] flags.
 </dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
@@ -2749,40 +2758,36 @@ A {{GPUBindGroup}} object has the following internal slots:
                         |descriptor|.{{GPUBindGroupDescriptor/layout}}.
                     1. Let |bindGroup|.{{GPUBindGroup/[[entries]]}} =
                         |descriptor|.{{GPUBindGroupDescriptor/entries}}.
-                    1. Let |bindGroup|.{{GPUBindGroup/[[usedBuffers]]}} = union of the buffer usages
-                        across all entries.
-                    1. Let |bindGroup|.{{GPUBindGroup/[[usedTextures]]}} = union of the texture
-                        [=subresource=] usages across all entries.
+                    1. Let |bindGroup|.{{GPUBindGroup/[[usedResources]]}} = {}.
 
                     1. For each {{GPUBindGroupEntry}} |bindingDescriptor| in
                         |descriptor|.{{GPUBindGroupDescriptor/entries}}:
-                        1. If |layoutBinding|.{{GPUBindGroupLayoutEntry/type}} is
-                            {{GPUBindingType/"sampled-texture"}}:
-                            1. Each texture [=subresource=] seen by |resource| is added
-                                to {{GPUBindGroup/[[usedTextures]]}} with
-                                {{GPUTextureUsage/SAMPLED}} flag.
-
-                        1. If |layoutBinding|.{{GPUBindGroupLayoutEntry/type}} is
-                            {{GPUBindingType/"readonly-storage-texture"}} or
-                            {{GPUBindingType/"writeonly-storage-texture"}}:
-                            1. Each texture [=subresource=] seen by |resource| is added to
-                                {{GPUBindGroup/[[usedTextures]]}} with {{GPUTextureUsage/STORAGE}}
-                                flag.
-
-                        1. If |layoutBinding|.{{GPUBindGroupLayoutEntry/type}} is
-                            {{GPUBindingType/"uniform-buffer"}}:
-                            1. The buffer is added to the {{GPUBindGroup/[[usedBuffers]]}}
-                                map with {{GPUBufferUsage/UNIFORM}} flag.
-
-                        1. If |layoutBinding|.{{GPUBindGroupLayoutEntry/type}} is
-                            {{GPUBindingType/"storage-buffer"}} or
-                            {{GPUBindingType/"readonly-storage-buffer"}}:
-                            1. The buffer is added to the {{GPUBindGroup/[[usedBuffers]]}}
-                                map with {{GPUBufferUsage/STORAGE}} flag.
+                        1. Let |internalUsage| be the result of [$GPUDevice/derive binding usage$](|layoutBinding|.{{GPUBindGroupLayoutEntry/type}})
+                        1. Each [=subresource=] seen by |resource| is added to {{GPUBindGroup/[[usedResources]]}} as |internalUsage|.
                 </div>
             1. Return |bindGroup|.
 
             Issue: define the "effective buffer binding size" separately.
+        </div>
+
+        <div algorithm>
+            <dfn abstract-op>derive binding usage</dfn>(|type|)
+
+            **Arguments:**
+                - {{GPUBindingType}} |type|
+
+            **Returns:** [=internal usage=]
+
+            1. If |type| is
+                {{GPUBindingType/"uniform-buffer"}} or {{GPUBindingType/"sampled-texture"}}:
+                1. return [=internal usage/constant=]
+            1. If |type| is
+                {{GPUBindingType/"readonly-storage-buffer"}} or {{GPUBindingType/"readonly-storage-texture"}}:
+                1. return [=internal usage/storage-read=]
+            1. If |type| is {{GPUBindingType/"storage-buffer"}}:
+                1. return [=internal usage/storage=]
+            1. If |type| is {{GPUBindingType/"writeonly-storage-texture"}}:
+                1. return [=internal usage/storage-write=]
         </div>
 </dl>
 
@@ -3193,23 +3198,27 @@ A {{GPUProgrammableStageDescriptor}} describes the entry point in the user-provi
 
         1. |layout|.{{GPUPipelineLayout/[[bindGroupLayouts]]}}[|bindGroup|] contains
             a {{GPUBindGroupLayoutEntry}} |entry| whose |entry|.{{GPUBindGroupLayoutEntry/binding}} == |bindIndex|.
-        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampler"}},
-            the |binding| has to be a non-comparison sampler.
-        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"comparison-sampler"}},
-            the |binding| has to be a comparison sampler.
-        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampled-texture"}},
-            the |binding| has to be a sampled texture with the component type of |entry|.{{GPUBindGroupLayoutEntry/textureComponentType}},
-            and it must be multisampled if and only if |entry|.{{GPUBindGroupLayoutEntry/multisampled}} is true.
-        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"readonly-storage-texture"}},
-            the |binding| has to be a read-only storage texture with format of |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}.
-        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"writeonly-storage-texture"}},
-            the |binding| has to be a writable storage texture with format of |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}.
-        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"uniform-buffer"}},
-            the |binding| has to be a uniform buffer.
-        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"storage-buffer"}},
-            the |binding| has to be a storage buffer.
-        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"readonly-storage-buffer"}},
-            the |binding| has to be a read-only storage buffer.
+        1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is:
+            <dl class=switch>
+                  : {{GPUBindingType/"sampler"}}
+                  :: the |binding| is a non-comparison sampler
+                  : {{GPUBindingType/"comparison-sampler"}}
+                  :: the |binding| is a comparison sampler
+                  : {{GPUBindingType/"sampled-texture"}}
+                  ::
+                    1. the |binding| is a sampled texture with the component type of |entry|.{{GPUBindGroupLayoutEntry/textureComponentType}}.
+                    2. it must be multisampled if and only if |entry|.{{GPUBindGroupLayoutEntry/multisampled}} is true.
+                  : {{GPUBindingType/"readonly-storage-texture"}}
+                  :: the |binding| is a read-only storage texture with format of |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}
+                  : {{GPUBindingType/"writeonly-storage-texture"}}
+                  :: the |binding| is a writable storage texture with format of |entry|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}
+                  : {{GPUBindingType/"uniform-buffer"}}
+                  :: the |binding| is a uniform buffer
+                  : {{GPUBindingType/"storage-buffer"}}
+                  :: the |binding| is a storage buffer
+                  : {{GPUBindingType/"readonly-storage-buffer"}}
+                  :: the |binding| is a read-only storage buffer
+            </dl>
         1. If |entry|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"sampled-texture"}}, {{GPUBindingType/"readonly-storage-texture"}}, or {{GPUBindingType/"writeonly-storage-texture"}},
             the shader view dimension of the texture has to match |entry|.{{GPUBindGroupLayoutEntry/viewDimension}}.
         1. If |entry|.{{GPUBindGroupLayoutEntry/minBufferBindingSize}} is not undefined:
@@ -3994,14 +4003,17 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     </div>
                 1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/encoding a render pass}}.
                 1. For each |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
-                    1. The texture [=subresource=] seen by |colorAttachment|.{{GPURenderPassColorAttachmentDescriptor/attachment}}
-                        is considered to be used as {{GPUTextureUsage/OUTPUT_ATTACHMENT}} for the
+                    1. The [=texture subresource=] seen by |colorAttachment|.{{GPURenderPassColorAttachmentDescriptor/attachment}}
+                        is considered to be used as [=internal usage/attachment=] for the
                         duration of the render pass.
                 1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
                 1. If |depthStencilAttachment| is not `null`:
-                    1. The texture [=subresource=] seen by |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}}
-                        is considered to be used as {{GPUTextureUsage/OUTPUT_ATTACHMENT}} for the
-                        duration of the render pass.
+                    1. if |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachmentDescriptor/depthReadOnly}} and
+                        {{GPURenderPassDepthStencilAttachmentDescriptor/stencilReadOnly}} are set
+                        1. The [=texture subresources=] seen by |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}}
+                            are considered to be used as [=internal usage/attachment-read=] for the duration of the render pass.
+                    1. Else, the [=texture subresource=] seen by |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}}
+                        is considered to be used as [=internal usage/attachment=] for the duration of the render pass.
             </div>
 
             Issue: specify the behavior of read-only depth/stencil
@@ -4106,7 +4118,7 @@ dictionary GPUTextureCopyView {
 };
 </script>
 
-A {{GPUTextureCopyView}} is a view of a sub-region of one or multiple contiguous [=texture=] [=subresources=] with the initial
+A {{GPUTextureCopyView}} is a view of a sub-region of one or multiple contiguous [=texture subresources=] with the initial
 offset {{GPUOrigin3D}} in texels, used when copying data from or to a {{GPUTexture}}.
 
   * {{GPUTextureCopyView/origin}}: If unspecified, defaults to `[0, 0, 0]`.
@@ -4302,7 +4314,7 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
     : <dfn>copyBufferToTexture(source, destination, copySize)</dfn>
     ::
         Encode a command into the {{GPUCommandEncoder}} that copies data from a sub-region of a
-        {{GPUBuffer}} to a sub-region of one or multiple continuous {{GPUTexture}} [=subresources=].
+        {{GPUBuffer}} to a sub-region of one or multiple continuous [=texture subresources=].
 
         <div algorithm=GPUCommandEncoder.copyBufferToTexture>
             **Called on:** {{GPUCommandEncoder}} |this|.
@@ -4310,8 +4322,7 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
             **Arguments:**
             <pre class=argumentdef for="GPUCommandEncoder/copyBufferToTexture(source, destination, copySize)">
                 |source|: Combined with |copySize|, defines the region of the source buffer.
-                |destination|: Combined with |copySize|, defines the region of the destination
-                    texture [=subresource=].
+                |destination|: Combined with |copySize|, defines the region of the destination [=texture subresource=].
                 |copySize|:
             </pre>
 
@@ -4338,14 +4349,14 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
     : <dfn>copyTextureToBuffer(source, destination, copySize)</dfn>
     ::
         Encode a command into the {{GPUCommandEncoder}} that copies data from a sub-region of one or
-        multiple continuous {{GPUTexture}} [=subresources=]to a sub-region of a {{GPUBuffer}}.
+        multiple continuous [=texture subresources=]to a sub-region of a {{GPUBuffer}}.
 
         <div algorithm=GPUCommandEncoder.copyTextureToBuffer>
             **Called on:** {{GPUCommandEncoder}} |this|.
 
             **Arguments:**
             <pre class=argumentdef for="GPUCommandEncoder/copyTextureToBuffer(source, destination, copySize)">
-                |source|: Combined with |copySize|, defines the region of the source texture [=subresources=].
+                |source|: Combined with |copySize|, defines the region of the source [=texture subresources=].
                 |destination|: Combined with |copySize|, defines the region of the destination buffer.
                 |copySize|:
             </pre>
@@ -4373,17 +4384,16 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
     : <dfn>copyTextureToTexture(source, destination, copySize)</dfn>
     ::
         Encode a command into the {{GPUCommandEncoder}} that copies data from a sub-region of one
-        or multiple contiguous {{GPUTexture}} [=subresources=] to another sub-region of one or
-        multiple continuous {{GPUTexture}} [=subresources=].
+        or multiple contiguous [=texture subresources=] to another sub-region of one or
+        multiple continuous [=texture subresources=].
 
         <div algorithm=GPUCommandEncoder.copyTextureToTexture>
             **Called on:** {{GPUCommandEncoder}} |this|.
 
             **Arguments:**
             <pre class=argumentdef for="GPUCommandEncoder/copyTextureToTexture(source, destination, copySize)">
-                |source|: Combined with |copySize|, defines the region of the source texture [=subresources=].
-                |destination|: Combined with |copySize|, defines the region of the destination
-                    texture [=subresources=].
+                |source|: Combined with |copySize|, defines the region of the source [=texture subresources=].
+                |destination|: Combined with |copySize|, defines the region of the destination [=texture subresources=].
                 |copySize|:
             </pre>
 
@@ -5312,7 +5322,7 @@ dictionary GPURenderPassDepthStencilAttachmentDescriptor {
     1. |this|.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}} must have a renderable
         depth-and/or-stencil format.
     1. |this|.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}} must be a view of a
-        single [=subresource=].
+        single [=texture subresource=].
     1. |this|.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}}.{{GPUTexture/[[textureUsage]]}}
         must contain {{GPUTextureUsage/OUTPUT_ATTACHMENT}}.
     1. |this|.{{GPURenderPassDepthStencilAttachmentDescriptor/depthReadOnly}} is `true`,
@@ -5397,7 +5407,7 @@ enum GPUStoreOp {
                         - |buffer|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/INDEX}}.
                         - |offset| + |size| &le; |buffer|.{{GPUBuffer/[[size]]}}.
                     </div>
-                1. Add |buffer| to the [=usage scope=] as {{GPUBufferUsage/INDEX}}.
+                1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Set |this|.{{GPURenderEncoderBase/[[index_buffer]]}} to be |buffer|.
                 1. Set |this|.{{GPURenderEncoderBase/[[index_format]]}} to be |indexFormat|.
             </div>
@@ -5432,7 +5442,7 @@ enum GPUStoreOp {
 
                         Issue: Define the <dfn dfn for=>maximum number of vertex buffers</dfn>.
                     </div>
-                1. Add |buffer| to the [=usage scope=] as {{GPUBufferUsage/VERTEX}}.
+                1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Set |this|.{{GPURenderEncoderBase/[[vertex_buffers]]}}[|slot|] to be |buffer|.
             </div>
         </div>
@@ -5515,7 +5525,7 @@ enum GPUStoreOp {
                             |indirectBuffer|.{{GPUBuffer/[[size]]}}.
                         - |indirectOffset| is a multiple of 4.
                     </div>
-                1. Add |indirectBuffer| to the [=usage scope=] as {{GPUBufferUsage/INDIRECT}}.
+                1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
             </div>
         </div>
 
@@ -5557,7 +5567,7 @@ enum GPUStoreOp {
                             |indirectBuffer|.{{GPUBuffer/[[size]]}}.
                         - |indirectOffset| is a multiple of 4.
                     </div>
-                1. Add |indirectBuffer| to the [=usage scope=] as {{GPUBufferUsage/INDIRECT}}.
+                1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
             </div>
         </div>
 </dl>
