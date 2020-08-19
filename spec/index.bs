@@ -636,7 +636,7 @@ We define <dfn dfn>subresource</dfn> to be either a whole buffer, or a [=texture
 
 <div algorithm="compatible usage list">
 Some [=internal usage=]s are compatible with others. A [=subresource=] can be in a state
-that combines multiple usages together. We consider a list |U| to be 
+that combines multiple usages together. We consider a list |U| to be
 a <dfn dfn>compatible usage list</dfn> if (and only if) it satisfies any of the following rules:
     - Each usage in |U| is [=internal usage/input=], [=internal usage/constant=], or [=internal usage/storage-read=].
     - Each usage in |U| is [=internal usage/storage=] or [=internal usage/storage-read=].
@@ -3358,7 +3358,7 @@ GPURenderPipeline includes GPUPipelineBase;
 
     : <dfn>\[[strip_index_format]]</dfn>, of type {{GPUIndexFormat}}?
     ::
-        The format index data this pipeline requires, initially `null`.
+        The format index data this pipeline requires, initially `undefined`.
 </dl>
 
 ### Creation ### {#render-pipeline-creation}
@@ -3495,6 +3495,11 @@ Issue: link to the semantics of SV_SampleIndex and SV_Coverage in WGSL spec.
                             - If the output SV_Coverage semantics is [=statically used=] by
                                 |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}}:
                                 - |descriptor|.{{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} is `false`.
+                            - If |descriptor|.{{GPURenderPipelineDescriptor/primitiveTopology}} is
+                                {{GPUPrimitiveTopology/"line-strip"}} or
+                                {{GPUPrimitiveTopology/"triangle-strip"}}:
+                                - |descriptor|.{{GPURenderPipelineDescriptor/vertexState}}.{{GPUVertexStateDescriptor/indexFormat}}
+                                    is not `undefined`.
                         </div>
 
                         Then:
@@ -4785,6 +4790,30 @@ interface mixin GPUProgrammablePassEncoder {
             1. Let |dynamicOffsetIndex| be |dynamicOffsetIndex| + `1`
 </div>
 
+<div algorithm>
+    <dfn abstract-op>Validate encoder bind groups</dfn>(encoder, pipeline)
+
+    **Arguments:**
+    : {{GPUProgrammablePassEncoder}} |encoder|
+    :: Encoder who's bind groups are being validated.
+    : {{GPUPipelineBase}} |pipeline|
+    :: Pipline to validate |encoder|s bind groups are compatible with.
+
+    If any of the following conditions are unsatisfied, return `false`:
+        <div class=validusage>
+            - |pipeline| must not be `null`.
+            - For each pair of ({{GPUIndex32}} |index|, {{GPUBindGroupLayout}} |bindGroupLayout|) in
+                |pipeline|.{{GPUPipelineBase/[[layout]]}}.{{GPUPipelineLayout/[[bindGroupLayouts]]}}.
+                - Let |bindGroup| be |encoder|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}[|index|].
+                - |bindGroup| must not be `null`.
+                - |bindGroup|.{{GPUBindGroup/[[layout]]}} must be [=group-equivalent=] with |bindGroupLayout|.
+
+            Issue: Check buffer bindings against `minBufferBindingSize` if present.
+        </div>
+
+    Otherwise return `true`.
+</div>
+
 ## Debug Markers ## {#programmable-passes-debug-markers}
 
 Debug marker methods for programmable pass encoders provide the same functionality as
@@ -4934,7 +4963,8 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
             <div class=device-timeline>
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
-                        - It is [$valid to dispatch$] with |this|.
+                        - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
+                            is `true`.
                     </div>
             </div>
         </div>
@@ -4970,7 +5000,8 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
             <div class=device-timeline>
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
-                        - It is [$valid to dispatch$] with |this|.
+                        - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
+                            is `true`.
                         - |indirectBuffer| is [$valid to use with$] |this|.
                         - |indirectBuffer|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/INDIRECT}}.
                         - |indirectOffset| + sizeof([=indirect dispatch parameters=]) &le;
@@ -4981,23 +5012,6 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
             </div>
         </div>
 </dl>
-
-<div algorithm>
-    To determine if it's <dfn abstract-op>valid to dispatch</dfn> with {{GPUComputePassEncoder}} |encoder|
-    run the following steps:
-
-    1. If any of the following conditions are unsatisfied, return `false`:
-        <div class=validusage>
-            - |encoder|.{{GPUComputePassEncoder/[[pipeline]]}} must not be `null`.
-            - Let |pipelineLayout| be |encoder|.{{GPUComputePassEncoder/[[pipeline]]}}.{{GPUPipelineBase/[[layout]]}}.
-            - For each pair of ({{GPUIndex32}} |index|, {{GPUBindGroupLayout}} |bindGroupLayout|) in
-                |pipelineLayout|.{{GPUPipelineLayout/[[bindGroupLayouts]]}}.
-                - Let |bindGroup| be |encoder|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}[|index|].
-                - |bindGroup| must not be `null`.
-                - |bindGroup|.{{GPUBindGroup/[[layout]]}} must be [=group-equivalent=] with |bindGroupLayout|.
-        </div>
-    1. Return `true`.
-</div>
 
 ### Queries ### {#compute-pass-encoder-queries}
 
@@ -5632,37 +5646,35 @@ enum GPUStoreOp {
     To determine if it's <dfn abstract-op>valid to draw</dfn> with {{GPURenderEncoderBase}} |encoder|
     run the following steps:
 
-    1. If any of the following conditions are unsatisfied, return `false`:
+    If any of the following conditions are unsatisfied, return `false`:
         <div class=validusage>
-            - |encoder|.{{GPURenderEncoderBase/[[pipeline]]}} must not be `null`.
-            - Let |pipelineLayout| be |encoder|.{{GPURenderEncoderBase/[[pipeline]]}}.{{GPUPipelineBase/[[layout]]}}.
-            - For each pair of ({{GPUIndex32}} |index|, {{GPUBindGroupLayout}} |bindGroupLayout|) in
-                |pipelineLayout|.{{GPUPipelineLayout/[[bindGroupLayouts]]}}.
-                - Let |bindGroup| be |encoder|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}[|index|].
-                - |bindGroup| must not be `null`.
-                - |bindGroup|.{{GPUBindGroup/[[layout]]}} must be [=group-equivalent=] with |bindGroupLayout|.
+            - [$Validate encoder bind groups$](|encoder|, |encoder|.{{GPURenderEncoderBase/[[pipeline]]}})
+                must be `true`.
 
             - Let |pipelineDescriptor| be |encoder|.{{GPURenderEncoderBase/[[pipeline]]}}.{{GPURenderPipeline/[[descriptor]]}}.
             - For each {{GPUIndex32}} |slot| `0` to
                 |pipelineDescriptor|.{{GPURenderPipelineDescriptor/vertexState}}.{{GPUVertexStateDescriptor/vertexBuffers}}.length:
                 - |encoder|.{{GPURenderEncoderBase/[[vertex_buffers]]}}[|slot|] must not be `null`.
         </div>
-    1. Return `true`.
+
+    Otherwise return `true`.
 </div>
 
 <div algorithm>
     To determine if it's <dfn abstract-op>valid to draw indexed</dfn> with {{GPURenderEncoderBase}} |encoder|
     run the following steps:
 
-    1. If any of the following conditions are unsatisfied, return `false`:
+    If any of the following conditions are unsatisfied, return `false`:
         <div class=validusage>
             - It must be [$valid to draw$] with |encoder|.
+
             - |encoder|.{{GPURenderEncoderBase/[[index_buffer]]}} must not be `null`.
             - Let |stripIndexFormat| be |encoder|.{{GPURenderEncoderBase/[[pipeline]]}}.{{GPURenderPipeline/[[strip_index_format]]}}.
             - If |stripIndexFormat| is not `null`:
                 - |encoder|.{{GPURenderEncoderBase/[[index_format]]}} must be |stripIndexFormat|.
         </div>
-    1. Return `true`.
+
+    Otherwise return `true`.
 </div>
 
 ### Rasterization state ### {#render-pass-encoder-rasterization-state}
