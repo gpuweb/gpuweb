@@ -2611,41 +2611,89 @@ pipeline_stage
 
 Each shader stage has its own set of features and constraints, described elsewhere.
 
-## Entry point declaration TODO ## {#entry-point-decl}
+## Entry point declaration ## {#entry-point-decl}
 
-The `entry_point` declares an entry point into the module. The entry points may
-be forward declarations but the functions referenced must be declared in the
-file.
+An <dfn noexport>entry point</dfn> is a function that is invoked to perform
+the work for a particular [=shader stage=].
 
-The input and output parameters to the entry point are determined by which
-global variables are used in the function and any called functions.
+To declare an entry point, write the name of the shader stage before the
+function declaration.
 
-The entry point function must be declared with no arguments and returning `void`.
+When configuring the stage in the pipeline, the entry point is specified by providing
+the [SHORTNAME] module and the entry point's function name.
+
+An entry point function must have no parameters,
+and its return type must be [=void=].
+
+ISSUE: We've lost the ability to use shader names that are invalid identifiers.
 
 <pre class='def'>
-entry_point_decl
-  : ENTRY_POINT pipeline_stage EQUAL IDENT
-  | ENTRY_POINT pipeline_stage AS STRING_LITERAL EQUAL IDENT
-  | ENTRY_POINT pipeline_stage AS IDENT EQUAL IDENT
+entry_point_decl:
+   : entry_point_decoration_decl? pipeline_stage function_decl
+
+entry_point_decoration_decl
+  : ATTR_LEFT entry_point_decoration ATTR_RIGHT
 </pre>
 
 <div class='example' heading='Entry Point'>
   <xmp>
-    entry_point vertex = main
-       OpEntryPoint Vertex %vtx_main "vtx_main" %gl_FragColor
+    vertex fn vtx_main() -> void { gl_Position = vec4<f32>(); }
+       OpEntryPoint Vertex %vtx_main "vtx_main" %gl_Position
 
-    entry_point fragment as “frag_main” = main
-       OpEntryPoint Fragment %main "frag_main" %gl_FragColor
+    fragment fn frag_main -> void { gl_FragColor = vec4<f32>(); }
+       OpEntryPoint Fragment %frag_main "frag_main" %gl_FragColor
 
-    entry_point compute = comp_main
-       OpEntryPoint GLCompute %comp_main "comp_main" %gl_FragColor
+    compute fn main() -> void { }
+       OpEntryPoint GLCompute %main "main"
   </xmp>
 </div>
+
+The set of <dfn noexport>functions in a shader stage</dfn> is the union of:
+
+* The entry point function for the stage.
+* The targets of function calls from within the body of a function
+    in the shader stage, whether or not that call is executed.
+
+The union is applied repeatedly until it stabilizes.
+It will stabilize in a finite number of steps.
+
+### Entry point attributes ### {#entry-point-attributes}
+
+<pre class='def'>
+entry_point_decoration
+  : WORKGROUP_SIZE PAREN_LEFT INT_LITERAL COMMA
+                              INT_LITERAL COMMA
+                              INT_LITERAL PAREN_RIGHT
+</pre>
+
+: <dfn noexport>workgroup_size</dfn>
+:: The `workgroup_size` attribute specifies the x, y, and z dimensions of the [=workgroup=]
+    for a [=compute=] shader.
+    This attribute must only be used with a [=compute shader stage=] entry point.
+    Each dimension size must be at least 1 and at most an upper bound specified by the WebGPU API.
+
+ISSUE: Can we query upper bounds on workgroup size dimensions?  Is it independent of the shader, or
+  a property to be queried after creating the shader module?
+
+<div class='example' heading='workgroup_size Attribute'>
+  <xmp>
+    [[ workgroup_size(8,1,1) ]]
+    compute fn sorter() -> void { }
+       OpEntryPoint GLCompute %sorter "sorter"
+       OpExecutionMode %sorter LocalSize 8 1 1
+  </xmp>
+</div>
+
 ## Shader Interface TODO ## {#shader-interface}
 
 ### Built-in variables TODO ### {#builtin-var-interface}
 
 ### Pipeline Input and Output Interface TODO ### {#pipeline-inputs-outputs}
+
+TODO(dneto): The following sentence was moved from elsewhere. Expand this.
+
+The input and output parameters to the entry point are determined by which
+global variables are used in the function and any called functions.
 
 #### Built-in inputs and outputs TODO #### {#builtin-inputs-outputs}
 TODO: *Stub*. Forward reference to list of builtin variables.
@@ -2676,10 +2724,10 @@ global_decl
   | import_decl SEMICOLON
   | global_variable_decl SEMICOLON
   | global_constant_decl SEMICOLON
-  | entry_point_decl SEMICOLON
   | type_alias SEMICOLON
   | struct_decl SEMICOLON
   | function_decl
+  | entry_point_decl
 </pre>
 
 
@@ -2714,6 +2762,76 @@ TODO: *Stub*: Expression evaluation
 ### Divergence and reconvergence TODO ### {#divergence-reconvergence}
 
 ### Uniformity restrictions TODO ### {#uniformity-restrictions}
+
+## Compute Shaders and Workgroups TODO ## {#compute-shader-workgroups}
+
+A <dfn noexport>workgroup</dfn> is a set of invocations which
+concurrently execute a [=compute shader stage=] [=entry point=],
+and share access to shader variables in the `workgroup` storage class.
+
+The <dfn noexport>workgroup grid</dfn> for a compute shader is the set of points
+with integer coordinates *(i,j,k)* with:
+
+*  0 &leq; i &lt; workgroup_size_x
+*  0 &leq; j &lt; workgroup_size_y
+*  0 &leq; k &lt; workgroup_size_z
+
+where *(workgroup_size_x, workgroup_size_y, workgroup_size_z)* is
+the value specified for the [=workgroup_size=] attribute of the
+entry point, or (1,1,1) if the entry point has no such attribute.
+
+There is exactly one invocation in a workgroup for each point in the workgroup grid.
+
+A compute shader begins execution when a WebGPU implementation
+removes a `GPUComputePassEncoder`'s `dispatch` or `dispatchIndirect` command
+from a queue and begins the specified work on the GPU.
+The <dfn noexport>dispatch size</dfn>,
+provided directly as arguments to the `dispatch` command, or indirectly
+through memory by the `dispatchIndirect` command, is an integer triple
+*(group_count_x, group_count_y, group_count_z)*.
+
+The <dfn noexport>compute shader grid</dfn> for a particular dispatch
+is the set of points with integer coordinates *(CSi,CSj,CSk)* with:
+
+*  0 &leq; CSi &le; workgroup_size_x &times; group_count_x
+*  0 &leq; CSj &le; workgroup_size_y &times; group_count_y
+*  0 &leq; CSk &le; workgroup_size_z &times; group_count_z
+
+where *workgroup_size_x*,
+*workgroup_size_y*, and
+*workgroup_size_z* are as above for the compute shader entry point.
+
+The work to be performed by a compute shader dispatch is to execute exactly one
+invocation of the entry point for each point in the compute shader grid.
+The invocations are organized workgroups, so that each invocation
+*(CSi, CSj, CSk)* is identified with the workgroup grid point
+
+   ( *CSi* mod workgroup_size_x ,
+     *CSj* mod workgroup_size_y ,
+     *CSk* mod workgroup_size_z )
+
+in workgroup instance
+
+   ( &lfloor; *CSi* &div; workgroup_size_x &rfloor;,
+     &lfloor; *CSj* &div; workgroup_size_y &rfloor;,
+     &lfloor; *CSk* &div; workgroup_size_z &rfloor;).
+
+WebGPU provides no guarantees about:
+
+* Whether invocations from different workgroups execute concurrently.
+    That is, you cannot assume more than one workgroup executes at a time.
+* Whether, once invocations from a workgroup begin executing, that other workgroups
+    are blocked from execution.
+    That is, you cannot assume that only one workgroup executes at a time.
+    While a workgroup is executing, the implementation may choose to
+    concurrently execute other workgroups as well, or other queued but unblocked work.
+* Whether invocations from one particular workgroup begin executing before
+    the invocations of another workgroup.
+    That is, you cannot assume that workgroups are launched in a particular order.
+
+Issue: [WebGPU issue 1045](https://github.com/gpuweb/gpuweb/issues/1045):
+Dispatch group counts must be positive.
+However, how do we handle an indirect dispatch that specifies a group count of zero.
 
 ## Collective operations TODO ## {#collective-operations}
 
@@ -2872,6 +2990,7 @@ Issue: (dneto) Default rounding mode is an implementation choice.  Is that what 
   <tr><td>`WORKGROUP`<td>workgroup
   <tr><td>`INPUT`<td>input
   <tr><td>`OUTPUT`<td>output
+  <tr><td>`WORKGROUP_SIZE`<td>workgroup_size
 </table>
 <table class='data'>
   <caption>Image format keywords</caption>
