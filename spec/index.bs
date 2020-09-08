@@ -3519,7 +3519,7 @@ In alpha-to-coverage mode, an additional <dfn dfn>alpha-to-coverage mask</dfn>
 of MSAA samples is generated based on the |alpha| component of the
 fragment shader output value of the {{GPURenderPipelineDescriptor/colorStates}}[0].
 
-The algorithm of producing the extra mask is platform-dependent and can vary for different pixels. 
+The algorithm of producing the extra mask is platform-dependent and can vary for different pixels.
 It guarantees that:
   - if |alpha| is 0.0 or less, the result is 0x0
   - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
@@ -4020,6 +4020,14 @@ GPUCommandBuffer includes GPUObjectBase;
         </div>
 </dl>
 
+{{GPUCommandBuffer}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUCommandBuffer">
+    : <dfn>\[[command_list]]</dfn> of type `sequence<algorithm>`.
+    ::
+        A list of commands to be executed on the [=Queue timeline=] when this command buffer is run.
+</dl>
+
 ### Creation ### {#command-buffer-creation}
 
 <script type=idl>
@@ -4080,6 +4088,11 @@ GPUCommandEncoder includes GPUObjectBase;
 {{GPUCommandEncoder}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUCommandEncoder">
+    : <dfn>\[[command_list]]</dfn> of type `sequence<algorithm>`.
+    ::
+        A list of commands to be executed on the [=Queue timeline=] when the command buffer this
+        encoder produces is run.
+
     : <dfn>\[[state]]</dfn> of type {{encoder state}}.
     ::
         The current state of the {{GPUCommandEncoder}}, initially set to {{encoder state/open}}.
@@ -4782,18 +4795,28 @@ command encoder can no longer be used.
                 descriptor:
             </pre>
 
-            **Returns:** {{undefined}}
+            **Returns:** {{GPUCommandBuffer}}
 
-            Issue the following steps on the [=Device timeline=] of |this|:
-            <div class=device-timeline>
-                1. If any of the following conditions are unsatisfied, generate a validation
-                    error and stop.
-                    <div class=validusage>
-                        - |this| is [=valid=].
-                        - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.length is 0.
+            Issue the following steps on the [=Content timeline=] of |this|:
+            <div class=content-timeline>
+                1. Let |commandBuffer| be a new {{GPUCommandBuffer}}.
+                1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/closed}}.
+                1. Issue the following steps on the [=Device timeline=] of |this|:
+                    <div class=device-timeline>
+                        1. If any of the following conditions are unsatisfied, generate a validation
+                            error and stop.
+                            <div class=validusage>
+                                - |this| is [=valid=].
+                                - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.length is 0.
+
+                                Issue: Add remaining validation.
+                            </div>
+
+                        1. Let |commandBuffer|.{{GPUCommandBuffer/[[command_list]]}} be a copy of
+                            |this|.{{GPUCommandEncoder/[[command_list]]}}.
                     </div>
 
-                Issue: Add remaining validation.
+                1. Return |commandBuffer|.
             </div>
         </div>
 </dl>
@@ -4820,6 +4843,15 @@ interface mixin GPUProgrammablePassEncoder {
 {{GPUProgrammablePassEncoder}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUProgrammablePassEncoder">
+    : <dfn>\[[command_encoder]]</dfn> of type {{GPUCommandEncoder}}.
+    ::
+        The {{GPUCommandEncoder}} that created this programmable pass.
+
+    : <dfn>\[[command_list]]</dfn> of type `sequence<algorithm>`.
+    ::
+        A list of commands to be executed on the [=Queue timeline=] when this programmable pass is
+        run as part of a command buffer.
+
     : <dfn>\[[debug_group_stack]]</dfn> of type `sequence<USVString>`.
     ::
         A stack of active debug group labels.
@@ -5099,9 +5131,9 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
 
             **Arguments:**
             <pre class=argumentdef for="GPUComputePassEncoder/dispatch(x, y, z)">
-                x: X dimension of the grid of thread groups to dispatch.
-                y: Y dimension of the grid of thread groups to dispatch.
-                z: Z dimension of the grid of thread groups to dispatch.
+                |x|: X dimension of the grid of thread groups to dispatch.
+                |y|: Y dimension of the grid of thread groups to dispatch.
+                |z|: Z dimension of the grid of thread groups to dispatch.
             </pre>
 
             **Returns:** {{undefined}}
@@ -5112,6 +5144,14 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                     <div class=validusage>
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
+                    </div>
+
+                1. Let |pipeline| be |this|.{{GPUComputePassEncoder/[[pipeline]]}}.
+                1. Let |bindGroups| be |this|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}.
+                1. Push a command onto |this|.{{GPUProgrammablePassEncoder/[[command_list]]}} that, when executed,
+                    issues the following steps on the appropriate [=Queue timeline=]:
+                    <div class=queue-timeline>
+                        1. Dispatch a grid of thread groups with dimensions |x|, |y|, |z| with |pipeline| using |bindGroups|.
                     </div>
             </div>
         </div>
@@ -5231,12 +5271,13 @@ called the compute pass encoder can no longer be used.
                     error and stop.
                     <div class=validusage>
                         - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}.length is 0.
+
+                        Issue: Add remaining validation.
                     </div>
 
-                Issue: Add remaining validation.
+                1. Push each command in |this|.{{GPUProgrammablePassEncoder/[[command_list]]}} onto the end of
+                    |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}.
             </div>
-
-            Issue: Allowed for GPUs to use fixed point or rounded viewport coordinates
         </div>
 </dl>
 
@@ -6051,9 +6092,12 @@ called the render pass encoder can no longer be used.
                     error and stop.
                     <div class=validusage>
                         - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}.length is 0.
+
+                        Issue: Add remaining validation.
                     </div>
 
-                Issue: Add remaining validation.
+                1. Push each command in |this|.{{GPUProgrammablePassEncoder/[[command_list]]}} onto the end of
+                    |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}.
             </div>
         </div>
 </dl>
@@ -6320,11 +6364,20 @@ GPUQueue includes GPUObjectBase;
 
             **Returns:** {{undefined}}
 
-            If any of the following conditions are unsatisfied, generate a validation error and stop.
-            <div class=validusage>
-                - Every {{GPUBuffer}} referenced in any element of |commandBuffers| is in the
-                    `"unmapped"` [=buffer state=].
-                - Every [=usage scope=] contained in |commandBuffers| satisfies the [=usage scope validation=].
+            Issue the following steps on the [=Device timeline=] of |this|:
+            <div class=device-timeline>
+                1. If any of the following conditions are unsatisfied, generate a validation error and stop.
+                    <div class=validusage>
+                        - Every {{GPUBuffer}} referenced in any element of |commandBuffers| is in the
+                            `"unmapped"` [=buffer state=].
+                        - Every [=usage scope=] contained in |commandBuffers| satisfies the [=usage scope validation=].
+                    </div>
+
+                1. Issue the following steps on the [=Queue timeline=] of |this|:
+                    <div class=queue-timeline>
+                        1. For each |commandBuffer| in |commandBuffers|:
+                            1. Execute each command in |commandBuffer|.{{GPUCommandBuffer/[[command_list]]}}.
+                    </div>
             </div>
         </div>
 </dl>
@@ -7023,7 +7076,7 @@ The "Filter" column specifies whether textures of this format can be sampled in 
         <td><!-- Vulkan -->
         <td>
         <td>&checkmark;
-    
+
 </table>
 
 ### Depth/stencil formats ### {#depth-formats}
