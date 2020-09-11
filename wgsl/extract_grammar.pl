@@ -4,11 +4,11 @@
 #
 # Usage:
 #    perl extract_grammar.pl index.bs
+# This will write Flex definitinos in file wgsl.l
+# and a bison grammar in wgsl.y
 
 use strict;
 use Data::Dumper;
-
-my $prefix = "wgsl_parse_";
 
 my $show_raw = 0;
 my $show_dump = 0;
