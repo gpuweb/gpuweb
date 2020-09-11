@@ -6,3 +6,6 @@ index.html: index.bs
 online:
 	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F output=err
 	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F force=1 > index.html
+
+wgsl.y: extract_grammar.pl index.bs
+	perl extract_grammar.pl index.bs >$@
