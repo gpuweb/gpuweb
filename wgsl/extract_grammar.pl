@@ -11,43 +11,82 @@ use Data::Dumper;
 my $prefix = "wgsl_parse_";
 
 my $show_raw = 0;
-my $show_dump = 0;
+my $show_dump = 1;
+my $santize_re_in_rules = 1;
 
 my ($tokens_ref, $grammar_lines_ref) = GetTokensAndGrammarLines(<>);
 my $raw_grammar = Parse($tokens_ref, $grammar_lines_ref);
+open(my $flex_fh, ">", "wgsl.l") or die "can't open wgsl.l for writing: $!";
+WriteLexer($flex_fh, $tokens_ref);
+close $flex_fh;
+open(my $bison_fh, ">", "wgsl.y") or die "can't open wgsl.y for writing: $!";
+WriteGrammar($bison_fh, $tokens_ref, $raw_grammar);
+close $bison_fh;
 print Dumper($raw_grammar) if $show_dump;
 
-# Write flex file
-open(my $flex_fh, ">", "wgsl.l") or die "can't open wgsl.l for writing: $!";
-foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
-  my $rule = ${$tokens_ref}{$key};
-  if (($key eq 'IDENT') or  ($key =~ m/_LITERAL/)) {
-    # Escape "
-    $rule =~ s/(")/\\$1/g;
-    $rule =~ s/MINUS/\\-/g;
-    $rule =~ s/PLUS/\\+/g;
-    $rule =~ s/PERIOD/\\./g;
-  } else {
-    # Escape characters: [ ] ( ) . * ? + { } / | ^
-    $rule =~ s/([\[\]\(\)\.\*\?\+\{\}\/\|\^])/\\$1/g;
-  }
-  print $flex_fh  "$key  $rule\n";
-}
-print $flex_fh "\n%%\n";
-# The list of deferred rules.  They must go later or they may shadow
-# a previous definition.
-my @deferred = ();
-foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
-  if ($key eq 'IDENT') {
-    push @deferred, "{$key}  { return $key; }\n";
-  } else {
-    print $flex_fh "{$key}  { return $key; }\n";
-  }
-}
-print $flex_fh @deferred, "\n%%\n";
-close $flex_fh;
-
 exit 0;
+
+# Writes the Flex definition to the given file.
+sub WriteLexer($$) {
+  my ($flex_fh, $tokens_ref) = @_;
+  # Write flex file
+  foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
+    my $rule = ${$tokens_ref}{$key};
+    if (($key eq 'IDENT') or  ($key =~ m/_LITERAL/)) {
+      # Escape "
+      $rule =~ s/(")/\\$1/g;
+      $rule =~ s/MINUS/\\-/g;
+      $rule =~ s/PLUS/\\+/g;
+      $rule =~ s/PERIOD/\\./g;
+    } else {
+      # Escape characters: [ ] ( ) . * ? + { } / | ^
+      $rule =~ s/([\[\]\(\)\.\*\?\+\{\}\/\|\^])/\\$1/g;
+    }
+    print $flex_fh  "$key  $rule\n";
+  }
+  print $flex_fh "\n%%\n";
+  # The list of deferred rules.  They must go later or they may shadow
+  # a previous definition.
+  my @deferred = ();
+  foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
+    if ($key eq 'IDENT') {
+      push @deferred, "{$key}  { return $key; }\n";
+    } else {
+      print $flex_fh "{$key}  { return $key; }\n";
+    }
+  }
+  print $flex_fh @deferred;
+  # Flex has a special representation for EOF.
+  print $flex_fh "<<EOF>>  { return EOF; }\n";
+  print $flex_fh "\n%%\n";
+}
+
+sub WriteGrammar($$$) {
+  my ($bison_fh, $tokens_ref, $grammar) = @_;
+  foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
+    print $bison_fh "%token $key\n";
+  }
+  print $bison_fh "%token EOF\n";
+  print $bison_fh "\n%%\n\n";
+
+  my $rules_ref = $grammar->{'rule'};
+  foreach my $rule_key ( sort keys %$rules_ref ) {
+    print $bison_fh $rule_key, ":";
+    # get the list of right hand sides
+    my @rhs_list = @{$rules_ref->{$rule_key}};
+    my $first = 1;
+    foreach my $rhs (@rhs_list) {
+      print $bison_fh " |" unless $first;
+      $first = 0;
+      my @words = @$rhs;
+      if ($santize_re_in_rules) {
+        @words = (map { s/[()?+*]//g; $_ } (@words));
+      }
+      print $bison_fh ' ', join(' ', @words), "\n";
+    }
+    print $bison_fh "\n";
+  }
+}
 
 # Returns the list of token definitions and grammar-defining lines
 # from the WGSL spec source.
@@ -139,12 +178,12 @@ sub Parse($$) {
   # Make sure each symbol has a token definition
   my @errors = ();
   foreach my $symbol (@symbols) {
-    next if $symbol eq 'EOF';
+    next if $symbol eq 'EOF'; # Handled specially.
     push(@errors, "error: token $symbol has no definition\n")
        unless exists ${$tokens_ref}{$symbol};
   }
   die @errors if $#errors >=0;
-  return [tokens => $tokens_ref, symbol => [@symbols] , rule => \%rule];
+  return {tokens => $tokens_ref, symbol => [@symbols] , rule => \%rule};
 }
 
 # Returns 1 if the line is a valid grammar line, and 0 otherwise.
