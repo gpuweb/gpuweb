@@ -11,7 +11,9 @@ use Data::Dumper;
 my $prefix = "wgsl_parse_";
 
 my $show_raw = 0;
-my $show_dump = 1;
+my $show_dump = 0;
+
+#### TODO: Must rewrite the ( ) ? and + in grammar rules, then remove this.
 my $santize_re_in_rules = 1;
 
 my ($tokens_ref, $grammar_lines_ref) = GetTokensAndGrammarLines(<>);
