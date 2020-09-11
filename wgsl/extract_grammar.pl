@@ -8,7 +8,7 @@
 use strict;
 use Data::Dumper;
 
-my $show_raw = 1;
+my $show_raw = 0;
 my $show_dump = 1;
 my ($tokens_ref, $grammar_lines_ref) = GetTokensAndGrammarLines(<>);
 my $raw_grammar = Parse($tokens_ref, $grammar_lines_ref);
@@ -30,6 +30,8 @@ sub GetTokensAndGrammarLines(@) {
     my $line = $_;
     if ($line =~ m/<td>Token<td>/) {
       $in_tokens = 1;
+    } elsif ($line =~ m/# Syntactic Tokens #/i) {
+      $in_tokens = 1;
     } elsif ($in_tokens && ($line =~ m/<tr><td>`(\S+?)`<td>(.*)/)) {
       # This is a token definition from a regular expression
       # Preprocess into Bison/Flex form.
@@ -49,7 +51,7 @@ sub GetTokensAndGrammarLines(@) {
     } elsif ($in_grammar) {
       #    $line =~ s/--.*//; # For comments like "-- Capability"
       $line =~ s/\s+/ /g;
-      push (@grammar_lines, $line) if is_valid($line);
+      push (@grammar_lines, $line) if is_valid_grammar_line($line);
     }
   }
   return (\%token, \@grammar_lines);
@@ -99,12 +101,20 @@ sub Parse($$) {
       die "unknown line: $line";
     }
   }
-  my @symbols = sort keys %symbol;
+  my @symbols = grep { is_valid_symbol($_) } (sort keys %symbol);
+  # Make sure each symbol has a token definition
+  my @errors = ();
+  foreach my $symbol (@symbols) {
+    next if $symbol eq 'EOF';
+    push(@errors, "error: token $symbol has no definition\n")
+       unless exists ${$tokens_ref}{$symbol};
+  }
+  die @errors if $#errors >=0;
   return [tokens => $tokens_ref, symbol => [@symbols] , rule => \%rule];
 }
 
-# Returns 0 if the line is invalid, and 1 otherwise.
-sub is_valid {
+# Returns 1 if the line is a valid grammar line, and 0 otherwise.
+sub is_valid_grammar_line {
   my ($line) = @_;
   return 0 if $line =~ m/\WOp[A-Z]/;
   return 0 if $line =~ m/TODO/;
@@ -126,7 +136,7 @@ sub is_valid {
 sub split_re {
   # First split between word and non-word boundaries.
   my @result = map {split(/\b/)} @_;
-  @result = map { 
+  @result = map {
     if ($_ =~ m/^\W/) {
       # Split non-words by character
       split(//);
@@ -136,4 +146,8 @@ sub split_re {
     }
   } @result;
   return @result;
+}
+
+sub is_valid_symbol($) {
+  return $_ =~ m/^[A-Z_]+$/;
 }
