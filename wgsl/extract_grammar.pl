@@ -10,22 +10,39 @@ use Data::Dumper;
 
 my $show_raw = 1;
 my $show_dump = 1;
-
-my @grammar_lines = GetGrammarLines(<>);
-my $raw_grammar = Parse(@grammar_lines);
+my ($tokens_ref, $grammar_lines_ref) = GetTokensAndGrammarLines(<>);
+my $raw_grammar = Parse($tokens_ref, $grammar_lines_ref);
 print Dumper($raw_grammar) if $show_dump;
 exit 0;
 
-# Returns the list of grammar-defining lines from the WGSL spec source.
+# Returns the list of token definitions and grammar-defining lines
+# from the WGSL spec source.
 # Input is the list of lines from the WGSL spec source.
-sub GetGrammarLines(@) {
+sub GetTokensAndGrammarLines(@) {
   my (@input) = @_;
   my $in_grammar = 0;
+  my $in_tokens = 0;
   my @grammar_lines = ();
+  # Key is token name, value is regexp
+  my %token = ();
   foreach (@input) {
     chomp;
     my $line = $_;
-    if ($line =~ m/^<pre\s+class='def'/) {
+    if ($line =~ m/<td>Token<td>/) {
+      $in_tokens = 1;
+    } elsif ($in_tokens && ($line =~ m/<tr><td>`(\S+?)`<td>(.*)/)) {
+      # This is a token definition from a regular expression
+      # Preprocess into Bison/Flex form.
+      my $name = $1;
+      my $re = $2;
+      $re =~ s/\s*#.*//; # Remove trailing comment
+      $re =~ s/^`//; # Remove leading tick, if present
+      $re =~ s/`$//; # Remove trailing tick, if present
+      $re =~ s/\s+//g;  # Remove spaces
+      $token{$name} = $re;
+    } elsif ($in_tokens && ($line =~ m/<\/table>/)) {
+      $in_tokens = 0;
+    } elsif ($line =~ m/^<pre\s+class='def'/) {
       $in_grammar = 1;
     } elsif ($line =~ m/^<\/pre>/) {
       $in_grammar = 0;
@@ -35,13 +52,14 @@ sub GetGrammarLines(@) {
       push (@grammar_lines, $line) if is_valid($line);
     }
   }
-  return @grammar_lines;
+  return (\%token, \@grammar_lines);
 }
 
 # Transforms a list of grammar lines into a structured representation
 # of the grammar.
-sub Parse(@) {
-  my (@grammar_lines) = @_;
+sub Parse($$) {
+  my ($tokens_ref, $grammar_lines_ref) = @_;
+
   # Key is a terminal or nonterminal in the grammar.
   # The value is insignificant.
   my %symbol = ();
@@ -54,7 +72,7 @@ sub Parse(@) {
   my $lhs = undef;
   # A reference to the most recently addeded rule right-hand-side.
   my $last_rhs = undef;
-  foreach my $line (@grammar_lines) {
+  foreach my $line (@$grammar_lines_ref) {
     print $line,"\n" if $show_raw;
     if ($line =~ m/^(\S+)$/) {
       my $name = $1;
@@ -82,7 +100,7 @@ sub Parse(@) {
     }
   }
   my @symbols = sort keys %symbol;
-  return [symbol => [@symbols] , rule => \%rule];
+  return [tokens => $tokens_ref, symbol => [@symbols] , rule => \%rule];
 }
 
 # Returns 0 if the line is invalid, and 1 otherwise.
