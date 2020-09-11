@@ -19,9 +19,6 @@ print Dumper($raw_grammar) if $show_dump;
 
 # Write flex file
 open(my $flex_fh, ">", "wgsl.l") or die "can't open wgsl.l for writing: $!";
-# The list of deferred rules.  They must go later or they may shadow
-# a previous definition.
-my @deferred = ();
 foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
   my $rule = ${$tokens_ref}{$key};
   if (($key eq 'IDENT') or  ($key =~ m/_LITERAL/)) {
@@ -30,18 +27,24 @@ foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
     $rule =~ s/MINUS/\\-/g;
     $rule =~ s/PLUS/\\+/g;
     $rule =~ s/PERIOD/\\./g;
-    push @deferred, "$key $rule\n";
   } else {
-    # Escape characters: [ ] ( ) . * ? + { } / |
-    $rule =~ s/([\[\]\(\)\.\*\?\+\{\}\/\|])/\\$1/g;
-    print $flex_fh  "$key  $rule\n";
+    # Escape characters: [ ] ( ) . * ? + { } / | ^
+    $rule =~ s/([\[\]\(\)\.\*\?\+\{\}\/\|\^])/\\$1/g;
+  }
+  print $flex_fh  "$key  $rule\n";
+}
+print $flex_fh "\n%%\n";
+# The list of deferred rules.  They must go later or they may shadow
+# a previous definition.
+my @deferred = ();
+foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
+  if ($key eq 'IDENT') {
+    push @deferred, "{$key}  { return $key; }\n";
+  } else {
+    print $flex_fh "{$key}  { return $key; }\n";
   }
 }
 print $flex_fh @deferred, "\n%%\n";
-foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
-  print $flex_fh "{$key}  { return $key; }\n";
-}
-print $flex_fh "\n%%\n";
 close $flex_fh;
 
 exit 0;
