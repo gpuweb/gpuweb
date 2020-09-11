@@ -8,11 +8,42 @@
 use strict;
 use Data::Dumper;
 
+my $prefix = "wgsl_parse_";
+
 my $show_raw = 0;
-my $show_dump = 1;
+my $show_dump = 0;
+
 my ($tokens_ref, $grammar_lines_ref) = GetTokensAndGrammarLines(<>);
 my $raw_grammar = Parse($tokens_ref, $grammar_lines_ref);
 print Dumper($raw_grammar) if $show_dump;
+
+# Write flex file
+open(my $flex_fh, ">", "wgsl.l") or die "can't open wgsl.l for writing: $!";
+# The list of deferred rules.  They must go later or they may shadow
+# a previous definition.
+my @deferred = ();
+foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
+  my $rule = ${$tokens_ref}{$key};
+  if (($key eq 'IDENT') or  ($key =~ m/_LITERAL/)) {
+    # Escape "
+    $rule =~ s/(")/\\$1/g;
+    $rule =~ s/MINUS/\\-/g;
+    $rule =~ s/PLUS/\\+/g;
+    $rule =~ s/PERIOD/\\./g;
+    push @deferred, "$key $rule\n";
+  } else {
+    # Escape characters: [ ] ( ) . * ? + { } / |
+    $rule =~ s/([\[\]\(\)\.\*\?\+\{\}\/\|])/\\$1/g;
+    print $flex_fh  "$key  $rule\n";
+  }
+}
+print $flex_fh @deferred, "\n%%\n";
+foreach my $key (sort {$a cmp $b } keys %$tokens_ref) {
+  print $flex_fh "{$key}  { return $key; }\n";
+}
+print $flex_fh "\n%%\n";
+close $flex_fh;
+
 exit 0;
 
 # Returns the list of token definitions and grammar-defining lines
@@ -101,7 +132,7 @@ sub Parse($$) {
       die "unknown line: $line";
     }
   }
-  my @symbols = grep { is_valid_symbol($_) } (sort keys %symbol);
+  my @symbols = grep { is_valid_symbol($_) } (sort { $a cmp $b } keys %symbol);
   # Make sure each symbol has a token definition
   my @errors = ();
   foreach my $symbol (@symbols) {
