@@ -2712,7 +2712,7 @@ A {{GPUBindGroup}} object has the following internal slots:
     ::
         The set of {{GPUBindGroupEntry}}s this {{GPUBindGroup}} describes.
 
-    : <dfn>\[[usedResources]]</dfn> of type map<[=subresource=], list<[=internal usage=]>>.
+    : <dfn>\[[usedResources]]</dfn> of type map<[=subresource=], [=list=]<[=internal usage=]>>.
     ::
         The set of buffer and texture [=subresource=]s used by this bind group,
         associated with lists of the [=internal usage=] flags.
@@ -3519,7 +3519,7 @@ In alpha-to-coverage mode, an additional <dfn dfn>alpha-to-coverage mask</dfn>
 of MSAA samples is generated based on the |alpha| component of the
 fragment shader output value of the {{GPURenderPipelineDescriptor/colorStates}}[0].
 
-The algorithm of producing the extra mask is platform-dependent and can vary for different pixels. 
+The algorithm of producing the extra mask is platform-dependent and can vary for different pixels.
 It guarantees that:
   - if |alpha| is 0.0 or less, the result is 0x0
   - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
@@ -3983,6 +3983,10 @@ Issue(https://github.com/gpuweb/gpuweb/issues/693): add a limit to the number of
 
 # Command Buffers # {#command-buffers}
 
+Command buffers are pre-recorded lists of [=GPU commands=] that can be submitted to a {{GPUQueue}}
+for execution. Each <dfn dfn>GPU command</dfn> represents a task to be performed on the GPU, such as
+setting state, drawing, copying resources, etc.
+
 ## <dfn interface>GPUCommandBuffer</dfn> ## {#command-buffer}
 
 <script type=idl>
@@ -4018,6 +4022,15 @@ GPUCommandBuffer includes GPUObjectBase;
             the promise is resolved with that value.
             If the submit() fails, then the promise resolves to 0.
         </div>
+</dl>
+
+{{GPUCommandBuffer}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUCommandBuffer">
+    : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
+    ::
+        A [=list=] of [=GPU commands=] to be executed on the [=Queue timeline=] when this command
+        buffer is submitted.
 </dl>
 
 ### Creation ### {#command-buffer-creation}
@@ -4080,6 +4093,11 @@ GPUCommandEncoder includes GPUObjectBase;
 {{GPUCommandEncoder}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUCommandEncoder">
+    : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
+    ::
+        A [=list=] of [=GPU command=] to be executed on the [=Queue timeline=] when the
+        {{GPUCommandBuffer}} this encoder produces is submitted.
+
     : <dfn>\[[state]]</dfn> of type {{encoder state}}.
     ::
         The current state of the {{GPUCommandEncoder}}, initially set to {{encoder state/open}}.
@@ -4199,6 +4217,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
             </div>
 
             Issue: specify the behavior of read-only depth/stencil
+            Issue: Enqueue attachment loads (with loadOp clear).
         </div>
 
     : <dfn>beginComputePass(descriptor)</dfn>
@@ -4782,19 +4801,26 @@ command encoder can no longer be used.
                 descriptor:
             </pre>
 
-            **Returns:** {{undefined}}
+            **Returns:** {{GPUCommandBuffer}}
 
-            Issue the following steps on the [=Device timeline=] of |this|:
-            <div class=device-timeline>
-                1. If any of the following conditions are unsatisfied, generate a validation
-                    error and stop.
-                    <div class=validusage>
-                        - |this| is [=valid=].
-                        - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.length is 0.
-                    </div>
+            1. Let |commandBuffer| be a new {{GPUCommandBuffer}}.
+            1. Issue the following steps on the [=Device timeline=] of |this|:
+                <div class=device-timeline>
+                    1. If any of the following conditions are unsatisfied, generate a validation
+                        error and stop.
+                        <div class=validusage>
+                            - |this| is [=valid=].
+                            - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.length is 0.
+                            - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
+                            - Every [=usage scope=] contained in |this| satisfies the [=usage scope validation=].
+                        </div>
 
-                Issue: Add remaining validation.
-            </div>
+                    1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/closed}}.
+                    1. Let |commandBuffer|.{{GPUCommandBuffer/[[command_list]]}} be a [=list/clone=]
+                        of |this|.{{GPUCommandEncoder/[[command_list]]}}.
+                </div>
+
+            1. Return |commandBuffer|.
         </div>
 </dl>
 
@@ -4820,6 +4846,10 @@ interface mixin GPUProgrammablePassEncoder {
 {{GPUProgrammablePassEncoder}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUProgrammablePassEncoder">
+    : <dfn>\[[command_encoder]]</dfn> of type {{GPUCommandEncoder}}.
+    ::
+        The {{GPUCommandEncoder}} that created this programmable pass.
+
     : <dfn>\[[debug_group_stack]]</dfn> of type `sequence<USVString>`.
     ::
         A stack of active debug group labels.
@@ -5099,9 +5129,9 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
 
             **Arguments:**
             <pre class=argumentdef for="GPUComputePassEncoder/dispatch(x, y, z)">
-                x: X dimension of the grid of thread groups to dispatch.
-                y: Y dimension of the grid of thread groups to dispatch.
-                z: Z dimension of the grid of thread groups to dispatch.
+                |x|: X dimension of the grid of thread groups to dispatch.
+                |y|: Y dimension of the grid of thread groups to dispatch.
+                |z|: Z dimension of the grid of thread groups to dispatch.
             </pre>
 
             **Returns:** {{undefined}}
@@ -5112,6 +5142,16 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                     <div class=validusage>
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
+                    </div>
+
+                1. [=list/Append=] a [=GPU command=] to
+                    |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                    that captures the {{GPUComputePassEncoder}} state of |this| as |passState| and,
+                    when executed, issues the following steps on the appropriate [=Queue timeline=]:
+                    <div class=queue-timeline>
+                        1. Dispatch a grid of thread groups with dimensions [|x|, |y|, |z|] with
+                            |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
+                            |passState|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}.
                     </div>
             </div>
         </div>
@@ -5231,12 +5271,10 @@ called the compute pass encoder can no longer be used.
                     error and stop.
                     <div class=validusage>
                         - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}.length is 0.
+
+                        Issue: Add remaining validation.
                     </div>
-
-                Issue: Add remaining validation.
             </div>
-
-            Issue: Allowed for GPUs to use fixed point or rounded viewport coordinates
         </div>
 </dl>
 
@@ -6051,9 +6089,11 @@ called the render pass encoder can no longer be used.
                     error and stop.
                     <div class=validusage>
                         - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}.length is 0.
+
+                        Issue: Add remaining validation.
                     </div>
 
-                Issue: Add remaining validation.
+                Issue: Enqueue the attachment stores (with storeOp clear).
             </div>
         </div>
 </dl>
@@ -6320,11 +6360,19 @@ GPUQueue includes GPUObjectBase;
 
             **Returns:** {{undefined}}
 
-            If any of the following conditions are unsatisfied, generate a validation error and stop.
-            <div class=validusage>
-                - Every {{GPUBuffer}} referenced in any element of |commandBuffers| is in the
-                    `"unmapped"` [=buffer state=].
-                - Every [=usage scope=] contained in |commandBuffers| satisfies the [=usage scope validation=].
+            Issue the following steps on the [=Device timeline=] of |this|:
+            <div class=device-timeline>
+                1. If any of the following conditions are unsatisfied, generate a validation error and stop.
+                    <div class=validusage>
+                        - Every {{GPUBuffer}} referenced in any element of |commandBuffers| is in the
+                            `"unmapped"` [=buffer state=].
+                    </div>
+
+                1. Issue the following steps on the [=Queue timeline=] of |this|:
+                    <div class=queue-timeline>
+                        1. For each |commandBuffer| in |commandBuffers|:
+                            1. Execute each command in |commandBuffer|.{{GPUCommandBuffer/[[command_list]]}}.
+                    </div>
             </div>
         </div>
 </dl>
@@ -7023,7 +7071,7 @@ The "Filter" column specifies whether textures of this format can be sampled in 
         <td><!-- Vulkan -->
         <td>
         <td>&checkmark;
-    
+
 </table>
 
 ### Depth/stencil formats ### {#depth-formats}
