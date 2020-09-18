@@ -34,11 +34,11 @@ thead {
 <div class='example'>
   <xmp highlight='rust'>
     [[location(0)]] var<out> gl_FragColor : vec4<f32>;
+    [[stage(fragment)]]
     fn main() -> void {
         gl_FragColor = vec4<f32>(0.4, 0.4, 0.8, 1.0);
         return;
     }
-    entry_point fragment = main;
   </xmp>
 </div>
 
@@ -2481,7 +2481,10 @@ module.
 
 <pre class='def'>
 function_decl
-  : function_header body_statement
+  : function_decoration_decl? function_header body_statement
+
+function_decoration_decl
+  : ATTR_LEFT (function_decoration COMMA)* function_decoration ATTR_RIGHT
 
 function_type_decl
   : type_decl
@@ -2573,50 +2576,108 @@ programmable parts of pipelines:
 * <dfn noexport>vertex</dfn>
 * <dfn noexport>fragment</dfn>
 
+Each shader stage has its own set of features and constraints, described elsewhere.
+
+## Entry point declaration ## {#entry-point-decl}
+
+An <dfn noexport>entry point</dfn> is a function that is invoked to perform
+the work for a particular [=shader stage=].
+
+Specify a `stage` attribute on a function declaration to declare that function
+as an entry point.
+
+When configuring the stage in the pipeline, the entry point is specified by providing
+the [SHORTNAME] module and the entry point's function name.
+
+An entry point function must have no parameters,
+and its return type must be [=void=].
+
+<div class='example' heading='Entry Point'>
+  <xmp>
+    [[stage(vertex)]]
+    fn vtx_main() -> void { gl_Position = vec4<f32>(); }
+       # OpEntryPoint Vertex %vtx_main "vtx_main" %gl_Position
+
+    [[stage(fragment)]]
+    fn frag_main -> void { gl_FragColor = vec4<f32>(); }
+       # OpEntryPoint Fragment %frag_main "frag_main" %gl_FragColor
+
+    [[stage(compute)]]
+    fn main() -> void { }
+       # OpEntryPoint GLCompute %main "main"
+  </xmp>
+</div>
+
+The set of <dfn noexport>functions in a shader stage</dfn> is the union of:
+
+* The entry point function for the stage.
+* The targets of function calls from within the body of a function
+    in the shader stage, whether or not that call is executed.
+
+The union is applied repeatedly until it stabilizes.
+It will stabilize in a finite number of steps.
+
+### Function attributes for entry points ### {#entry-point-attributes}
+
 <pre class='def'>
+function_decoration
+  : STAGE PAREN_LEFT pipeline_stage PAREN_RIGHT
+  | WORKGROUP_SIZE
+      PAREN_LEFT
+        INT_LITERAL ( COMMA INT_LITERAL ( COMMA INT_LITERAL )? )?
+      PAREN_RIGHT
+
 pipeline_stage
   : COMPUTE
   | VERTEX
   | FRAGMENT
 </pre>
 
-Each shader stage has its own set of features and constraints, described elsewhere.
+: <dfn noexport>stage</dfn>
+:: The `stage` attribute declares that a function is an entry point for particular pipeline stage.
+: <dfn noexport>workgroup_size</dfn>
+:: The `workgroup_size` attribute specifies the x, y, and z dimensions of the [=workgroup grid=]
+    for a [=compute=] shader.
+    The size in the x dimension is provided by the first literal.
+    The size in the y dimension is provided by the second literal, when present, and otherwise
+    is assumed to be 1.
+    The size in the z dimension is provided by the third literal, when present, and otherwise
+    is assumed to be 1.
+    Each dimension size must be at least 1 and at most an upper bound specified by the WebGPU API.
+    This attribute must only be used with a [=compute shader stage=] entry point.
 
-## Entry point declaration TODO ## {#entry-point-decl}
+ISSUE: Can we query upper bounds on workgroup size dimensions?  Is it independent of the shader, or
+  a property to be queried after creating the shader module?
 
-The `entry_point` declares an entry point into the module. The entry points may
-be forward declarations but the functions referenced must be declared in the
-file.
-
-The input and output parameters to the entry point are determined by which
-global variables are used in the function and any called functions.
-
-The entry point function must be declared with no arguments and returning `void`.
-
-<pre class='def'>
-entry_point_decl
-  : ENTRY_POINT pipeline_stage EQUAL IDENT
-  | ENTRY_POINT pipeline_stage AS STRING_LITERAL EQUAL IDENT
-  | ENTRY_POINT pipeline_stage AS IDENT EQUAL IDENT
-</pre>
-
-<div class='example' heading='Entry Point'>
+<div class='example' heading='workgroup_size Attribute'>
   <xmp>
-    entry_point vertex = main
-       OpEntryPoint Vertex %vtx_main "vtx_main" %gl_FragColor
+    [[ stage(compute), workgroup_size(8,1,1) ]]
+    fn sorter() -> void { }
+       # OpEntryPoint GLCompute %sorter "sorter"
+       # OpExecutionMode %sorter LocalSize 8 1 1
 
-    entry_point fragment as “frag_main” = main
-       OpEntryPoint Fragment %main "frag_main" %gl_FragColor
+    [[ stage(compute), workgroup_size(8) ]]
+    fn reverser() -> void { }
+       # OpEntryPoint GLCompute %reverser "reverser"
+       # OpExecutionMode %reverser LocalSize 8 1 1
 
-    entry_point compute = comp_main
-       OpEntryPoint GLCompute %comp_main "comp_main" %gl_FragColor
+    [[ stage(compute) ]]
+    fn do_nothing() -> void { }
+       # OpEntryPoint GLCompute %do_nothing "do_nothing"
+       # OpExecutionMode %do_nothing LocalSize 1 1 1
   </xmp>
 </div>
+
 ## Shader Interface TODO ## {#shader-interface}
 
 ### Built-in variables TODO ### {#builtin-var-interface}
 
 ### Pipeline Input and Output Interface TODO ### {#pipeline-inputs-outputs}
+
+TODO(dneto): The following sentence was moved from elsewhere. Expand this.
+
+The input and output parameters to the entry point are determined by which
+global variables are used in the function and any called functions.
 
 #### Built-in inputs and outputs TODO #### {#builtin-inputs-outputs}
 TODO: *Stub*. Forward reference to list of builtin variables.
@@ -2646,7 +2707,6 @@ global_decl
   : SEMICOLON
   | global_variable_decl SEMICOLON
   | global_constant_decl SEMICOLON
-  | entry_point_decl SEMICOLON
   | type_alias SEMICOLON
   | struct_decl SEMICOLON
   | function_decl
@@ -2684,6 +2744,74 @@ TODO: *Stub*: Expression evaluation
 ### Divergence and reconvergence TODO ### {#divergence-reconvergence}
 
 ### Uniformity restrictions TODO ### {#uniformity-restrictions}
+
+## Compute Shaders and Workgroups ## {#compute-shader-workgroups}
+
+A <dfn noexport>workgroup</dfn> is a set of invocations which
+concurrently execute a [=compute shader stage=] [=entry point=],
+and share access to shader variables in the `workgroup` storage class.
+
+The <dfn noexport>workgroup grid</dfn> for a compute shader is the set of points
+with integer coordinates *(i,j,k)* with:
+
+*  0 &leq; i &lt; workgroup_size_x
+*  0 &leq; j &lt; workgroup_size_y
+*  0 &leq; k &lt; workgroup_size_z
+
+where *(workgroup_size_x, workgroup_size_y, workgroup_size_z)* is
+the value specified for the [=workgroup_size=] attribute of the
+entry point, or (1,1,1) if the entry point has no such attribute.
+
+There is exactly one invocation in a workgroup for each point in the workgroup grid.
+
+A compute shader begins execution when a WebGPU implementation
+removes a dispatch command from a queue and begins the specified work on the GPU.
+The dispatch command specifies a <dfn noexport>dispatch size</dfn>,
+which is an integer triple *(group_count_x, group_count_y, group_count_z)*
+indicating the number of workgroups to be executed, as described in the following.
+
+The <dfn noexport>compute shader grid</dfn> for a particular dispatch
+is the set of points with integer coordinates *(CSi,CSj,CSk)* with:
+
+*  0 &leq; CSi &le; workgroup_size_x &times; group_count_x
+*  0 &leq; CSj &le; workgroup_size_y &times; group_count_y
+*  0 &leq; CSk &le; workgroup_size_z &times; group_count_z
+
+where *workgroup_size_x*,
+*workgroup_size_y*, and
+*workgroup_size_z* are as above for the compute shader entry point.
+
+The work to be performed by a compute shader dispatch is to execute exactly one
+invocation of the entry point for each point in the compute shader grid.
+The invocations are organized into workgroups, so that each invocation
+*(CSi, CSj, CSk)* is identified with the workgroup grid point
+
+   ( *CSi* mod workgroup_size_x ,
+     *CSj* mod workgroup_size_y ,
+     *CSk* mod workgroup_size_z )
+
+in workgroup instance
+
+   ( &lfloor; *CSi* &div; workgroup_size_x &rfloor;,
+     &lfloor; *CSj* &div; workgroup_size_y &rfloor;,
+     &lfloor; *CSk* &div; workgroup_size_z &rfloor;).
+
+WebGPU provides no guarantees about:
+
+* Whether invocations from different workgroups execute concurrently.
+    That is, you cannot assume more than one workgroup executes at a time.
+* Whether, once invocations from a workgroup begin executing, that other workgroups
+    are blocked from execution.
+    That is, you cannot assume that only one workgroup executes at a time.
+    While a workgroup is executing, the implementation may choose to
+    concurrently execute other workgroups as well, or other queued but unblocked work.
+* Whether invocations from one particular workgroup begin executing before
+    the invocations of another workgroup.
+    That is, you cannot assume that workgroups are launched in a particular order.
+
+Issue: [WebGPU issue 1045](https://github.com/gpuweb/gpuweb/issues/1045):
+Dispatch group counts must be positive.
+However, how do we handle an indirect dispatch that specifies a group count of zero.
 
 ## Collective operations TODO ## {#collective-operations}
 
@@ -2812,7 +2940,6 @@ Issue: (dneto) Default rounding mode is an implementation choice.  Is that what 
   <tr><td>`DISCARD`<td>discard
   <tr><td>`ELSE`<td>else
   <tr><td>`ELSE_IF`<td>elseif
-  <tr><td>`ENTRY_POINT`<td>entry_point
   <tr><td>`FALLTHROUGH`<td>fallthrough
   <tr><td>`FALSE`<td>false
   <tr><td>`FN`<td>fn
@@ -2822,13 +2949,16 @@ Issue: (dneto) Default rounding mode is an implementation choice.  Is that what 
   <tr><td>`IF`<td>if
   <tr><td>`IMAGE`<td>image
   <tr><td>`IN`<td>in
+  <tr><td>`INPUT`<td>input
   <tr><td>`LOCATION`<td>location
   <tr><td>`LOOP`<td>loop
   <tr><td>`OFFSET`<td>offset
   <tr><td>`OUT`<td>out
+  <tr><td>`OUTPUT`<td>output
   <tr><td>`PRIVATE`<td>private
   <tr><td>`RETURN`<td>return
   <tr><td>`SET`<td>set
+  <tr><td>`STAGE`<td>stage
   <tr><td>`STORAGE_BUFFER`<td>storage_buffer
   <tr><td>`STRIDE`<td>stride
   <tr><td>`SWITCH`<td>switch
@@ -2839,8 +2969,7 @@ Issue: (dneto) Default rounding mode is an implementation choice.  Is that what 
   <tr><td>`VAR`<td>var
   <tr><td>`VERTEX`<td>vertex
   <tr><td>`WORKGROUP`<td>workgroup
-  <tr><td>`INPUT`<td>input
-  <tr><td>`OUTPUT`<td>output
+  <tr><td>`WORKGROUP_SIZE`<td>workgroup_size
 </table>
 <table class='data'>
   <caption>Image format keywords</caption>
