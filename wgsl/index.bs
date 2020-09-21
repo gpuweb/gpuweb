@@ -74,24 +74,24 @@ TODO: What indicates the end of a line?  (E.g. A line ends at the next linefeed 
   <thead>
     <tr><td>Token<td>Definition
   </thead>
-  <tr><td>`FLOAT_LITERAL`<td>`(-?[0-9]*.[0-9]+ | -?[0-9]+.[0-9]*)((e|E)(+|-)?[0-9]+)?`
-  <tr><td>`INT_LITERAL`<td>`-?0x[0-9a-fA-F]+ | 0 | -?[1-9][0-9]*`
+  <tr><td>`FLOAT_LITERAL`<td>`([0-9]*.[0-9]+ | [0-9]+.[0-9]*)((e|E)(+|-)?[0-9]+)?`
+  <tr><td>`INT_LITERAL`<td>`0x[0-9a-fA-F]+ | 0 | [1-9][0-9]*`
   <tr><td>`UINT_LITERAL`<td>`0x[0-9a-fA-F]+u | 0u | [1-9][0-9]*u`
   <tr><td>`STRING_LITERAL`<td>`"[^"]*"`
 </table>
 
-Note: literals are parsed greedy. This means that for statements like `a -5`
-      this will *not* parse as `a` `minus` `5` but instead as `a` `-5` which
-      may be unexpected. A space must be inserted after the `-` if the first
-      expression is desired.
+Note: A leading minus is not part of the literal token.
 
 <pre class='def'>
 const_literal
-  : INT_LITERAL
+  : negatable_literal
   | UINT_LITERAL
-  | FLOAT_LITERAL
   | TRUE
   | FALSE
+
+negatable_literal
+  : INT_LITERAL
+  : FLOAT_LITERAL
 </pre>
 
 
@@ -932,11 +932,11 @@ variable_decoration
 <div class='example' heading="Variable Decorations">
   <xmp>
     [[location(2)]]
-       OpDecorate %gl_FragColor Location 2
+       # OpDecorate %gl_FragColor Location 2
 
     [[binding(3), set(4)]]
-       OpDecorate %gl_FragColor Binding 3
-       OpDecorate %gl_FragColor DescriptorSet 4
+       # OpDecorate %gl_FragColor Binding 3
+       # OpDecorate %gl_FragColor DescriptorSet 4
   </xmp>
 </div>
 
@@ -953,8 +953,9 @@ and the name denotes the value of that expression.
 
 <div class='example' heading='Module constants'>
   <xmp>
-    const golden : f32 = 1.61803398875;       # The golden ratio
-    const e2 : vec3<i32> = vec3<i32>(0,1,0);  # The second unit vector for three dimensions.
+    const golden : f32 = 1.61803398875;            # The golden ratio
+    const e2 : vec3<i32> = vec3<i32>(0,1,0);       # The second unit vector for 3D
+    const electron_charge : f32 = -1.60217662e-19; # in Coulombs
   </xmp>
 </div>
 
@@ -1005,25 +1006,32 @@ global_const_initializer
 
 const_expr
   : type_decl PAREN_LEFT (const_expr COMMA)* const_expr PAREN_RIGHT
-  | const_literal
+  | const_literal_expr
+
+const_literal_expr
+  : MINUS negatable_literal
+  | negatable_literal
+  | UINT_LITERAL
+  | TRUE
+  | FALSE
 </pre>
 
 <div class='example' heading='Constants'>
   <xmp>
-    -1
-       %a = OpConstant %int -1
+    1
+        %a = OpConstant %int 1
 
-    2
-       %b = OpConstant %uint 2
+    2u
+        %b = OpConstant %uint 2
 
     3.2
-       %c = OpConstant %float 3.2
+        %c = OpConstant %float 3.2
 
     true
         %d = OpConstantTrue
 
     false
-        %e = OpConstant False
+        %e = OpConstantFalse
 
     vec4<f32>(1.2, 2.3, 3.4, 2.3)
         %f0 = OpConstant %float 1.2
@@ -1032,6 +1040,14 @@ const_expr
          %f = OpConstantComposite %v4float %f0 %f1 %f2 %f1
   </xmp>
 </div>
+
+Note: `-1` is parsed as two tokens: MINUS `-` followed by INT_LITERAL `1`.
+
+Note:  `-2.5` is parsed as two tokens: MINUS `-` followed by FLOAT_LITERAL `2.5`.
+
+Note: `-2147483648` is a valid [=i32=] value parsed as two tokens, but `2147483648` is not valid because
+it overflows the 32-bit signed integer representation.
+
 
 Issue(dneto): The WebGPU pipeline creation API must specify how API-supplied values are mapped to
 shader scalar values.  For booleans, I suggest using a 32-bit integer, where only 0 maps to `false`.
@@ -2100,7 +2116,7 @@ switch_body
   | DEFAULT COLON BRACE_LEFT case_body BRACE_RIGHT
 
 case_selectors
-  : const_literal (COMMA const_literal)*
+  : const_literal_expr (COMMA const_literal_expr)*
 
 case_body
   :
