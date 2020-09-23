@@ -833,6 +833,8 @@ An <dfn dfn>adapter</dfn> represents an implementation of WebGPU on the system.
 Each adapter identifies both an instance of a hardware accelerator (e.g. GPU or CPU) and
 an instance of a browser's implementation of WebGPU on top of that accelerator.
 
+[=Adapters=] are exposed via {{GPUAdapter}}.
+
 If an [=adapter=] becomes unavailable, it becomes [=invalid=].
 Once invalid, it never becomes valid again.
 Any [=devices=] on the adapter, and [=internal objects=] owned by those devices,
@@ -855,14 +857,42 @@ An [=adapter=] has the following internal slots:
     ::
         The extensions which can be used to create devices on this adapter.
 
-    : <dfn>\[[limits]]</dfn>, of type {{GPULimits}}, readonly
+    : <dfn>\[[guaranteed_limits]]</dfn>, of type {{GPULimits}}
     ::
-        The [=limit/better|best=] limits which can be used to create devices on this adapter.
+        The [=limit/better|best=] limits which are guaranteed to be available to
+        device creation on this adapter.
 
-        Each adapter limit must be the same or [=limit/better=] than its default value in {{GPULimits}}.
+        These guaranteed limits get monotonically [=limit/better=] as limits are
+        observed via {{GPUAdapter/supportsLimit()}}, {{GPUAdapter/getLimit()}},
+        and {{GPUAdapter/requestDevice()}}.
+
+        Each adapter [=limit=] must be the same or [=limit/better=] than its default value in {{GPULimits}}.
 </dl>
 
-[=Adapters=] are exposed via {{GPUAdapter}}.
+An [=adapter=] <dfn dfn for=adapter>supports</dfn> particular capabilities
+([=extensions=] and [=limits=]). The supported capabilities for any adapter
+are implementation-defined.
+
+<div algorithm>
+    To determine whether an [=adapter=] |adapter|
+    <dfn abstract-op for=adapter>supports extension</dfn>(|extensionName|):
+
+    1. If |adapter|.{{adapter/[[extensions]]}} contains |extensionName|,
+        return `true`. Otherwise, return `false`.
+
+    Issue: Update to be like [$adapter/supports limit$].
+</div>
+
+<div algorithm>
+    To determine whether an [=adapter=] |adapter|
+    <dfn abstract-op for=adapter>supports limit</dfn>(|limitName|, |value|):
+
+    1. If |adapter|.{{adapter/[[guaranteed_limits]]}}[|limitName|] is
+        [=limit/better|no worse than=] |value|, return `true`.
+    1. If |adapter| can support a value of |value| for |limitName|,
+        according to an implementation-defined definition,
+        return `true`. Otherwise, return `false`.
+</div>
 
 ### Devices ### {#devices}
 
@@ -891,7 +921,7 @@ A [=device=] has the following internal slots:
 
     : <dfn>\[[limits]]</dfn>, of type {{GPULimits}}, readonly
     ::
-        The limits which can be used on this device.
+        The [=limits=] which can be used on this device.
         No [=limit/better=] limits can be used, even if the underlying [=adapter=] can support them.
 </dl>
 
@@ -934,6 +964,7 @@ a better limit is not specified.
 
 <table class="data no-colspan-center" dfn-type=dict-member dfn-for=GPULimits>
     <thead>
+        <!-- TODO(kainino0x): change this from GPULimits member to GPULimitName, probably. -->
         <tr><th>{{GPULimits}} member <th>Type <th>[=limit/Better=] <th>[=limit/Baseline=]
     </thead>
 
@@ -1035,6 +1066,25 @@ a better limit is not specified.
         of type {{GPUBindingType/uniform-buffer}}.
 </table>
 
+#### <dfn enum>GPULimitName</dfn> #### {#gpulimitname}
+
+A {{GPULimitName}} identifies a particular [=limit=].
+It is used to query the supported limits on a {{GPUAdapter}}.
+
+<script type=idl>
+enum GPULimitName {
+    "maxBindGroups",
+    "maxDynamicUniformBuffersPerPipelineLayout",
+    "maxDynamicStorageBuffersPerPipelineLayout",
+    "maxSampledTexturesPerShaderStage",
+    "maxSamplersPerShaderStage",
+    "maxStorageBuffersPerShaderStage",
+    "maxStorageTexturesPerShaderStage",
+    "maxUniformBuffersPerShaderStage",
+    "maxUniformBufferBindingSize",
+};
+</script>
+
 #### <dfn dictionary>GPULimits</dfn> #### {#gpulimits}
 
 {{GPULimits}} describes the [=limits=] with which a device should be created.
@@ -1055,6 +1105,8 @@ dictionary GPULimits {
 </script>
 
 ### Extensions ### {#extensions}
+
+<dfn dfn>extension</dfn>
 
 
 # Initialization # {#initialization}
@@ -1218,7 +1270,9 @@ To get a {{GPUAdapter}}, use {{GPU/requestAdapter()}}.
 interface GPUAdapter {
     readonly attribute DOMString name;
     readonly attribute FrozenArray<GPUExtensionName> extensions;
-    //readonly attribute GPULimits limits; Don't expose higher limits for now.
+
+    boolean supportsLimit(GPULimitName name, double value);
+    double getLimit(GPULimitName name);
 
     Promise<GPUDevice?> requestDevice(optional GPUDeviceDescriptor descriptor = {});
 };
@@ -1248,6 +1302,49 @@ interface GPUAdapter {
 {{GPUAdapter}} has the following methods:
 
 <dl dfn-type=method dfn-for=GPUAdapter>
+    : <dfn>supportsLimit(name, value)</dfn>
+    ::
+        Queries whether a [=limit=] is [=adapter/support|supported=] by the [=adapter=].
+
+        <div algorithm=GPUAdapter.supportsLimit>
+            **Called on:** {{GPUAdapter}} |this|.
+
+            **Arguments:**
+            <pre class=argumentdef for="GPUAdapter/supportsLimit(name, value)">
+                |name|: Name of the limit to query.
+                |value|: Limit value to query for support.
+            </pre>
+
+            If |this| [$adapter/supports limit$](|name|, |value|):
+
+            - Set |this|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[guaranteed_limits]]}}[|name|]
+                to the [=limit/better=] of its current value and |value|.
+            - Return `true`.
+
+            Otherwise, return `false`.
+        </div>
+
+    : <dfn>getLimit(name)</dfn>
+    ::
+        Returns the [=limit/better|best=] [=limit=] value [=adapter/support|supported=] by the [=adapter=].
+
+        <div algorithm=GPUAdapter.getLimit>
+            **Called on:** {{GPUAdapter}} |this|.
+
+            **Arguments:**
+            <pre class=argumentdef for="GPUAdapter/getLimit(name)">
+                |name|: Name of the limit to query.
+            </pre>
+
+            - Let |value| be the [=limit/better|best=] value for which
+                |this| [$adapter/supports limit$](|name|, |value|).
+
+            - Set |this|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[guaranteed_limits]]}}[|name|]
+                to |value|.
+
+            - Return |value|.
+        </div>
+
     : <dfn>requestDevice(descriptor)</dfn>
     ::
         Requests a [=device=] from the [=adapter=].
@@ -1269,22 +1366,27 @@ interface GPUAdapter {
                         [=reject=] |promise| with an {{OperationError}} and stop.
 
                         <div class=validusage>
-                            - The set of {{GPUExtensionName}} values in
-                                |descriptor|.{{GPUDeviceDescriptor/extensions}}
-                                is a subset of those in
-                                |adapter|.{{adapter/[[extensions]]}}.
+                            - For each {{GPUExtensionName}} |extensionName| in
+                                |descriptor|.{{GPUDeviceDescriptor/extensions}},
+                                |this|.{{GPUAdapter/[[adapter]]}}
+                                [$adapter/supports extension$](|extensionName|).
 
-                            - For each type of limit in {{GPULimits}},
-                                the value of that limit in
-                                |descriptor|.{{GPUDeviceDescriptor/limits}}
-                                is no [=limit/better=] than the value of that limit in
-                                |adapter|.{{adapter/[[limits]]}}.
-
-                            where |adapter| is |this|.{{GPUAdapter/[[adapter]]}}.
+                            - For each value |limitName| of {{GPULimitName}},
+                                |this|.{{GPUAdapter/[[adapter]]}}
+                                [$adapter/supports limit$](|limitName|,
+                                |descriptor|.{{GPUDeviceDescriptor/limits}}[|limitName|]).
                         </div>
 
                     1. If the user agent cannot fulfill the request,
                         [=resolve=] |promise| to `null` and stop.
+
+                    1.
+                        Issue: Like below but for extensions.
+
+                    1. For each |limitName| of {{GPULimitName}}:
+                        1. Set |this|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[guaranteed_limits]]}}
+                            to the [=limit/better=] of its current value and
+                            |descriptor|.{{GPUDeviceDescriptor/limits}}[|limitName|].
 
                     1. [=Resolve=] |promise| to a new {{GPUDevice}} object encapsulating
                         [=a new device=] with the capabilities described by |descriptor|.
