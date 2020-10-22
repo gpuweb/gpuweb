@@ -12,7 +12,7 @@ Buffers have the following usages (and commands inducing that usage):
  - (Maybe `STORAGE_TEXEL` and `UNIFORM_TEXEL`?)
 
 Textures have the following usages:
- - `OUTPUT_ATTACHMENT` for the subresources referenced by `WebGPURenderPassDescriptor`
+ - `RENDER_ATTACHMENT` for the subresources referenced by `WebGPURenderPassDescriptor`
  - `SAMPLED` and `STORAGE` for subresources corresponding to the image views referenced by bindgroups passed to `setBindGroup`, with the usage corresponding to the binding's type.
  - `COPY_SRC` for textures used as the copy source of various commands.
  - `COPY_DST` for textures used as the copy destination of various commands.
@@ -21,14 +21,14 @@ Read only usages are `VERTEX`, `INDEX`, `INDIRECT`, `UBO`, `COPY_SRC` and `SAMPL
 
 ## Render passes
 
-In render passes the only writable resources are textures used as `OUTPUT_ATTACHMENT` and resources used as `STORAGE`.
+In render passes the only writable resources are textures used as `RENDER_ATTACHMENT` and resources used as `STORAGE`.
 
 To avoid data hazards the simplest validation rules would be to check for every subresource that it is used as either:
- - `OUTPUT_ATTACHMENT`
+ - `RENDER_ATTACHMENT`
  - A combination of read-only usages
  - `STORAGE`
 
-If there is no usage of `STORAGE` then there are no data-races as everything is read-only, except `OUTPUT_ATTACHMENT` which is well-ordered.
+If there is no usage of `STORAGE` then there are no data-races as everything is read-only, except `RENDER_ATTACHMENT` which is well-ordered.
 For `STORAGE` resources, the order of reads and writes to the same memory location is undefined and it is up to the application to ensure data-race freeness.
 
 ## Compute passes
@@ -70,7 +70,7 @@ For example D3D12 assumes UAV is always writeable and disallows transitioning to
 ### More constrained texture usage validation
 
 Each layer and mip-level of textures can have an independent usage which means implementations might need to track usage per mip-level per layer of a resource.
-If this is deemed too costly, we could only have two sub-resources tracked in textures: the part as `OUTPUT_ATTACHMENT` and the rest.
+If this is deemed too costly, we could only have two sub-resources tracked in textures: the part as `RENDER_ATTACHMENT` and the rest.
 This would mean for example that a texture couldn't be used as both  `STORAGE` and a read-only usage inside a render pass.
 The state tracking required in implementation would become significantly simpler at the cost of flexibility for the applications.
 When using the more constrained version of usage validation for textures, the cost of validation is O(commands).
