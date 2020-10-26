@@ -282,14 +282,19 @@ A vector type is a <dfn dfn>numeric vector</dfn> type if its component type is a
     <tr><td>Type<td>Description
   </thead>
   <tr><td>array<*E*,*N*><td>An *N*-element array of elements of type *E*.<br>
-  <tr><td>array<*E*><td>A runtime-sized array of elements of type *E*,
+  <tr><td>array<*E*><td>A <dfn noexport>runtime-sized</dfn> array of elements of type *E*,
                        also known as a runtime array.
                        These may only appear in specific contexts.<br>
 </table>
 
-Issue: (dneto): Complete description of `Array<E,N>`
+Restrictions on runtime-sized arrays:
+* The last member of the structure type defining the [=store type=]
+    for variable in the `storage` [=storage class=] may be a runtime-sized array.
+* A runtime-sized array must not be used as the store type or contained within
+    a store type in any other cases.
+* The type of an expression must not be a runtime-sized array type.
 
-Issue: (dneto): Runtime-sized array is only usable as the last element of a struct defining the contents of a storage buffer.
+Issue: (dneto): Complete description of `Array<E,N>`
 
 ### Structure Types ### {#struct-types}
 <table class='data'>
@@ -377,7 +382,7 @@ Note: Layout decorations are required if the struct is used in an SSBO or UBO. O
 
 TODO: This section is a stub.
 
-In [SHORTNAME], a value of [[#storable-types]] may be stored in memory, for later retrieval.
+In [SHORTNAME], a value of [=storable=] type may be stored in memory, for later retrieval.
 
 ### Memory Locations TODO ### {#memory-locations}
 
@@ -395,6 +400,22 @@ The following types are <dfn dfn noexport>storable</dfn>:
 * [[#array-types]] if its element type is storable.
 * [[#struct-types]] if all its members are storable.
 
+### IO-shareable Types ### {#io-shareable-types}
+
+The following types are <dfn dfn noexport>IO-shareable</dfn>:
+
+* [=numeric scalar=] types
+* [=numeric vector=] types
+* [[#matrix-types]]
+* [[#array-types]] if its element type is IO-shareable, and the array is not [=runtime-sized=]
+* [[#struct-types]] if all its members are IO-shareable
+
+The following kinds of values must be of IO-shareable type:
+
+* Values read from or written to built-in variables.
+* Values accepted as inputs from an upstream pipeline stage.
+* Values written as output for downstream processing in the pipeline, or to an output attachment.
+
 ### Host-shareable Types ### {#host-shareable-types}
 
 The following types are <dfn dfn noexport>host-shareable</dfn>:
@@ -402,37 +423,122 @@ The following types are <dfn dfn noexport>host-shareable</dfn>:
 * [=numeric scalar=] types
 * [=numeric vector=] types
 * [[#matrix-types]]
-* [[#array-types]] if the array type has a stride attribute and its element type is host-shareable
-* [[#struct-types]] if all its members are host-shareable
+* [[#array-types]] if the array type has a [=stride=] attribute and its element type is host-shareable
+* [[#struct-types]] if each of its members both has an [=offset=] attribute and is host-shareable
 
-TODO: *This is a stub*: Collectively, the *stride* and *offset* attributes are called *layout attributes*.
+Host-shareable types are used to describe the contents of buffers which are shared between
+the host and the GPU, or copied between host and GPU without format translation.
+When used for this purpose, the type must be additionally decorated with layout attributes
+as described in [[#memory-layout]].
+In particular, any variable using the `uniform` or `storage` [=storage classes=] must have
+a host-shareable [=store type=].
 
-### Storage Classes TODO ### {#storage-class}
+Note: An [=IO-shareable=] type would also be host-shareable if it and its subtypes have
+the approporate [=stride=] and [=offset=] attributes.
+Additionally, a [=runtime-sized=] array is host-shareable but is not IO-shareable.
+
+Note: Both IO-shareable and host-shareable types have concrete sizes, but counted differently.
+IO-shareable types are sized by a location-count metric, see [[#input-output-locations]].
+Host-shareable types are sized by a byte-count metric, see [[#memory-layout]].
+
+### Storage Classes ### {#storage-class}
+
+Memory locations are partitioned into <dfn noexport>storage classes</dfn>.
+Each storage class has unique properties determining
+mutability, visibility, the values it may contain,
+and how to use variables with it.
+
+<table class='data'>
+  <thead>
+    <tr><td>Storage class
+        <td>Readable by shader?<br>Writable by shader?
+        <td>Sharing among invocations
+        <td>Variable scope
+        <td>Restrictions on stored values
+        <td>Notes
+  </thead>
+  <tr><td>in
+      <td>Read-only
+      <td>Same invocation only
+      <td>[=Module scope=]
+      <td>[=IO-shareable=]
+      <td>Input from an upstream pipeline stage, or from the implementation.
+  <tr><td>out
+      <td>Read-write
+      <td>Same invocation only
+      <td>[=Module scope=]
+      <td>[=IO-shareable=]
+      <td>Output to a downstream pipeline stage.
+  <tr><td>function
+      <td>Read-write
+      <td>Same invocation only
+      <td>[=Function scope=]
+      <td>[=Storable=]
+      <td>
+  <tr><td>private
+      <td>Read-write
+      <td>Same invocation only
+      <td>[=Module scope=]
+      <td>[=Storable=]
+      <td>
+  <tr><td>workgroup
+      <td>Read-write
+      <td>Invocations in the same [=workgroup=]
+      <td>[=Module scope=]
+      <td>[=Storable=]
+      <td>
+  <tr><td>uniform
+      <td>Read-only
+      <td>Invocations in the same [=shader stage=]
+      <td>[=Module scope=]
+      <td>[=Host-shareable=]
+      <td>The [=store type=] of a variable in the `uniform` storage class
+          must be a `block`-decorated [=host-shareable=] structure type.
+          See also [[#memory-layout]].
+          <br>Used with `uniform-buffer` WebGPU GPUBindingType.
+  <tr><td>storage
+      <td>Readable.<br>
+          Also writable if the variable is not read-only.
+      <td>Invocations in the same [=shader stage=]
+      <td>[=Module scope=]
+      <td>[=Host-shareable=]
+      <td>The [=store type=] of a variable in the `storage` storage class
+          must be a `block`-decorated [=host-shareable=] structure type.
+          See also [[#memory-layout]].
+          <br>Used with `storage-buffer` or `readonly-storage-buffer` WebGPU GPUBindingType.
+  <tr><td>handle
+      <td>Read-only
+      <td>Invocations in the same shader stage
+      <td>[=Module scope=]
+      <td>Opaque representation of handle to a sampler or texture
+      <td>Used with one of the sampler or texture WebGPU GPUBindingType values.<br>
+          The token `handle` is reserved: it is never used in a [SHORTNAME] program.
+</table>
+
+Issue: The note about read-only `storage` variables may change depending
+on the outcome of https://github.com/gpuweb/gpuweb/issues/935
 
 <pre class='def'>
 storage_class
-  : INPUT
-  | OUTPUT
-  | UNIFORM
-  | WORKGROUP
-  | UNIFORM_CONSTANT
-  | STORAGE_BUFFER
-  | IMAGE
-  | PRIVATE
+  : IN
+  | OUT
   | FUNCTION
+  | PRIVATE
+  | WORKGROUP
+  | UNIFORM
+  | STORAGE
 </pre>
 
 <table class='data'>
   <thead>
-    <tr><td>Name<td>SPIR-V Storage Class
+    <tr><td>WGSL storage class<td>SPIR-V storage class
   </thead>
-  <tr><td>input<td>Input
-  <tr><td>output<td>Output
+  <tr><td>in<td>Input
+  <tr><td>out<td>Output
   <tr><td>uniform<td>Uniform
   <tr><td>workgroup<td>Workgroup
-  <tr><td>uniform_constant<td>UniformConstant
-  <tr><td>storage_buffer<td>StorageBuffer
-  <tr><td>image<td>Image
+  <tr><td>handle<td>UniformConstant
+  <tr><td>storage<td>StorageBuffer
   <tr><td>private<td>Private
   <tr><td>function<td>Function
 </table>
@@ -442,10 +548,14 @@ storage_class
 
 TODO: *The following is a stub*
 
-Variables in certain storage classes must have host-shareable store type with fully elaborated memory layout.
+Variables in certain storage classes must have a [=host-shareable=] [=store type=] with fully elaborated memory layout.
 
 The memory layout of a type is significant only when referring to a value in those storage classes.
-This affects evaluation of a variable in one of those storage classes, or a pointer into one of those storage classes.
+This affects evaluation of a variable in one of those storage classes, or of a pointer into one of those storage classes.
+
+TODO: *This is a stub*: Collectively, the <dfn noexport>stride</dfn> and <dfn noexport>offset</dfn> attributes are called *layout attributes*.
+
+TODO: <dfn noexport>layout attribute</dfn>
 
 ## Pointer Types TODO ## {#pointer-types}
 <table class='data'>
@@ -453,7 +563,7 @@ This affects evaluation of a variable in one of those storage classes, or a poin
     <tr><td>Type<td>Description
   </thead>
   <tr><td>ptr<*SC*,*T*><td>Pointer (or reference) to storage in [[#storage-class]] *SC*
-                            which can hold a value of the [[#storable-types]] *T*.
+                            which can hold a value of the [=storable=] *T*.
                             Here, *T* is the known as the *pointee* type.
 </table>
 
@@ -463,7 +573,7 @@ Note: Pointers are not storable.
 
 <div class='example' heading='Pointer'>
   <xmp highlight='rust'>
-    ptr<storage_buffer, i32>
+    ptr<storage, i32>
     ptr<private, array<i32, 12>>
   </xmp>
 </div>
@@ -528,7 +638,7 @@ Any other context.  Evaluates to *P.Read()*, yielding a value of *P*’s pointee
 type.
 </table>
 
-## Texture Types TODO ## {#texture-types}
+## Texture and Sampler Types TODO ## {#texture-types}
 
 ### Sampled Texture Types ### {#sampled-texture-type}
 
@@ -568,6 +678,11 @@ type.
 * type must be `f32`, `i32` or `u32`
 
 ### Read-only Storage Texture Types ### {#texture-ro}
+
+A <dfn noexport>read-only texture</dfn> is a texture from which individual texels
+may be read, without the use of a sampler.
+See [[#texture-builtin-functions]].
+
 <pre class='def'>
 `texture_ro_1d<image_storage_type>`
   %1 = OpTypeImage type(image_storage_type) 1D 0 0 0 2 image_storage_type
@@ -604,6 +719,11 @@ For example:
 </div>
 
 ### Write-only Storage Texture Types ### {#texture-wo}
+
+A <dfn noexport>write-only texture</dfn> is a texture to which individual texels
+may be written.
+See [[#texture-builtin-functions]].
+
 <pre class='def'>
 `texture_wo_1d<image_storage_type>`
   %1 = OpTypeImage %void 1D 0 0 0 2 image_storage_type
@@ -876,21 +996,32 @@ array_decoration
 # Variable and const # {#variables}
 
 TODO: *Stub* (describe what a constant is): A constant is a name for a value, declared via a `const` declaration.
+What types are permitted?  Storable, plus pointer to store type.
+
+TODO(dneto): A const may not be of type pointer-to-handle. A function parameter may not have type pointer-to-handle.
+Otherwise we'd have a need to make a pointer-to-handle type expression. But we've reserved the `handle` keyword.
+When translating from SPIR-V, you must trace through
+the OpCopyObject (or no-index OpAccessChain) instructions that might be between
+the pointer-to-array and the pointer-to-struct.
 
 A <dfn dfn noexport>variable</dfn> is a named reference to storage that can contain a value of a
 particular storable type.
 
-Two types are associated with a variable: its *store type* (the type of value
-that may be placed in the referenced storage) and its *reference type* (the type
-of the variable itself).  If a variable has store type *T* and storage class *S*,
+Two types are associated with a variable: its <dfn noexport>store type</dfn> (the type of value
+that may be placed in the referenced storage) and its <dfn noexport>reference type</dfn> (the type
+of the variable itself).  If a variable has store type *T* and [=storage class=] *S*,
 then its reference type is pointer-to-*T*-in-*S*.
 
 A <dfn dfn noexport>variable declaration</dfn>:
 
-* Determines the variable’s name, storage class, and store type (and hence its reference type)
+* Determines the variable’s name, storage class, and store type (and hence its reference type).
 * Ensures the execution environment allocates storage for a value of the store type, for the lifetime of the variable.
-* Optionally have an *initializer* expression, if the variable is in the `Private`, `Function`, or `Output` [[#storage-class]].
+* Optionally have an *initializer* expression, if the variable is in the `private`, `function`, or `out` [[#storage-class]].
     If present, the initializer's type must match the store type of the variable.
+
+See [[#module-scope-variables]] and [[#function-scope-variables]] for rules about where
+a variable in a particular storage class can be declared,
+and when the storage class decoration is required, optional, or forbidden.
 
 <pre class='def'>
 variable_statement
@@ -908,11 +1039,11 @@ variable_storage_decoration
   : LESS_THAN storage_class GREATER_THAN
 </pre>
 
-Two variables with overlapping lifetimes must not have overlapping storage.
+Two variables with overlapping lifetimes will not have overlapping storage.
 
 When a variable is created, its storage contains an initial value as follows:
 
-* For variables in the `Private`, `Function`, or `Output` storage classes:
+* For variables in the `private`, `function`, or `out` storage classes:
     * The zero value for the store type, if the variable declaration has no initializer.
     * Otherwise, it is the result of evaluating the initializer expression at that point in the program execution.
 * For variables in other storage classes, the execution environment provides the initial value.
@@ -953,9 +1084,41 @@ When a variable is created, its storage contains an initial value as follows:
 
 ## Module Scope Variables ## {#module-scope-variables}
 
-A variable or constant declared outside a function is at *module scope*.
+A variable or constant declared outside a function is at <dfn noexport>module scope</dfn>.
 The name is available for use immediately after its declaration statement, until the end
 of the program.
+
+Variables at module scope are restricted as follows:
+
+* The variable must not be in the `function` [=storage classes|storage class=].
+* A variable in the `in`, `out`, `private`, `workgroup`, `uniform`, or `storage` storage classes:
+    * Must be declared with an explicit storage class decoration.
+    * Must use a [=store type=] as described in [[#storage-class]].
+* If the [=store type=] is a texture type or a sampler type, then the storage class is always `handle`.
+    The variable declaration must not have a storage class decoration.
+
+<div class='example' heading="Module scope variable declarations">
+  <xmp>
+    var<in> twist: f32;
+    var<out> spin: f32;
+    var<private> decibels: f32;
+    var<workgroup> worklist: array<i32,10>;
+
+    [[block]] struct Params {
+      [[offset(0)]] specular: f32;
+      [[offset(4)]]
+    };
+    var<uniform> param: Params;          # A uniform buffer
+
+    [[block]] struct PositionsBuffer {
+      [[offset(0)]] pos: [[stride(8)]] array<vec2<f32>>;
+    };
+    # TODO(dneto): add set and binding
+    var<storage> pbuf: PositionsBuffer;  # A storage buffer
+
+    var filter_params: sampler;   # Textures and samplers are always in "handle" storage.
+  </xmp>
+</div>
 
 <pre class='def'>
 global_variable_decl
@@ -997,6 +1160,7 @@ literal_or_ident
 </table>
 
 See [[#builtin-variables]] for the list of Builtin Decoration Identifiers.
+
 
 ## Module Constants ## {#module-constants}
 
@@ -1094,11 +1258,26 @@ shader scalar values.  For booleans, I suggest using a 32-bit integer, where onl
 If [SHORTNAME] gains non-32-bit numeric scalars, I recommend overridable constants continue being 32-bit
 numeric types.
 
-## Function Scope Variables ## {#function-scope-variables}
+## Function Scope Variables and Constants ## {#function-scope-variables}
 
-A variable or constant declared in a declaration statement in a function body is in *function scope*.
+A variable or constant declared in a declaration statement in a function body is in <dfn noexport>function scope</dfn>.
 The name is available for use immediately after its declaration statement,
 and until the end of the brace-delimited list of statements immediately enclosing the declaration.
+
+A variable declared in function scope is always in the `function` [=storage class=].
+The variable storage decoration is optional.
+The variable's [=store type=] must be [=storable=].
+
+<div class='example' heading="Function scope variables and constants">
+  <xmp highlight='rust'>
+    fn f() -> void {
+       var<function> count : u32;  # A variable in function storage class.
+       var delta : i32;            # Another variable in the function storage class.
+       var sum : f32 = 0.0;        # A function storage class variable with initializer.
+       const unit : i32 = 1;       # A constant.
+    }
+  </xmp>
+</div>
 
 A variable or constant declared in the first clause of a `for` statement is available for use in the second
 and third clauses and in the body of the `for` statement.
@@ -1260,7 +1439,7 @@ TODO: Should this only work for storable sized arrays?  https://github.com/gpuwe
 
 Each storable type *T* has a unique *zero value*, written in WGSL as the type followed by an empty pair of parentheses: *T* `()`.
 
-Issue: We should exclude being able to write the zero value for an runtime-sized array. https://github.com/gpuweb/gpuweb/issues/981
+Issue: We should exclude being able to write the zero value for an [=runtime-sized=] array. https://github.com/gpuweb/gpuweb/issues/981
 
 The zero values are as follows:
 
@@ -2772,6 +2951,14 @@ TODO: *Stub*. Location-sizing of types, non-overlap among variables referenced w
 
 ### Resource interface TODO ### {#resource-interface}
 
+TODO: *Stub* The resource interface of a shader stage is the set of module-scope
+variables statically accessed by functions
+in the sahder and which declare textures, samplers,
+and buffers (the latter are variables in `storage` or `uniform` storage class).
+This is where we state the requirement for: set and binding attributes.
+Possibly move the content of the "Notes" column for the `storage`, `uniform`, and
+`handle` rows from [[#storage-class]] to this section.
+
 ## Pipeline compatibility TODO ## {#pipeline-compatibility}
 
 ### Input-output matching rules TODO ### {#input-output-matching}
@@ -2832,7 +3019,7 @@ TODO: *Stub*: Expression evaluation
 
 A <dfn noexport>workgroup</dfn> is a set of invocations which
 concurrently execute a [=compute shader stage=] [=entry point=],
-and share access to shader variables in the `workgroup` storage class.
+and share access to shader variables in the `workgroup` [=storage class=].
 
 The <dfn noexport>workgroup grid</dfn> for a compute shader is the set of points
 with integer coordinates *(i,j,k)* with:
@@ -3010,6 +3197,7 @@ Issue: (dneto) Default rounding mode is an implementation choice.  Is that what 
   <tr><td>`BITCAST`<td>bitcast
   <tr><td>`BLOCK`<td>block
   <tr><td>`BREAK`<td>break
+  <tr><td>`BUILTIN`<td>builtin
   <tr><td>`CASE`<td>case
   <tr><td>`COMPUTE`<td>compute
   <tr><td>`CONST`<td>const
@@ -3027,23 +3215,20 @@ Issue: (dneto) Default rounding mode is an implementation choice.  Is that what 
   <tr><td>`FRAGMENT`<td>fragment
   <tr><td>`FUNCTION`<td>function
   <tr><td>`IF`<td>if
-  <tr><td>`IMAGE`<td>image
   <tr><td>`IN`<td>in
-  <tr><td>`INPUT`<td>input
+  <tr><td>`LOCATION`<td>location
   <tr><td>`LOOP`<td>loop
   <tr><td>`OFFSET`<td>offset
   <tr><td>`OUT`<td>out
-  <tr><td>`OUTPUT`<td>output
   <tr><td>`PRIVATE`<td>private
   <tr><td>`RETURN`<td>return
   <tr><td>`STAGE`<td>stage
-  <tr><td>`STORAGE_BUFFER`<td>storage_buffer
   <tr><td>`STRIDE`<td>stride
+  <tr><td>`STORAGE`<td>storage
   <tr><td>`SWITCH`<td>switch
   <tr><td>`TRUE`<td>true
   <tr><td>`TYPE`<td>type
   <tr><td>`UNIFORM`<td>uniform
-  <tr><td>`UNIFORM_CONSTANT`<td>uniform_constant
   <tr><td>`VAR`<td>var
   <tr><td>`VERTEX`<td>vertex
   <tr><td>`WORKGROUP`<td>workgroup
@@ -3118,6 +3303,7 @@ The following is a list of keywords which are reserved for future expansion.
     <td>while
     <td>regardless
     <td>premerge
+    <td>handle
 </table>
 
 ## Syntactic Tokens ## {#syntactic-tokens}
