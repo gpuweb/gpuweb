@@ -7,25 +7,90 @@ on:
       - completed
 
 jobs:
+# This workflow contains a single job called "build"
   build:
+    # The type of runner that the job will run on
     runs-on: ubuntu-20.04
 
+    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
       
+      # Extracts PR from Head SHA
       - name: Find PR
         if: ${{ github.event.workflow_run.event == 'pull_request' }}
         run: |
           PR=$(curl https://api.github.com/search/issues?q=${{ github.event.workflow_run.head_sha }} |
           grep -Po "(?<=${{ github.event.workflow_run.repository.full_name }}\/pulls\/)\d*" | head -1)
           echo "PR=$PR" >> $GITHUB_ENV
-          
-      - name: Comment previews
+      
+      # Replaces base specs with head specs
+      - name: Pull PR
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
+        run: |
+          rm spec/index.bs
+          rm wgsl/index.bs
+          wget -O spec/index.bs https://raw.githubusercontent.com/${{ github.event.workflow_run.head_repository.full_name }}/${{ github.event.workflow_run.head_sha }}/spec/index.bs
+          wget -O wgsl/index.bs https://raw.githubusercontent.com/${{ github.event.workflow_run.head_repository.full_name }}/${{ github.event.workflow_run.head_sha }}/wgsl/index.bs
+      
+      # Adds Firebase config files to directory
+      - name: Init Firebase
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
+        run: |
+          cat << EOF >> .firebaserc
+          {
+            "projects": {
+              "default": "gpuweb-prs"
+            }
+          }
+          EOF
+          cat << EOF >> firebase.json
+          {
+            "hosting": {
+              "public": "out",
+              "ignore": [
+                "firebase.json",
+                "**/.*",
+                "**/node_modules/**"
+              ]
+            }
+          }
+          EOF
+          cat .firebaserc
+          cat firebase.json
+      # Builds Bikeshed specs
+      - name: Build Bikeshed
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
+        run: |
+          git clone --depth 1 https://github.com/tabatkins/bikeshed.git
+          pip3 install --user --editable ./bikeshed
+          export PATH="$(python3 -m site --user-base)/bin:${PATH}"
+          bikeshed update
+          mkdir out
+          make -C spec
+          make -C wgsl
+          cp spec/index.html out/index.html
+          cp spec/webgpu.idl out/webgpu.idl
+          cp wgsl/index.html out/wgsl.html
+      
+      # Deploys PR to Firebase
+      - name: Deploy PR
+        id: deployment
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          expires: 30d
+          channelId: prs-${{ env.PR }}-${{ github.event.workflow_run.head_sha }}
+        
+      # Comments on PR
+      - name: Comment PR
         uses: peter-evans/create-or-update-comment@v1
         if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
         with:
           issue-number: ${{ env.PR }}
           body: |
             Previews, as seen at the time of posting this comment:
-            [**WebGPU** preview](https://api.csswg.org/bikeshed/?url=https://raw.githubusercontent.com/${{ github.event.workflow_run.head_repository.full_name }}/${{ github.event.workflow_run.head_sha }}/spec/index.bs)
-            [**WGSL** preview](https://api.csswg.org/bikeshed/?url=https://raw.githubusercontent.com/${{ github.event.workflow_run.head_repository.full_name }}/${{ github.event.workflow_run.head_sha }}/wgsl/index.bs)
+            [**WebGPU**](${{ steps.deployment.outputs.details_url }}/index.html) | [**IDL**](${{ steps.deployment.outputs.details_url }}/webgpu.idl)
+            [**WGSL**](${{ steps.deployment.outputs.details_url }}/wgsl.html)
