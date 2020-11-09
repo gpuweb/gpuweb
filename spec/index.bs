@@ -290,7 +290,7 @@ shader to first do a clear across all invocations, synchronize them, and continu
 ## Out-of-bounds access in shaders ## {#security-shader}
 
 [=Shader=]s can access [=physical resource=]s either directly
-(for example, as a {{GPUBindingType/"uniform-buffer"}}), or via <dfn dfn>texture unit</dfn>s,
+(for example, as a {{GPUBufferKind/"uniform"}} {{GPUBufferBinding}}), or via <dfn dfn>texture unit</dfn>s,
 which are fixed-function hardware blocks that handle texture coordinate conversions.
 Validation on the API side can only guarantee that all the inputs to the shader are provided and
 they have the correct usage and types.
@@ -2473,29 +2473,34 @@ dictionary GPUBindGroupLayoutDescriptor : GPUObjectDescriptorBase {
 A {{GPUBindGroupLayoutEntry}} describes a single shader resource binding to be included in a {{GPUBindGroupLayout}}.
 
 <script type=idl>
+typedef [EnforceRange] unsigned long GPUShaderStageFlags;
+interface GPUShaderStage {
+    const GPUFlagsConstant VERTEX   = 0x1;
+    const GPUFlagsConstant FRAGMENT = 0x2;
+    const GPUFlagsConstant COMPUTE  = 0x4;
+};
+
 dictionary GPUBindGroupLayoutEntry {
     required GPUIndex32 binding;
     required GPUShaderStageFlags visibility;
-    required GPUBindingType type;
 
-    // Used for uniform buffer and storage buffer bindings. Must be undefined for other binding types.
-    boolean hasDynamicOffset;
+    // Used for uniform buffer and storage buffer bindings. Must be null for other binding types.
+    GPUBufferLayoutEntry? buffer;
 
-    // Used for uniform buffer and storage buffer bindings. Must be undefined for other binding types.
-    GPUSize64 minBufferBindingSize;
+    // Used for sampler bindings. Must be null for other binding types.
+    GPUSamplerLayoutEntry? sampler;
 
-    // Used for sampled texture and storage texture bindings. Must be undefined for other binding types.
-    GPUTextureViewDimension viewDimension;
+    // Used for sampled texture bindings. Must be null for other binding types.
+    GPUTextureLayoutEntry? texture;
 
-    // Used for sampled texture bindings. Must be undefined for other binding types.
-    GPUTextureComponentType textureComponentType;
-
-    // Used for storage texture bindings. Must be undefined for other binding types.
-    GPUTextureFormat storageTextureFormat;
+    // Used for storage texture bindings. Must be null for other binding types.
+    GPUStorageTextureLayoutEntry? storageTexture;
 };
 </script>
 
 Issue(https://github.com/gpuweb/gpuweb/issues/851): consider making `textureComponentType` and `storageTextureFormat` truly optional.
+
+{{GPUBindGroupLayoutEntry}} dictionaries have the following members:
 
 <dl dfn-type=dict-member dfn-for=GPUBindGroupLayoutEntry>
     : <dfn>binding</dfn>
@@ -2510,145 +2515,214 @@ Issue(https://github.com/gpuweb/gpuweb/issues/851): consider making `textureComp
         Each set bit indicates that a {{GPUBindGroupLayoutEntry}}'s resource
         will be accessible from the associated shader stage.
 
-    : <dfn>type</dfn>
+    : <dfn>buffer</dfn>
     ::
-        The type of the binding.
-        The value of this member influences the interpretation of other members.
+        When not `null` indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        is {{GPUBufferBinding}}.
 
-        Note:
-        This member is used to determine compatibility between a
-        {{GPUPipelineLayout}} and a {{GPUShaderModule}}.
-
-    : <dfn>hasDynamicOffset</dfn>
+    : <dfn>sampler</dfn>
     ::
-        If the [=binding resource type=] for {{GPUBindGroupLayoutEntry/type}} is {{GPUBufferBinding}}:
+        When not `null` indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        is {{GPUSampler}}.
 
-          - This indicates whether a binding requires a dynamic offset.
-          - If `undefined`, it defaults to `false`.
-
-        Otherwise, it must be `undefined`.
-
-    : <dfn>minBufferBindingSize</dfn>
+    : <dfn>texture</dfn>
     ::
-        If the [=binding resource type=] for {{GPUBindGroupLayoutEntry/type}} is {{GPUBufferBinding}}:
+        When not `null` indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        is {{GPUTextureView}}.
 
-          - This may be used to indicate the minimum buffer binding size.
-          - If `undefined`, it defaults to 0.
-
-        Otherwise, it must be `undefined`.
-
-    : <dfn>viewDimension</dfn>
+    : <dfn>storageTexture</dfn>
     ::
-        If the [=binding resource type=] for {{GPUBindGroupLayoutEntry/type}} is {{GPUTextureView}}:
-
-          - This is the required {{GPUTextureViewDescriptor/dimension}}
-            of a texture view bound to this binding.
-          - If `undefined`, it defaults to {{GPUTextureViewDimension/"2d"}}.
-
-        Otherwise, it must be `undefined`.
-
-    : <dfn>textureComponentType</dfn>
-    ::
-        If the {{GPUBindGroupLayoutEntry/type}} is
-        {{GPUBindingType/"sampled-texture"}}:
-
-          - This is the required component type of the
-            {{GPUTextureViewDescriptor/format}}
-            of a texture view bound to this binding.
-          - If `undefined`, it defaults to {{GPUTextureComponentType/"float"}}.
-
-        Otherwise, it must be `undefined`.
-
-    : <dfn>storageTextureFormat</dfn>
-    ::
-        If the {{GPUBindGroupLayoutEntry/type}} is
-        {{GPUBindingType/"readonly-storage-texture"}}
-        or {{GPUBindingType/"writeonly-storage-texture"}}:
-
-          - This is the required {{GPUTextureViewDescriptor/format}}
-            of a texture view bound to this binding.
-
-        Otherwise, it must be `undefined`.
+        When not `null` indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        is {{GPUTextureView}}.
 </dl>
 
-Note:
-{{GPUBindGroupLayoutEntry/viewDimension}} enables Metal-based WebGPU implementations
-to back the respective bind groups with `MTLArgumentBuffer` objects
-that are more efficient to bind at run-time.
+The [=binding type=] of a {{GPUBindGroupLayoutEntry}} is determined by which member of the {{GPUBindGroupLayoutEntry}}
+is defined: {{GPUBindGroupLayoutEntry/buffer}}, {{GPUBindGroupLayoutEntry/sampler}},
+{{GPUBindGroupLayoutEntry/texture}}, or {{GPUBindGroupLayoutEntry/storageTexture}}. Only one may be
+defined for any given {{GPUBindGroupLayoutEntry}}. Each member has an associated {{GPUBindingResource}}
+type and each [=binding kind=] has an associated [=internal usage=], given by this table:
 
-<script type=idl>
-typedef [EnforceRange] unsigned long GPUShaderStageFlags;
-interface GPUShaderStage {
-    const GPUFlagsConstant VERTEX   = 0x1;
-    const GPUFlagsConstant FRAGMENT = 0x2;
-    const GPUFlagsConstant COMPUTE  = 0x4;
-};
-</script>
-
-  * {{GPUBindGroupLayoutEntry/type}}:
-    A member of {{GPUBindingType}} that indicates the intended usage of a resource binding in its visible {{GPUShaderStage}}s.
-
-<script type=idl>
-enum GPUBindingType {
-    "uniform-buffer",
-    "storage-buffer",
-    "readonly-storage-buffer",
-    "sampler",
-    "comparison-sampler",
-    "sampled-texture",
-    "multisampled-texture",
-    "readonly-storage-texture",
-    "writeonly-storage-texture"
-};
-</script>
-
-Each {{GPUBindingType}} has an associated {{GPUBindingResource}} type and [=internal usage=], given
-by this table:
-
-<table class="data">
+<table class="data" style="white-space: nowrap">
     <thead>
         <tr>
-            <th>{{GPUBindingType}}
-            <th><dfn dfn>Binding resource type</dfn>
+            <th><dfn dfn>Binding type</dfn>
+            <th><dfn dfn lt="Binding Resource Type">Resource type</dfn>
+            <th><dfn dfn>Binding kind</dfn>
             <th><dfn dfn>Binding usage</dfn>
     </thead>
     <tr>
-        <td>{{GPUBindingType/"uniform-buffer"}}
-        <td>{{GPUBufferBinding}}
+        <td rowspan=3>{{GPUBindGroupLayoutEntry/buffer}}
+        <td rowspan=3>{{GPUBufferBinding}}
+        <td>{{GPUBufferKind/"uniform"}}
         <td>[=internal usage/constant=]
     <tr>
-        <td>{{GPUBindingType/"storage-buffer"}}
-        <td>{{GPUBufferBinding}}
+        <td>{{GPUBufferKind/"storage"}}
         <td>[=internal usage/storage=]
     <tr>
-        <td>{{GPUBindingType/"readonly-storage-buffer"}}
-        <td>{{GPUBufferBinding}}
+        <td>{{GPUBufferKind/"readonly-storage"}}
+        <td>[=internal usage/storage-read=]
+
+    <tr>
+        <td rowspan=3>{{GPUBindGroupLayoutEntry/sampler}}
+        <td rowspan=3>{{GPUSampler}}
+        <td>{{GPUSamplerKind/"filter-sampling"}}
+        <td>[=internal usage/constant=]
+    <tr>
+        <td>{{GPUSamplerKind/"point-sampling"}}
+        <td>[=internal usage/constant=]
+    <tr>
+        <td>{{GPUSamplerKind/"comparison"}}
+        <td>[=internal usage/constant=]
+
+    <tr>
+        <td rowspan=3>{{GPUBindGroupLayoutEntry/texture}}
+        <td rowspan=3>{{GPUTextureView}}
+        <td>{{GPUTextureKind/"filter-sampled"}}
+        <td>[=internal usage/constant=]
+    <tr>
+        <td>{{GPUTextureKind/"point-sampled"}}
+        <td>[=internal usage/constant=]
+    <tr>
+        <td>{{GPUTextureKind/"multisample"}}
+        <td>[=internal usage/constant=]
+
+    <tr>
+        <td rowspan=2>{{GPUBindGroupLayoutEntry/storageTexture}}
+        <td rowspan=2>{{GPUTextureView}}
+        <td>{{GPUStorageTextureKind/"readonly"}}
         <td>[=internal usage/storage-read=]
     <tr>
-        <td>{{GPUBindingType/"sampler"}}
-        <td>{{GPUSampler}}
-        <td>[=internal usage/constant=]
-    <tr>
-        <td>{{GPUBindingType/"comparison-sampler"}}
-        <td>{{GPUSampler}}
-        <td>[=internal usage/constant=]
-    <tr>
-        <td>{{GPUBindingType/"sampled-texture"}}
-        <td>{{GPUTextureView}}
-        <td>[=internal usage/constant=]
-    <tr>
-        <td>{{GPUBindingType/"multisampled-texture"}}
-        <td>{{GPUTextureView}}
-        <td>[=internal usage/constant=]
-    <tr>
-        <td>{{GPUBindingType/"readonly-storage-texture"}}
-        <td>{{GPUTextureView}}
-        <td>[=internal usage/storage-read=]
-    <tr>
-        <td>{{GPUBindingType/"writeonly-storage-texture"}}
-        <td>{{GPUTextureView}}
+        <td>{{GPUStorageTextureKind/"writeonly"}}
         <td>[=internal usage/storage-write=]
 </table>
+
+<script type=idl>
+enum GPUBufferKind {
+    "uniform",
+    "storage",
+    "readonly-storage",
+};
+
+dictionary GPUBufferLayoutEntry {
+    GPUBufferKind kind = "uniform";
+    boolean hasDynamicOffset = false;
+    GPUSize64 minBufferBindingSize = 0;
+};
+</script>
+
+{{GPUBufferLayoutEntry}} dictionaries have the following members:
+
+<dl dfn-type=dict-member dfn-for=GPUBufferLayoutEntry>
+    : <dfn>kind</dfn>
+    ::
+        Indicates the type required for buffers bound to this bindings.
+
+    : <dfn>hasDynamicOffset</dfn>
+    ::
+        Indicates whether this binding requires a dynamic offset.
+
+    : <dfn>minBufferBindingSize</dfn>
+    ::
+        May be used to indicate the minimum buffer binding size.
+</dl>
+
+<script type=idl>
+enum GPUSamplerKind {
+    "filter-sampling",
+    "point-sampling",
+    "comparison",
+};
+
+dictionary GPUSamplerLayoutEntry {
+    GPUSamplerKind kind = "filter-sampling";
+};
+</script>
+
+{{GPUSamplerLayoutEntry}} dictionaries have the following members:
+
+<dl dfn-type=dict-member dfn-for=GPUSamplerLayoutEntry>
+    : <dfn>kind</dfn>
+    ::
+        Indicates the required kind of a sampler bound to this bindings.
+</dl>
+
+<script type=idl>
+enum GPUTextureKind {
+    "filter-sampled",
+    "point-sampled",
+    "multisample",
+};
+
+enum GPUSamplingResultType {
+    "float",
+    "sint",
+    "uint",
+    "depth-comparison"
+};
+
+dictionary GPUTextureLayoutEntry {
+    GPUSampledTextureKind kind = "filter-sampled";
+    GPUSamplingResultType samplingResultType = "float";
+    GPUTextureViewDimension viewDimension = "2d";
+};
+</script>
+
+{{GPUTextureLayoutEntry}} dictionaries have the following members:
+
+<dl dfn-type=dict-member dfn-for=GPUTextureLayoutEntry>
+    : <dfn>kind</dfn>
+    ::
+        Indicates the type required for texture views bound to this binding.
+
+    : <dfn>samplingResultType</dfn>
+    ::
+        Indicates the required component type of the {{GPUTextureViewDescriptor/format}} for texture
+        views bound to this binding.
+
+    : <dfn>viewDimension</dfn>
+    ::
+        Indicates the required {{GPUTextureViewDescriptor/dimension}} for texture views bound to
+        this binding.
+
+        Note:
+            This enables Metal-based WebGPU implementations to back the respective bind groups with
+            `MTLArgumentBuffer` objects that are more efficient to bind at run-time.
+</dl>
+
+<script type=idl>
+enum GPUStorageTextureKind {
+    "readonly",
+    "writeonly",
+};
+
+dictionary GPUStorageTextureLayoutEntry {
+    GPUStorageTextureAccess kind;
+    GPUTextureFormat format;
+    GPUTextureViewDimension viewDimension = "2d";
+};
+</script>
+
+{{GPUStorageTextureLayoutEntry}} dictionaries have the following members:
+
+<dl dfn-type=dict-member dfn-for=GPUStorageTextureLayoutEntry>
+    : <dfn>kind</dfn>
+    ::
+        Indicates whether texture views bound to this binding will be bound for read-only or
+        write-only access.
+
+    : <dfn>format</dfn>
+    ::
+        The required {{GPUTextureViewDescriptor/format}} of texture views bound to this binding.
+
+    : <dfn>viewDimension</dfn>
+    ::
+        Indicates the required {{GPUTextureViewDescriptor/dimension}} for texture views bound to
+        this binding.
+
+        Note:
+            This enables Metal-based WebGPU implementations to back the respective bind groups with
+            `MTLArgumentBuffer` objects that are more efficient to bind at run-time.
+</dl>
 
 A {{GPUBindGroupLayout}} object has the following internal slots:
 
@@ -2709,44 +2783,34 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                                 {{GPULimits/maxDynamicStorageBuffersPerPipelineLayout|GPULimits.maxDynamicStorageBuffersPerPipelineLayout}}.
 
                             - For each {{GPUBindGroupLayoutEntry}} |bindingDescriptor| in |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
+                                - Let |bufferLayout| be |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}}
+                                - Let |samplerLayout| be |bindingDescriptor|.{{GPUBindGroupLayoutEntry/sampler}}
+                                - Let |textureLayout| be |bindingDescriptor|.{{GPUBindGroupLayoutEntry/texture}}
+                                - Let |storageTextureLayout| be |bindingDescriptor|.{{GPUBindGroupLayoutEntry/storageTexture}}
+
+                                - Exactly one of |bufferLayout|, |samplerLayout|, |textureLayout|,
+                                    or |storageTextureLayout| are not `null`.
+
                                 - If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/visibility}} includes
                                     {{GPUShaderStage/VERTEX}}:
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/type}} is not
-                                        {{GPUBindingType/"storage-buffer"}} or {{GPUBindingType/"writeonly-storage-texture"}}.
+                                    - |bufferLayout| is `null` or |bufferLayout|.{{GPUBufferLayoutEntry/kind}} is not
+                                        {{GPUBufferKind/"readonly-storage"}}.
+                                    - |storageTextureLayout| is `null` or
+                                        |storageTextureLayout|.{{GPUStorageTextureLayoutEntry/kind}} is not
+                                        {{GPUStorageTextureKind/"write-only"}}.
 
-                                - If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/type}} is **not**
-                                    {{GPUBindingType/"uniform-buffer"}}, {{GPUBindingType/"storage-buffer"}}, or
-                                    {{GPUBindingType/"readonly-storage-buffer"}}:
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/hasDynamicOffset}} is `undefined`.
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/minBufferBindingSize}} is `undefined`.
+                                - If |textureLayout| is not `null` and |textureLayout|.{{GPUTextureLayoutEntry/kind}}
+                                    is {{GPUTextureKind/"multisample"}}:
+                                    - |textureLayout|.{{GPUTextureLayoutEntry/viewDimension}} is
+                                        {{GPUTextureViewDimension/"2d"}}.
+                                    - |textureLayout|.{{GPUTextureLayoutEntry/samplingResultType}} is not
+                                        {{GPUSamplingResultType/"depth-comparison"}}.
 
-                                - If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/type}} is **not**
-                                    {{GPUBindingType/"sampled-texture"}}, {{GPUBindingType/"readonly-storage-texture"}},
-                                    or {{GPUBindingType/"writeonly-storage-texture"}}:
-                                        - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/viewDimension}} is `undefined`.
-
-                                - If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/type}} is **not**
-                                    {{GPUBindingType/"sampled-texture"}} or {{GPUBindingType/"multisampled-texture"}}:
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/textureComponentType}} is `undefined.`
-
-                                - If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/type}} is **not**
-                                    {{GPUBindingType/"readonly-storage-texture"}} or
-                                    {{GPUBindingType/"writeonly-storage-texture"}}:
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/storageTextureFormat}} is `undefined`.
-
-                                - If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/type}} is {{GPUBindingType/"multisampled-texture"}}:
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/viewDimension}} is
-                                        {{GPUTextureViewDimension/2d}}.
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/textureComponentType}} is not
-                                        {{GPUTextureComponentType/depth-comparison}}.
-
-                                - If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/type}} is
-                                    {{GPUBindingType/"readonly-storage-texture"}} or
-                                    {{GPUBindingType/"writeonly-storage-texture"}}:
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/viewDimension}} is not
-                                        {{GPUTextureViewDimension/cube}} or {{GPUTextureViewDimension/cube-array}}.
-                                    - |bindingDescriptor|.{{GPUBindGroupLayoutEntry/storageTextureFormat}} must
-                                        be a format which can support storage usage.
+                                - If |storageTextureLayout| is not `null`:
+                                    - |storageTextureLayout|.{{GPUStorageTextureLayoutEntry/viewDimension}} is not
+                                        {{GPUTextureViewDimension/"cube"}} or {{GPUTextureViewDimension/"cube-array"}}.
+                                    - |storageTextureLayout|.{{GPUStorageTextureLayoutEntry/format}} must be a format
+                                        which can support storage usage.
                         </div>
 
                         Then:
@@ -2870,71 +2934,68 @@ A {{GPUBindGroup}} object has the following internal slots:
                             For each {{GPUBindGroupEntry}} |bindingDescriptor| in
                                 |descriptor|.{{GPUBindGroupDescriptor/entries}}:
                                 - Let |resource| be |bindingDescriptor|.{{GPUBindGroupEntry/resource}}.
-                                - Let |bindingType| be |layoutBinding|.{{GPUBindGroupLayoutEntry/type}}.
                                 - There is exactly one {{GPUBindGroupLayoutEntry}} |layoutBinding|
                                     in |descriptor|.{{GPUBindGroupDescriptor/layout}}.{{GPUBindGroupLayoutDescriptor/entries}}
                                     such that |layoutBinding|.{{GPUBindGroupLayoutEntry/binding}} equals to
                                     |bindingDescriptor|.{{GPUBindGroupEntry/binding}}.
 
-                                - If the [=binding resource type=] for |bindingType| is
+                                - If the [=binding type=] for |layoutBinding| is
                                     <dl class="switch">
-                                        : {{GPUSampler}}
+                                        : {{GPUBindGroupLayoutEntry/sampler}}
                                         ::
                                             - |resource| is a {{GPUSampler}}.
                                             - |resource| is [$valid to use with$] |this|.
-                                            - If |bindingType| is
+                                            - If |layoutBinding|.{{GPUBindGroupLayoutEntry/sampler}}.{{GPUSamplerLayoutEntry/kind}} is
                                                 <dl class="switch">
-                                                    : {{GPUBindingType/"sampler"}}
+                                                    : {{GPUBindingType/"filter-sampling"}} or {{GPUBindingType/"point-sampling"}}
                                                     :: |resource|.{{GPUSampler/[[compareEnable]]}} is `false`.
 
-                                                    : {{GPUBindingType/"comparison-sampler"}}
+                                                    : {{GPUBindingType/"comparison"}}
                                                     :: |resource|.{{GPUSampler/[[compareEnable]]}} is `true`.
                                                 </dl>
 
-                                        : {{GPUTextureView}}
+                                        : {{GPUBindGroupLayoutEntry/texture}}
                                         ::
                                             - |resource| is a {{GPUTextureView}}.
                                             - |resource| is [$valid to use with$] |this|.
                                             - Let |texture| be |resource|.{{GPUTextureView/[[texture]]}}.
-                                            - |layoutBinding|.{{GPUBindGroupLayoutEntry/viewDimension}} is
-                                                equal to |resource|'s {{GPUTextureViewDescriptor/dimension}}.
-                                            - If |bindingType| is {{GPUBindingType/"multisampled-texture"}}
-                                                |texture|'s {{GPUTextureDescriptor/sampleCount}} &gt; `1`,
-                                                Otherwise |texture|'s {{GPUTextureDescriptor/sampleCount}} is `1`.
-                                            - If |bindingType| is
-                                                <dl class="switch">
-                                                    : {{GPUBindingType/"sampled-texture"}} or
-                                                        {{GPUBindingType/"multisampled-texture"}}
-                                                    :: |layoutBinding|.{{GPUBindGroupLayoutEntry/textureComponentType}}
-                                                        is compatible with |resource|'s {{GPUTextureViewDescriptor/format}}.
-                                                    :: |texture|'s {{GPUTextureDescriptor/usage}} includes
-                                                        {{GPUTextureUsage/SAMPLED}}.
+                                            - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureLayoutEntry/viewDimension}}
+                                                is equal to |resource|'s {{GPUTextureViewDescriptor/dimension}}.
+                                            - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureLayoutEntry/samplingResultType}}
+                                                is compatible with |resource|'s {{GPUTextureViewDescriptor/format}}.
+                                            - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/SAMPLED}}.
+                                            - If |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureLayoutEntry/kind}}
+                                                is {{GPUTextureKind/"multisample"}}, |texture|'s {{GPUTextureDescriptor/sampleCount}}
+                                                &gt; `1`, Otherwise |texture|'s {{GPUTextureDescriptor/sampleCount}} is `1`.
 
-                                                    : {{GPUBindingType/"readonly-storage-texture"}} or
-                                                        {{GPUBindingType/"writeonly-storage-texture"}}
-                                                    :: |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}
-                                                        is equal to |layoutBinding|.{{GPUBindGroupLayoutEntry/storageTextureFormat}}.
-                                                    :: |texture|'s {{GPUTextureDescriptor/usage}} includes
-                                                        {{GPUTextureUsage/STORAGE}}.
-                                                </dl>
+                                        : {{GPUBindGroupLayoutEntry/storageTexture}}
+                                        ::
+                                            - |resource| is a {{GPUTextureView}}.
+                                            - |resource| is [$valid to use with$] |this|.
+                                            - Let |texture| be |resource|.{{GPUTextureView/[[texture]]}}.
+                                            - |layoutBinding|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureLayoutEntry/viewDimension}}
+                                                is equal to |resource|'s {{GPUTextureViewDescriptor/dimension}}.
+                                            - |layoutBinding|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureLayoutEntry/format}}
+                                                is equal to |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
+                                            - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/STORAGE}}.
 
-                                        :  {{GPUBufferBinding}}
+                                        :  {{GPUBindGroupLayoutEntry/buffer}}
                                         ::
                                             - |resource| is a {{GPUBufferBinding}}.
                                             - |resource|.{{GPUBufferBinding/buffer}} is [$valid to use with$] |this|.
                                             - The bound part designated by |resource|.{{GPUBufferBinding/offset}} and
                                                 |resource|.{{GPUBufferBinding/size}} resides inside the buffer.
-                                            - If |layoutBinding|.{{GPUBindGroupLayoutEntry/minBufferBindingSize}}
+                                            - If |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferLayoutEntry/minBufferBindingSize}}
                                                 is not `undefined`:
                                                 - The effective binding size, that is either explict in
                                                     |resource|.{{GPUBufferBinding/size}} or derived from
                                                     |resource|.{{GPUBufferBinding/offset}} and the full
                                                     size of the buffer, is greater than or equal to
-                                                    |layoutBinding|.{{GPUBindGroupLayoutEntry/minBufferBindingSize}}.
+                                                    |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferLayoutEntry/minBufferBindingSize}}.
 
-                                            - If |bindingType| is
+                                            - If |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferLayoutEntry/kind}} is
                                                 <dl class="switch">
-                                                    : {{GPUBindingType/"uniform-buffer"}}
+                                                    : {{GPUBufferKind/"uniform"}}
                                                     :: |resource|.{{GPUBufferBinding/buffer}}.{{GPUBufferDescriptor/usage}}
                                                         includes {{GPUBufferUsage/UNIFORM}}.
                                                     :: |resource|.{{GPUBufferBinding/size}} &le; {{GPULimits/maxUniformBufferBindingSize}}.
@@ -2942,8 +3003,8 @@ A {{GPUBindGroup}} object has the following internal slots:
                                                         Also should {{GPUBufferBinding/size}} default to the `buffer.byteLength - offset` or
                                                         `min(buffer.byteLength - offset, limits.maxUniformBufferBindingSize)`?
 
-                                                    : {{GPUBindingType/"storage-buffer"}} or
-                                                        {{GPUBindingType/"readonly-storage-buffer"}}
+                                                    : {{GPUBufferKind/"storage"}} or
+                                                        {{GPUBufferKind/"readonly-storage"}}
                                                     :: |resource|.{{GPUBufferBinding/buffer}}.{{GPUBufferDescriptor/usage}}
                                                         includes {{GPUBufferUsage/STORAGE}}.
                                                     :: |resource|.{{GPUBufferBinding/size}} &le; {{GPULimits/maxStorageBufferBindingSize}}.
@@ -2968,7 +3029,7 @@ A {{GPUBindGroup}} object has the following internal slots:
 
                     1. For each {{GPUBindGroupEntry}} |bindingDescriptor| in
                         |descriptor|.{{GPUBindGroupDescriptor/entries}}:
-                        1. Let |internalUsage| be the [=binding usage=] for |layoutBinding|.{{GPUBindGroupLayoutEntry/type}}.
+                        1. Let |internalUsage| be the [=binding usage=] for |layoutBinding|.
                         1. Each [=subresource=] seen by |resource| is added to {{GPUBindGroup/[[usedResources]]}} as |internalUsage|.
                 </div>
             1. Return |bindGroup|.
