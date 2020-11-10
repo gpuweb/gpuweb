@@ -1323,7 +1323,7 @@ Possible extra rowspan handling
 </style>
   <meta content="Bikeshed version f9f60c8f, updated Fri Sep 25 16:39:03 2020 -0700" name="generator">
   <link href="https://gpuweb.github.io/gpuweb/wgsl.html" rel="canonical">
-  <meta content="0855ad9b97d4fa6a8cb4d51740675a21044f099c" name="document-revision">
+  <meta content="04ab2c9d42f1e61c03879a2f79af9d4d0d366be4" name="document-revision">
 <style>
 tr:nth-child(2n) {
   background-color: #b0b0b050;
@@ -2155,6 +2155,8 @@ Learn more about <a href="http://www.w3.org/community/">W3C Community and Busine
       <li><a href="#derivative-builtin-functions"><span class="secno">15.7</span> <span class="content">Derivative built-in functions</span></a>
       <li><a href="#texture-builtin-functions"><span class="secno">15.8</span> <span class="content">Texture built-in functions</span></a>
       <li><a href="#atomic-builtin-functions"><span class="secno">15.9</span> <span class="content">Atomic built-in functions</span></a>
+      <li><a href="#pack-builtin-functions"><span class="secno">15.10</span> <span class="content">Data packing functions</span></a>
+      <li><a href="#unpack-builtin-functions"><span class="secno">15.11</span> <span class="content">Data unpacking functions</span></a>
      </ol>
     <li><a href="#glossary"><span class="secno">16</span> <span class="content">Glossary</span></a>
     <li>
@@ -5398,8 +5400,27 @@ However, how do we handle an indirect dispatch that specifies a group count of z
  WGSL does not specify whether the larger or smaller representable
  value is chosen, and different instances of such a conversion may choose differently.</p>
       <li data-md>
-       <p>Otherwise, the original value lies outside the range of the destination type.
- This does not occur when the original types is one of <a data-link-type="dfn" href="#i32" id="ref-for-i32④">i32</a> or <a data-link-type="dfn" href="#u32" id="ref-for-u32④">u32</a> and the destination type is <a data-link-type="dfn" href="#f32" id="ref-for-f32③">f32</a>.</p>
+       <p>Otherwise, if the original value lies outside the range of the destination type.</p>
+       <ul>
+        <li data-md>
+         <p>This does not occur when the original types is one of <a data-link-type="dfn" href="#i32" id="ref-for-i32④">i32</a> or <a data-link-type="dfn" href="#u32" id="ref-for-u32④">u32</a> and the destination type is <a data-link-type="dfn" href="#f32" id="ref-for-f32③">f32</a>.</p>
+        <li data-md>
+         <p>This does not occur when the source type is a floating point type with fewer exponent and mantissa bits.</p>
+        <li data-md>
+         <p>If the source type is a floating point type with more mantissa bits than the destination type, then:</p>
+         <ul>
+          <li data-md>
+           <p>The extra mantissa bits of the source value may be discarded (treated as if they are 0).</p>
+           <ul>
+            <li data-md>
+             <p>If the resulting value is the maximum normal value of the destination type, then that is the result.</p>
+           </ul>
+          <li data-md>
+           <p>Otherwise the result is the infinity value with the same sign as the source value.</p>
+         </ul>
+       </ul>
+      <li data-md>
+       <p>Otherwise, if the original value is a NaN for the source type, then the result is a NaN in the destination type.</p>
      </ul>
    </ul>
    <p class="note" role="note"><span>NOTE:</span> An integer value may lie between two adjacent representable floating point values.
@@ -5410,6 +5431,8 @@ Then, for example, integers 2<sup>28</sup> and 1+2<sup>28</sup> both map to the 
 least significant 1 bit is not representable by the floating point format.
 This kind of collision occurs for pairs of adjacent integers with a magnitude of at least 2<sup>25</sup>.</p>
    <p class="issue" id="issue-5abef8be"><a class="self-link" href="#issue-5abef8be"></a> (dneto) Default rounding mode is an implementation choice.  Is that what we want?</p>
+   <p class="issue" id="issue-d2d1e989"><a class="self-link" href="#issue-d2d1e989"></a> Check behaviour of the f32 to f16 conversion for numbers just beyond the max normal f16 values.
+I’ve written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/918 for an executable test case.</p>
    <h2 class="heading settled" data-level="11" id="memory-model"><span class="secno">11. </span><span class="content">Memory Model TODO</span><a class="self-link" href="#memory-model"></a></h2>
    <h2 class="heading settled" data-level="12" id="grammar"><span class="secno">12. </span><span class="content">Keyword and Token Summary</span><a class="self-link" href="#grammar"></a></h2>
    <h3 class="heading settled" data-level="12.1" id="keyword-summary"><span class="secno">12.1. </span><span class="content">Keyword Summary</span><a class="self-link" href="#keyword-summary"></a></h3>
@@ -6757,6 +6780,64 @@ TODO(dsinclair): Add Level-of-Detail via explicit gradient. "Grad" image operand
 TODO(dsinclair): Need gather operations
 </pre>
    <h3 class="heading settled" data-level="15.9" id="atomic-builtin-functions"><span class="secno">15.9. </span><span class="content">Atomic built-in functions</span><a class="self-link" href="#atomic-builtin-functions"></a></h3>
+   <h3 class="heading settled" data-level="15.10" id="pack-builtin-functions"><span class="secno">15.10. </span><span class="content">Data packing functions</span><a class="self-link" href="#pack-builtin-functions"></a></h3>
+   <table class="data">
+    <thead>
+     <tr>
+      <th>Built-in
+      <th>Description 
+    <tbody>
+     <tr class="algorithm" data-algorithm="packing 4x8snorm">
+      <td class="nowrap"><code>pack4x8snorm</code>(<var>e</var>: vec4&lt;f32>) -> u32 
+      <td>Converts four normalized floating point values to 8-bit signed integers, and then combines them
+        into one <code>u32</code> value.<br> Component <var>e</var>[<var>i</var>] of the input is converted to an 8-bit twos complement integer value
+        ⌊ 0.5 + 127 × min(1, max(-1, <var>e</var>[<var>i</var>])) ⌋ which is then placed in bits
+        8 × <var>i</var> through
+        8 × <var>i</var> + 7 of the result. 
+     <tr class="algorithm" data-algorithm="packing 4x8unorm">
+      <td class="nowrap"><code>pack4x8unorm</code>(<var>e</var>: vec4&lt;f32>) -> u32 
+      <td>Converts four normalized floating point values to 8-bit unsigned integers, and then combines them
+        into one <code>u32</code> value.<br> Component <var>e</var>[<var>i</var>] of the input is converted to an 8-bit unsigned integer value
+        ⌊ 0.5 + 255 × min(1, max(0, <var>e</var>[<var>i</var>])) ⌋ which is then placed in bits
+        8 × <var>i</var> through
+        8 × <var>i</var> + 7 of the result. 
+     <tr class="algorithm" data-algorithm="packing 2x16snorm">
+      <td class="nowrap"><code>pack2x16snorm</code>(<var>e</var>: vec2&lt;f32>) -> u32 
+      <td>Converts two normalized floating point values to 16-bit signed integers, and then combines them
+        into one <code>u32</code> value.<br> Component <var>e</var>[<var>i</var>] of the input is converted to a 16-bit twos complement integer value
+        ⌊ 0.5 + 32767 × min(1, max(-1, <var>e</var>[<var>i</var>])) ⌋ which is then placed in bits
+        16 × <var>i</var> through
+        16 × <var>i</var> + 15 of the result. 
+     <tr class="algorithm" data-algorithm="packing 2x16unorm">
+      <td class="nowrap"><code>pack2x16unorm</code>(<var>e</var>: vec2&lt;f32>) -> u32 
+      <td>Converts two normalized floating point values to 16-bit unsigned integers, and then combines them
+        into one <code>u32</code> value.<br> Component <var>e</var>[<var>i</var>] of the input is converted to a 16-bit unsigned integer value
+        ⌊ 0.5 + 65535 × min(1, max(0, <var>e</var>[<var>i</var>])) ⌋ which is then placed in bits
+        16 × <var>i</var> through
+        16 × <var>i</var> + 15 of the result. 
+     <tr class="algorithm" data-algorithm="packing 2x16float">
+      <td class="nowrap"><code>pack2x16float</code>(<var>e</var>: vec2&lt;f32>) -> u32 
+      <td>Converts two floating point values to half-precision floating point numbers, and then combines
+        them into one one <code>u32</code> value.<br> Component <var>e</var>[<var>i</var>] of the input is converted to a IEEE 754 binary16 value, which is then
+        placed in bits
+        16 × <var>i</var> through
+        16 × <var>i</var> + 15 of the result.
+        See <a href="#floating-point-conversion">§ 10.5.1 Floating point conversion</a> for edge case behaviour. 
+   </table>
+   <h3 class="heading settled" data-level="15.11" id="unpack-builtin-functions"><span class="secno">15.11. </span><span class="content">Data unpacking functions</span><a class="self-link" href="#unpack-builtin-functions"></a></h3>
+   <p>TODO(dneto): This is a stub that should cover:</p>
+   <ul>
+    <li data-md>
+     <p>unpack4x8snorm</p>
+    <li data-md>
+     <p>unpack4x8unorm</p>
+    <li data-md>
+     <p>unpack2x16snorm</p>
+    <li data-md>
+     <p>unpack2x16unorm</p>
+    <li data-md>
+     <p>unpack2x16float</p>
+   </ul>
    <h2 class="heading settled" data-level="16" id="glossary"><span class="secno">16. </span><span class="content">Glossary</span><a class="self-link" href="#glossary"></a></h2>
    <p>TODO: Remove terms unused in the rest of the specification.</p>
    <table class="data">
@@ -7074,6 +7155,8 @@ numeric types.<a href="#issue-d99564c7"> ↵ </a></div>
 Dispatch group counts must be positive.
 However, how do we handle an indirect dispatch that specifies a group count of zero.<a href="#issue-04b819b3"> ↵ </a></div>
    <div class="issue"> (dneto) Default rounding mode is an implementation choice.  Is that what we want?<a href="#issue-5abef8be"> ↵ </a></div>
+   <div class="issue"> Check behaviour of the f32 to f16 conversion for numbers just beyond the max normal f16 values.
+I’ve written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/918 for an executable test case.<a href="#issue-d2d1e989"> ↵ </a></div>
    <div class="issue"> (dsinclair) Write out precedence rules. Matches c and glsl rules ....<a href="#issue-038f44df"> ↵ </a></div>
   </div>
   <aside class="dfn-panel" data-for="in-scope">
