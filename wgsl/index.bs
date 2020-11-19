@@ -58,6 +58,14 @@ thead {
     "href": "https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model",
     "title": "Vulkan Memory Model",
     "publisher": "Khronos Group"
+  },
+  "Vulkan1.2ext": {
+    "authors": [
+      "The Khronos Vulkan Working Group"
+    ],
+    "href": "https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html",
+    "title": "Vulkan 1.2 - A Specification (with all registered Vulkan extensions)",
+    "publisher": "Khronos Group"
   }
 }
 </pre>
@@ -88,6 +96,20 @@ that run on the GPU.
  * Each item in this spec *must* provide the mapping to SPIR-V for the construct
 
 ## Technical Overview TODO ## {#technical-overview}
+
+## Notation ## {#notation}
+
+The <dfn noexport>floor expression</dfn> is defined over real numbers |x|:
+
+* &lfloor;|x|&rfloor; = |k|, where |k| is the unique integer such that |k| &le; |x| &lt; |k|+1
+
+The <dfn noexport>ceiling expression</dfn> is defined over real numbers |x|:
+
+* &lceil;|x|&rceil; = |k|, where |k| is the unique integer such that |k|-1 &lt; |x| &le; |k|
+
+The <dfn noexport>roundUp</dfn> function is defined for positive integers |k| and |n| as:
+
+* roundUp(|k|, |n|) = &lceil;|n| &div; |k|&rceil; &times; |k|
 
 # Textual structure TODO # {#textual-structure}
 
@@ -366,7 +388,6 @@ Issue: (dneto): Complete description of `Array<E,N>`
          as the [=store type=] of a [=uniform buffer=] or [=storage buffer=] variable.
 </table>
 
-
 A structure type with the [=block=] attribute must not be:
 * the element type of an array type.
 * the member type in another structure.
@@ -480,6 +501,13 @@ The following kinds of values must be of IO-shareable type:
 
 ### Host-shareable Types ### {#host-shareable-types}
 
+Host-shareable types are used to describe the contents of buffers which are shared between
+the host and the GPU, or copied between host and GPU without format translation.
+When used for this purpose, the type must be additionally decorated with layout attributes
+as described in [[#memory-layouts]].
+We will see in [[#module-scope-variables]] that the [=store type=] of [=uniform buffer=] and [=storage buffer=]
+variables must be host-shareable.
+
 The following types are <dfn dfn noexport>host-shareable</dfn>:
 
 * [=numeric scalar=] types
@@ -488,12 +516,23 @@ The following types are <dfn dfn noexport>host-shareable</dfn>:
 * [[#array-types]] if the array type has a [=stride=] attribute and its element type is host-shareable
 * [[#struct-types]] if each member is host-shareable and has an [=offset=] attribute
 
-Host-shareable types are used to describe the contents of buffers which are shared between
-the host and the GPU, or copied between host and GPU without format translation.
-When used for this purpose, the type must be additionally decorated with layout attributes
-as described in [[#memory-layouts]].
-In particular, any variable using the [=storage classes/uniform=] or [=storage classes/storage=] storage classes must have
-a host-shareable [=store type=].
+<table class='data'>
+  <caption>Layout attributes, for host-shareable types</caption>
+  <thead>
+    <tr><th>Decoraton<th>Operand<th>Description
+  </thead>
+
+  <tr><td><dfn noexport>`stride`</dfn>
+      <td>positive i32 literal
+      <td>Applied to an array type.<br>
+         The number of bytes from the start of one element of the array to the
+         start of the next element.
+  <tr><td><dfn noexport>`offset`</dfn>
+      <td>non-negative i32 literal
+      <td>Applied to a member of a structure type.<br>
+         The number of bytes between the start of the structure and the location
+         of this member.
+</table>
 
 Note: An [=IO-shareable=] type would also be host-shareable if it and its subtypes have
 the approporate [=stride=] and [=offset=] attributes.
@@ -601,28 +640,333 @@ storage_class
 </table>
 
 
-### Memory Layout Rules TODO ### {#memory-layouts}
+### Memory Layout ### {#memory-layouts}
 
-TODO: *The following is a stub*
-
-A <dfn noexport>buffer variable</dfn> is a variable used to share
+[=Uniform buffer=] and [=storage buffer=] variables are used to share
 bulk data organized as a sequence of bytes in memory.
 Buffers are shared between the CPU and the GPU, or between different shader stages
 in a pipeline, or between different pipelines.
 
-Because the data are shared without reformatting or translation,
+Because buffer data are shared without reformatting or translation,
 buffer producers and consumers must agree on the <dfn noexport>memory layout</dfn>,
-which is the description of how the buffer's bytes are organized into typed WGSL values.
+which is the description of how the bytes in a buffer are organized into typed [SHORTNAME] values.
 
 The [=store type=] of a buffer variable must be [=host-shareable=], with fully elaborated memory layout, as described below.
 
 Each buffer variable must be declared in either the [=storage classes/uniform=] or [=storage classes/storage=] storage classes.
-The memory layout of a type is significant only when referring to a value in those storage classes.
-This affects evaluation of a variable in one of those storage classes, or of a pointer into one of those storage classes.
 
-TODO: *This is a stub*: Collectively, the <dfn noexport>stride</dfn> and <dfn noexport>offset</dfn> attributes are called *layout attributes*.
+The memory layout of a type is significant only when evaluating an expression with:
+* a variable in the [=storage classes/uniform=] or [=storage classes/storage=] storage class, or
+* a pointer into the [=storage classes/uniform=] or [=storage classes/storage=] storage class.
 
-TODO: <dfn noexport>layout attribute</dfn>
+An 8-bit byte is the most basic unit of [=host-shareable=] memory.
+The terms defined in this section express counts of 8-bit bytes.
+
+We will use the following notation:
+
+* |Stride|(|A|) is the value of the [=stride=] attribute of array type |A|.
+* |Offset|(|S|,|i|) is the value of the [=offset=] attribute of the |i|'th member of structure type |S|.
+
+The remainder of this section is structured as follows:
+* Section [[#memory-layout-intent]] describes the intent of the layout rules.  It is not normative.
+* Section [[#internal-value-layout]] says how the internals of a value are placed in byte memory
+    locations starting from a given byte offset in a buffer.  For composite types the layout
+    depends on the properties of the type itself, the storage class, and the user-specified
+    [=stride=] and [=offset=] attributes.
+* Section [[#layout-constraints]] describes the contraints on array strides and structure member
+    offsets, ultimately yielding definitions for
+    [=uniform buffer layout=] and [=storage buffer layout=].
+
+#### Memory Layout Intent #### {#memory-layout-intent}
+
+This section is informative, not normative.
+
+The layout rules describe two sets of constraints, one for uniform buffers and one for storage buffers.
+They are similar in many respects, but the uniform buffer layout is more restrictive.
+
+In particular:
+* Scalar data values are aligned to their own size.
+* There is no padding between components of a vector.
+* Two-element and four-element vectors are aligned to their size.
+* Three-element vectors are aligned as if they were four-element vectors.
+* An array's element alignment is a multiple of the element type's alignment.
+    * In a uniform buffer, the array element alignment is also a multiple of 16.
+* An array's alignment is the same as its element alignment.
+* A matrix with |N| columns is aligned as if it were an array of |N| column vectors.
+* A structure inherits the worst-case alignment of any of its members.
+    * In a uniform buffer, the structure alignment is also a multiple of 16.
+* The members of a structure are laid out in order: earlier members are appear earlier in
+    the buffer
+
+Additionally we define a value's allocation extent, or memory footprint, which determines
+how many memory locations must be reserved to store that value in host-shareable memory.
+Allocation extent is a determining factor of the minimum size of a buffer that can be bound
+to a uniform buffer variable
+or to a storage buffer variable.
+See [[#resource-layout-compatibility]].
+
+Compared to OpenGL:
+* For any type, OpenGL `std140` layout is the same as using the tightest offset and stride assignments in [SHORTNAME] [=uniform buffer layout=].
+* For any type, OpenGL `std430` layout is the same as using the tightest offset and stride assignments in [SHORTNAME] [=storage buffer layout=].
+* OpenGL supports row-major matrices, but [SHORTNAME] does not.
+
+Compared to [[Vulkan1.2ext|Vulkan &sect; 15.6.4 Offset and Stride Assignment]]:
+* Vulkan *standard buffer layout* maps to [SHORTNAME] [=standard buffer layout rules=] with the following qualifications:
+    * Vulkan allows a vector to be aligned to the size of its scalar component, but [SHORTNAME] requires a more constrained alignment.
+    * The Vulkan `scalarBlockLayout` and `uniformBufferStandardLayout` features do not apply to [SHORTNAME].
+    * The Vulkan concept of *scalar alignment* does not correspond to a concept in [SHORTNAME];
+* The Vulkan *base alignment* for a type |S| corresponds to the [SHORTNAME] alignment requirement for |S| in the [=storage classes/storage=] storage class: |Align|(|S|,`storage`).
+* The Vulkan *extended alignment* for a type |S| corresponds to the [SHORTNAME] alignment requirement for |S| in the [=storage classes/uniform=] storage class: |Align|(|S|,`uniform`).
+* The Vulkan concept of *improperly straddle* is not permitted in [SHORTNAME], because [SHORTNAME] requires vectors to be aligned to their whole size.
+* Vulkan supports non-32-bit scalar types and vector types with non-32-bit components, but [SHORTNAME] does not.
+* Vulkan supports row-major matrices, but [SHORTNAME] does not.
+* Vulkan allows offsets to be non-monotonic, but [SHORTNAME] does not.
+
+#### Internal Layout of Values #### {#internal-value-layout}
+
+This section describes how the internals of a value are placed in the byte locations
+of a buffer, given an assumed placement of the overall value.
+These layouts depend on the value's type, the storage class of the buffer,
+the [=stride=] attribute on array types, and the [=offset=] attribute on structure type
+members.
+
+Note: Matrix values are laid out more compactly in the [=storage classes/storage=] storage class
+than in the [=storage classes/uniform=] storage class.
+
+A type can be used for values in both [=storage classes/uniform=] and [=storage classes/storage=] storage classes.
+This is valid as long as the layout constraints are satisifed for both storage classes.
+The data will appear identically in both storage classes, except for the case of matrices noted above.
+
+When a value |V| of type [=u32=] or [=i32=] is placed at byte offset |k| of a host-shared buffer, then:
+   * Byte |k| contains bits 0 through 7 of |V|
+   * Byte |k|+1 contains bits 8 through 15 of |V|
+   * Byte |k|+2 contains bits 16 through 23 of |V|
+   * Byte |k|+3 contains bits 24 through 31 of |V|
+
+Note: Recall that [=i32=] uses twos-complement representation, so the sign bit
+is in bit position 31.
+
+A value |V| of type [=f32=] is represented in IEEE 754 binary32 format.
+It has one sign bit, 8 exponent bits, and 23 fraction bits.
+When |V| is placed at byte offset |k| of host-shared buffer, then:
+   * Byte |k| contains bits 0 through 7 of the fraction.
+   * Byte |k|+1 contains bits 8 through 15 of the fraction.
+   * Bits 0 through 6 of byte |k|+2 contain bits 16 through 23 of the fraction.
+   * Bit 7 of byte |k|+2 contains bit 0 bit of the exponent.
+   * Bits 0 through 6 of byte |k|+3 contain bits 1 through 7 of the exponent.
+   * Bit 7 of byte |k|+3 contains the sign bit.
+
+Note: The above rules imply that numeric values in host-shared buffers
+are stored in little-endian format.
+
+When a value |V| of vector type vec|N|&lt;|T|&gt; is placed at
+byte offset |k| of a host-shared buffer, then:
+   * |V|.x is placed at byte offset |k|
+   * |V|.y is placed at byte offset |k|+4
+   * If |N| &ge; 3, then |V|.z is placed at byte offset |k|+8
+   * If |N| &ge; 4, then |V|.w is placed at byte offset |k|+12
+
+When a matrix value |M| is placed at byte offset |k| of a host-shared memory buffer in
+the [=storage classes/storage=] [=storage class=], then:
+   * If |M| has 2 rows, then:
+      * Column vector |i| of |M| is placed at byte offset |k| + 8 &times; |i|
+   * If |M| has 3 or 4 rows, then:
+      * Column vector |i| of |M| is placed at byte offset |k| + 16 &times; |i|
+
+When a matrix value |M| is placed at byte offset |k| of a host-shared memory buffer in
+the [=storage classes/uniform=] storage class, then:
+   * Column vector |i| of |M| is placed at byte offset |k| + 16 &times; |i|
+
+When a value of array type |A| is placed at byte offset |k| of a host-shared memory buffer,
+then:
+   * Element |i| of the array is placed at byte offset |k| + |i| &times; |Stride|(|A|)
+
+When a value of structure type |S| is placed at byte offset |k| of a host-shared memory buffer,
+then:
+   * The |i|'th member of the structure value is placed at byte offset |k| + |Offset|(|S|,|i|)
+
+#### Layout Constraints and Standard Buffer Layout #### {#layout-constraints}
+
+This section defines a standard buffer layout, parameterized on storage class,
+and the associated constraints on array strides and structure member offsets.
+It also provides a way to compute the number of bytes occupied by a buffer variable
+and by its internal components.
+
+The <dfn noexport>alignment</dfn> of a type constrains
+the byte index at which a value of that type
+may be placed relative to the start of the host-shareable buffer.
+The constraint is expressed below, after other necessary terms are also defined.
+Alignment is a function of both the type and the [=storage class=] of the buffer.
+
+We write |Align|(|S|,|C|) for the alignment of host-shareable
+type |S| in storage class |C|, where |C| is either [=storage classes/storage=] or [=storage classes/storage=].
+It is defined recursively in the following table:
+
+<table class='data'>
+  <caption>Alignment of a host-shareable type</caption>
+  <thead>
+    <tr><th>Host-shareable type |S|
+        <th>|Align|(|S|,`storage`)
+        <th>|Align|(|S|,`uniform`)
+  </thead>
+  <tr><td>[=i32=], [=u32=], or [=f32=]
+      <td>4
+      <td>4
+  <tr><td>vec2&lt;|T|&gt;,
+      where |T| is one of [=i32=], [=u32=], or [=f32=]
+      <td>8
+      <td>8
+  <tr><td>vec3&lt;|T|&gt;,
+      where |T| is one of [=i32=], [=u32=], or [=f32=]
+      <td>16
+      <td>16
+  <tr><td>vec4&lt;|T|&gt;,
+      where |T| is one of [=i32=], [=u32=], or [=f32=]
+      <td>16
+      <td>16
+  <tr algorithm="alignment of a matrix with 2 rows">
+      <td>mat|N|x2&lt;f32&gt;
+      <td>8
+      <td>16
+  <tr algorithm="alignment of a matrix with 3 rows">
+      <td>mat|N|x3&lt;f32&gt;
+      <td>16
+      <td>16
+  <tr algorithm="alignment of a matrix with 4 rows">
+      <td>mat|N|x4&lt;f32&gt;
+      <td>16
+      <td>16
+  <tr algorithm="alignment of an array">
+      <td>array<|T|,|N|>
+      <td>|Align|(|T|,`storage`)
+      <td>[=roundUp=](16, |Align|(|T|,`uniform`))
+  <tr algorithm="alignment of an runtime-sized array">
+      <td>array<|T|>
+      <td>|Align|(|T|,`storage`)
+      <td>[=roundUp=](16, |Align|(|T|,`uniform`))
+  <tr algorithm="alignment of a structure">
+      <td>struct&lt;|T1|,...,|Tn|&gt;
+      <td>max(|Align|(|T1|,`storage`),..., |Align|(|Tn|,`storage`))
+      <td>roundUp(16, |A|),<br> where |A| = max(|Align|(|T1|,`uniform`),..., |Align|(|Tn|,`uniform`)))
+</table>
+
+The <dfn>allocation extent</dfn> of a value |V|
+is the number of contiguous bytes reserved in host-shareable memory
+for the purpose of storing |V|.
+It is a function of the type of |V|, the size of any runtime-sized array that |V| may
+contain, and the [=storage class=] of the buffer.
+
+Note: The allocation extent may include padding inserted to satisfy alignment rules.
+Consequently, loads and stores of a value might access fewer memory locations
+than value's allocation extent.
+
+We write |Extent|(|V|,|C|) for the allocation extent of value |V|
+of host-shareable type |S| in storage class |C|,
+where |C| is either [=storage classes/storage=] or [=storage classes/storage=].
+It is defined recursively in the following table:
+
+<table class='data'>
+  <caption>Allocation extent of a value of host-shareable type</caption>
+  <thead>
+    <tr><th>Host-shareable type |S|
+        <th>|Extent|(|V|,`storage`)<br>where |V| is of type |S|
+        <th>|Extent|(|V|,`uniform`)<br>where |V| is of type |S|
+  </thead>
+  <tr><td>[=i32=], [=u32=], or [=f32=]
+      <td>4
+      <td>4
+  <tr><td>vec|N|&lt;|T|&gt;,
+      where |T| is one of [=i32=], [=u32=], or [=f32=]
+      <td>|N| &times; 4
+      <td>|N| &times; 4
+  <tr algorithm="extent of a matrix with 2 rows">
+      <td>mat|N|x2&lt;f32&gt;
+      <td>|N| &times; 8
+      <td>|N| &times; 16
+  <tr algorithm="extent of a matrix with 3 rows">
+      <td>mat|N|x3&lt;f32&gt;
+      <td>|N| &times; 16
+      <td>|N| &times; 16
+  <tr algorithm="extent of a matrix with 4 rows">
+      <td>mat|N|x4&lt;f32&gt;
+      <td>|N| &times; 16
+      <td>|N| &times; 16
+  <tr algorithm="extent of an array">
+      <td>array&lt;<var ignore>T</var>,|N|>
+      <td>|N| &times; |Stride|(|S|)
+      <td>|N| &times; |Stride|(|S|)
+  <tr algorithm="extent of an runtime-sized array">
+      <td>array&lt;<var ignore>T</var>&gt;
+      <td>|N|<sub>runtime</sub> &times; |Stride|(|S|),<br>
+where |N|<sub>runtime</sub> is the runtime-determined number of elements of <var ignore>V</var>
+      <td>Not applicable:  [=runtime-sized=] arrays cannot appear in [=storage classes/storage=] storage
+  <tr algorithm="extent of a structure">
+      <td>struct&lt;|T|<sub>1</sub>,...,|T|<sub>|n|</sub>&gt;
+      <td>[=roundUp=](|Align|(|S|,`storage`),|L|),<br>
+      where |L|&nbsp;=&nbsp;|Offset|(|S|,|n|)&nbsp;+&nbsp;|Extent|(|V|<sub>|n|</sub>,`storage`)),<br>
+      and |V|<sub>|n|</sub> is the last member of |V|
+      <td>[=roundUp=](|Align|(|S|,`uniform`),|L|),<br>
+      where |L|&nbsp;=&nbsp;|Offset|(|S|,|n|)&nbsp;+&nbsp;|Extent|(|V|<sub>|n|</sub>,`uniform`)),<br>
+      and |V|<sub>|n|</sub> is the last member of |V|
+</table>
+
+When a type |S| is not a runtime-sized array and it does not contain a runtime-sized array, then
+all values |V| of type |S| will have the same allocation extent for a storage class |C|.
+In these cases we define the allocation extent of the *type* |S| as that common value:
+|Extent|(|S|,|C|) = |Extent|(|V|,|C|), for any |V| of type |S|.
+
+Note: When underlying the target is a Vulkan device, we assume the device does
+not support the `scalarBlockLayout` feature.
+Therefore, a data value must not be placed in the padding at the end of a structure or matrix,
+nor in the padding at the last element of an array.
+Counting such padding as part of the allocation extent allows [SHORTNAME] to capture this constraint.
+
+Host-shareable type |S| satisfies <dfn noexport>standard buffer layout rules</dfn> for storage class |C|
+when:
+* If |S| is a structure type struct&lt;|T|<sub>1</sub>,...,|T|<sub>|n|</sub>&gt;, then it satisfies
+    standard buffer layout rules for |C| when all the following are satisifed:
+    * Each member type |T|<sub>|i|</sub> satisfies standard buffer layout rules for |C|
+    * Members do not overlap, and are laid out in declaration order:
+        <p algorithm="member offsets increase and prevent overlap">
+            |Offset|(|S|,|i|) + <var ignore>Extent</var>(|T|<sub>|i|</sub>,<var ignore>C</var>)
+            &le; |Offset|(|S|,|i|+1), for 1 &le; |i| &lt; <var ignore>n</var>
+        </p>
+    * If the structure is aligned, then members will also be aligned:
+        <p algorithm="member alignment">
+            |Offset|(|S|,|i|)
+            = |k| &times; <var ignore>Align</var>(|T|<sub>|i|</sub>,<var ignore>C</var>),
+            for some non-negative integer |k|
+        </p>
+* If |S| is an array type `array`&lt;|E|,|N|&gt; or `array`&lt;|E|&gt;, then it satisfies
+    standard buffer layout rules for |C| when all the following are satisifed:
+    * Element type |E| satisfies standard buffer layout rules for |C|
+    * The stride ensures elements don't overlap:
+        <p algorithm="stride prevents overlap">
+        |Stride|(|S|) &ge; |Extent|(|E|,<var ignore>C</var>)
+        </p>
+    * If the array is aligned, then each array element is aligned:
+        <p algorithm="stride respects array element alignment">
+        |Stride|(|S|) = |k| &times; |Align|(|E|,<var ignore>C</var>), for some positive integer |k|
+        </p>
+    * For the [=storage classes/storage=] storage class, array elements are aligned to 16 byte boundaries:
+        <p algorithm="16-byte array element alignment">
+            If <var ignore>C</var> is [=storage classes/storage=], then
+            |Stride|(|S|)
+            = |k| &times; 16 for some non-negative integer |k|
+        </p>
+* Other host-shareable types |S| are not futher constrained.
+    They always satisfy standard buffer layout rules.
+
+Note: The consistency and completeness of these rules rely on the fact
+that a [=runtime-sized=] array may *only* appear as the last
+element of a structure that is the store type for a buffer variable in the [=storage classes/storage=]
+storage class.
+
+Host-shareable type |S| satisfies <dfn noexport>uniform buffer layout</dfn> when |S| satisfies
+[=standard buffer layout rules=] for storage class [=storage classes/storage=].
+
+Host-shareable type |S| satisfies <dfn noexport>storage buffer layout</dfn> when |S| satisfies
+[=standard buffer layout rules=] for storage class [=storage classes/storage=].
 
 ## Pointer Types TODO ## {#pointer-types}
 <table class='data'>
@@ -1388,13 +1732,11 @@ Variables in the [=storage classes/in=] and [=storage classes/out=] storage clas
 
 A variable in the [=storage classes/uniform=] storage class is a <dfn noexport>uniform buffer</dfn> variable.
 Its [=store type=] must be a [=host-shareable=] structure type with [=block=] attribute,
-satisfying the *uniform buffer layout* rules.
+satisfying the [=uniform buffer layout=] rules.
 
 A variable in the [=storage classes/storage=] storage class is a <dfn noexport>storage buffer</dfn> variable.
 Its [=store type=] must be a [=host-shareable=] structure type with [=block=] attribute,
-satisfying the *storage buffer layout* rules.
-
-TODO: Uniform buffer layout and storage buffer layout are defined in the next merge request.
+satisfying the [=storage buffer layout=] rules.
 
 As described in [[#resource-interface]],
 uniform buffers, storage buffers, textures, and samplers form the
@@ -3406,9 +3748,29 @@ where compatibility is defined by the following table.
       <td>[[WebGPU#dom-gpubindingtype-writeonly-storage-texture|writeonly-storage-texture]]
 </table>
 
+
 TODO: Rewrite the phrases 'read-only storage buffer' and 'read-write storage buffer' after
 we settle on how to express those concepts.
 See https://github.com/gpuweb/gpuweb/pull/1183
+
+If |B| is a [=uniform buffer=] variable in a resource interface,
+and |WB| is the [[WebGPU#buffer-interface|WebGPU GPUBuffer]] bound to |B|, then:
+* The size of |WB| must be at least as large
+    as the [=allocation extent=] of the [=store type=] of |B| in the [=storage classes/storage=] storage class.
+
+If |B| is a [=storage buffer=] variable in a resource interface,
+and |WB| is the [[WebGPU#buffer-interface|WebGPU GPUBuffer]] bound to |B|, then:
+* If the [=store type=] |S| of |B| does not contain a [=runtime-sized=] array, then
+    the size of |WB| must be at least as large as the [=allocation extent=]
+    of |S| in the [=storage classes/storage=] storage class.
+* If the [=store type=] |S| of |B| contains a [=runtime-sized=] array as its last member,
+    then:
+    * The runtime-determined array length of that member must be at least 1.
+    * The size of |WB| must be at least as large as the [=allocation extent=] in
+        storage class [=storage classes/storage=] of the value stored in |B|.
+
+Note: Recall that a [=runtime-sized=] array may only appear as the last element in the structure
+type that is the store type of a storage buffer variable.
 
 TODO: Describe other interface matching requirements, e.g. for images?
 
