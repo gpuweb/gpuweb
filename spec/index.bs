@@ -2025,6 +2025,8 @@ dictionary GPUTextureViewDescriptor : GPUObjectDescriptorBase {
 };
 </script>
 
+Issue: derive from `GPUTextureSubresourceRange`
+
 Issue: Make this a standalone algorithm used in the createView algorithm.
 
 Issue: The references to GPUTextureDescriptor here should actually refer to
@@ -6338,8 +6340,35 @@ dictionary GPURenderBundleEncoderDescriptor : GPUObjectDescriptorBase {
 # Queues # {#queues}
 
 <script type=idl>
+typedef [EnforceRange] unsigned long long GPUSignalValue;
+
+dictionary GPUTextureSubresourceRange {
+    GPUTextureAspect aspect = "all";
+    GPUIntegerCoordinate baseMipLevel = 0;
+    GPUIntegerCoordinate mipLevelCount;
+    GPUIntegerCoordinate baseArrayLayer = 0;
+    GPUIntegerCoordinate arrayLayerCount;
+};
+
+dictionary GPUTextureSubresources: GPUTextureSubresourceRange {
+    required GPUTexture texture;
+};
+
+dictionary GPUResourceTransfer {
+    required GPUQueue receivingQueue;
+    required sequence<GPUBuffer> buffers;
+    required sequence<GPUTextureSubresources> textureSubresources;
+};
+
 interface GPUQueue {
-    undefined submit(sequence<GPUCommandBuffer> commandBuffers);
+    GPUSignalValue signal();
+    readonly attribute GPUSignalValue lastSignaledValue;
+
+    undefined waitFor(GPUQueue queue, optional GPUSignalValue value);
+
+    undefined submit(
+        sequence<GPUCommandBuffer> commandBuffers,
+        optional sequence<GPUResourceTransfer> transfers = []);
 
     GPUFence createFence(optional GPUFenceDescriptor descriptor = {});
     undefined signal(GPUFence fence, GPUFenceValue signalValue);
@@ -6366,6 +6395,14 @@ GPUQueue includes GPUObjectBase;
 </script>
 
 {{GPUQueue}} has the following methods:
+
+<dl dfn-type=attribute dfn-for=GPUQueue>
+    : <dfn>lastSignaledValue</dfn> of type {{GPUSignalValue}}, readonly
+    ::
+        Returns the integer value that is higher or equal to all the values
+        previously returned by either {{GPUQueue/lastSignaledValue}} or
+        {{GPUQueue/signal()}} on this queue.
+</dl>
 
 <dl dfn-type=method dfn-for=GPUQueue>
     : <dfn>writeBuffer(buffer, bufferOffset, data, dataOffset, size)</dfn>
@@ -6518,8 +6555,10 @@ GPUQueue includes GPUObjectBase;
             **Called on:** {{GPUQueue}} this.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUQueue/submit(commandBuffers)">
-                |commandBuffers|:
+            <pre class=argumentdef for="GPUQueue/submit(commandBuffers, transfers)">
+                |commandBuffers|: list of {{GPUCommandBuffer}} to execute.
+                |transfers|: list of {{GPUResourceTransfer}} that represent transferring
+                    resource ownership from this {{GPUQueue}} to the others.
             </pre>
 
             **Returns:** {{undefined}}
@@ -6536,9 +6575,30 @@ GPUQueue includes GPUObjectBase;
                     <div class=queue-timeline>
                         1. For each |commandBuffer| in |commandBuffers|:
                             1. Execute each command in |commandBuffer|.{{GPUCommandBuffer/[[command_list]]}}.
+                        1. For each |transfer| in |transfers|:
+                            1. Transfer the |transfer|.{{GPUResourceTransfer/buffers}} to
+                                |transfer|.{{GPUResourceTransfer/receivingQueue}}.
+                            1. Transfer the |transfer|.{{GPUResourceTransfer/textureSubresources}} to
+                                |transfer|.{{GPUResourceTransfer/receivingQueue}}.
                     </div>
             </div>
         </div>
+
+    : <dfn>waitFor(queue, value)</dfn>
+    ::
+        Waits for the |queue| reaching |value| on the [=Queue timeline=]. If |value| is undefined,
+        the |queue|.{{GPUQueue/lastSignaledValue}} is used instead.
+
+        The |value| has to be less or equal to the |queue|.{{GPUQueue/lastSignaledValue}},
+        or a validation error is produced.
+
+        All the resource transitions from |queue| targeting |this| will be considered done on the [=Queue timeline=]
+        after this call, and relevant resources can be used on |this|.
+
+    : <dfn>signal()</dfn>
+    ::
+        Returns a signal value corresponding to the work submitted to the queue up to this moment on the [=content timeline=].
+        This value has to be higher or equal to return value of the previous call to {{GPUQueue/signal()}} on this queue.
 </dl>
 
 ## <dfn interface>GPUFence</dfn> ## {#fence}
@@ -6621,7 +6681,6 @@ The completion of the fence and the value it completes with can be observed from
     : <dfn>onCompletion(completionValue)</dfn>
     ::
         Returns a {{Promise}} that resolves once the fence's completion value &ge; `completionValue`.
-
         <div algorithm="GPUFence.onCompletion">
             **Called on:** {{GPUFence}} this.
 
