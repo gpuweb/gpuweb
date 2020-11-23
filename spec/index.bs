@@ -2566,13 +2566,19 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
     <tr>
         <td rowspan=3>{{GPUBindGroupLayoutEntry/texture}}
         <td rowspan=3>{{GPUTextureView}}
-        <td>{{GPUTextureType/"filterable"}}
+        <td>{{GPUTextureType/"float"}}
         <td>[=internal usage/constant=]
     <tr>
-        <td>{{GPUTextureType/"unfilterable"}}
+        <td>{{GPUTextureType/"unfilterable-float"}}
         <td>[=internal usage/constant=]
     <tr>
-        <td>{{GPUTextureType/"multisample"}}
+        <td>{{GPUTextureType/"depth-float"}}
+        <td>[=internal usage/constant=]
+    <tr>
+        <td>{{GPUTextureType/"sint"}}
+        <td>[=internal usage/constant=]
+    <tr>
+        <td>{{GPUTextureType/"uint"}}
         <td>[=internal usage/constant=]
 
     <tr>
@@ -2650,19 +2656,21 @@ dictionary GPUSamplerBindingLayout {
 
 <script type=idl>
 enum GPUTextureType {
-    "filterable",
-    "unfilterable",
-    "multisample",
+  "float",
+  "unfilterable-float",
+  "depth-float",
+  "sint",
+  "uint",
 };
 
 dictionary GPUTextureBindingLayout {
-    GPUTextureType type = "filterable";
-    GPUTextureComponentType componentType = "float";
+    GPUTextureType type = "float";
     GPUTextureViewDimension viewDimension = "2d";
+    boolean multisampled = false;
 };
 </script>
 
-Issue(https://github.com/gpuweb/gpuweb/issues/851): consider making {{GPUTextureBindingLayout/componentType}}
+Issue(https://github.com/gpuweb/gpuweb/issues/851): consider making {{GPUTextureBindingLayout/type}}
 truly optional.
 
 {{GPUTextureBindingLayout}} dictionaries have the following members:
@@ -2672,11 +2680,6 @@ truly optional.
     ::
         Indicates the type required for texture views bound to this binding.
 
-    : <dfn>componentType</dfn>
-    ::
-        Indicates the required component type of the {{GPUTextureViewDescriptor/format}} for texture
-        views bound to this binding.
-
     : <dfn>viewDimension</dfn>
     ::
         Indicates the required {{GPUTextureViewDescriptor/dimension}} for texture views bound to
@@ -2685,6 +2688,10 @@ truly optional.
         Note:
             This enables Metal-based WebGPU implementations to back the respective bind groups with
             `MTLArgumentBuffer` objects that are more efficient to bind at run-time.
+
+    : <dfn>multisampled</dfn>
+    ::
+        Inicates whether or not texture views bound to this binding must be multisampled.
 </dl>
 
 <script type=idl>
@@ -2766,8 +2773,8 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                             - For each shader stage, the number of entries in |descriptor| with a [$layout entry binding type$] of
                                 {{GPUBufferType/"storage"}} &le;
                                 {{GPULimits/maxStorageBuffersPerShaderStage|GPULimits.maxStorageBuffersPerShaderStage}}.
-                            - For each shader stage, the number of entries in |descriptor| with a [$layout entry binding type$] of
-                                {{GPUTextureType/"filterable"}} &le;
+                            - For each shader stage, the number of entries in |descriptor| with a [=binding member=] of
+                                {{GPUBindGroupLayoutEntry/texture}} &le;
                                 {{GPULimits/maxSampledTexturesPerShaderStage|GPULimits.maxSampledTexturesPerShaderStage}}.
                             - For each shader stage, the number of entries in |descriptor| with a [=binding member=] of
                                 {{GPUBindGroupLayoutEntry/storageTexture}} &le;
@@ -2796,11 +2803,12 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                                     - The [$layout entry binding type$] of |bindingDescriptor| is not
                                         {{GPUBufferType/"readonly-storage"}} or {{GPUStorageTextureAccess/"writeonly"}}.
 
-                                - If the [$layout entry binding type$] of |bindingDescriptor| is {{GPUTextureType/"multisample"}}:
+                                - If the |textureLayout| is not `undefined` and
+                                    |textureLayout|.{{GPUTextureBindingLayout/multisampled}} is `true`:
                                     - |textureLayout|.{{GPUTextureBindingLayout/viewDimension}} is
                                         {{GPUTextureViewDimension/"2d"}}.
-                                    - |textureLayout|.{{GPUTextureBindingLayout/componentType}} is not
-                                        {{GPUTextureComponentType/"depth"}}.
+                                    - |textureLayout|.{{GPUTextureBindingLayout/type}} is not
+                                        {{GPUTextureType/"depth-float"}}.
 
                                 - If |storageTextureLayout| is not `undefined`:
                                     - |storageTextureLayout|.{{GPUStorageTextureBindingLayout/viewDimension}} is not
@@ -2955,11 +2963,11 @@ A {{GPUBindGroup}} object has the following internal slots:
                                             - Let |texture| be |resource|.{{GPUTextureView/[[texture]]}}.
                                             - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}}
                                                 is equal to |resource|'s {{GPUTextureViewDescriptor/dimension}}.
-                                            - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/componentType}}
+                                            - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/type}}
                                                 is compatible with |resource|'s {{GPUTextureViewDescriptor/format}}.
                                             - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/SAMPLED}}.
-                                            - If |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/type}}
-                                                is {{GPUTextureType/"multisample"}}, |texture|'s {{GPUTextureDescriptor/sampleCount}}
+                                            - If |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}}
+                                                is `true`, |texture|'s {{GPUTextureDescriptor/sampleCount}}
                                                 &gt; `1`, Otherwise |texture|'s {{GPUTextureDescriptor/sampleCount}} is `1`.
 
                                         : {{GPUBindGroupLayoutEntry/storageTexture}}
@@ -3355,11 +3363,11 @@ has a default layout created and used instead.
 
                 1. Let |textureLayout| be a new {{GPUTextureBindingLayout}}.
 
-                1. Set |textureLayout|.{{GPUTextureBindingLayout/componentType}} to |resource|'s component type.
+                1. Set |textureLayout|.{{GPUTextureBindingLayout/type}} to |resource|'s component type.
                 1. Set |textureLayout|.{{GPUTextureBindingLayout/viewDimension}} to |resource|'s dimension.
                 1. If |resource| is for a multisampled texture:
 
-                    1. Set |textureLayout|.{{GPUTextureBindingLayout/type}} to {{GPUTextureType/"multisample"}}.
+                    1. Set |textureLayout|.{{GPUTextureBindingLayout/multisampled}} to `true`.
 
                 1. Set |entry|.{{GPUBindGroupLayoutEntry/texture}} to |textureLayout|.
 
@@ -3486,17 +3494,15 @@ A {{GPUProgrammableStageDescriptor}} describes the entry point in the user-provi
                     </dl>
 
                 : {{GPUBindGroupLayoutEntry/texture}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/type}} is:
+                :: If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}} is:
                     <dl class=switch>
-                        : {{GPUTextureType/"filterable"}}
+                        : `true`
                         :: The |binding| is a sampled texture with a sample count of 1.
-                        : {{GPUTextureType/"unfilterable"}}
-                        :: The |binding| is a sampled texture with a sample count of 1.
-                        : {{GPUTextureType/"multisample"}}
+                        : `false`
                         :: the |binding| is a multisampled texture.
                     </dl>
                 :: The component type of the texture matches
-                    |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/componentType}}.
+                    |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/type}}.
                 :: The shader view dimension of the texture matches
                     |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}}.
 
