@@ -1410,9 +1410,6 @@ interface GPUDevice : EventTarget {
     Promise<GPUComputePipeline> createReadyComputePipeline(GPUComputePipelineDescriptor descriptor);
     Promise<GPURenderPipeline> createReadyRenderPipeline(GPURenderPipelineDescriptor descriptor);
 
-    GPUCommandEncoder createCommandEncoder(optional GPUCommandEncoderDescriptor descriptor = {});
-    GPURenderBundleEncoder createRenderBundleEncoder(GPURenderBundleEncoderDescriptor descriptor);
-
     GPUQuerySet createQuerySet(GPUQuerySetDescriptor descriptor);
 };
 GPUDevice includes GPUObjectBase;
@@ -2024,11 +2021,15 @@ GPUTextureView includes GPUObjectBase;
     ::
         The {{GPUTexture}} into which this is a view.
 
-    : <dfn>\[[descriptor]]</dfn>
+    : <dfn>\[[descriptor]]</dfn>, of type {{GPUTextureViewDescriptor}}, read-only
     ::
-        The {{GPUTextureViewDescriptor}} describing this texture view.
+        The descriptor used to create this texture view.
 
         All optional fields of {{GPUTextureViewDescriptor}} are defined.
+
+    : <dfn>\[[extent]]</dfn>, of type {{GPUExtent3DDict}}, read-only
+    ::
+        The extent of this texture view.
 </dl>
 
 ### Texture View Creation ### {#texture-view-creation}
@@ -4271,6 +4272,10 @@ GPUCommandBuffer includes GPUObjectBase;
 {{GPUCommandBuffer}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUCommandBuffer">
+    : <dfn>\[[queue]]</dfn> of type {{GPUQueue}}.
+    ::
+        The parent queue, which will be executing the commands.
+
     : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
     ::
         A [=list=] of [=GPU commands=] to be executed on the [=Queue timeline=] when this command
@@ -4337,6 +4342,10 @@ GPUCommandEncoder includes GPUObjectBase;
 {{GPUCommandEncoder}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUCommandEncoder">
+    : <dfn>\[[queue]]</dfn> of type {{GPUQueue}}.
+    ::
+        The parent queue, which will be executing the commands.
+
     : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
     ::
         A [=list=] of [=GPU command=] to be executed on the [=Queue timeline=] when the
@@ -4400,22 +4409,30 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
         Enable measurement of the GPU execution time of the entire command buffer.
 </dl>
 
-<dl dfn-type=method dfn-for=GPUDevice>
+<dl dfn-type=method dfn-for=GPUQueue>
     : <dfn>createCommandEncoder(descriptor)</dfn>
     ::
         Creates a {{GPUCommandEncoder}}.
 
-        <div algorithm=GPUDevice.createCommandEncoder>
-            **Called on:** {{GPUDevice}} this.
+        <div algorithm=GPUQueue.createCommandEncoder>
+            **Called on:** {{GPUQueue}} this.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUDevice/createCommandEncoder(descriptor)">
+            <pre class=argumentdef for="GPUQueue/createCommandEncoder(descriptor)">
                 descriptor: Description of the {{GPUCommandEncoder}} to create.
             </pre>
 
             **Returns:** {{GPUCommandEncoder}}
 
-            Issue: Describe {{GPUDevice/createCommandEncoder()}} algorithm steps.
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUQueue/[[device]]}}:
+            <div class=device-timeline>
+                1. Let |e| be a new {{GPUCommandEncoder}} object.
+                1. Set |e|.{{GPUCommandEncoder/[[command_list]]}} to an empty list.
+                1. Set |e|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/open}}.
+                1. Set |e|.{{GPUCommandEncoder/[[debug_group_stack]]}} to an empty list.
+                1. Set |e|.{{GPUCommandEncoder/[[queue]]}} to |this|.
+                1. Return |e|.
+            </div>
         </div>
 </dl>
 
@@ -4458,6 +4475,12 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                             are considered to be used as [=internal usage/attachment-read=] for the duration of the render pass.
                     1. Else, the [=texture subresource=] seen by |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}}
                         is considered to be used as [=internal usage/attachment=] for the duration of the render pass.
+                1. Let |p| be a new {{GPURenderPassEncoder}} object.
+                1. Set |p|.{{GPURenderPassEncoder/[[attachment_size]]}} to {{GPUTextureView/[[extent]]}}
+                    of any non-`null` attachment.
+                1. Set |p|.{{GPURenderPassEncoder/[[queue]]}} to |this|.{{GPUCommandEncoder/[[queue]]}}.
+                1. Return |p|.
+
             </div>
 
             Issue: specify the behavior of read-only depth/stencil
@@ -5095,6 +5118,7 @@ command encoder can no longer be used.
                         </div>
 
                     1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/closed}}.
+                    1. Let |commandBuffer|.{{GPUCommandBuffer/[[queue]]}} be |this|.{{GPUCommandEncoder/[[queue]]}}.
                     1. Let |commandBuffer|.{{GPUCommandBuffer/[[command_list]]}} be a [=list/clone=]
                         of |this|.{{GPUCommandEncoder/[[command_list]]}}.
                 </div>
@@ -5641,6 +5665,10 @@ GPURenderPassEncoder includes GPURenderEncoderBase;
 {{GPURenderPassEncoder}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPURenderPassEncoder">
+    : <dfn>\[[queue]]</dfn> of type {{GPUQueue}}.
+    ::
+        The queue owning {{GPUCommandEncoder}}, which contains the pass.
+
     : <dfn>\[[attachment_size]]</dfn>
     ::
         Set to the following extents:
@@ -5700,12 +5728,10 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
         1. |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} must meet the [$GPURenderPassDepthStencilAttachmentDescriptor/GPURenderPassDepthStencilAttachmentDescriptor Valid Usage$] rules.
 
     1. Each {{GPURenderPassColorAttachmentDescriptor/attachment}} in |this|.{{GPURenderPassDescriptor/colorAttachments}}
-        and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}},
-        if present, must have all have the same {{GPUTexture/[[sampleCount]]}}.
-
-    1. The dimensions of the [=subresource=]s seen by each {{GPURenderPassColorAttachmentDescriptor/attachment}} in |this|.{{GPURenderPassDescriptor/colorAttachments}}
-        and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}},
-        if present, must match.
+        and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachmentDescriptor/attachment}}
+         if present:
+         - must have all the same {{GPUTextureView/[[texture]]}}.{{GPUTexture/[[sampleCount]]}}.
+         - must have all the same {{GPUTextureView/[[extent]]}}.
 
     Issue: Define <dfn for=>maximum color attachments</dfn>
 
@@ -6352,14 +6378,20 @@ attachments used by this encoder.
         {{GPURenderBundle}}s are executed, the command buffer state is unchanged.
 
         <div algorithm="GPURenderPassEncoder.executeBundles">
-            **Called on:** {{GPURenderPassEncoder}} this.
+            **Called on:** {{GPURenderPassEncoder}} |this|.
 
             **Arguments:**
             <pre class=argumentdef for="GPURenderPassEncoder/executeBundles(bundles)">
-                bundles: List of render bundles to execute.
+                |bundles|: List of render bundles to execute.
             </pre>
 
             **Returns:** {{undefined}}
+
+            If any of the following conditions are unsatisfied, generate a validation error and stop.
+            <div class=validusage>
+                - For each |bundle| in |bundles|,
+                    |bundle|.{{GPURenderBundle/[[queue]]}} is |this|.{{GPURenderPassEncoder/[[queue]]}}.
+            </div>
 
             Issue: Describe {{GPURenderPassEncoder/executeBundles()}} algorithm steps.
         </div>
@@ -6406,6 +6438,14 @@ interface GPURenderBundle {
 GPURenderBundle includes GPUObjectBase;
 </script>
 
+{{GPURenderBundle}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPURenderBundle">
+    : <dfn>\[[queue]]</dfn> of type {{GPUQueue}}.
+    ::
+        The parent queue, which will be executing the commands.
+</dl>
+
 ### Creation ### {#render-bundle-creation}
 
 <script type=idl>
@@ -6422,23 +6462,31 @@ GPURenderBundleEncoder includes GPUProgrammablePassEncoder;
 GPURenderBundleEncoder includes GPURenderEncoderBase;
 </script>
 
-<dl dfn-type=method dfn-for=GPUDevice>
+<dl dfn-type=method dfn-for=GPUQueue>
     : <dfn>createRenderBundleEncoder(descriptor)</dfn>
     ::
         Creates a {{GPURenderBundleEncoder}}.
 
         <div algorithm=GPUDevice.createRenderBundleEncoder>
-            **Called on:** {{GPUDevice}} this.
+            **Called on:** {{GPUQueue}} this.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUDevice/createRenderBundleEncoder(descriptor)">
+            <pre class=argumentdef for="GPUQueue/createRenderBundleEncoder(descriptor)">
                 descriptor: Description of the {{GPURenderBundleEncoder}} to create.
             </pre>
 
             **Returns:** {{GPURenderBundleEncoder}}
 
-            Issue: Describe {{GPUDevice/createRenderBundleEncoder()}} algorithm steps.
+            Issue: Describe {{GPUQueue/createRenderBundleEncoder()}} algorithm steps.
         </div>
+</dl>
+
+{{GPURenderBundleEncoder}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPURenderBundleEncoder">
+    : <dfn>\[[queue]]</dfn> of type {{GPUQueue}}.
+    ::
+        The parent queue, which will be executing the commands.
 </dl>
 
 ### Encoding ### {#render-bundle-encoding}
@@ -6480,6 +6528,9 @@ interface GPUQueue {
 
     Promise<undefined> onSubmittedWorkDone();
 
+    GPUCommandEncoder createCommandEncoder(optional GPUCommandEncoderDescriptor descriptor = {});
+    GPURenderBundleEncoder createRenderBundleEncoder(GPURenderBundleEncoderDescriptor descriptor);
+
     undefined writeBuffer(
         GPUBuffer buffer,
         GPUSize64 bufferOffset,
@@ -6500,6 +6551,14 @@ interface GPUQueue {
 };
 GPUQueue includes GPUObjectBase;
 </script>
+
+{{GPUQueue}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUQueue">
+    : <dfn>\[[device]]</dfn>, of type {{GPUDevice}}
+    ::
+        The parent device of this queue.
+</dl>
 
 {{GPUQueue}} has the following methods:
 
@@ -6666,6 +6725,8 @@ GPUQueue includes GPUObjectBase;
                     <div class=validusage>
                         - Every {{GPUBuffer}} referenced in any element of |commandBuffers| is in the
                             `"unmapped"` [=buffer state=].
+                        - For every {{GPUCommandBuffer}} |commandBuffer| in |commandBuffers|,
+                            |commandBuffer|.{{GPUCommandBuffer/[[queue]]}} is |this|.
                     </div>
 
                 1. Issue the following steps on the [=Queue timeline=] of |this|:
