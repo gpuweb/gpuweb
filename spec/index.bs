@@ -1264,6 +1264,9 @@ interface GPUAdapter {
     [SameObject] readonly attribute GPUAdapterFeatures features;
     //readonly attribute GPULimits limits; Don't expose higher limits for now.
 
+    readonly attribute unsigned long computeQueueCount;
+    readonly attribute unsigned long transferQueueCount;
+
     Promise<GPUDevice?> requestDevice(optional GPUDeviceDescriptor descriptor = {});
 };
 </script>
@@ -1279,6 +1282,13 @@ interface GPUAdapter {
     : <dfn>features</dfn>
     ::
         Accessor for `this`.{{GPUAdapter/[[adapter]]}}.{{adapter/[[features]]}}.
+
+    : <dfn>computeQueueCount</dfn>
+    ::
+        Count of the compute queues on the adapter.
+    : <dfn>transferQueueCount</dfn>
+    ::
+        Count of the transfer-only queues on the adapter.
 </dl>
 
 {{GPUAdapter}} has the following internal slots:
@@ -1394,7 +1404,9 @@ interface GPUDevice : EventTarget {
     readonly attribute FrozenArray<GPUFeatureName> features;
     readonly attribute object limits;
 
-    [SameObject] readonly attribute GPUQueue defaultQueue;
+    [SameObject] readonly attribute GPUQueue queue;
+    [SameObject] readonly attribute sequence<GPUQueue> computeQueues;
+    [SameObject] readonly attribute sequence<GPUQueue> transferQueues;
 
     GPUBuffer createBuffer(GPUBufferDescriptor descriptor);
     GPUTexture createTexture(GPUTextureDescriptor descriptor);
@@ -1435,9 +1447,20 @@ GPUDevice includes GPUObjectBase;
         A {{GPULimits}} object exposing the limits
         supported by the device (i.e. the ones with which it was created).
 
-    : <dfn>defaultQueue</dfn>
+    : <dfn>queue</dfn>
     ::
-        The default {{GPUQueue}} for this device.
+        The default {{GPUQueue}} for this device. It's a general-purpose queue
+        that can support render passe,s and compute passes, and [=transfers=].
+
+    : <dfn>computeQueues</dfn>
+    ::
+        The list of compute-only queues on the device. The {{GPUCommandEncoder}}s
+        created for these queues can only support compute passes and [=transfers=];
+
+    : <dfn>transferQueues</dfn>
+    ::
+        The list of transfer-only queues on the device. The {{GPUCommandEncoder}}s
+        created for these queues can only support [=transfers=];
 </dl>
 
 {{GPUDevice}} has the following internal slots:
@@ -4301,6 +4324,14 @@ dictionary GPUCommandBufferDescriptor : GPUObjectDescriptorBase {
 
 # Command Encoding # {#command-encoding}
 
+<script type=idl>
+enum GPUQueueKind {
+    "general",
+    "compute",
+    "transfer",
+};
+</script>
+
 ## <dfn interface>GPUCommandEncoder</dfn> ## {#command-encoder}
 
 <script type=idl>
@@ -4351,6 +4382,11 @@ GPUCommandEncoder includes GPUObjectBase;
 {{GPUCommandEncoder}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUCommandEncoder">
+    : <dfn>\[[kind]]</dfn> of type {{GPUQueueKind}}.
+    ::
+        The queue kind defining what operations are valid to encode,
+        and what queue the produced {{GPUCommandBuffer}} can be submitted to.
+
     : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
     ::
         A [=list=] of [=GPU command=] to be executed on the [=Queue timeline=] when the
@@ -4402,6 +4438,7 @@ which may be one of the following:
 
 <script type=idl>
 dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
+    GPUQueueKind kind = "general";
     boolean measureExecutionTime = false;
 
     // TODO: reusability flag?
@@ -4409,6 +4446,10 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 </script>
 
 <dl dfn-type=dict-member dfn-for=GPUCommandEncoderDescriptor>
+    : <dfn>kind</dfn>
+    ::
+        The {{GPUQueueKind}} to which the produced {{GPUCommandBuffer}} can be submitted.
+
     : <dfn>measureExecutionTime</dfn>
     ::
         Enable measurement of the GPU execution time of the entire command buffer.
@@ -4456,6 +4497,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     error and stop.
                     <div class=validusage>
                         - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
+                        - |this|.{{GPUCommandEncoder/[[kind]]}} is {{GPUQueueKind/"general"}}.
                         - |descriptor| meets the
                             [$GPURenderPassDescriptor/GPURenderPassDescriptor Valid Usage$] rules.
                     </div>
@@ -4498,6 +4540,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     error and stop.
                     <div class=validusage>
                         - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
+                        - |this|.{{GPUCommandEncoder/[[kind]]}} is {{GPUQueueKind/"general"}} or {{GPUQueueKind/"compute"}}.
                     </div>
                 1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/encoding a compute pass}}.
             </div>
@@ -6707,6 +6750,16 @@ GPUQueue includes GPUObjectBase;
             Issue: Describe {{GPUQueue/onSubmittedWorkDone()}} algorithm steps.
         </div>
 </dl>
+
+## Transfer operations ## {#transfer-operations}
+
+<dfn dfn>Transfers</dfn> is a class of operations on a queue that can be done for any {{GPUQueueKind}}:
+  - {{GPUQueue/writeBuffer()}}.
+  - {{GPUQueue/writeTexture()}}.
+  - {{GPUQueue/copyImageBitmapToTexture()}}.
+  - encoded compute pass via {{GPUCommandEncoder/beginComputePass()}}.
+  - encoded {{GPUCommandEncoder/copyBufferToBuffer()}}, {{GPUCommandEncoder/copyBufferToTexture()}},
+    {{GPUCommandEncoder/copyTextureToBuffer()}}, {{GPUCommandEncoder/copyTextureToTexture()}}.
 
 Queries {#queries}
 ================
