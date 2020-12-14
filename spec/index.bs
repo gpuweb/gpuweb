@@ -3691,7 +3691,7 @@ Render [=pipeline=] outputs are:
 Stages of a render [=pipeline=]:
   1. Vertex fetch, controlled by {{GPUVertexStateDescriptor}}
   2. Vertex shader
-  3. Primitive assembly, controlled by {{GPUPrimitiveTopology}}
+  3. Primitive assembly - [[#primitive-assembly]]
   4. Rasterization, controlled by {{GPURasterizationStateDescriptor}}
   5. Fragment shader
   6. Stencil test and operation, controlled by {{GPUDepthStencilStateDescriptor}}
@@ -3726,18 +3726,13 @@ GPURenderPipeline includes GPUPipelineBase;
 
 <script type=idl>
 dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
-    required GPUProgrammableStageDescriptor vertexStage;
-    GPUProgrammableStageDescriptor fragmentStage;
-
-    required GPUPrimitiveTopology primitiveTopology;
-    GPURasterizationStateDescriptor rasterizationState = {};
-    required sequence<GPUColorStateDescriptor> colorStates;
-    GPUDepthStencilStateDescriptor depthStencilState;
     GPUVertexStateDescriptor vertexState = {};
-
-    GPUSize32 sampleCount = 1;
-    GPUSampleMask sampleMask = 0xFFFFFFFF;
-    boolean alphaToCoverageEnabled = false;
+    required GPUProgrammableStageDescriptor vertexStage;
+    GPUPrimitiveAssemblyStateDescriptor primitiveAssemblyState = {};
+    GPURasterizationStateDescriptor rasterizationState = {};
+    GPUProgrammableStageDescriptor fragmentStage;
+    GPUDepthStencilStateDescriptor depthStencilState;
+    required sequence<GPUColorStateDescriptor> colorStates;
 };
 </script>
 
@@ -3745,8 +3740,6 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     the vertex shader entry point of the [=pipeline=]
 - {{GPURenderPipelineDescriptor/fragmentStage}} describes
     the fragment shader entry point of the [=pipeline=]. If it's `null`, the [[#no-color-output]] mode is enabled.
-- {{GPURenderPipelineDescriptor/primitiveTopology}} configures
-    the primitive assembly stage of the [=pipeline=].
 - {{GPURenderPipelineDescriptor/rasterizationState}} configures
     the rasterization stage of the [=pipeline=].
 - {{GPURenderPipelineDescriptor/colorStates}} describes
@@ -3755,11 +3748,6 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     the optional depth-stencil attachment that is written by the [=pipeline=].
 - {{GPURenderPipelineDescriptor/vertexState}} configures
     the vertex fetch stage of the [=pipeline=].
-- {{GPURenderPipelineDescriptor/sampleCount}} is
-    the number of MSAA samples that each attachment has to have.
-- {{GPURenderPipelineDescriptor/sampleMask}} is
-    a binary mask of MSAA samples, according to [[#sample-masking]].
-- {{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} enables the [[#alpha-to-coverage]] mode.
 
 Issue(https://github.com/gpuweb/gpuweb/issues/936):
 Refactor the shape of the render pipeline descriptor to clearly enumerate the
@@ -3772,44 +3760,6 @@ and the {{GPURenderPipelineDescriptor/colorStates}} is expected to be empty.
 
 The [=pipeline=] still performs rasterization and produces depth values
 based on the vertex position output. The depth testing and stencil operations can still be used.
-
-### Alpha to Coverage ### {#alpha-to-coverage}
-
-In alpha-to-coverage mode, an additional <dfn dfn>alpha-to-coverage mask</dfn>
-of MSAA samples is generated based on the |alpha| component of the
-fragment shader output value of the {{GPURenderPipelineDescriptor/colorStates}}[0].
-
-The algorithm of producing the extra mask is platform-dependent and can vary for different pixels.
-It guarantees that:
-  - if |alpha| is 0.0 or less, the result is 0x0
-  - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
-  - if |alpha| is greater than some other |alpha1|,
-    then the produced sample mask has at least as many bits set to 1 as the mask for |alpha1|
-
-### Sample Masking ### {#sample-masking}
-
-The <dfn dfn>final sample mask</dfn> for a pixel is computed as:
-[=rasterization mask=] & {{GPURenderPipelineDescriptor/sampleMask}} & [=shader-output mask=].
-
-Only the lower {{GPURenderPipelineDescriptor/sampleCount}} bits of the mask are considered.
-
-If the least-significant bit at position |N| of the [=final sample mask=] has value of "0",
-the sample color outputs (corresponding to sample |N|) to all attachments of the fragment shader are discarded.
-Also, no depth test or stencil operations are executed on the relevant samples of the depth-stencil attachment.
-
-Note: the color output for sample |N| is produced by the fragment shader execution
-with SV_SampleIndex == |N| for the current pixel.
-If the fragment shader doesn't use this semantics, it's only executed once per pixel.
-
-The <dfn dfn>rasterization mask</dfn> is produced by the rasterization stage,
-based on the shape of the rasterized polygon. The samples incuded in the shape get the relevant
-bits 1 in the mask.
-
-The <dfn dfn>shader-output mask</dfn> takes the output value of SV_Coverage semantics in the fragment shader.
-If the semantics is not [=statically used=] by the shader, and {{GPURenderPipelineDescriptor/alphaToCoverageEnabled}}
-is enabled, the [=shader-output mask=] becomes the [=alpha-to-coverage mask=]. Otherwise, it defaults to 0xFFFFFFFF.
-
-Issue: link to the semantics of SV_SampleIndex and SV_Coverage in WGSL spec.
 
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createRenderPipeline(descriptor)</dfn>
@@ -3842,10 +3792,8 @@ Issue: link to the semantics of SV_SampleIndex and SV_Coverage in WGSL spec.
                             1. Make |pipeline| [=invalid=].
 
                     1. Set |pipeline|.{{GPURenderPipeline/[[descriptor]]}} to |descriptor|.
-                    1. If |descriptor|.{{GPURenderPipelineDescriptor/primitiveTopology}} is
-                        {{GPUPrimitiveTopology/"line-strip"}} or {{GPUPrimitiveTopology/"triangle-strip"}}:
-                        1. Set |pipeline|.{{GPURenderPipeline/[[strip_index_format]]}} to
-                            |descriptor|.{{GPURenderPipelineDescriptor/vertexState}}.{{GPUVertexStateDescriptor/indexFormat}}.
+                    1. Set |pipeline|.{{GPURenderPipeline/[[strip_index_format]]}} to
+                        |descriptor|.{{GPURenderPipelineDescriptor/primitiveAssemblyState}}.{{GPUPrimitiveAssemblyStateDescriptor/stripIndexFormat}}.
 
                 </div>
             1. Return |pipeline|.
@@ -3940,7 +3888,19 @@ Issue: define what "compatible" means for render target formats.
 
 Issue: need a proper limit for the maximum number of color targets.
 
-### Primitive Topology ### {#primitive-topology}
+### Primitive Assembly ### {#primitive-assembly}
+
+<script type=idl>
+dictionary GPUPrimitiveAssemblyStateDescriptor {
+    GPUPrimitiveTopology topology = "triangle-list";
+    GPUIndexFormat stripIndexFormat;
+};
+</script>
+
+- {{GPUPrimitiveAssemblyStateDescriptor/topology}} defines what kind of
+    primitives are constructed by the [=pipeline=].
+- {{GPUPrimitiveAssemblyStateDescriptor/stripIndexFormat}} defines the supported
+    index format for strip topologies.
 
 <script type=idl>
 enum GPUPrimitiveTopology {
@@ -3948,8 +3908,61 @@ enum GPUPrimitiveTopology {
     "line-list",
     "line-strip",
     "triangle-list",
-    "triangle-strip"
+    "triangle-strip",
 };
+</script>
+
+<div algorithm>
+    <dfn abstract-op>validating GPUPrimitiveAssemblyStateDescriptor</dfn>(|descriptor|)
+        Return `true` if all of the following conditions are met:
+            - If |descriptor|.{{GPUPrimitiveAssemblyStateDescriptor/topology}} is:
+                <dl class="switch">
+                    : {{GPUPrimitiveTopology/"line-strip"}} or
+                        {{GPUPrimitiveTopology/"triangle-strip"}}
+                    :: |descriptor|.{{GPUPrimitiveAssemblyStateDescriptor/stripIndexFormat}} is not `undefined`
+                    : Otherwise
+                    :: |descriptor|.{{GPUPrimitiveAssemblyStateDescriptor/stripIndexFormat}} is `undefined`
+                </dl>
+</div>
+
+### Index Format ### {#index-format}
+
+<script type=idl>
+enum GPUIndexFormat {
+    "uint16",
+    "uint32"
+};
+</script>
+
+The index format determines both the data type of index values in a buffer and, when used with
+strip primitive topologies ({{GPUPrimitiveTopology/"line-strip"}} or
+{{GPUPrimitiveTopology/"triangle-strip"}}) also specifies the primitive restart value. The
+<dfn dfn>primitive restart value</dfn> indicates which index value indicates that a new primitive
+should be started rather than continuing to construct the triangle strip with the prior indexed
+vertices.
+
+{{GPUPrimitiveAssemblyStateDescriptor}}s that specify a strip primitive topology must not have the
+{{GPUPrimitiveAssemblyStateDescriptor/stripIndexFormat}} set to `undefined`
+so that the [=primitive restart value=] that will be used is known at pipline creation time.
+
+<table class="data">
+  <thead>
+    <tr>
+      <th>Index format</th>
+      <th>Primitive restart value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>{{GPUIndexFormat/"uint16"}}</td>
+      <td>0xFFFF</td>
+    </tr>
+    <tr>
+      <td>{{GPUIndexFormat/"uint32"}}</td>
+      <td>0xFFFFFFFF</td>
+    </tr>
+  </tbody>
+</table>
 </script>
 
 ### Rasterization State ### {#rasterization-state}
@@ -3964,14 +3977,26 @@ dictionary GPURasterizationStateDescriptor {
     GPUDepthBias depthBias = 0;
     float depthBiasSlopeScale = 0;
     float depthBiasClamp = 0;
+
+    GPUSize32 sampleCount = 1;
+    GPUSampleMask sampleMask = 0xFFFFFFFF;
+    boolean alphaToCoverageEnabled = false;
 };
 </script>
 
+- {{GPURasterizationStateDescriptor/sampleCount}} is
+    the number of MSAA samples that each attachment has to have.
+- {{GPURasterizationStateDescriptor/sampleMask}} is
+    a binary mask of MSAA samples, according to [[#sample-masking]].
+- {{GPURasterizationStateDescriptor/alphaToCoverageEnabled}} enables the [[#alpha-to-coverage]] mode.
+
 <div algorithm>
-    <dfn abstract-op>validating GPURasterizationStateDescriptor</dfn>(|descriptor|, |features|)
-        1. If |descriptor|.{{GPURasterizationStateDescriptor/clampDepth}} is `true` and |features|
-            doesn't [=list/contain=] {{GPUFeatureName/"depth-clamping"}}, return `false`.
-        1. Return `true`.
+    <dfn abstract-op>validating GPURasterizationStateDescriptor</dfn>(|device|, |descriptor|)
+        Return `true` if all of the following conditions are met:
+            - |descriptor|.{{GPURasterizationStateDescriptor/clampDepth}} is `false`,
+                or |device|.{{device/[[features]]}} [=list/contain=] {{GPUFeatureName/"depth-clamping"}}.
+            - |descriptor|.{{GPURasterizationStateDescriptor/alphaToCoverageEnabled}} is `false`,
+                or |descriptor|.{{GPURasterizationStateDescriptor/sampleCount}} is greater than 1.
 </div>
 
 <script type=idl>
@@ -3988,6 +4013,45 @@ enum GPUCullMode {
     "back"
 };
 </script>
+
+#### Alpha to Coverage #### {#alpha-to-coverage}
+
+In alpha-to-coverage mode, which is enabled by {{GPURasterizationStateDescriptor/alphaToCoverageEnabled}},
+an additional <dfn dfn>alpha-to-coverage mask</dfn>
+of MSAA samples is generated based on the |alpha| component of the
+fragment shader output value of the {{GPURenderPipelineDescriptor/colorStates}}[0].
+
+The algorithm of producing the extra mask is platform-dependent and can vary for different pixels.
+It guarantees that:
+  - if |alpha| is 0.0 or less, the result is 0x0
+  - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
+  - if |alpha| is greater than some other |alpha1|,
+    then the produced sample mask has at least as many bits set to 1 as the mask for |alpha1|
+
+#### Sample Masking #### {#sample-masking}
+
+The <dfn dfn>final sample mask</dfn> for a pixel is computed as:
+[=rasterization mask=] & {{GPURasterizationStateDescriptor/sampleMask}} & [=shader-output mask=].
+
+Only the lower {{GPURasterizationStateDescriptor/sampleCount}} bits of the mask are considered.
+
+If the least-significant bit at position |N| of the [=final sample mask=] has value of "0",
+the sample color outputs (corresponding to sample |N|) to all attachments of the fragment shader are discarded.
+Also, no depth test or stencil operations are executed on the relevant samples of the depth-stencil attachment.
+
+Note: the color output for sample |N| is produced by the fragment shader execution
+with SV_SampleIndex == |N| for the current pixel.
+If the fragment shader doesn't use this semantics, it's only executed once per pixel.
+
+The <dfn dfn>rasterization mask</dfn> is produced by the rasterization stage,
+based on the shape of the rasterized polygon. The samples incuded in the shape get the relevant
+bits 1 in the mask.
+
+The <dfn dfn>shader-output mask</dfn> takes the output value of SV_Coverage semantics in the fragment shader.
+If the semantics is not [=statically used=] by the shader, and {{GPURasterizationStateDescriptor/alphaToCoverageEnabled}}
+is enabled, the [=shader-output mask=] becomes the [=alpha-to-coverage mask=]. Otherwise, it defaults to 0xFFFFFFFF.
+
+Issue: link to the semantics of SV_SampleIndex and SV_Coverage in WGSL spec.
 
 ### Color State ### {#color-state}
 
@@ -4133,43 +4197,6 @@ enum GPUStencilOperation {
 
 ### Vertex State ### {#vertex-state}
 
-<script type=idl>
-enum GPUIndexFormat {
-    "uint16",
-    "uint32"
-};
-</script>
-
-The index format determines both the data type of index values in a buffer and, when used with
-strip primitive topologies ({{GPUPrimitiveTopology/"line-strip"}} or
-{{GPUPrimitiveTopology/"triangle-strip"}}) also specifies the primitive restart value. The
-<dfn dfn>primitive restart value</dfn> indicates which index value indicates that a new primitive
-should be started rather than continuing to construct the triangle strip with the prior indexed
-vertices.
-
-{{GPURenderPipelineDescriptor}}s that specify a strip primitive topology must not have the
-{{GPUVertexStateDescriptor/indexFormat}} set to `undefined` so that the [=primitive restart value=]
-that will be used is known at pipline creation time.
-
-<table class="data">
-  <thead>
-    <tr>
-      <th>Index format</th>
-      <th>Primitive restart value</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>{{GPUIndexFormat/"uint16"}}</td>
-      <td>0xFFFF</td>
-    </tr>
-    <tr>
-      <td>{{GPUIndexFormat/"uint32"}}</td>
-      <td>0xFFFFFFFF</td>
-    </tr>
-  </tbody>
-</table>
-
 #### Vertex Formats #### {#vertex-formats}
 
 The name of the format specifies the data type of the component, the number of
@@ -4232,7 +4259,6 @@ enum GPUInputStepMode {
 
 <script type=idl>
 dictionary GPUVertexStateDescriptor {
-    GPUIndexFormat indexFormat;
     sequence<GPUVertexBufferLayoutDescriptor?> vertexBuffers = [];
 };
 </script>
