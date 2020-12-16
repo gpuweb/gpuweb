@@ -22,13 +22,13 @@ Meanwhile, error handling should not make the API clunky to use.
 Implementations should provide a way to enable synchronous validation, for example via a "break on WebGPU error" option in the developer tools.
 The extra overhead needs to be low enough that applications can still run while being debugged.
 
-## *Fatal Errors*: requestAdapter, requestDevice, and device.lost
+## *Fatal Errors*: requestAdapters, requestDevice, and device.lost
 
 <!-- calling this revision 6 -->
 
 ```webidl
 interface GPU {
-    Promise<GPUAdapter?> requestAdapter(optional GPURequestAdapterOptions options = {});
+    Promise<FrozenArray<GPUAdapter>> requestAdapters(optional GPURequestAdapterOptions options = {});
 };
 ```
 
@@ -42,16 +42,16 @@ partial interface GPUDevice {
 };
 ```
 
-`GPU.requestAdapter` requests an adapter from the user agent.
-It returns a Promise which resolves when an adapter is ready.
+`GPU.requestAdapters` requests list of adapters from the user agent.
+It returns a Promise which resolves when the list is ready.
 The Promise may not resolve for a long time - for example, the browser
 could delay until a background tab is foregrounded, to make sure the right
 adapter is chosen at the time the tab is foregrounded (in case the system
 state, such as battery state, has changed).
-If it returns `null`, the app knows for sure that its request could not be fulfilled
+If it returns `[]`, the app knows for sure that its request could not be fulfilled
 (at least, in the current system state...); it does not need to retry with the
 same `GPURequestAdapterOptions`.
-If the `options` are invalid (currently impossible), `requestAdapter()` rejects.
+If the `options` are invalid (IDL exception or otherwise), `requestAdapters()` rejects.
 
 `GPUAdapter.requestDevice` requests a device from the adapter.
 It returns a Promise which resolves when a device is ready.
@@ -73,15 +73,16 @@ The `"validationerror"` event will no longer fire. (This makes all further opera
 
 An app should never give up on getting WebGPU access due to
 `requestDevice` returning `null` or `GPUDevice.lost` resolving.
-Instead of giving up, the app should try again starting with `requestAdapter`.
+Instead of giving up, the app should try again starting with `requestAdapters()`.
 
-It *should* give up based on a `requestAdapter` returning `null` or rejecting.
-(It should also give up on a `requestDevice` rejection, as that indicates an app
-programming error - the request was invalid, e.g. not compatible with the adapter.)
+It *should* give up based on a `requestAdapters` returning `[]` or rejecting.
+(It should also give up on a `requestDevice` rejection, as that indicates the
+request was invalid, e.g. not compatible with the adapter - an app programming error,
+if they intended to check the adapter capabilities first.)
 
 ### Example Code
 
-**NOTE:** this example (and possibly the init API) still needs significant rework!
+**XXX:** this example (and possibly the init API) still needs significant rework!
 
 ```js
 class MyRenderer {
@@ -122,8 +123,8 @@ class MyRenderer {
     // If we can't, rejects and the app falls back.
     if (!this.adapter) {
       // If no adapter, get one.
-      this.adapter = await gpu.requestAdapter({ /* options */ });
-      // If requestAdapter resolves to null, no matching adapter is available.
+      this.adapter = (await gpu.requestAdapters({ /* options */ }))[0];
+      // If requestAdapters resolves to [], no matching adapter is available.
       // Exit to fallback.
       if (!this.adapter) return;
     }
@@ -151,37 +152,37 @@ Two independent applications are running on the same webpage against two devices
 The tab is in the background, and one device is using a lot of resources.
  - The browser chooses to lose the heavier device.
     - `device.lost` resolves, message = reclaiming device resources
-    - (If the app calls `requestDevice` on the same adapter, or `requestAdapter`,
+    - (If the app calls `requestDevice` on the same adapter, or `requestAdapters`,
        it does not resolve until the tab is foregrounded.)
  - Later, the browser might choose to lose the smaller device too.
     - `device.lost` resolves, message = reclaiming device resources
-    - (If the app calls `requestDevice` on the same adapter, or `requestAdapter`,
+    - (If the app calls `requestDevice` on the same adapter, or `requestAdapters`,
        it does not resolve until the tab is foregrounded.)
  - The system configuration changes (e.g. laptop is unplugged).
     - Since the adapter is no longer used, the UA may choose to lose it and
       reject any outstanding `requestDevice` promises.
       (Perhaps not until the tab is foregrounded.)
-    - (If the app calls `requestAdapter`, it does not resolve until the tab is foregrounded.)
+    - (If the app calls `requestAdapters`, it does not resolve until the tab is foregrounded.)
 
 A page begins loading in a tab, but then the tab is backgrounded.
- - On load, the page attempts creation of an adapter.
+ - On load, the page requests adapters.
     - The browser may or may not provide a WebGPU adapter yet - if it doesn't,
-      then when the page is foregrounded, the `requestAdapter` Promise will resolve.
-      (This allows the browser to choose an adapter based on the latest system state.)
+      then when the page is foregrounded, the `requestAdapters` Promise will resolve.
+      (This allows the browser to choose adapters based on the latest system state.)
 
 A device's adapter is physically unplugged from the system (but an integrated GPU is still available).
  - The same adapter, or a new adapter, is plugged back in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
 
 An app is running on an integrated adapter.
  - A new, discrete adapter is plugged in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
 
 An app is running on a discrete adapter.
  - The adapter is physically unplugged from the system. An integrated GPU is still available.
-    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapter` gives the new adapter.
+    - `device.lost` resolves, `requestDevice` on same adapter rejects, `requestAdapters` gives the new adapter.
  - The same adapter, or a new adapter, is plugged back in.
-    - A later `requestAdapter` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
+    - A later `requestAdapters` call may return the new adapter. (In the future, it might fire a "gpuadapterschanged" event.)
 
 The device is lost because of an unexpected error in the implementation.
  - `device.lost` resolves, message = whatever the unexpected thing was.
@@ -195,7 +196,7 @@ All devices and adapters are lost (except for software?) because GPU access has 
  - `device.lost` resolves on every device, message = whatever
 
 WebGPU access has been disabled for the page.
- - `requestAdapter` returns null (or a software adapter).
+ - `requestAdapters` returns `[]` (or a software adapter).
 
 The device is lost right as it's being returned by requestDevice.
  - `device.lost` resolves.
@@ -221,7 +222,7 @@ If an error is not captured, it may fire the Device's "unhandlederror" event (be
 
 Creation of the adapter and device.
 
-  - `gpu.requestAdapter`
+  - `gpu.requestAdapters`
   - `GPUAdapter.requestDevice`
 
 Handled by "Fatal Errors" above.
@@ -232,12 +233,10 @@ WebGPU Object creation and getters.
 
   - `GPUDevice.createTexture`
   - `GPUDevice.createBuffer`
-  - `GPUDevice.createBufferMapped`
   - `GPUTexture.createView`
-  - `GPUTexture.createDefaultView`
   - `GPUCommandEncoder.finish`
-  - `GPUDevice.getQueue`
   - `GPUSwapChain.getCurrentTexture`
+  - `GPUCanvasContext.getSwapChainPreferredFormat`
 
 If there is an error, the returned object is invalid, and an error is generated into the current scope.
 
@@ -254,18 +253,16 @@ Instead, `GPUCommandEncoder.finish` returns an invalid object and generates an e
 
 #### Promise-Returning
 
-  - `GPUDevice.createBufferMappedAsync`
-  - `GPUCanvasContext.getSwapChainPreferredFormat`
-  - `GPUFence.onCompletion`
-  - `GPUBuffer.mapReadAsync`
-  - `GPUBuffer.mapWriteAsync`
+  - `GPUDevice.createReadyComputePipeline`
+  - `GPUDevice.createReadyRenderPipeline`
+  - `GPUQueue.onSubmittedWorkDone`
+  - `GPUBuffer.mapAsync`
 
 If there is an error, the returned Promise rejects.
 
 #### Void-Returning
 
   - `GPUQueue.submit`
-  - `GPUQueue.signal`
   - `GPUBuffer.unmap`
   - `GPUBuffer.destroy`
   - `GPUTexture.destroy`
