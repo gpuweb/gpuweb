@@ -3692,11 +3692,11 @@ Stages of a render [=pipeline=]:
   1. Vertex fetch, controlled by {{GPUVertexStateDescriptor}}
   2. Vertex shader
   3. Primitive assembly - [[#primitive-assembly]]
-  4. Rasterization, controlled by {{GPURasterizationStateDescriptor}}
+  4. Rasterization, controlled by {{GPURasterizerStateDescriptor}}
   5. Fragment shader
   6. Stencil test and operation, controlled by {{GPUDepthStencilStateDescriptor}}
   7. Depth test and write, controlled by {{GPUDepthStencilStateDescriptor}}
-  8. Output merging, controlled by {{GPUColorStateDescriptor}}
+  8. Output merging - [[#output-merger]]
 
 Issue: we need a deeper description of these stages
 
@@ -3729,10 +3729,10 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     GPUVertexStateDescriptor vertexState = {};
     required GPUProgrammableStageDescriptor vertexStage;
     GPUPrimitiveAssemblyStateDescriptor primitiveAssemblyState = {};
-    GPURasterizationStateDescriptor rasterizationState = {};
+    GPURasterizerStateDescriptor rasterizerState = {};
     GPUProgrammableStageDescriptor fragmentStage;
     GPUDepthStencilStateDescriptor depthStencilState;
-    required sequence<GPUColorStateDescriptor> colorStates;
+    required GPUOutputMergerStateDescriptor outputMergerState;
 };
 </script>
 
@@ -3740,10 +3740,8 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     the vertex shader entry point of the [=pipeline=]
 - {{GPURenderPipelineDescriptor/fragmentStage}} describes
     the fragment shader entry point of the [=pipeline=]. If it's `null`, the [[#no-color-output]] mode is enabled.
-- {{GPURenderPipelineDescriptor/rasterizationState}} configures
+- {{GPURenderPipelineDescriptor/rasterizerState}} configures
     the rasterization stage of the [=pipeline=].
-- {{GPURenderPipelineDescriptor/colorStates}} describes
-    the color attachments that are written by the [=pipeline=].
 - {{GPURenderPipelineDescriptor/depthStencilState}} describes
     the optional depth-stencil attachment that is written by the [=pipeline=].
 - {{GPURenderPipelineDescriptor/vertexState}} configures
@@ -3756,7 +3754,7 @@ Refactor the shape of the render pipeline descriptor to clearly enumerate the
 ### No Color Output ### {#no-color-output}
 
 In no-color-output mode, [=pipeline=] does not produce any color attachment outputs,
-and the {{GPURenderPipelineDescriptor/colorStates}} is expected to be empty.
+and the {{GPUOutputMergerStateDescriptor/colorStates}} is expected to be empty.
 
 The [=pipeline=] still performs rasterization and produces depth values
 based on the vertex position output. The depth testing and stencil operations can still be used.
@@ -3842,42 +3840,25 @@ based on the vertex position output. The depth testing and stencil operations ca
 
         Return `true` if all of the following conditions are satisfied:
 
+            - [$validating GPUVertexStateDescriptor$](|descriptor|.{{GPURenderPipelineDescriptor/vertexState}},
+                |descriptor|.{{GPURenderPipelineDescriptor/vertexStage}}) succeeds.
             - [$validating GPUProgrammableStageDescriptor$]({{GPUShaderStage/VERTEX}},
                 |descriptor|.{{GPURenderPipelineDescriptor/vertexStage}},
                 |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+            - [$validating GPUPrimitiveAssemblyStateDescriptor$](|descriptor|.{{GPURenderPipelineDescriptor/primitiveAssemblyState}},
+                |features|) succeeds.
+            - [$validating GPURasterizerStateDescriptor$](|descriptor|.{{GPURenderPipelineDescriptor/rasterizerState}},
+                |features|) succeeds.
+            - If |descriptor|.{{GPURenderPipelineDescriptor/rasterizerState}}.{{GPURasterizerStateDescriptor/sampleCount}} is 1:
+                - |descriptor|.{{GPURenderPipelineDescriptor/outputMergerState}}.{{GPUOutputMergerStateDescriptor/alphaToCoverageEnabled}} is `false`,
             - If |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}} is not `null`:
                 - [$validating GPUProgrammableStageDescriptor$]({{GPUShaderStage/FRAGMENT}},
                     |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}},
                     |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
-            - If |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}} is `null`:
-                - |descriptor|.{{GPURenderPipelineDescriptor/colorStates}} is empty.
-            - |descriptor|.{{GPURenderPipelineDescriptor/colorStates}}.length is less than
-                or equal to 4.
-            - For each |colorState| layout descriptor in the list
-                |descriptor|.{{GPURenderPipelineDescriptor/colorStates}}:
-                - [$validating GPUColorStateDescriptor$](|colorState|,
-                    |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}}) succeeds.
-            - [$validating GPURasterizationStateDescriptor$](|descriptor|.{{GPURenderPipelineDescriptor/rasterizationState}},
-                |features|) succeeds.
             - if |descriptor|.{{GPURenderPipelineDescriptor/depthStencilState}} is not `null`:
                 - [$validating GPUDepthStencilStateDescriptor$](|descriptor|.{{GPURenderPipelineDescriptor/depthStencilState}}) succeeds.
-            - [$validating GPUVertexStateDescriptor$](|descriptor|.{{GPURenderPipelineDescriptor/vertexState}},
-                |descriptor|.{{GPURenderPipelineDescriptor/vertexStage}}) succeeds.
-            - If |descriptor|.{{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} is `true`:
-                - |descriptor|.{{GPURenderPipelineDescriptor/sampleCount}} is greater than 1.
-            - If the output SV_Coverage semantics is [=statically used=] by
-                |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}}:
-                - |descriptor|.{{GPURenderPipelineDescriptor/alphaToCoverageEnabled}} is `false`.
-            - If |descriptor|.{{GPURenderPipelineDescriptor/primitiveTopology}} is:
-                <dl class="switch">
-                    : {{GPUPrimitiveTopology/"line-strip"}} or
-                        {{GPUPrimitiveTopology/"triangle-strip"}}
-                    :: |descriptor|.{{GPURenderPipelineDescriptor/vertexState}}.{{GPUVertexStateDescriptor/indexFormat}}
-                        is not `undefined`
-                    : Otherwise
-                    :: |descriptor|.{{GPURenderPipelineDescriptor/vertexState}}.{{GPUVertexStateDescriptor/indexFormat}}
-                        is `undefined`
-                </dl>
+            - [$validating GPUOutputMergerStateDescriptor$](|descriptor|.{{GPURenderPipelineDescriptor/outputMergerState}},
+                |descriptor|.{{GPURenderPipelineDescriptor/fragmentStage}}) succeeds.
 </div>
 
 Issue: validate interface matching rules between VS and FS.
@@ -3968,7 +3949,7 @@ so that the [=primitive restart value=] that will be used is known at pipline cr
 ### Rasterization State ### {#rasterization-state}
 
 <script type=idl>
-dictionary GPURasterizationStateDescriptor {
+dictionary GPURasterizerStateDescriptor {
     GPUFrontFace frontFace = "ccw";
     GPUCullMode cullMode = "none";
     // Enable depth clamping (requires "depth-clamping" feature)
@@ -3980,23 +3961,19 @@ dictionary GPURasterizationStateDescriptor {
 
     GPUSize32 sampleCount = 1;
     GPUSampleMask sampleMask = 0xFFFFFFFF;
-    boolean alphaToCoverageEnabled = false;
 };
 </script>
 
-- {{GPURasterizationStateDescriptor/sampleCount}} is
+- {{GPURasterizerStateDescriptor/sampleCount}} is
     the number of MSAA samples that each attachment has to have.
-- {{GPURasterizationStateDescriptor/sampleMask}} is
+- {{GPURasterizerStateDescriptor/sampleMask}} is
     a binary mask of MSAA samples, according to [[#sample-masking]].
-- {{GPURasterizationStateDescriptor/alphaToCoverageEnabled}} enables the [[#alpha-to-coverage]] mode.
 
 <div algorithm>
-    <dfn abstract-op>validating GPURasterizationStateDescriptor</dfn>(|device|, |descriptor|)
+    <dfn abstract-op>validating GPURasterizerStateDescriptor</dfn>(|device|, |descriptor|)
         Return `true` if all of the following conditions are met:
-            - |descriptor|.{{GPURasterizationStateDescriptor/clampDepth}} is `false`,
+            - |descriptor|.{{GPURasterizerStateDescriptor/clampDepth}} is `false`,
                 or |device|.{{device/[[features]]}} [=list/contain=] {{GPUFeatureName/"depth-clamping"}}.
-            - |descriptor|.{{GPURasterizationStateDescriptor/alphaToCoverageEnabled}} is `false`,
-                or |descriptor|.{{GPURasterizationStateDescriptor/sampleCount}} is greater than 1.
 </div>
 
 <script type=idl>
@@ -4014,26 +3991,12 @@ enum GPUCullMode {
 };
 </script>
 
-#### Alpha to Coverage #### {#alpha-to-coverage}
-
-In alpha-to-coverage mode, which is enabled by {{GPURasterizationStateDescriptor/alphaToCoverageEnabled}},
-an additional <dfn dfn>alpha-to-coverage mask</dfn>
-of MSAA samples is generated based on the |alpha| component of the
-fragment shader output value of the {{GPURenderPipelineDescriptor/colorStates}}[0].
-
-The algorithm of producing the extra mask is platform-dependent and can vary for different pixels.
-It guarantees that:
-  - if |alpha| is 0.0 or less, the result is 0x0
-  - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
-  - if |alpha| is greater than some other |alpha1|,
-    then the produced sample mask has at least as many bits set to 1 as the mask for |alpha1|
-
 #### Sample Masking #### {#sample-masking}
 
 The <dfn dfn>final sample mask</dfn> for a pixel is computed as:
-[=rasterization mask=] & {{GPURasterizationStateDescriptor/sampleMask}} & [=shader-output mask=].
+[=rasterization mask=] & {{GPURasterizerStateDescriptor/sampleMask}} & [=shader-output mask=].
 
-Only the lower {{GPURasterizationStateDescriptor/sampleCount}} bits of the mask are considered.
+Only the lower {{GPURasterizerStateDescriptor/sampleCount}} bits of the mask are considered.
 
 If the least-significant bit at position |N| of the [=final sample mask=] has value of "0",
 the sample color outputs (corresponding to sample |N|) to all attachments of the fragment shader are discarded.
@@ -4048,12 +4011,61 @@ based on the shape of the rasterized polygon. The samples incuded in the shape g
 bits 1 in the mask.
 
 The <dfn dfn>shader-output mask</dfn> takes the output value of SV_Coverage semantics in the fragment shader.
-If the semantics is not [=statically used=] by the shader, and {{GPURasterizationStateDescriptor/alphaToCoverageEnabled}}
+If the semantics is not [=statically used=] by the shader, and {{GPUOutputMergerStateDescriptor/alphaToCoverageEnabled}}
 is enabled, the [=shader-output mask=] becomes the [=alpha-to-coverage mask=]. Otherwise, it defaults to 0xFFFFFFFF.
 
 Issue: link to the semantics of SV_SampleIndex and SV_Coverage in WGSL spec.
 
-### Color State ### {#color-state}
+### Output Merger State ### {#output-merger}
+
+<script type=idl>
+dictionary GPUOutputMergerStateDescriptor {
+    required sequence<GPUColorStateDescriptor> colorStates;
+    boolean alphaToCoverageEnabled = false;
+};
+</script>
+
+- {{GPUOutputMergerStateDescriptor/colorStates}} describes
+    the color attachments that are written by the [=pipeline=].
+- {{GPUOutputMergerStateDescriptor/alphaToCoverageEnabled}} enables the [[#alpha-to-coverage]] mode.
+
+<div algorithm>
+    <dfn abstract-op>validating GPUOutputMergerStateDescriptor</dfn>(descriptor, fragmentStage)
+    **Arguments:**
+        - {{GPUColorStateDescriptor}} |descriptor|
+        - {{GPUProgrammableStageDescriptor}} |fragmentStage|
+
+    Return `true`, if and only if, all of the following conditions are satisfied:
+
+        - For each |colorState| at |index| in |descriptor|.{{GPUOutputMergerStateDescriptor/colorStates}}:
+            - [$validating GPUColorStateDescriptor$](|colorState|) succeeds.
+            - |fragmentStage| contains an output variable [=statically used=]:
+                - with `location` annotation equal to |index|
+                - with a type that is compatible with |colorState|.{{GPUColorStateDescriptor/format}}.
+                    with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
+        - If the output `SV_Coverage` semantics is [=statically used=] by |fragmentStage|:
+            - |descriptor|.{{GPUOutputMergerStateDescriptor/alphaToCoverageEnabled}} is `false`.
+        - If |fragmentStage| is `null`:
+            - |descriptor|.{{GPUOutputMergerStateDescriptor/colorStates}} is empty.
+        - |descriptor|.{{GPUOutputMergerStateDescriptor/colorStates}}.length is less than
+            or equal to 4.
+</div>
+
+#### Alpha to Coverage #### {#alpha-to-coverage}
+
+In alpha-to-coverage mode, which is enabled by {{GPUOutputMergerStateDescriptor/alphaToCoverageEnabled}},
+an additional <dfn dfn>alpha-to-coverage mask</dfn>
+of MSAA samples is generated based on the |alpha| component of the
+fragment shader output value of the {{GPUOutputMergerStateDescriptor/colorStates}}[0].
+
+The algorithm of producing the extra mask is platform-dependent and can vary for different pixels.
+It guarantees that:
+  - if |alpha| is 0.0 or less, the result is 0x0
+  - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
+  - if |alpha| is greater than some other |alpha1|,
+    then the produced sample mask has at least as many bits set to 1 as the mask for |alpha1|
+
+#### Color State #### {#color-state}
 
 <script type=idl>
 dictionary GPUColorStateDescriptor {
@@ -4121,10 +4133,9 @@ enum GPUBlendOperation {
 </script>
 
 <div algorithm>
-    <dfn abstract-op>validating GPUColorStateDescriptor</dfn>(descriptor, fragmentStage)
+    <dfn abstract-op>validating GPUColorStateDescriptor</dfn>(descriptor)
     **Arguments:**
         - {{GPUColorStateDescriptor}} |descriptor|
-        - {{GPUProgrammableStageDescriptor}} |fragmentStage|
 
     Return `true`, if and only if, all of the following conditions are satisfied:
 
@@ -4134,8 +4145,6 @@ enum GPUBlendOperation {
             or the |descriptor|.{{GPUColorStateDescriptor/format}} is filterable
             according to the {#plain-color-formats} table.
         - |descriptor|.{{GPUColorStateDescriptor/writeMask}} is less than 16.
-        - |fragmentStage| contains an output variable with a type that is compatible with
-            |descriptor|.{{GPUColorStateDescriptor/format}}.
 </div>
 
 ### Depth/Stencil State ### {#depth-stencil-state}
@@ -7253,9 +7262,9 @@ The following dictionary values are supported if and only if the {{GPUFeatureNam
 [=feature=] is enabled, otherwise they must be set to their default values:
 
 <dl>
-    : {{GPURasterizationStateDescriptor}}
+    : {{GPURasterizerStateDescriptor}}
     ::
-        * {{GPURasterizationStateDescriptor/clampDepth}}
+        * {{GPURasterizerStateDescriptor/clampDepth}}
 </dl>
 
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>depth24unorm-stencil8</dfn> ## {#depth24unorm-stencil8}
