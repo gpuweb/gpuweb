@@ -77,7 +77,7 @@ Instead of giving up, the app should try again starting with `requestAdapters()`
 
 It *should* give up based on a `requestAdapters` returning `[]` or rejecting.
 It *should* also give up on a `requestDevice` rejection, as that indicates the
-request was invalid (e.g., not compatible with the adapter - an app programming error,
+request was invalid, e.g. not compatible with the adapter (an app programming error,
 if they intended to check the adapter capabilities first.)
 
 ### Example Code
