@@ -784,36 +784,63 @@ For each [=subresource=] of a [=physical resource=], its set of
 Issue: This section will need to be revised to support multiple queues.
 
 On the [=Queue timeline=], there is an ordered sequence of [=usage scopes=].
-Each item on the timeline is contained within exactly one scope.
 For the duration of each scope, the set of [=internal usage=] flags of any given
 [=subresource=] is constant.
 A [=subresource=] may transition to new usages at the boundaries between [=usage scope=]s.
 
 This specification defines the following [=usage scopes=]:
-  1. an individual command on a {{GPUCommandEncoder}}, such as {{GPUCommandEncoder/copyBufferToTexture()|GPUCommandEncoder.copyBufferToTexture}}.
-  2. an individual command on a {{GPUComputePassEncoder}}, such as {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|GPUProgrammablePassEncoder.setBindGroup}}.
-  3. the whole {{GPURenderPassEncoder}}.
+
+- Outside of a pass (in {{GPUCommandEncoder}}), each (non-state-setting) command is one usage scope
+    (e.g. {{GPUCommandEncoder/copyBufferToTexture()}}).
+- In a compute pass, each dispatch command ({{GPUComputePassEncoder/dispatch()}} or
+    {{GPUComputePassEncoder/dispatchIndirect()}}) is one usage scope.
+    A subresource is "used" in the usage scope if it's accessible by the command.
+    Within a dispatch, every subresource in every currently bound {{GPUBindGroup}}
+    is "used" in the usage scope.
+    State-setting compute pass commands, like
+    {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}},
+    do not contribute directly to a usage scope; they instead change the
+    state that is checked in dispatch commands.
+- One render pass is one usage scope.
+    A subresource is "used" in the usage scope if it's referenced by any
+    (state-setting or non-state-setting) command. For example, in
+    {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}},
+    every subresource in `bindGroup` is "used" in the render pass's usage scope.
+
+Issue: The above should probably talk about [=GPU commands=]. But we don't have a way to
+reference specific GPU commands (like dispatch) yet.
 
 <div class=note>
-    Resources that are used in state setting calls are always added as used resources in the containing [=usage scope=].
-    This means the following example resource usages **are** included in usage scope validation:
+    The above rules mean the following example resource usages **are**
+    included in [=usage scope validation=]:
 
-    - Resources used in every {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|GPUProgrammablePassEncoder.setBindGroup}}
-        regardless of whether the shader or {{GPUPipelineLayout}} actually depends on these bindings, or the bind group is shadowed by another 'set' call.
-    - Vertex buffer used in every {{GPURenderEncoderBase/setVertexBuffer()|GPURenderEncoderBase.setVertexBuffer}}
-        regardless of whether draw call depends on this buffer, or this buffer is shadowed by another 'set' call.
-    - Index buffer used in every {{GPURenderEncoderBase/setIndexBuffer()|GPURenderEncoderBase.setIndexBuffer}}
-        regardless of whether draw call depends on this buffer, or this buffer is shadowed by another 'set' call.
-    - Textures used as color attachments, resolve attachments or depth/stencil attachment in {{GPURenderPassDescriptor}} by {{GPUCommandEncoder/beginRenderPass()|GPUCommandEncoder.beginRenderPass()}}
+    - In a render pass, subresources used in any
+        {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup()}}
+        call, regardless of whether the currently bound pipeline's
+        shader or layout actually depends on these bindings,
+        or the bind group is shadowed by another 'set' call.
+    - A buffer used in any {{GPURenderEncoderBase/setVertexBuffer()|setVertexBuffer()}}
+        call, regardless of whether any draw call depends on this buffer,
+        or this buffer is shadowed by another 'set' call.
+    - A buffer used in any {{GPURenderEncoderBase/setIndexBuffer()|setIndexBuffer()}}
+        call, regardless of whether any draw call depends on this buffer,
+        or this buffer is shadowed by another 'set' call.
+    - A texture subresource used as a color attachment, resolve attachment, or
+        depth/stencil attachment in {{GPURenderPassDescriptor}} by
+        {{GPUCommandEncoder/beginRenderPass()|beginRenderPass()}},
         regardless of whether the shader actually depends on these attachments.
-    - Resources used in bind group entries with visibility 0, or visible only to the the compute stage but used in a render pass or vice versa.
+    - Resources used in bind group entries with visibility 0, or visible only
+        to the compute stage but used in a render pass (or vice versa).
 </div>
 
-The [=usage scopes=] are validated at {{GPUCommandEncoder/finish()|GPUCommandEncoder.finish}} time.
-The implementation performs the <dfn dfn>usage scope validation</dfn> by composing
-the list of all [=internal usage=] flags of each [=subresource=] used in the [=usage scope=].
-A {{GPUValidationError}} is generated in the current scope with an appropriate error message
-if that list is not a [=compatible usage list=].
+During command encoding, every usage of a subresource is recorded in one of the
+[=usage scopes=] in the command buffer.
+For each [=usage scope=], the implementation performs
+<dfn dfn>usage scope validation</dfn> by composing the list of all
+[=internal usage=] flags of each [=subresource=] used in the [=usage scope=].
+If any of those lists is not a [=compatible usage list=],
+{{GPUCommandEncoder/finish()|GPUCommandEncoder.finish()}}
+generates a {{GPUValidationError}} in the current error scope.
 
 
 ## Core Internal Objects ## {#core-internal-objects}
