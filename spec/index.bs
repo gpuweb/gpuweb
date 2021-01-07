@@ -1424,6 +1424,7 @@ enum GPUFeatureName {
     "pipeline-statistics-query",
     "texture-compression-bc",
     "timestamp-query",
+    "minmax-sampling",
 };
 </script>
 
@@ -2319,13 +2320,17 @@ GPUSampler includes GPUObjectBase;
     ::
         The {{GPUSamplerDescriptor}} with which the {{GPUSampler}} was created.
 
+    : <dfn>\[[isFiltering]]</dfn> of type {{boolean}}.
+    ::
+        Whether the {{GPUSampler}} weights multiple samples of a texture.
+
     : <dfn>\[[isComparison]]</dfn> of type {{boolean}}.
     ::
         Whether the {{GPUSampler}} is used as a comparison sampler.
 
-    : <dfn>\[[isFiltering]]</dfn> of type {{boolean}}.
+    : <dfn>\[[isMinMax]]</dfn> of type {{boolean}}.
     ::
-        Whether the {{GPUSampler}} weights multiple samples of a texture.
+        Whether the {{GPUSampler}} computes the minimum/maximum of samples of a texture.
 </dl>
 
 ## Sampler Creation ## {#sampler-creation}
@@ -2342,6 +2347,7 @@ dictionary GPUSamplerDescriptor : GPUObjectDescriptorBase {
     GPUFilterMode magFilter = "nearest";
     GPUFilterMode minFilter = "nearest";
     GPUFilterMode mipmapFilter = "nearest";
+    GPUReductionMode reduction = "weighted-average";
     float lodMinClamp = 0;
     float lodMaxClamp = 0xffffffff; // TODO: What should this be? Was Number.MAX_VALUE.
     GPUCompareFunction compare;
@@ -2403,7 +2409,7 @@ match one texel.
 <script type=idl>
 enum GPUFilterMode {
     "nearest",
-    "linear"
+    "linear",
 };
 </script>
 
@@ -2414,7 +2420,33 @@ enum GPUFilterMode {
 
     : <dfn>"linear"</dfn>
     ::
-        Select two texels in each dimension and return a linear interpolation between their values.
+        Select two texels in each dimension for the reduction operation.
+</dl>
+
+{{GPUReductionMode}} describes the operation a sampler does on multiple texels before it produces the result.
+
+<script type=idl>
+enum GPUReductionMode {
+    "weighted-average",
+    "minimum",
+    "maximum",
+};
+</script>
+
+<dl dfn-type="enum-value" dfn-for=GPUFilterMode>
+    : <dfn>"weighted-average"</dfn>
+    ::
+        Compute the weighted average of the texel values based on the position of a sample.
+
+    : <dfn>"minimum"</dfn>
+    ::
+        Compute the minimum between the texel values, component-wise.
+        Requires {{GPUFeatureName/"minmax-sampling"}} feature to be enabled.
+
+    : <dfn>"maximum"</dfn>
+    ::
+        Compute the maximum between the texel values, component-wise.
+        Requires {{GPUFeatureName/"minmax-sampling"}} feature to be enabled.
 </dl>
 
 {{GPUCompareFunction}} specifies the behavior of a comparison sampler. If a comparison sampler is
@@ -2483,6 +2515,12 @@ enum GPUCompareFunction {
         - |descriptor|.{{GPUSamplerDescriptor/lodMinClamp}} is greater than or equal to 0.
         - |descriptor|.{{GPUSamplerDescriptor/lodMaxClamp}} is greater than or equal to
             |descriptor|.{{GPUSamplerDescriptor/lodMinClamp}}.
+        - |descriptor|.{{GPUSamplerDescriptor/magFilter}} and |descriptor.{{GPUSamplerDescriptor/mipmapFilter}}
+            are either {{GPUFilterMode/"nearest"}} or {{GPUFilterMode/"linear"}}, independently.
+        - if |descriptor|.{{GPUSamplerDescriptor/reduction}} is not {{GPUReductionMode/"weighted-average"}},
+            then all of the following conditions are satisfied:
+            - |device|.{{device/[[features]]}} [=list/contains=] {{GPUFeatureName/"minmax-sampling"}}.
+            - |descriptor|.{{GPUSamplerDescriptor/compare}} is `null`.
 </div>
 
 <dl dfn-type=method dfn-for=GPUDevice>
@@ -2502,11 +2540,15 @@ enum GPUCompareFunction {
 
         1. Let |s| be a new {{GPUSampler}} object.
         1. Set |s|.{{GPUSampler/[[descriptor]]}} to |descriptor|.
-        1. Set |s|.{{GPUSampler/[[isComparison]]}} to `false` if the {{GPUSamplerDescriptor/compare}} attribute
-                of |s|.{{GPUSampler/[[descriptor]]}} is `null` or undefined. Otherwise, set it to `true`.
         1. Set |s|.{{GPUSampler/[[isFiltering]]}} to `false` if none of {{GPUSamplerDescriptor/minFilter}},
             {{GPUSamplerDescriptor/magFilter}}, or {{GPUSamplerDescriptor/mipmapFilter}} has the value of
             {{GPUFilterMode/"linear"}}. Otherwise, set it to `true`.
+        1. Set |s|.{{GPUSampler/[[isComparison]]}} to `false` if
+            |s|.{{GPUSampler/[[descriptor]]}}.{{GPUSamplerDescriptor/compare}} is `null` or undefined.
+            Otherwise, set it to `true`.
+        1. Set |s|.{{GPUSampler/[[isMinMax]]}} to `false` if
+            |s|.{{GPUSampler/[[descriptor]]}}.{{GPUSamplerDescriptor/reduction}} is {{GPUReductionMode/"weighted-average"}}.
+            Otherwise, set it to `true`.
         1. Return |s|.
 
         <div class=validusage dfn-for=GPUDevice.createSampler>
@@ -2626,8 +2668,8 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
         <td>[=internal usage/storage-read=]
 
     <tr>
-        <td rowspan=3>{{GPUBindGroupLayoutEntry/sampler}}
-        <td rowspan=3>{{GPUSampler}}
+        <td rowspan=4>{{GPUBindGroupLayoutEntry/sampler}}
+        <td rowspan=4>{{GPUSampler}}
         <td>{{GPUSamplerBindingType/"filtering"}}
         <td>[=internal usage/constant=]
     <tr>
@@ -2635,6 +2677,9 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
         <td>[=internal usage/constant=]
     <tr>
         <td>{{GPUSamplerBindingType/"comparison"}}
+        <td>[=internal usage/constant=]
+    <tr>
+        <td>{{GPUSamplerBindingType/"minmax"}}
         <td>[=internal usage/constant=]
 
     <tr>
@@ -2713,6 +2758,7 @@ enum GPUSamplerBindingType {
     "filtering",
     "non-filtering",
     "comparison",
+    "minmax",
 };
 
 dictionary GPUSamplerBindingLayout {
@@ -3026,15 +3072,25 @@ A {{GPUBindGroup}} object has the following internal slots:
                                             - If the [$layout entry binding type$] of |layoutBinding| is
                                                 <dl class="switch">
                                                     : {{GPUSamplerBindingType/"filtering"}}
-                                                    :: |resource|.{{GPUSampler/[[isComparison]]}} is `false`.
+                                                    ::
+                                                        |resource|.{{GPUSampler/[[isComparison]]}} is `false`.
+                                                        |resource|.{{GPUSampler/[[isMinMax]]}} is `false`.
 
                                                     : {{GPUSamplerBindingType/"non-filtering"}}
                                                     ::
                                                         |resource|.{{GPUSampler/[[isFiltering]]}} is `false`.
                                                         |resource|.{{GPUSampler/[[isComparison]]}} is `false`.
+                                                        |resource|.{{GPUSampler/[[isMinMax]]}} is `false`.
 
                                                     : {{GPUSamplerBindingType/"comparison"}}
-                                                    :: |resource|.{{GPUSampler/[[isComparison]]}} is `true`.
+                                                    ::
+                                                        |resource|.{{GPUSampler/[[isComparison]]}} is `true`.
+                                                        |resource|.{{GPUSampler/[[isMinMax]]}} is `false`.
+
+                                                    : {{GPUSamplerBindingType/"minmax"}}
+                                                    ::
+                                                        |resource|.{{GPUSampler/[[isComparison]]}} is `false`.
+                                                        |resource|.{{GPUSampler/[[isMinMax]]}} is `true`.
                                                 </dl>
 
                                         : {{GPUBindGroupLayoutEntry/texture}}
@@ -3584,6 +3640,8 @@ A {{GPUProgrammableStageDescriptor}} describes the entry point in the user-provi
                         :: the |binding| is a non-comparison sampler
                         : {{GPUSamplerBindingType/"comparison"}}
                         :: the |binding| is a comparison sampler
+                        : {{GPUSamplerBindingType/"minmax"}}
+                        :: the |binding| is a non-comparison sampler
                     </dl>
 
                 : {{GPUBindGroupLayoutEntry/texture}}
@@ -7369,6 +7427,22 @@ The following enums are supported if and only if the {{GPUFeatureName/"timestamp
         * {{GPUQueryType/"timestamp"}}
 </dl>
 
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>minmax-sampling</dfn> ## {#minmax-sampling}
+
+Allows for sampling modes that take the minimum or maximum of texture values.
+
+**Feature Enums**
+
+The following enums are supported if and only if the {{GPUFeatureName/"minmax-sampling"}}
+[=feature=] is enabled:
+
+<dl>
+    : {{GPUReductionMode}}
+    ::
+        * {{GPUReductionMode/"minimum"}}
+        * {{GPUReductionMode/"maximum"}}
+</dl>
+
 # Appendices # {#appendices}
 
 ## Texture Format Capabilities ## {#texture-format-caps}
@@ -7384,6 +7458,9 @@ Only formats with {{GPUTextureSampleType}} {{GPUTextureSampleType/"float"}} can 
 The {{GPUTextureUsage/STORAGE|GPUTextureUsage.STORAGE}} column specifies the support for {{GPUTextureUsage/STORAGE}}
 usage in the core API, including both {{GPUStorageTextureAccess/"read-only"}} and {{GPUStorageTextureAccess/"write-only"}}.
 
+The "Min/Max sampling" column specifies the support for sampling a {{GPUTextureView}} of the format with a {{GPUSampler}}
+bound as {{GPUSamplerBindingType/"minmax"}.
+
 <table class='data'>
     <thead class=stickyheader>
         <tr>
@@ -7391,6 +7468,7 @@ usage in the core API, including both {{GPUStorageTextureAccess/"read-only"}} an
             <th>{{GPUTextureSampleType}}
             <th>{{GPUTextureUsage/RENDER_ATTACHMENT}}
             <th>{{GPUTextureUsage/STORAGE}}
+            <th>Min/Max sampling
     </thead>
     <tr><th class=stickyheader>8-bit per component<th><th><th><th>
     <tr>
@@ -7398,29 +7476,35 @@ usage in the core API, including both {{GPUStorageTextureAccess/"read-only"}} an
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>
+        <td>&checkmark;
     <tr>
         <td>{{GPUTextureFormat/r8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>
         <td>
+        <td>&checkmark;
     <tr>
         <td>{{GPUTextureFormat/r8uint}}
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
+        <td>
         <td>
     <tr>
         <td>{{GPUTextureFormat/r8sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rg8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rg8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
+        <td>
         <td>
         <td>
     <tr>
@@ -7428,45 +7512,54 @@ usage in the core API, including both {{GPUStorageTextureAccess/"read-only"}} an
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rg8sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
+        <td>
         <td>
     <tr>
         <td>{{GPUTextureFormat/rgba8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba8unorm-srgb}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
+        <td>
         <td>
     <tr>
         <td>{{GPUTextureFormat/rgba8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba8uint}}
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba8sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/bgra8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>
+        <td>
     <tr>
         <td>{{GPUTextureFormat/bgra8unorm-srgb}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
+        <td>
         <td>
     <tr><th class=stickyheader>16-bit per component<th><th><th><th>
     <tr>
@@ -7474,102 +7567,122 @@ usage in the core API, including both {{GPUStorageTextureAccess/"read-only"}} an
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
+        <td>
     <tr>
         <td>{{GPUTextureFormat/r16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
+        <td>
         <td>
     <tr>
         <td>{{GPUTextureFormat/r16float}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rg16uint}}
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
+        <td>
         <td>
     <tr>
         <td>{{GPUTextureFormat/rg16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rg16float}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td><!-- Vulkan -->
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba16uint}}
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba16float}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr><th class=stickyheader>32-bit per component<th><th><th><th>
     <tr>
         <td>{{GPUTextureFormat/r32uint}}
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/r32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/r32float}}
         <td>{{GPUTextureSampleType/"unfilterable-float"}}<!-- Metal -->
         <td>&checkmark;
         <td>&checkmark;
+        <td>&checkmark; <!-- this is tricky in Vulkan -->
     <tr>
         <td>{{GPUTextureFormat/rg32uint}}
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rg32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rg32float}}
         <td>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba32uint}}
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rgba32float}}
         <td>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>&checkmark;
+        <td>
     <tr><th class=stickyheader>mixed component width<th><th><th><th>
     <tr>
         <td>{{GPUTextureFormat/rgb10a2unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>
+        <td>
     <tr>
         <td>{{GPUTextureFormat/rg11b10ufloat}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td><!-- Vulkan -->
+        <td>
         <td>
 
 </table>
@@ -7579,6 +7692,9 @@ usage in the core API, including both {{GPUStorageTextureAccess/"read-only"}} an
 All depth formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}}, {{GPUTextureUsage/SAMPLED}}, and {{GPUTextureUsage/RENDER_ATTACHMENT}} usage. However, the source/destination is restricted based on the format.
 
 None of the depth formats can be filtered.
+
+The {{GPUTextureAspect/"depth-only"}} aspect of all of the depth formats can be sampled
+with samplers bound as {{GPUSamplerBindingType/"minmax"}}.
 
 <table class='data'>
     <thead>
