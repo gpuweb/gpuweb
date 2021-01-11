@@ -425,7 +425,7 @@ how much the machine specifics are exposed. One strategy to reduce fingeprinting
 all the target platforms into a few number of bins. In general, the privacy impact of exposing
 the hardware limits matches the one of WebGL.
 
-The baseline (guaranteed) limits are also deliberately high enough
+The [=limit/default=] limits are also deliberately high enough
 to allow most application to work without requesting higher limits.
 All the usage of the API is validated according to the requested limits,
 so the actual hardware capabilities are not exposed to the users by accident.
@@ -784,36 +784,63 @@ For each [=subresource=] of a [=physical resource=], its set of
 Issue: This section will need to be revised to support multiple queues.
 
 On the [=Queue timeline=], there is an ordered sequence of [=usage scopes=].
-Each item on the timeline is contained within exactly one scope.
 For the duration of each scope, the set of [=internal usage=] flags of any given
 [=subresource=] is constant.
 A [=subresource=] may transition to new usages at the boundaries between [=usage scope=]s.
 
 This specification defines the following [=usage scopes=]:
-  1. an individual command on a {{GPUCommandEncoder}}, such as {{GPUCommandEncoder/copyBufferToTexture()|GPUCommandEncoder.copyBufferToTexture}}.
-  2. an individual command on a {{GPUComputePassEncoder}}, such as {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|GPUProgrammablePassEncoder.setBindGroup}}.
-  3. the whole {{GPURenderPassEncoder}}.
+
+- Outside of a pass (in {{GPUCommandEncoder}}), each (non-state-setting) command is one usage scope
+    (e.g. {{GPUCommandEncoder/copyBufferToTexture()}}).
+- In a compute pass, each dispatch command ({{GPUComputePassEncoder/dispatch()}} or
+    {{GPUComputePassEncoder/dispatchIndirect()}}) is one usage scope.
+    A subresource is "used" in the usage scope if it's accessible by the command.
+    Within a dispatch, every subresource in every currently bound {{GPUBindGroup}}
+    is "used" in the usage scope.
+    State-setting compute pass commands, like
+    {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}},
+    do not contribute directly to a usage scope; they instead change the
+    state that is checked in dispatch commands.
+- One render pass is one usage scope.
+    A subresource is "used" in the usage scope if it's referenced by any
+    (state-setting or non-state-setting) command. For example, in
+    {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}},
+    every subresource in `bindGroup` is "used" in the render pass's usage scope.
+
+Issue: The above should probably talk about [=GPU commands=]. But we don't have a way to
+reference specific GPU commands (like dispatch) yet.
 
 <div class=note>
-    Resources that are used in state setting calls are always added as used resources in the containing [=usage scope=].
-    This means the following example resource usages **are** included in usage scope validation:
+    The above rules mean the following example resource usages **are**
+    included in [=usage scope validation=]:
 
-    - Resources used in every {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|GPUProgrammablePassEncoder.setBindGroup}}
-        regardless of whether the shader or {{GPUPipelineLayout}} actually depends on these bindings, or the bind group is shadowed by another 'set' call.
-    - Vertex buffer used in every {{GPURenderEncoderBase/setVertexBuffer()|GPURenderEncoderBase.setVertexBuffer}}
-        regardless of whether draw call depends on this buffer, or this buffer is shadowed by another 'set' call.
-    - Index buffer used in every {{GPURenderEncoderBase/setIndexBuffer()|GPURenderEncoderBase.setIndexBuffer}}
-        regardless of whether draw call depends on this buffer, or this buffer is shadowed by another 'set' call.
-    - Textures used as color attachments, resolve attachments or depth/stencil attachment in {{GPURenderPassDescriptor}} by {{GPUCommandEncoder/beginRenderPass()|GPUCommandEncoder.beginRenderPass()}}
+    - In a render pass, subresources used in any
+        {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup()}}
+        call, regardless of whether the currently bound pipeline's
+        shader or layout actually depends on these bindings,
+        or the bind group is shadowed by another 'set' call.
+    - A buffer used in any {{GPURenderEncoderBase/setVertexBuffer()|setVertexBuffer()}}
+        call, regardless of whether any draw call depends on this buffer,
+        or this buffer is shadowed by another 'set' call.
+    - A buffer used in any {{GPURenderEncoderBase/setIndexBuffer()|setIndexBuffer()}}
+        call, regardless of whether any draw call depends on this buffer,
+        or this buffer is shadowed by another 'set' call.
+    - A texture subresource used as a color attachment, resolve attachment, or
+        depth/stencil attachment in {{GPURenderPassDescriptor}} by
+        {{GPUCommandEncoder/beginRenderPass()|beginRenderPass()}},
         regardless of whether the shader actually depends on these attachments.
-    - Resources used in bind group entries with visibility 0, or visible only to the the compute stage but used in a render pass or vice versa.
+    - Resources used in bind group entries with visibility 0, or visible only
+        to the compute stage but used in a render pass (or vice versa).
 </div>
 
-The [=usage scopes=] are validated at {{GPUCommandEncoder/finish()|GPUCommandEncoder.finish}} time.
-The implementation performs the <dfn dfn>usage scope validation</dfn> by composing
-the list of all [=internal usage=] flags of each [=subresource=] used in the [=usage scope=].
-A {{GPUValidationError}} is generated in the current scope with an appropriate error message
-if that list is not a [=compatible usage list=].
+During command encoding, every usage of a subresource is recorded in one of the
+[=usage scopes=] in the command buffer.
+For each [=usage scope=], the implementation performs
+<dfn dfn>usage scope validation</dfn> by composing the list of all
+[=internal usage=] flags of each [=subresource=] used in the [=usage scope=].
+If any of those lists is not a [=compatible usage list=],
+{{GPUCommandEncoder/finish()|GPUCommandEncoder.finish()}}
+generates a {{GPUValidationError}} in the current error scope.
 
 
 ## Core Internal Objects ## {#core-internal-objects}
@@ -842,15 +869,16 @@ configuration (e.g. if the GPU was reset or disconnected and reconnected).
 An [=adapter=] has the following internal slots:
 
 <dl dfn-type=attribute dfn-for=adapter>
-    : <dfn>\[[features]]</dfn>, of type [=list=]&lt;{{GPUFeatureName}}&gt;, readonly
+    : <dfn>\[[features]]</dfn>, of type [=ordered set=]&lt;{{GPUFeatureName}}&gt;, readonly
     ::
         The [=features=] which can be used to create devices on this adapter.
 
-    : <dfn>\[[limits]]</dfn>, of type {{GPULimits}}, readonly
+    : <dfn>\[[limits]]</dfn>, of type [=supported limits=], readonly
     ::
         The [=limit/better|best=] limits which can be used to create devices on this adapter.
 
-        Each adapter limit must be the same or [=limit/better=] than its default value in {{GPULimits}}.
+        Each adapter limit must be the same or [=limit/better=] than its default value
+        in [=supported limits=].
 </dl>
 
 [=Adapters=] are exposed via {{GPUAdapter}}.
@@ -875,28 +903,32 @@ A [=device=] has the following internal slots:
     ::
         The [=adapter=] from which this device was created.
 
-    : <dfn>\[[features]]</dfn>, of type [=list=]&lt;{{GPUFeatureName}}&gt;, readonly
+    : <dfn>\[[features]]</dfn>, of type [=ordered set=]&lt;{{GPUFeatureName}}&gt;, readonly
     ::
         The [=features=] which can be used on this device.
         No additional features can be used, even if the underlying [=adapter=] can support them.
 
-    : <dfn>\[[limits]]</dfn>, of type {{GPULimits}}, readonly
+    : <dfn>\[[limits]]</dfn>, of type [=supported limits=], readonly
     ::
         The limits which can be used on this device.
         No [=limit/better=] limits can be used, even if the underlying [=adapter=] can support them.
 </dl>
 
+Issue: [=device=] is already an internal concept. Having slots be marked as internal is redundant
+and adds extra `[[`/`]]` in spec text. Consider removing the brackets.
+
 <div algorithm>
     When <dfn dfn>a new device</dfn> |device| is created from [=adapter=] |adapter|
     with {{GPUDeviceDescriptor}} |descriptor|:
 
-    1. Set |device|.{{device/[[adapter]]}} to |adapter|.
+    - Set |device|.{{device/[[adapter]]}} to |adapter|.
 
-    1. Set |device|.{{device/[[features]]}} to
+    - Set |device|.{{device/[[features]]}} to the [=ordered set|set=] of values in
         |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedFeatures}}.
 
-    1. Set |device|.{{device/[[limits]]}} to
-        |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedLimits}}.
+    - Let |device|.{{device/[[limits]]}} be a [=supported limits=] object with the default values.
+        For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedLimits}}, set the
+        member corresponding to |key| in |device|.{{device/[[limits]]}} to the value |value|.
 </div>
 
 [=Devices=] are exposed via {{GPUDevice}}.
@@ -923,8 +955,10 @@ for a description of the functionality each feature enables.
 ### Limits ### {#limits}
 
 Each <dfn dfn>limit</dfn> is a numeric limit on the usage of WebGPU on a device.
-Each [=adapter=] has a set of supported limits, and
-[=devices=] are created with specific limits in place.
+
+A <dfn dfn>supported limits</dfn> object has a value for every defined limit.
+Each [=adapter=] has a set of [=supported limits=], and
+[=devices=] are {{GPUDeviceDescriptor/nonGuaranteedLimits|created}} with specific [=supported limits=] in place.
 The device limits are enforced regardless of the adapter's limits.
 
 One limit value may be <dfn dfn for=limit>better</dfn> than another.
@@ -937,15 +971,38 @@ Because of this, and to improve portability across devices and implementations,
 applications should generally request the "worst" limits that work for their content
 (ideally, the default values).
 
-Each limit also has a <dfn dfn for=limit>baseline</dfn> value.
-Every [=adapter=] is guaranteed to support the baseline value or [=limit/better=].
-The baseline value is also the default value for the limit in {{GPULimits}} if
-a better limit is not specified.
+Each limit also has a <dfn dfn for=limit>default</dfn> value.
+Every [=adapter=] is guaranteed to support the default value or [=limit/better=].
+The default is used if a value is not explicitly specified in {{GPUDeviceDescriptor/nonGuaranteedLimits}}.
 
-<table class="data no-colspan-center" dfn-type=dict-member dfn-for=GPULimits>
+<table class="data no-colspan-center" dfn-type=attribute dfn-for="supported limits">
     <thead>
-        <tr><th>{{GPULimits}} member <th>Type <th>[=limit/Better=] <th>[=limit/Baseline=]
+        <tr><th>Limit name <th>Type <th>[=limit/Better=] <th>[=limit/Default=]
     </thead>
+
+    <tr><td><dfn>maxTextureDimension1D</dfn>
+        <td>{{GPUSize32}} <td>Higher <td>8192
+    <tr class=row-continuation><td colspan=4>
+        The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=Extent3D/width=]
+        of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"1d"}}.
+
+    <tr><td><dfn>maxTextureDimension2D</dfn>
+        <td>{{GPUSize32}} <td>Higher <td>8192
+    <tr class=row-continuation><td colspan=4>
+        The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=Extent3D/width=] and {{GPUTextureDescriptor/size}}.[=Extent3D/height=]
+        of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"2d"}}.
+
+    <tr><td><dfn>maxTextureDimension3D</dfn>
+        <td>{{GPUSize32}} <td>Higher <td>2048
+    <tr class=row-continuation><td colspan=4>
+        The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=Extent3D/width=], {{GPUTextureDescriptor/size}}.[=Extent3D/height=] and {{GPUTextureDescriptor/size}}.[=Extent3D/depth=]
+        of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"3d"}}.
+
+    <tr><td><dfn>maxTextureArrayLayers</dfn>
+        <td>{{GPUSize32}} <td>Higher <td>2048
+    <tr class=row-continuation><td colspan=4>
+        The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=Extent3D/depth=]
+        of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"1d"}} or {{GPUTextureDimension/"2d"}}.
 
     <tr><td><dfn>maxBindGroups</dfn>
         <td>{{GPUSize32}} <td>Higher <td>4
@@ -1068,29 +1125,30 @@ a better limit is not specified.
         when creating a {{GPURenderPipeline}}.
 </table>
 
-#### <dfn dictionary>GPULimits</dfn> #### {#gpulimits}
+#### <dfn interface>GPUAdapterLimits</dfn> #### {#gpu-adapterlimits}
 
-{{GPULimits}} describes the [=limits=] with which a device should be created.
-See {{GPUDeviceDescriptor/nonGuaranteedLimits|GPUDeviceDescriptor.nonGuaranteedLimits}}.
-
-It also exposes the [=limits=] supported by an adapter.
+{{GPUAdapterLimits}} exposes the [=limits=] supported by an adapter.
 See {{GPUAdapter/limits|GPUAdapter.limits}}.
 
 <script type=idl>
-dictionary GPULimits {
-    GPUSize32 maxBindGroups = 4;
-    GPUSize32 maxDynamicUniformBuffersPerPipelineLayout = 8;
-    GPUSize32 maxDynamicStorageBuffersPerPipelineLayout = 4;
-    GPUSize32 maxSampledTexturesPerShaderStage = 16;
-    GPUSize32 maxSamplersPerShaderStage = 16;
-    GPUSize32 maxStorageBuffersPerShaderStage = 4;
-    GPUSize32 maxStorageTexturesPerShaderStage = 4;
-    GPUSize32 maxUniformBuffersPerShaderStage = 12;
-    GPUSize32 maxUniformBufferBindingSize = 16384;
-    GPUSize32 maxStorageBufferBindingSize = 134217728;
-    GPUSize32 maxVertexBuffers = 8;
-    GPUSize32 maxVertexAttributes = 16;
-    GPUSize32 maxVertexBufferArrayStride = 2048;
+interface GPUAdapterLimits {
+    readonly attribute GPUSize32 maxTextureDimension1D;
+    readonly attribute GPUSize32 maxTextureDimension2D;
+    readonly attribute GPUSize32 maxTextureDimension3D;
+    readonly attribute GPUSize32 maxTextureArrayLayers;
+    readonly attribute GPUSize32 maxBindGroups;
+    readonly attribute GPUSize32 maxDynamicUniformBuffersPerPipelineLayout;
+    readonly attribute GPUSize32 maxDynamicStorageBuffersPerPipelineLayout;
+    readonly attribute GPUSize32 maxSampledTexturesPerShaderStage;
+    readonly attribute GPUSize32 maxSamplersPerShaderStage;
+    readonly attribute GPUSize32 maxStorageBuffersPerShaderStage;
+    readonly attribute GPUSize32 maxStorageTexturesPerShaderStage;
+    readonly attribute GPUSize32 maxUniformBuffersPerShaderStage;
+    readonly attribute GPUSize32 maxUniformBufferBindingSize;
+    readonly attribute GPUSize32 maxStorageBufferBindingSize;
+    readonly attribute GPUSize32 maxVertexBuffers;
+    readonly attribute GPUSize32 maxVertexAttributes;
+    readonly attribute GPUSize32 maxVertexBufferArrayStride;
 };
 </script>
 
@@ -1267,7 +1325,7 @@ To get a {{GPUAdapter}}, use {{GPU/requestAdapter()}}.
 interface GPUAdapter {
     readonly attribute DOMString name;
     [SameObject] readonly attribute GPUAdapterFeatures features;
-    readonly attribute GPULimits limits;
+    [SameObject] readonly attribute GPUAdapterLimits limits;
 
     Promise<GPUDevice?> requestDevice(optional GPUDeviceDescriptor descriptor = {});
 };
@@ -1288,8 +1346,6 @@ interface GPUAdapter {
     : <dfn>limits</dfn>
     ::
         The limits in `this`.{{GPUAdapter/[[adapter]]}}.{{adapter/[[limits]]}}.
-
-        TODO: Should this be an `interface GPUAdapterLimits` or `GPUSupportedLimits`?
 </dl>
 
 {{GPUAdapter}} has the following internal slots:
@@ -1318,29 +1374,29 @@ interface GPUAdapter {
             **Returns:** {{Promise}}&lt;{{GPUDevice}}?&gt;
 
             1. Let |promise| be [=a new promise=].
+            1. Let |adapter| be |this|.{{GPUAdapter/[[adapter]]}}.
             1. Issue the following steps to the [=Device timeline=]:
                 <div class=device-timeline>
-                    1. If any of the following conditions are unsatisfied,
+                    1. If any of the following requirements are unmet,
+                        [=reject=] |promise| with a {{TypeError}} and stop.
+
+                        <div class=validusage>
+                            - The set of values in |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedFeatures}}
+                                must be a subset of those in |adapter|.{{adapter/[[features]]}}.
+
+                            - Each key in |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedLimits}}
+                                must be the name of a member of [=supported limits=].
+                        </div>
+
+                    1. If any of the following requirements are unmet,
                         [=reject=] |promise| with an {{OperationError}} and stop.
 
                         <div class=validusage>
-                            - The set of {{GPUFeatureName}} values in
-                                |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedFeatures}}
-                                is a subset of those in
-                                |adapter|.{{adapter/[[features]]}}.
-
-                            - For each type of limit in {{GPULimits}},
-                                the value of that limit in
-                                |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedLimits}}
-                                is no [=limit/better=] than the value of that limit in
+                            - For each type of limit in [=supported limits=], the value of that
+                                limit in |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedLimits}}
+                                must be no [=limit/better=] than the value of that limit in
                                 |adapter|.{{adapter/[[limits]]}}.
-
-                            where |adapter| is |this|.{{GPUAdapter/[[adapter]]}}.
                         </div>
-
-                        Issue: This slightly distinguishes features unsupported by the adapter from
-                        features unrecognized by the UA. Should this be TypeError to match
-                        [WebIDL's enum conversion](https://heycam.github.io/webidl/#es-enumeration)?
 
                     1. If the user agent cannot fulfill the request,
                         [=resolve=] |promise| to `null` and stop.
@@ -1360,7 +1416,7 @@ interface GPUAdapter {
 <script type=idl>
 dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
     sequence<GPUFeatureName> nonGuaranteedFeatures = [];
-    GPULimits nonGuaranteedLimits = {};
+    record<DOMString, GPUSize32> nonGuaranteedLimits = {};
 };
 </script>
 
@@ -1375,9 +1431,12 @@ dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
     : <dfn>nonGuaranteedLimits</dfn>
     ::
         Defines the exact [=limits=] that must be enabled on the device.
+        Each key must be the name of a member of [=supported limits=].
 
-        Issue: This needs to be a `record<DOMString, any>`, so the UA can detect
-        requests for unrecognized limit names.
+        <!-- If we ever need limit types other than GPUSize32, we can change the value type to
+        `double` or `any` in the future and write out the type conversion explicitly (by reference
+        to WebIDL spec). Or change the entire type to `any` and add back a `dictionary GPULimits`
+        and define the conversion of the whole object by reference to WebIDL. -->
 </dl>
 
 #### <dfn enum>GPUFeatureName</dfn> #### {#gpufeaturename}
@@ -1976,7 +2035,7 @@ dictionary GPUTextureDescriptor : GPUObjectDescriptorBase {
 enum GPUTextureDimension {
     "1d",
     "2d",
-    "3d"
+    "3d",
 };
 </script>
 
@@ -2250,7 +2309,7 @@ The depth aspect of the {{GPUTextureFormat/"depth24plus"}}) and {{GPUTextureForm
 formats may be implemented as either a 24-bit unsigned normalized value ("depth24unorm")
 or a 32-bit IEEE 754 floating point value ("depth32float").
 
-Issue: add something on GPULimits that gives an estimate of the bytes per texel of "stencil8"
+Issue: add something on GPUAdapter(?) that gives an estimate of the bytes per texel of "stencil8"
 
 The {{GPUTextureFormat/stencil8}}) format may be implemented as
 either a real "stencil8", or "depth24stencil8", where the depth aspect is
@@ -2331,7 +2390,6 @@ dictionary GPUSamplerDescriptor : GPUObjectDescriptorBase {
 - If {{GPUSamplerDescriptor/compare}} is provided, the sampler will be a comparison sampler with the specified
     {{GPUCompareFunction}}.
 - {{GPUSamplerDescriptor/maxAnisotropy}} specifies the maximum anisotropy value clamp used by the sampler.
-    - It must be &ge; 1.
 
     Note: most implementations support {{GPUSamplerDescriptor/maxAnisotropy}} values in range between 1 and 16, inclusive.
 
@@ -2452,6 +2510,10 @@ enum GPUCompareFunction {
         - |descriptor|.{{GPUSamplerDescriptor/lodMinClamp}} is greater than or equal to 0.
         - |descriptor|.{{GPUSamplerDescriptor/lodMaxClamp}} is greater than or equal to
             |descriptor|.{{GPUSamplerDescriptor/lodMinClamp}}.
+        - |descriptor|.{{GPUSamplerDescriptor/maxAnisotropy}} is greater than or equal to 1.
+        - When |descriptor|.{{GPUSamplerDescriptor/maxAnisotropy}} is greater than 1,
+            |descriptor|.{{GPUSamplerDescriptor/magFilter}}, |descriptor|.{{GPUSamplerDescriptor/minFilter}},
+            and |descriptor|.{{GPUSamplerDescriptor/mipmapFilter}} must be equal to {{GPUFilterMode/"linear"}}.
 </div>
 
 <dl dfn-type=method dfn-for=GPUDevice>
@@ -2804,6 +2866,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
             **Returns:** {{GPUBindGroupLayout}}
 
             1. Let |layout| be a new valid {{GPUBindGroupLayout}} object.
+            1. Let |limits| be |this|.{{GPUDevice/[[device]]}}.{{device/[[limits]]}}.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
                     1. If any of the following conditions are unsatisfied:
@@ -2812,25 +2875,25 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                             - The {{GPUBindGroupLayoutEntry/binding}} of each entry in |descriptor| is unique.
                             - For each shader stage, the number of entries in |descriptor| with a [$layout entry binding type$] of
                                 {{GPUBufferBindingType/"uniform"}} &le;
-                                {{GPULimits/maxUniformBuffersPerShaderStage|GPULimits.maxUniformBuffersPerShaderStage}}.
+                                |limits|.{{supported limits/maxUniformBuffersPerShaderStage}}.
                             - For each shader stage, the number of entries in |descriptor| with a [$layout entry binding type$] of
                                 {{GPUBufferBindingType/"storage"}} &le;
-                                {{GPULimits/maxStorageBuffersPerShaderStage|GPULimits.maxStorageBuffersPerShaderStage}}.
+                                |limits|.{{supported limits/maxStorageBuffersPerShaderStage}}.
                             - For each shader stage, the number of entries in |descriptor| with a [=binding member=] of
                                 {{GPUBindGroupLayoutEntry/texture}} &le;
-                                {{GPULimits/maxSampledTexturesPerShaderStage|GPULimits.maxSampledTexturesPerShaderStage}}.
+                                |limits|.{{supported limits/maxSampledTexturesPerShaderStage}}.
                             - For each shader stage, the number of entries in |descriptor| with a [=binding member=] of
                                 {{GPUBindGroupLayoutEntry/storageTexture}} &le;
-                                {{GPULimits/maxStorageTexturesPerShaderStage|GPULimits.maxStorageTexturesPerShaderStage}}.
+                                |limits|.{{supported limits/maxStorageTexturesPerShaderStage}}.
                             - For each shader stage, the number of entries in |descriptor| with a [=binding member=] of
                                 {{GPUBindGroupLayoutEntry/sampler}} &le;
-                                {{GPULimits/maxSamplersPerShaderStage|GPULimits.maxSamplersPerShaderStage}}.
+                                |limits|.{{supported limits/maxSamplersPerShaderStage}}.
                             - The number of entries in |descriptor| with a [$layout entry binding type$] of
                                 {{GPUBufferBindingType/"uniform"}} and {{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/hasDynamicOffset}} `true` &le;
-                                {{GPULimits/maxDynamicUniformBuffersPerPipelineLayout|GPULimits.maxDynamicUniformBuffersPerPipelineLayout}}.
+                                |limits|.{{supported limits/maxDynamicUniformBuffersPerPipelineLayout}}.
                             - The number of entries in |descriptor| with a [$layout entry binding type$] of
                                 {{GPUBufferBindingType/"storage"}} and {{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/hasDynamicOffset}} `true` &le;
-                                {{GPULimits/maxDynamicStorageBuffersPerPipelineLayout|GPULimits.maxDynamicStorageBuffersPerPipelineLayout}}.
+                                |limits|.{{supported limits/maxDynamicStorageBuffersPerPipelineLayout}}.
 
                             - For each {{GPUBindGroupLayoutEntry}} |bindingDescriptor| in |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
                                 - Let |bufferLayout| be |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}}
@@ -2966,6 +3029,7 @@ A {{GPUBindGroup}} object has the following internal slots:
             **Returns:** {{GPUBindGroup}}
 
             1. Let |bindGroup| be a new valid {{GPUBindGroup}} object.
+            1. Let |limits| be |this|.{{GPUDevice/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxUniformBufferBindingSize}}.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
                     1. If any of the following conditions are unsatisfied:
@@ -3048,7 +3112,8 @@ A {{GPUBindGroup}} object has the following internal slots:
                                                     : {{GPUBufferBindingType/"uniform"}}
                                                     :: |resource|.{{GPUBufferBinding/buffer}}.{{GPUBufferDescriptor/usage}}
                                                         includes {{GPUBufferUsage/UNIFORM}}.
-                                                    :: |resource|.{{GPUBufferBinding/size}} &le; {{GPULimits/maxUniformBufferBindingSize}}.
+                                                    :: |resource|.{{GPUBufferBinding/size}} &le;
+                                                        |limits|.{{supported limits/maxUniformBufferBindingSize}}.
                                                     :: Issue: This validation should take into account the default when  {{GPUBufferBinding/size}} is not set.
                                                         Also should {{GPUBufferBinding/size}} default to the `buffer.byteLength - offset` or
                                                         `min(buffer.byteLength - offset, limits.maxUniformBufferBindingSize)`?
@@ -3057,7 +3122,8 @@ A {{GPUBindGroup}} object has the following internal slots:
                                                         {{GPUBufferBindingType/"read-only-storage"}}
                                                     :: |resource|.{{GPUBufferBinding/buffer}}.{{GPUBufferDescriptor/usage}}
                                                         includes {{GPUBufferUsage/STORAGE}}.
-                                                    :: |resource|.{{GPUBufferBinding/size}} &le; {{GPULimits/maxStorageBufferBindingSize}}.
+                                                    :: |resource|.{{GPUBufferBinding/size}} &le;
+                                                        |limits|.{{supported limits/maxStorageBufferBindingSize}}.
                                                 </dl>
 
                                     </dl>
@@ -3163,8 +3229,10 @@ dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
             1. If any of the following conditions are unsatisfied:
                 <div class=validusage>
                     - |this| is a [=valid=] {{GPUDevice}}.
-                    - There is {{GPULimits/maxBindGroups|GPULimits.maxBindGroups}} or fewer
-                        elements in |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}.
+                    - There are
+                        |this|.{{GPUDevice/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}
+                        or fewer elements in
+                        |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}.
                     - Every {{GPUBindGroupLayout}} in |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
                         is [$valid to use with$] |this|.
                 </div>
@@ -3331,7 +3399,8 @@ interface mixin GPUPipelineBase {
 
             **Returns:** {{GPUBindGroupLayout}}
 
-            1. If |index| is greater or equal to {{GPULimits/maxBindGroups}}:
+            1. If |index| &ge;
+                |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}:
                 1. Throw a {{RangeError}}.
 
             1. If |this| is not [=valid=]:
@@ -3355,7 +3424,7 @@ has a default layout created and used instead.
 
 <div algorithm="default pipeline layout creation">
 
-    1. Let |groupDescs| be a sequence of |device|.{{device/[[limits]]}}.{{GPULimits/maxBindGroups}}
+    1. Let |groupDescs| be a sequence of |device|.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}
         new {{GPUBindGroupLayoutDescriptor}} objects.
     1. For each |groupDesc| in |groupDescs|:
 
@@ -4270,15 +4339,16 @@ dictionary GPUVertexAttributeDescriptor {
 </script>
 
 <div algorithm>
-    <dfn abstract-op>validating GPUVertexBufferLayoutDescriptor</dfn>(descriptor, vertexStage)
+    <dfn abstract-op>validating GPUVertexBufferLayoutDescriptor</dfn>(device, descriptor, vertexStage)
     **Arguments:**
+        - {{GPUDevice}} |device|
         - {{GPUVertexBufferLayoutDescriptor}} |descriptor|
         - {{GPUProgrammableStageDescriptor}} |vertexStage|
 
     Return `true`, if and only if, all of the following conditions are satisfied:
 
         1. |descriptor|.{{GPUVertexBufferLayoutDescriptor/arrayStride}} is less than or equal to
-            {{GPULimits/maxVertexBufferArrayStride|GPULimits.maxVertexBufferArrayStride}}.
+            |device|.{{GPUDevice/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexBufferArrayStride}}.
         1. Any attribute |at| in the list |descriptor|.{{GPUVertexBufferLayoutDescriptor/attributes}} has
             |at|.{{GPUVertexAttributeDescriptor/offset}} + sizeOf(|at|.{{GPUVertexAttributeDescriptor/format}}) less or equal to
             |descriptor|.{{GPUVertexBufferLayoutDescriptor/arrayStride}}.
@@ -4290,20 +4360,22 @@ dictionary GPUVertexAttributeDescriptor {
 </div>
 
 <div algorithm>
-    <dfn abstract-op>validating GPUVertexStateDescriptor</dfn>(descriptor, vertexStage)
+    <dfn abstract-op>validating GPUVertexStateDescriptor</dfn>(device, descriptor, vertexStage)
     **Arguments:**
+        - {{GPUDevice}} |device|
         - {{GPUVertexStateDescriptor}} |descriptor|
         - {{GPUProgrammableStageDescriptor}} |vertexStage|
 
     Return `true`, if and only if, all of the following conditions are satisfied:
 
         1. |descriptor|.{{GPUVertexStateDescriptor/vertexBuffers}}.length is less than or equal to
-            {{GPULimits/maxVertexBuffers|GPULimits.maxVertexBuffers}}
+            |device|.{{GPUDevice/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexBuffers}}.
         1. Each |vertexBuffer| layout descriptor in the list |descriptor|.{{GPUVertexStateDescriptor/vertexBuffers}}
-            passes [$validating GPUVertexBufferLayoutDescriptor$](|vertexBuffer|, |vertexStage|)
+            passes [$validating GPUVertexBufferLayoutDescriptor$](|device|, |vertexBuffer|, |vertexStage|)
         1. The sum of |vertexBuffer|.{{GPUVertexBufferLayoutDescriptor/attributes}}.length,
             over every |vertexBuffer| in |descriptor|.{{GPUVertexStateDescriptor/vertexBuffers}},
-            is less than or equal to {{GPULimits/maxVertexAttributes|GPULimits.maxVertexAttributes}}.
+            is less than or equal to
+            |device|.{{GPUDevice/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexAttributes}}.
         1. Each |at| in the union of all {{GPUVertexAttributeDescriptor}}
             across |descriptor|.{{GPUVertexStateDescriptor/vertexBuffers}} has a distinct
             |at|.{{GPUVertexAttributeDescriptor/shaderLocation}} value.
@@ -4790,8 +4862,6 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
             - |widthInBlocks| be |copyExtent|.[=Extent3D/width=] &divide; |blockWidth|.
             - |heightInBlocks| be |copyExtent|.[=Extent3D/height=] &divide; |blockHeight|.
             - |bytesInLastRow| be |blockSize| &times; |widthInBlocks|.
-            - |bytesPerImage| be |layout|.{{GPUTextureDataLayout/bytesPerRow}} &times;
-                |layout|.{{GPUTextureDataLayout/rowsPerImage}}.
 
     1. Fail if the following conditions are not satisfied:
         <div class=validusage>
@@ -4808,16 +4878,23 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
 
     1. Let |requiredBytesInCopy| be 0.
 
-    1. If |copyExtent|.[=Extent3D/depth=] &gt; 0:
+    1. If |copyExtent|.[=Extent3D/depth=] &gt; 1:
+        1. Let |bytesPerImage| be
+            |layout|.{{GPUTextureDataLayout/bytesPerRow}} &times;
+            |layout|.{{GPUTextureDataLayout/rowsPerImage}}.
         1. Let |bytesBeforeLastImage| be
-            |bytesPerImage| &times; (|copyExtent|.[=Extent3D/depth=] &minus; 1)
+            |bytesPerImage| &times; (|copyExtent|.[=Extent3D/depth=] &minus; 1).
         1. Add |bytesBeforeLastImage| to |requiredBytesInCopy|.
 
-        1. If |heightInBlocks| &gt; 0:
-            1. Let |bytesInLastImage| be
-                |layout|.{{GPUTextureDataLayout/bytesPerRow}} &times;
-                (|heightInBlocks| &minus; 1) + |bytesInLastRow|.
-            1. Add |bytesInLastImage| to |requiredBytesInCopy|.
+    1. If |copyExtent|.[=Extent3D/depth=] &gt; 0:
+
+        1. If |heightInBlocks| &gt; 1, add
+            |layout|.{{GPUTextureDataLayout/bytesPerRow}} &times;
+            (|heightInBlocks| &minus; 1)
+            to |requiredBytesInCopy|.
+
+        1. If |heightInBlocks| &gt; 0, add
+            |bytesInLastRow| to |requiredBytesInCopy|.
 
     1. Fail if the following conditions are not satisfied:
         <div class=validusage>
@@ -5254,7 +5331,7 @@ interface mixin GPUProgrammablePassEncoder {
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |bindGroup| is [$valid to use with$] |this|.
-                        - |index| &lt; {{GPULimits/maxBindGroups|GPULimits.maxBindGroups}}.
+                        - |index| &lt; |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}.
                         - |dynamicOffsets|.length is
                             |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}}.
 
@@ -5297,7 +5374,7 @@ interface mixin GPUProgrammablePassEncoder {
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |bindGroup| is [$valid to use with$] |this|.
-                        - |index| &lt; {{GPULimits/maxBindGroups|GPULimits.maxBindGroups}}.
+                        - |index| &lt; |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}.
                         - |dynamicOffsetsDataLength| is
                             |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}}.
                         - |dynamicOffsetsDataStart| + |dynamicOffsetsDataLength| &le; |dynamicOffsetsData|.length.
@@ -6044,7 +6121,7 @@ enum GPUStoreOp {
                     <div class=validusage>
                         - |buffer| is [$valid to use with$] |this|.
                         - |buffer|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/VERTEX}}.
-                        - |slot| &lt; {{GPULimits/maxVertexBuffers|GPULimits.maxVertexBuffers}}.
+                        - |slot| &lt; |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexBuffers}}.
                         - |offset| + |size| &le; |buffer|.{{GPUBuffer/[[size]]}}.
                     </div>
                 1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
@@ -6717,6 +6794,7 @@ GPUQueue includes GPUObjectBase;
             If any of the following conditions are unsatisfied, throw an {{OperationError}} and stop.
             <div class=validusage>
                 - |copySize|.[=Extent3D/depth=] is `1`.
+                - |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[dimension]]}} is {{GPUTextureDimension/"2d"}}.
                 - |destination|.{{GPUTextureCopyView/texture}}.{{GPUTexture/[[format]]}} is one of the following:
                     - {{GPUTextureFormat/"rgba8unorm"}}
                     - {{GPUTextureFormat/"rgba8unorm-srgb"}}
