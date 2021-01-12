@@ -31,33 +31,33 @@ passed into `o.f`.
     E.g.:
     * If a parameter is passed in which doesn't match the type declared by the WebIDL.
 
-* If the method `o.f` is part of a disabled extension: Error **must** be synchronous.
-    * If the extension is *known but disabled*, `o.f` can be called, but
+* If the method `o.f` is part of a disabled feature: Error **must** be synchronous.
+    * If the feature is *known but disabled*, `o.f` can be called, but
       throws an exception (in the implementation).
-    * If the extension is *unknown*, `o.f` is `undefined`;
+    * If the feature is *unknown*, `o.f` is `undefined`;
       calling `undefined` throws an exception.
 
 * If the method `o.f` is available, but would return an instance of an
-  interface defined in a disabled extension: Error **must** be synchronous.
+  interface defined in a disabled feature: Error **must** be synchronous.
     * (We probably won't have this case anyway.)
 
 * If `o` **is** an interface (not an instance) that is defined in a disabled
-  extension: Error **must** be synchronous. However, note that the behavior
+  feature: Error **must** be synchronous. However, note that the behavior
   cannot match exactly:
-    * If the extension is *known but disabled*, `o.f` can be called, but
+    * If the feature is *known but disabled*, `o.f` can be called, but
       throws an exception (in the implementation).
-    * If the extension is *unknown*, `o` is not defined, so accessing `o`
+    * If the feature is *unknown*, `o` is not defined, so accessing `o`
       throws an exception (and accessing `window.o` gives `undefined`).
 
 * If any object in `A` contains any key that is not core or part of an enabled
-  extension: Error **must** be synchronous.
+  feature: Error **must** be synchronous.
     * This is explicitly made more strict than the usual WebIDL dictionary
       binding rules.
 
-* If any object in `A` is missing a required key (given current extensions): Error **must** be synchronous.
+* If any object in `A` is missing a required key (given current features): Error **must** be synchronous.
 
 * Validation which depends only on individual primitives (e.g. `Number`s) in
-  `A`, `device.limits`, and `device.extensions`:
+  `A`, `device.limits`, and `device.features`:
   Error **should (but may not)** be synchronous.
   E.g.:
     * A `Number` exceeds the associated entry in `limits`.
