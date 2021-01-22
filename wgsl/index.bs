@@ -255,13 +255,8 @@ Issue: (dneto) complete
 Much of it can be bottom-up, like usual.
 
 The interesting bit is that the type of a pointer expression is either straightforward pointer
-type itself, or the pointee type, depending on its [[#pointer-evaluation]] context:
-
-* In Indexing, Assigning (LValue), and Copying contexts, the pointer expression denotes a pointer value.
-* In a Parameter context:
- * If the parameter type matches the pointer expression's straightforward pointer type, then the expression denotes that pointer type.
- * Otherwise the pointer expression denotes a value of the pointee type, being the value loaded (at that time) from the referenced storage.
-* In a Reading (RValue) context, the pointer expression denotes a value of the pointee type.
+type itself, or the pointee type, depending on its pointer evaluation context.
+See the [=Load Rule=].
 
 ### How to read type-checking rules ### {#type-check-how-to-read}
 
@@ -1152,86 +1147,365 @@ Therefore, a data value must not be placed in the padding at the end of a struct
 nor in the padding at the last element of an array.
 Counting such padding as part of the size allows [SHORTNAME] to capture this constraint.
 
-## Pointer Types TODO ## {#pointer-types}
+## Pointer Types ## {#pointer-types}
+
+A <dfn noexport>pointer</dfn> is a value which references storage containing another value.
+
+A <dfn noexport>pointer type</dfn> is the set of pointer values for holding
+a value of a particular [=storable=] type, using memory locations in a particular [=storage class=].
+
 <table class='data'>
   <thead>
     <tr><th>Type<th>Description
   </thead>
-  <tr><td>ptr<*SC*,*T*><td>Pointer (or reference) to storage in [=storage class=] *SC*
-                            which can hold a value of the [=storable=] *T*.
-                            Here, *T* is the known as the *pointee* type.
+  <tr algorithm="pointer type">
+    <td>ptr&lt;|SC|,|T|&gt;
+    <td>Pointer (or reference) to storage in [=storage class=] |SC|
+        which can hold a value of the [=storable=] type |T|.
+        Here, |T| is the known as the <dfn noexport>pointee type</dfn>.
 </table>
 
-Note: We've described a SPIR-V logical pointer type.
-
-Note: Pointers are not storable.
-
-<div class='example wgsl' heading='Pointer'>
+<div class='example wgsl' heading='Pointer type (program fragment)'>
   <xmp highlight='rust'>
-    ptr<storage, i32>
-    ptr<private, array<i32, 12>>
+    // The type of of a pointer value that references storage for keeping
+    // an 'i32' value, using memory locations in the 'uniform' storage class.
+    // Here 'i32' is the pointee type.
+    ptr<uniform, i32>              // Note: This is not a valid expression on its own.
+
+    // The type of a pointer value that references storage for keeping an array
+    // of 50 elements of type 'f32', using memory locations in the 'private'
+    // storage class.
+    // Here the pointee type is 'array<f32,50>'.
+    ptr<private, array<f32, 50>>   // Note: This is not a valid expression on its own.
   </xmp>
 </div>
 
-### Abstract Operations on Pointers TODO ### {#abstract-pointer-operations}
+### Forming a pointer value ### {#forming-a-pointer-value}
 
-A pointer value *P* supports the following operations:
+When evaluating an expression, a pointer value is formed in one of the
+following ways:
 
-<table class='data'>
-  <tr><td>P.Write(V)<td>Place a value V into the referenced storage.
-               V’s type must match P’s pointee type.
-  <tr><td>P.Read()<td>An evaluation yielding the value currently in the P’s
-             referenced storage.  The result type is P's pointee type.
-  <tr><td>P.Subaccess(K)<td>Valid for pointers with a composite pointee type where
-                   *K* must evaluate to an integer between 0 and one
-                   less than the number of components in *P*’s pointee type.
-                   The subaccess evaluation yields a pointer to the storage for
-                   the K’th component within P’s referenced storage,
-                   using zero-based indexing. If P's [=storage class=] is SC, and
-                   the K'th member of P's pointee type is of type T, then
-                   the result type is `ptr<SC,T>`.
-</table>
+* By using the name of a variable that is in scope.
+    The result is the pointer to the storage allocated for the variable.
+* By a <dfn noexport>composite value pointer sub-access</dfn> expression:
+    * Given a pointer to a vector, appending a single-letter vector access phrase
+        results in a pointer to the named component of the vector.
+        See [[#component-pointer-from-vector-pointer]].
+    * Given a pointer to a vector, appending an array index access phrase
+        results in a pointer to the indexed component of the vector.
+        See [[#component-pointer-from-vector-pointer]].
+    * Given a pointer to a matrix, appending an array index access phrase
+        results in a pointer to the indexed column vector of the matrix.
+        See [[#matrix-access-expr]].
+    * Given a pointer to an array, appending an array index access phrase
+        results in a pointer to the indexed element of the array.
+        See [[#array-access-expr]].
+    * Given a pointer to a structure, appending a member access phrase
+        results in a pointer to the named member of the structure.
+        See [[#struct-access-expr]].
+* By passing a pointer value to a function, where the formal parameter of the function
+     has a matching pointer type.
+     The value denoted by the formal parameter inside the called function is the same
+     as the pointer value for the corresponding operand of the function call site
+     in the calling function.
+     See TODO.
+* By a `const` declaration with pointer type, where the initializer is a pointer
+     value formed in one of the above ways.
+     A later use of the declared name results in the pointer value that was computed
+     for the initializer when the declaration was executed.
 
-Note: Assignment of swizzled values is not permitted (SubaccessSwizzle).<br>
-           e.g. `vec4<i32> v; v.xz = vec2<i32>(0, 1);` is not allowed.
+    <div class='example wgsl' heading='Pointer from a variable'>
+      <xmp highlight='rust'>
+        // Declare a variable in the private storage class, for storing an f32 value.
+        var<private> x: f32;
 
-### Pointer Evaluation TODO ### {#pointer-evaluation}
+        fn f() -> void {
+            // Declare a variable in the function storage class, for storing an i32 value.
+            var y: i32;
 
-TODO: *This is a stub*: Using pointers in context. Disambiguating which abstract operation occurs based on context:
-pointer semantics vs. dereferenced value semantics.
+            // An expression fragment using the name 'x' evaluates to a pointer of type
+            // ptr<private,f32>, pointing at the storage allocated for the variable 'x'.
+            const x_reference: ptr<private,f32> = x;
 
----
+            // An expression fragment using the name 'y' evaluates to a pointer of type
+            // ptr<function,i32>, pointing at the storage allocated for the variable 'y'.
+            const y_reference: ptr<function,i32> = y;
+        }
+      </xmp>
+    </div>
 
-A pointer may appear in exactly the following contexts
+    <div class='example wgsl' heading='Pointer from a composite value pointer sub-access expression'>
+      <xmp highlight='rust'>
+        struct S {
+            age: i32;
+            weight: f32;
+        };
+        var<private> person : S;
 
-<table class='data'>
-  <tr><td>Indexing<td>
-A subaccessing evaluation
-* E.g. `a[12]`
-    * If `a` is a pointer to an array, this evaluates to *a.Subaccess(12)*
+        fn f() -> void {
+            var uv: vec2<f32>;
+            // When evaluating 'uv.x':
+            // 1. First evaluate 'uv', yielding a pointer to the storage for
+            //    the 'uv' variable. The result has type ptr<function,vec2<f32>>.
+            // 2. Then apply the '.x' vector access phrase, yielding a pointer to
+            //    the storage for the first component of the vector pointed at by the
+            //    pointer value from the previous step.
+            //    The result has type ptr<function,f32>.
+            const p_uv_y: ptr<function,f32> = uv.x;
 
-* E.g. `s.foo`
-    * If `s` is a pointer to a structure of type *S*, `k` is the index of the `foo` element of *S*, this evaluates to *s.Subaccess(k)*
+            // When evaluating 'uv[1]':
+            // 1. First evaluate 'uv' which yields a pointer to the storage for
+            //    the 'uv' variable. The result has type type ptr<function,vec2<f32>>.
+            // 2. Then apply the '[1]' array index phrase, yielding a pointer to
+            //    the storage for the second component of the vector pointed at by the
+            //    pointer value from the previous step.
+            //    The result has type ptr<function,f32>.
+            const p_uv_x: ptr<function,f32> = uv[1];
 
-  <tr><td>Assigning (L-Value)<td>
-On the left hand side of an assignment operation, and the right hand side
-matches the pointee type of the pointer.
-* E.g. `v = 12;` assuming prior declaration `var v : i32`
+            var m: mat3x2<f32>;
+            // When evaluating 'm[2]':
+            // 1. First evaluate 'm', yielding a pointer to the storage for
+            //    the 'm' variable. The result has type ptr<function,mat3x2<f32>>.
+            // 2. Then apply the '[2]' array index phrase, yielding a pointer to
+            //    the storage for the third column vector pointed at by the pointer
+            //    value from the previous step.
+            //    The result has type ptr<function,vec2<f32>>.
+            const p_m_col2: vec2<f32> = m[2];
 
-  <tr><td>Copying<td>
-On the right hand side of a const-declaration, and the type of the
-const-declaration matches the pointer type.
-* E.g. `const v2 : ptr<private,i32> = v;`  assuming prior declaration
-        `var<private> v:i32`
+            var A: array<i32,5>;
+            // When evaluating 'A[4]'
+            // 1. First evaluate 'A', yielding a pointer to the storage for
+            //    the 'A' variable. The result has type ptr<function,array<i32,5>>.
+            // 2. Then apply the '[4]' array index phrase, yielding a pointer to
+            //    the storage for the fifth element of the array referenced by
+            //    the pointer value from the previous step.
+            //    The result value has type ptr<function,i32>.
+            const p_A_4: ptr<function,i32> = A[4];
 
-  <tr><td>Parameter<td>
-Used in a function call, where the function’s parameter type matches the
-pointer type.
+            // When evaluating 'person.weight'
+            // 1. First evaluate 'person', yielding a pointer to the storage for
+            //    the 'person' variable declared at module scope.
+            //    The result has type ptr<private,S>.
+            // 2. Then apply the '.weight' member access phrase, yielding a pointer to
+            //    the storage for the second member of the person referenced by
+            //    the pointer value from the previous step.
+            //    The result has type ptr<private,f32>.
+            const person_weight_reference: ptr<private,f32> = person.weight;
+        }
+      </xmp>
+    </div>
 
-  <tr><td>Reading (R-Value)<td>
-Any other context.  Evaluates to *P.Read()*, yielding a value of *P*’s pointee
-type.
-</table>
+In [SHORTNAME] a pointer value always references the storage of some variable,
+known as the <dfn noexport>originating variable</dfn> for the pointer:
+
+* The pointer value formed by using the name of a variable references the
+    entire storage of that variable.
+    The originating variable of the pointer is that variable.
+* A sub-accessing expression on a pointer results in a pointer that references
+    storage locations fully contained by the locations referenced by the
+    original pointer.
+    The originating variable of the result is the same as the
+    originating variable of the original pointer.
+* At runtime the pointer value assigned to a function's formal parameter is
+    the same as the pointer value provided in the corresponding operand in the
+    function call in in the calling function.
+    The formal parameter has the same originating variable as the operand in the
+    caller, and references exactly the same storage locations.
+* A `const` declaration of a pointer gives a name to an existing pointer value.
+    The originating variable of the declared pointer is the same as the
+    originating pointer of the pointer expression of the initializer.
+    The scope of the `const` declaration is a subset of the scope of the originating
+    variable or formal function parameter.
+
+For pointer sub-accessing expressions, a [SHORTNAME] implementation ensures
+the resulting pointer always remains in bounds of the original variable,
+i.e. the resulting pointer can only reference storage within the storage allocated
+to the originating variable.
+There are two cases:
+* When the expression uses a fixed name to form a pointer to a sub-part of a composite value,
+    the [SHORTNAME] program is invalid if the name is out of range.
+    * <p algorithm="letter access out of bounds example">
+        For example, if |v| is a pointer to a vector with fewer than four elements,
+        then the program is invalid if it has the expression |v|`.w`.
+        </p>
+* When the expression uses an array-index phrase to form a pointer to
+    a vector component, a matrix column, or an array element,
+    then [SHORTNAME] program is statically valid.
+    However at runtime, if the index value is out of range for the type,
+    or out of range for the runtime size of a runtime-sized array,
+    then an in-bounds index value will be used instead.
+    * <p algorithm="indexed access out of bounds example">
+        For example, if |array_var| is a pointer to an array of 10 elements, then
+        |array_var|`[`|i|`]` is a valid expression.
+        However, if at runtime the value of |i| is negative or larger than 9,
+        then it is out of bounds and instead the resulting
+        element pointer will be formed using an index value in the range [0, 9].
+        </p>
+
+See details at [[#composite-value-decomposition-expr]].
+
+### Accessing memory via a pointer ### {#accessing-memory-via-a-pointer}
+
+Pointers are used to write into storage, and to read from storage:
+
+: <dfn noexport>Store Rule</dfn>:
+:: An assignment statement stores the value on its right hand side into the storage referenced by its left hand side.
+    See [[#assignment]].
+: <dfn noexport>Load Rule</dfn>:
+:: When a pointer expression is used as a subexpression, and the type rules of [SHORTNAME]
+    require the subexpression to have a non-pointer type, then:
+    * The non-pointer type must be the same as the [=pointee type=] of the pointer.
+    * The resulting value of the expression is the value currently stored in the storage
+        referenced by the pointer.
+        In other words, the evaluation causes the memory locations to be read (loaded),
+        and yields the value that was read.
+
+Note: The [=load rule=] is applied only if type checking would otherwise fail,
+i.e. the application
+of *other* type rules would necessarily lead to an inability to deduce a valid type for
+the all expressions in the statement.
+
+**Important:**
+Pointer expressions often look the same as non-pointer expressions.
+However, the [=load rule=] is only applied as a last resort: if it is possible
+to interpret the expression so that it yields a pointer, then that is how the expression
+must be interpreted.
+That is, avoid loading through a pointer until it is the only way to correctly
+evaluate the program.
+
+    <div class='example wgsl' heading='Writing variables: storing through a pointer'>
+      <xmp highlight='rust'>
+        struct S {
+            age: i32;
+            weight: f32;
+        };
+        var<private> person : S;
+
+        fn f() -> void {
+            var a: i32;
+
+            // Store into a variable:
+            // 1.  First 'a' evaluates to a pointer referencing the storage for
+            //     the variable 'a'.
+            //     The pointer has type ptr<function,i32>
+            // 2.  Evaluate the right-hand side, yielding the i32 value for 4.
+            // 3.  Apply the store rule:  store the right hand side value
+            //     computed in step 2 into the storage referenced by the
+            //     pointer computed by step 1.
+            a = 4;
+
+            // Store through a structure member access pointer expression.
+            // 1.  Evaluate the left-hand side:
+            //        a. 'person' is a pointer referencing the storage for the
+            //           'person' variable declared at module scope.
+            //           The pointer has type ptr<private,S>.
+            //        b. Apply the '.age' member access phrase, to the pointer
+            //           from the previous step, yielding a pointer to the
+            //           storage for the 'age' field in the storage for the
+            //           'person' variable.
+            //           The pointer has type ptr<private,f32>.
+            //     The left hand-side yields a pointer of type ptr<private,f32>.
+            // 2. Evaluate the right-hand side, yielding the f32 value for 113.5
+            // 3. Apply the store rule:  store the right hand side vlaue computed
+            //    in step 2 (the floating point value 113.5) into the storage
+            //    referenced by the pointer computed in step 1 (the storage for
+            //    the 'age' field in of the 'person' variable).
+            person.age = 113.5;
+
+            // Another way to store into the 'age' field of the 'person' variable.
+            // First compute the pointer referencing the age field of the variable.
+            const person_age_reference: ptr<private,f32> = person.age;
+            // Store through the pointer.
+            // This overwrites the value 113.5 with the value 125.0.
+            person_age_reference = 125.0;
+        }
+      </xmp>
+    </div>
+
+    <div class='example wgsl' heading='Reading variables: loading through a pointer'>
+      <xmp highlight='rust'>
+        struct S {
+            age: i32;
+            weight: f32;
+        };
+        var<private> person : S;
+
+        fn f() -> void {
+            var a: i32 = 16;
+
+            // Read from a variable:
+            // 1.  First 'a' evaluates to a pointer referencing the storage for
+            //     the variable 'a'.
+            //     The pointer has type ptr<function,i32>
+            // 2.  The const declaration requires an initializer of type 'i32'.
+            //     There is no other way to yield a correctly typed program,
+            //     so apply the Load Rule: Read the locatons referenced
+            //     by the pointer from step 1, yielding the value currently
+            //     stored there. Since no other stores have occured to those
+            //     memory locations, the read yields the i32 value 16.
+            // 3.  For the rest of this scope, the 'value_from_a' identifier
+            //     denotes the value computed in step 2, the i32 value 16.
+            const value_from_a: i32 = a;
+
+
+            // Store into the 'weight' and 'height' fields of the 'person' variable,
+            // as in the previous example.
+            person.weight = 113.5;
+
+            // Form a pointer to the 'weight' field of the 'person' variable.
+            const weight_reference: ptr<private,f32> = person.weight;
+
+            // Read from a structure member, through a pointer.
+            // 1.  The initializer 'weight_reference' is a pointer referencing the
+            //     storage in the weight field of the person variable in the private
+            //     storage class.
+            //     The pointer has type ptr<private,f32>.
+            // 2.  The const declaration requires an initializer of type f32.
+            //     There is no other way to yield a correctly typed program,
+            //     so apply the Load Rule: Read the locatons referenced
+            //     by the pointer from step 1, yielding the value currently
+            //     stored there. Since no other stores have occured to those
+            //     memory locations, the read yields the f32 value 113.5.
+            // 3.  For the rest of this scope, the 'w' identifier
+            //     denotes the value computed in step 2, the f32 value 113.5.
+            const w: f32 = weight_reference;
+
+            // There is no '*' operater that works with pointer values.
+            // Therefore the only way to assign types to the initializer
+            // expression is to apply the Load Rule twice, loading the value
+            // from memory twice.
+            const weight_squared: f32 = weight_reference * weight_reference;
+        }
+      </xmp>
+    </div>
+
+
+### Comparison with pointers in other languages ### {#pointers-other-languages}
+
+This section is informative, not normative.
+
+Pointers in [SHORTNAME] are more restricted than in other languages.
+In particular:
+
+* In [SHORTNAME] pointers are not [=storable=].
+    That is, the content of a [SHORTNAME] variable may not contain a pointer.
+* In [SHORTNAME] a function must not return a pointer value.
+* In [SHORTNAME] there is no way to convert between integer values and pointer values.
+* In [SHORTNAME] there is no way to forcibly change the type of a pointer value into another pointer type.
+    * A composite value pointer sub-access expression is different:
+        it takes a pointer to a composite value and yields a pointer to
+        one of the components or elements inside the composite value.
+        These are considered different pointers in [SHORTNAME], even though they may
+        have the same machine address at a lower level of implementation abstraction.
+* In [SHORTNAME] there is no way to allocate new storage from a "heap".
+* In [SHORTNAME] there is no way to explicitly destroy a variable.
+    The storage for a [SHORTNAME] variable becomes inaccessible only when the variable goes out of scope.
+
+Note: From the above rules, it is not possible to form a "dangling" pointer,
+i.e. a pointer that does not reference the storage for a valid (or "live")
+originating variable.
+
+Note: [SHORTNAME] pointers are like SPIR-V logical pointers.
 
 ## Texture and Sampler Types ## {#texture-types}
 
@@ -2571,7 +2845,7 @@ value in one type as a value in another type.
 
 </table>
 
-## Composite Value Expressions TODO ## {#composite-value-expr}
+## Composite Value Decomposition Expressions ## {#composite-value-decomposition-expr}
 
 ### Vector Access Expression ### {#vector-access-expr}
 
@@ -2736,7 +3010,63 @@ Issue: Which index is used when it's out of bounds?
            (OpVectorShuffle)
 </table>
 
-### Matrix Access Expression TODO ### {#matrix-access-expr}
+#### Component pointer from vector pointer #### {#component-pointer-from-vector-pointer}
+
+<table class='data'>
+  <caption>Getting a pointer to a component from a pointer to a vector</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="first vector component pointer selection">
+       <td>|p| : ptr&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
+       <td class="nowrap">
+           |p|`.x` : ptr&lt;|SC|,|T|&gt;<br>
+           |p|`.r` : ptr&lt;|SC|,|T|&gt;<br>
+       <td>Compute a pointer to the first component of the vector referenced by the pointer |p|.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain with index value 0)
+  <tr algorithm="second vector component pointer selection">
+       <td>|p| : ptr&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
+       <td class="nowrap">
+           |p|`.y` : ptr&lt;|SC|,|T|&gt;<br>
+           |p|`.g` : ptr&lt;|SC|,|T|&gt;<br>
+       <td>Compute a pointer to the second component of the vector referenced by the pointer |p|.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain with index value 1)
+  <tr algorithm="third vector component pointer selection">
+       <td>|p| : ptr&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
+           |N| is 3 or 4
+       <td class="nowrap">
+           |p|`.z` : ptr&lt;|SC|,|T|&gt;<br>
+           |p|`.b` : ptr&lt;|SC|,|T|&gt;<br>
+       <td>Compute a pointer to the third component of the vector referenced by the pointer |p|.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain with index value 2)
+  <tr algorithm="fourth vector component pointer selection">
+       <td>|p| : ptr&lt;|SC|,vec4&lt;|T|&gt;&gt;<br>
+       <td class="nowrap">
+           |p|`.w` : ptr&lt;|SC|,|T|&gt;<br>
+           |p|`.a` : ptr&lt;|SC|,|T|&gt;<br>
+       <td>Compute a pointer to the fourth component of the vector referenced by the pointer |p|.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain with index value 3)
+  <tr algorithm="vector indexed component pointer selection">
+       <td>|p| : ptr&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
+          |i| : *Int*
+       <td class="nowrap">
+           |p|[|i|] : ptr&lt;|SC|,|T|&gt;
+       <td>Compute a pointer to the |i|'<sup>th</sup> component of the vector referenced by the pointer |p|.<br>
+           If |i| is outwith the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain)
+</table>
+
+### Matrix Access Expression ### {#matrix-access-expr}
 
 <table class='data'>
   <caption>Column vector extraction</caption>
@@ -2750,14 +3080,29 @@ Issue: Which index is used when it's out of bounds?
        <td class="nowrap">
            |e|[|i|] : vec|M|&lt;|T|&gt;
        <td>The result is the |i|'<sup>th</sup> column vector of |e|.<br>
-           The first column vector is at index |i|=0.<br>
-           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           If |i| is outwith the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
            (OpCompositeExtract)
 </table>
 
-Issue: Which index is used when it's out of bounds?
+<table class='data'>
+  <caption>Getting a pointer to a column vector from a pointer to a matrix</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="matrix indexed column vector pointer selection">
+       <td class="nowrap">
+          |p| : ptr&lt;|SC|,mat|N|x|M|&lt;|T|&gt;&gt;<br>
+          |i| : *Int*
+       <td class="nowrap">
+           |p|[|i|] : ptr&lt;vec|M|&lt;|SC|,|T|&gt;&gt;
+       <td>Compute a pointer to the |i|'<sup>th</sup> column vector of the matrix referenced by the pointer |p|.<br>
+           If |i| is outwith the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain)
+</table>
 
-### Array Access Expression TODO ### {#array-access-expr}
+### Array Access Expression ### {#array-access-expr}
 
 <table class='data'>
   <caption>Array element extraction</caption>
@@ -2771,22 +3116,40 @@ Issue: Which index is used when it's out of bounds?
        <td class="nowrap">
            |e|[|i|] : |T|
        <td>The result is the value of the |i|'<sup>th</sup> element of the array value |e|.<br>
-           The first element is at index |i|=0.<br>
-           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
-  <tr algorithm="runtime-sized array indexed element selection">
-       <td class="nowrap">
-          |e| : array&lt;|T|&gt;<br>
-          |i| : *Int*
-       <td class="nowrap">
-           |e|[|i|] : |T|
-       <td>The result is the value of the |i|'<sup>th</sup> element of the array value |e|.<br>
-           The first element is at index |i|=0.<br>
-           If |i| is outside the range [0,arrayLength(|e|)-1], then an index in the range [0, arrayLength(|e|)-1] is used instead.<br>
+           If |i| is outwith the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           (OpCompositeExtract)
 </table>
 
-Issue: Which index is used when it's out of bounds?
+<table class='data'>
+  <caption>Getting a pointer to an array element from a pointer to an array</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="sized array indexed column vector pointer selection">
+       <td class="nowrap">
+          |p| : ptr&lt;|SC|,array&lt;|T|,|N|&gt;&gt;<br>
+          |i| : *Int*
+       <td class="nowrap">
+           |p|[|i|] : ptr&lt;|SC|,|T|&gt;
+       <td>Compute a pointer to the |i|'<sup>th</sup> element of the array referenced by the pointer |p|.<br>
+           If |i| is outwith the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain)
+  <tr algorithm="array indexed column vector pointer selection">
+       <td>|p| : ptr&lt;|SC|,array&lt;|T|&gt;&gt;<br>
+          |i| : *Int*
+       <td class="nowrap">
+           |p|[|i|] : ptr&lt;|SC|,|T|&gt;
+       <td>Compute a pointer to the |i|'<sup>th</sup> element of the runtime-sized array referenced by the pointer |p|.<br>
+           If at runtime the array has |N| elements, and |i| is outwith the range [0,|N|-1], then an index in the
+           range [0, |N|-1] is used instead.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain)
+</table>
 
-### Structure Access Expression TODO ### {#struct-access-expr}
+### Structure Access Expression ### {#struct-access-expr}
 
 <table class='data'>
   <caption>Structure member extraction</caption>
@@ -2802,6 +3165,24 @@ Issue: Which index is used when it's out of bounds?
            |e|.|M| : |T|
        <td>The result is the value of the member with name |M| from the structure value |e|.<br>
            (OpCompositeExtract, using the member index)
+</table>
+
+<table class='data'>
+  <caption>Getting a pointer to an array element from a pointer to an array</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="structure member pointer selection">
+       <td class="nowrap">
+          |S| is a structure type<br>
+          |M| is the name of a member of |S|, having type |T|<br>
+          |p| : ptr&lt;|SC|,|S|&gt;<br>
+       <td class="nowrap">
+           |p|.|M| : ptr&lt;|SC|,|T|&gt;
+       <td>Given a pointer to a structure, the result is a pointer to the structure member with identifier name |M|.<br>
+           The [=originating variable=] of the resulting pointer is
+           the same as the originating variable of |p|.<br>
+           (OpAccessChain, using the index of the structure member)
 </table>
 
 ## Logical Expressions TODO ## {#logical-expr}
@@ -3225,11 +3606,44 @@ Issue: Which index is used when it's out of bounds?
 
 TODO: *Stub*. Call to function returning non-void, is an expression.
 
-## Variable or const reference TODO ## {#var-const-ref-expr}
+## Variable identifier expression ## {#var-identifier-expr}
 
-## Pointer Expressions TODO ## {#pointer-expr}
+<table class='data'>
+  <caption>Getting a pointer from a variable name</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="variable reference">
+       <td>
+          |v| is the identifier name of
+          a variable declared in [=storage class=] |SC|
+          and [=store type=] |T|
+       <td class="nowrap">
+          |v| : ptr&lt;|SC|,|T|&gt;
+       <td>Result is a pointer to the storage for the named variable |v|.<br>
+           The expression |v| must be in scope of the variable declaration.
+</table>
 
-TODO: *Stub*: how to write each of the abstract pointer operations
+## Const identifier expression  ## {#const-identifier-expr}
+
+<table class='data'>
+  <caption>Getting the value of a const declaration</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="const reference">
+       <td>
+          |c| is the identifier name of
+          a const declaration with type |T|
+       <td class="nowrap">
+          |c| : |T|
+       <td>Result is the value computed for the initializer when the `const` declaration
+           was executed.
+           For a const declaration at module scope, that occurs before the shader begins execution.
+           For a const declaration inside a function, that occurs each time control reaches
+           the declaration.<br>
+           The expression |c| must be in scope of the const declaration.
+</table>
 
 ## Expression Grammar Summary ## {#expression-grammar}
 
@@ -3346,7 +3760,61 @@ short_circuit_or_expression
 
 # Statements TODO # {#statements}
 
-## Assignment TODO ## {#assignment}
+## Assignment ## {#assignment}
+
+An assignment statement replaces the contents of a variable,
+or a portion of a variable, with a new value.
+
+The
+expression to the left of the equals token is the <dfn noexport>left-hand side</dfn>,
+and the
+expression to the right of the equals token is the <dfn noexport>right-hand side</dfn>.
+
+<table class='data'>
+  <thead>
+    <tr><th>Precondition<th>Statement<th>Description
+  </thead>
+  <tr algorithm="assignment">
+    <td>|v| : ptr<|SC|,|T|>,<br>
+        |e| : |T|,<br>
+        |T| is [=storable=],<br>
+        |SC| is a writable [=storage class=]
+    <td class="nowrap">|v| = |e|;
+    <td>Replaces the contents of the memory referenced by |v| with the value |e|.<br>
+        (OpStore)
+</table>
+
+The [=originating variable=] of the left-hand side must not have an `access(read)` access attribute.
+
+In the simplest case, the left hand side of the assignment statement is the
+name of a variable.  See [[#forming-a-pointer-value]] for other cases.
+
+    <div class='example wgsl' heading='Assignments'>
+      <xmp highlight='rust'>
+        struct S {
+            age: i32;
+            weight: f32;
+        };
+        var<private> person : S;
+
+        fn f() -> void {
+            var a: i32 = 20;
+            a = 30;           // Replace the contents of 'a' with 30.
+
+            person.age = 31;  // Write 31 into the age field of the person variable.
+
+            var uv: vec2<f32>;
+            uv.y = 1.25;      // Place 1.25 into the second component of uv.
+
+            const uv_x_reference: ptr<function,f32> = uv.x;
+            uv_x_reference = 2.5;   // Place 2.5 into the first component of uv.
+
+            var friend : S;
+            // Copy the contents of the 'person' variable into the 'friend' variable.
+            friend = person;
+        }
+      </xmp>
+    </div>
 
 <pre class='def'>
 assignment_statement
@@ -3355,10 +3823,6 @@ assignment_statement
       Otherwise, singular expression is a pointer expression in an Assigning (L-value) context
       which maps to OpAccessChain followed by OpStore
 </pre>
-
-### Writing to a variable TODO ### {#writing-to-var}
-
-### Writing to a part of a composite variable TODO ### {#writing-to-part-of-composite}
 
 ## Control flow TODO ## {#control-flow}
 
