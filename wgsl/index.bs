@@ -76,7 +76,7 @@ WebGPU Shader Language ([SHORTNAME]) is the shader language for [[!WebGPU]].
 That is, an application using the WebGPU API uses [SHORTNAME] to express the programs, known as shaders,
 that run on the GPU.
 
-<div class='example'>
+<div class='example wgsl global-scope'>
   <xmp highlight='rust'>
     [[location(0)]] var<out> gl_FragColor : vec4<f32>;
     [[stage(fragment)]]
@@ -120,7 +120,7 @@ This specification does not prescribe a particular encoding for that text.
 
 ## Comments ## {#comments}
 
-Comments begin with a `#` and continue to the end of the current line. There are no multi-line comments.
+Comments begin with `//` and continue to the end of the current line. There are no multi-line comments.
 
 TODO: What indicates the end of a line?  (E.g. A line ends at the next linefeed or at the end of the program)
 
@@ -312,9 +312,9 @@ The <dfn dfn noexport>numeric scalar</dfn> types are [=i32=], [=u32=], and [=f32
 
 A vector type is a <dfn dfn>numeric vector</dfn> type if its component type is a [=numeric scalar=].
 
-<div class='example' heading='Vector'>
+<div class='example wgsl' heading='Vector'>
   <xmp highlight='rust'>
-    vec2<f32>  # is a vector of two f32s.
+    vec2<f32>  // is a vector of two f32s.
   </xmp>
 </div>
 
@@ -323,14 +323,16 @@ A vector type is a <dfn dfn>numeric vector</dfn> type if its component type is a
   <thead>
     <tr><th>Type<th>Description
   </thead>
-  <tr><td>mat*N*x*M*<*T*><td>Matrix of *N* columns and *M* rows, where
-                                *N* and *M* are both in {2, 3, 4}.
-                                *T* must be *f32*.
+  <tr algorithm="matrix type">
+    <td>mat|N|x|M|&lt;f32&gt;
+    <td>Matrix of |N| columns and |M| rows, where |N| and |M| are both in {2, 3, 4}.
+        Equivalently, it can be viewed as |N| column vectors of type vec|M|&lt;f32&gt;.
 </table>
 
-<div class='example' heading='Matrix'>
+<div class='example wgsl' heading='Matrix'>
   <xmp highlight='rust'>
-    mat2x3<f32>  # is a 2 column, 3 row matrix of 32-bit floats.
+    mat2x3<f32>  // This is a 2 column, 3 row matrix of 32-bit floats.
+                 // Equivalently, it is 2 column vectors of type vec3<f32>.
   </xmp>
 </div>
 
@@ -359,17 +361,21 @@ Issue: (dneto): Complete description of `Array<E,N>`
   <thead>
     <tr><th>Type<th>Description
   </thead>
-  <tr><td>struct<*T1*,...,*Tn*><td>An ordered tuple of *N* members of types
-                                    *T1* through *Tn*, with *N* being an
-                                    integer greater than 0.
+  <tr algorithm="structure type">
+      <td>struct&lt;|T|<sub>1</sub>,...,|T|<sub>N</sub>&gt;
+      <td>An ordered tuple of *N* members of types
+          |T|<sub>n</sub> through |T|<sub>N</sub>, with |N| being an integer greater than 0.
+          A structure type declaration specifies an identifier name for each member.
+          Two members of the same structure type must not have the same name.
 </table>
 
-<div class='example' heading="Structure">
+<div class='example wgsl global-scope' heading="Structure">
   <xmp highlight='rust'>
+    // A structure with two members.
     struct Data {
       a : i32;
       b : vec2<f32>;
-    }
+    };
   </xmp>
 </div>
 
@@ -422,29 +428,41 @@ struct_member
 Note: Layout attributes are required if the structure type is used
 to define a [=uniform buffer=] or a [=storage buffer=]. See [[#memory-layouts]].
 
-<div class='example' heading='Structure'>
+<div class='example wgsl global-scope' heading='Structure WGSL'>
   <xmp>
-    # Offset decorations
+    // Offset decorations
     struct my_struct {
       [[offset(0)]] a : f32;
       [[offset(4)]] b : vec4<f32>;
     };
+  </xmp>
+</div>
 
+<div class='example spirv' heading='Structure SPIR-V'>
+  <xmp>
                   OpName %my_struct "my_struct"
                   OpMemberName %my_struct 0 "a"
                   OpMemberDecorate %my_struct 0 Offset 0
                   OpMemberName %my_struct 1 "b"
                   OpMemberDecorate %my_struct 1 Offset 4
      %my_struct = OpTypeStruct %float %v4float
+  </xmp>
+</div>
 
-    # Runtime Array
-    type RTArr = [[stride 16]] array<vec4<f32>>;
+<div class='example wgsl global-scope' heading='Structure WGSL'>
+  <xmp>
+    // Runtime Array
+    type RTArr = [[stride(16)]] array<vec4<f32>>;
     [[block]] struct S {
       [[offset(0)]] a : f32;
       [[offset(4)]] b : f32;
       [[offset(16)]] data : RTArr;
     };
+  </xmp>
+</div>
 
+<div class='example spirv' heading='Structure SPIR-V'>
+  <xmp>
                   OpName %my_struct "my_struct"
                   OpMemberName %my_struct 0 "a"
                   OpMemberDecorate %my_struct 0 Offset 0
@@ -490,7 +508,7 @@ The following types are <dfn dfn noexport>storable</dfn>:
 
 The following types are <dfn dfn noexport>IO-shareable</dfn>:
 
-* [=numeric scalar=] types
+* [=scalar=] types
 * [=numeric vector=] types
 * [[#matrix-types]]
 * [[#array-types]] if its element type is IO-shareable, and the array is not [=runtime-sized=]
@@ -501,6 +519,10 @@ The following kinds of values must be of IO-shareable type:
 * Values read from or written to built-in variables.
 * Values accepted as inputs from an upstream pipeline stage.
 * Values written as output for downstream processing in the pipeline, or to an output attachment.
+
+Note: Only built-in pipeline inputs may have a boolean type.
+A user input or output data attribute must not be of [=bool=] type or contain a [=bool=] type.
+See [[#pipeline-inputs-outputs]].
 
 ### Host-shareable Types ### {#host-shareable-types}
 
@@ -537,8 +559,9 @@ The following types are <dfn dfn noexport>host-shareable</dfn>:
          of this member.
 </table>
 
-Note: An [=IO-shareable=] type would also be host-shareable if it and its subtypes have
-the approporate [=stride=] and [=offset=] attributes.
+Note: An [=IO-shareable=] type *T* would also be host-shareable if *T* and its subtypes have
+appropriate [=stride=] and [=offset=] attributes, and if *T* is not [=bool=] and does
+not contain a [=bool=].
 Additionally, a [=runtime-sized=] array is host-shareable but is not IO-shareable.
 
 Note: Both IO-shareable and host-shareable types have concrete sizes, but counted differently.
@@ -668,7 +691,7 @@ The terms defined in this section express counts of 8-bit bytes.
 We will use the following notation:
 
 * |Stride|(|A|) is the value of the [=stride=] attribute of array type |A|.
-* |Offset|(|S|,|i|) is the value of the [=offset=] attribute of the |i|'th member of structure type |S|.
+* |Offset|(|S|,|i|) is the value of the [=offset=] attribute of the |i|'<sup>th</sup> member of structure type |S|.
 
 The remainder of this section is structured as follows:
 * Section [[#memory-layout-intent]] describes the intent of the layout rules.  It is not normative.
@@ -695,7 +718,9 @@ In particular:
 * An array's element alignment is a multiple of the element type's alignment.
     * In a uniform buffer, the array element alignment is also a multiple of 16.
 * An array's alignment is the same as its element alignment.
-* A matrix with |N| columns is aligned as if it were an array of |N| column vectors.
+* A matrix with |N| columns is aligned as |N| column vectors without additional padding.
+    * If the columns are 3-element vector, then each vector has its own
+        internal padding to the size of a 4-element vector, as noted above.
 * A structure inherits the worst-case alignment of any of its members.
     * In a uniform buffer, the structure alignment is also a multiple of 16.
 * The members of a structure are laid out in order: earlier members are appear earlier in
@@ -709,7 +734,11 @@ or to a storage buffer variable.
 See [[#resource-layout-compatibility]].
 
 Compared to OpenGL:
-* For any type, OpenGL `std140` layout is the same as using the tightest offset and stride assignments in [SHORTNAME] [=uniform buffer layout=].
+* For any type except column major `mat2x2` and types that contain column major `mat2x2`,
+    OpenGL `std140` layout is the same as using the tightest offset and stride assignments in [SHORTNAME] [=uniform buffer layout=].
+* OpenGL `std140` layout of `mat2x2` has extra padding between column vectors that is not present in a `mat2x2` type in [SHORTNAME].
+    * The OpenGL `std140` layout of the `mat2x2` type has the second column vector starting 16 bytes after the first column vector.
+        But in [SHORTNAME] the second column vector of `mat2x2<f32>` starts 8 bytes after the first column vector.
 * For any type, OpenGL `std430` layout is the same as using the tightest offset and stride assignments in [SHORTNAME] [=storage buffer layout=].
 * OpenGL supports row-major matrices, but [SHORTNAME] does not.
 
@@ -732,9 +761,6 @@ of a buffer, given an assumed placement of the overall value.
 These layouts depend on the value's type, the storage class of the buffer,
 the [=stride=] attribute on array types, and the [=offset=] attribute on structure type
 members.
-
-Note: Matrix values are laid out more compactly in the [=storage classes/storage=] storage class
-than in the [=storage classes/uniform=] storage class.
 
 A type can be used for values in both [=storage classes/uniform=] and [=storage classes/storage=] storage classes.
 This is valid as long as the layout constraints are satisifed for both storage classes.
@@ -769,16 +795,11 @@ byte offset |k| of a host-shared buffer, then:
    * If |N| &ge; 3, then |V|.z is placed at byte offset |k|+8
    * If |N| &ge; 4, then |V|.w is placed at byte offset |k|+12
 
-When a matrix value |M| is placed at byte offset |k| of a host-shared memory buffer in
-the [=storage classes/storage=] [=storage class=], then:
+When a matrix value |M| is placed at byte offset |k| of a host-shared memory buffer, then:
    * If |M| has 2 rows, then:
       * Column vector |i| of |M| is placed at byte offset |k| + 8 &times; |i|
    * If |M| has 3 or 4 rows, then:
       * Column vector |i| of |M| is placed at byte offset |k| + 16 &times; |i|
-
-When a matrix value |M| is placed at byte offset |k| of a host-shared memory buffer in
-the [=storage classes/uniform=] storage class, then:
-   * Column vector |i| of |M| is placed at byte offset |k| + 16 &times; |i|
 
 When a value of array type |A| is placed at byte offset |k| of a host-shared memory buffer,
 then:
@@ -786,7 +807,7 @@ then:
 
 When a value of structure type |S| is placed at byte offset |k| of a host-shared memory buffer,
 then:
-   * The |i|'th member of the structure value is placed at byte offset |k| + |Offset|(|S|,|i|)
+   * The |i|'<sup>th</sup> member of the structure value is placed at byte offset |k| + |Offset|(|S|,|i|)
 
 #### Layout Constraints and Standard Buffer Layout #### {#layout-constraints}
 
@@ -830,15 +851,18 @@ It is defined recursively in the following table:
   <tr algorithm="alignment of a matrix with 2 rows">
       <td>mat|N|x2&lt;f32&gt;
       <td>8
-      <td>16
+      <td>8
+          <!-- Vulkan base alignment: 2 times scalar aligment -->
   <tr algorithm="alignment of a matrix with 3 rows">
       <td>mat|N|x3&lt;f32&gt;
       <td>16
       <td>16
+          <!-- Vulkan base alignment: 4 times scalar aligment -->
   <tr algorithm="alignment of a matrix with 4 rows">
       <td>mat|N|x4&lt;f32&gt;
       <td>16
       <td>16
+          <!-- Vulkan base alignment: 4 times scalar aligment -->
   <tr algorithm="alignment of an array">
       <td>array<|T|,|N|>
       <td>|Align|(|T|,`storage`)
@@ -850,7 +874,7 @@ It is defined recursively in the following table:
   <tr algorithm="alignment of a structure">
       <td>struct&lt;|T1|,...,|Tn|&gt;
       <td>max(|Align|(|T1|,`storage`),..., |Align|(|Tn|,`storage`))
-      <td>roundUp(16, |A|),<br> where |A| = max(|Align|(|T1|,`uniform`),..., |Align|(|Tn|,`uniform`)))
+      <td>[=roundUp=](16, |A|),<br> where |A| = max(|Align|(|T1|,`uniform`),..., |Align|(|Tn|,`uniform`)))
 </table>
 
 The <dfn>allocation extent</dfn> of a value |V|
@@ -885,7 +909,7 @@ It is defined recursively in the following table:
   <tr algorithm="extent of a matrix with 2 rows">
       <td>mat|N|x2&lt;f32&gt;
       <td>|N| &times; 8
-      <td>|N| &times; 16
+      <td>|N| &times; 8
   <tr algorithm="extent of a matrix with 3 rows">
       <td>mat|N|x3&lt;f32&gt;
       <td>|N| &times; 16
@@ -951,9 +975,9 @@ when:
         <p algorithm="stride respects array element alignment">
         |Stride|(|S|) = |k| &times; |Align|(|E|,<var ignore>C</var>), for some positive integer |k|
         </p>
-    * For the [=storage classes/storage=] storage class, array elements are aligned to 16 byte boundaries:
+    * For the [=storage classes/uniform=] storage class, array elements are aligned to 16 byte boundaries:
         <p algorithm="16-byte array element alignment">
-            If <var ignore>C</var> is [=storage classes/storage=], then
+            If <var ignore>C</var> is [=storage classes/uniform=], then
             |Stride|(|S|)
             = |k| &times; 16 for some non-negative integer |k|
         </p>
@@ -966,7 +990,7 @@ element of a structure that is the store type for a buffer variable in the [=sto
 storage class.
 
 Host-shareable type |S| satisfies <dfn noexport>uniform buffer layout</dfn> when |S| satisfies
-[=standard buffer layout rules=] for storage class [=storage classes/storage=].
+[=standard buffer layout rules=] for storage class [=storage classes/uniform=].
 
 Host-shareable type |S| satisfies <dfn noexport>storage buffer layout</dfn> when |S| satisfies
 [=standard buffer layout rules=] for storage class [=storage classes/storage=].
@@ -985,7 +1009,7 @@ Note: We've described a SPIR-V logical pointer type.
 
 Note: Pointers are not storable.
 
-<div class='example' heading='Pointer'>
+<div class='example wgsl' heading='Pointer'>
   <xmp highlight='rust'>
     ptr<storage, i32>
     ptr<private, array<i32, 12>>
@@ -1159,7 +1183,7 @@ The texel formats listed in the
 correspond to the [[WebGPU#plain-color-formats|WebGPU plain color formats]]
 which support the [[WebGPU#dom-gputextureusage-storage|WebGPU STORAGE]] usage.
 These texel formats are used to parameterize the storage texture types defined
-in [[#texture-ro]] and [[#texture-wo]].
+in [[#texture-storage]].
 
 When the texel format does not have all four channels, then:
 
@@ -1263,32 +1287,38 @@ The following table lists the correspondence between WGSL texel formats and
 </pre>
 * type must be `f32`, `i32` or `u32`
 
-### Read-only Storage Texture Types ### {#texture-ro}
+### Storage Texture Types ### {#texture-storage}
 
 A <dfn noexport>read-only storage texture</dfn> supports reading a single texel without the use of a sampler,
-with automatic conversion of the stored texel value to a usable shader value.
+with automatic conversion of the stored texel value to a usable shader value. A <dfn noexport>write-only storage
+texture</dfn> supports writing a single texel, with automatic conversion
+of the shader value to a stored texel value.
 See [[#texture-builtin-functions]].
 
-A read-only storage texture type must be parameterized one of [=storage-texel-format|texel formats for storage textures=].
+A storage texture type must be parameterized by one of the
+[=storage-texel-format|texel formats for storage textures=].
 The texel format determines the conversion function as specified in [[#texel-formats]].
+
+For a write-only storage texture the *inverse* of the conversion function is used to convert the shader value to
+the stored texel.
 
 TODO(dneto): Move description of the conversion to the builtin function that actually does the reading.
 
 <pre class='def'>
-`texture_storage_ro_1d<texel_format>`
-  # %1 = OpTypeImage sampled_type 1D 0 0 0 2 image_format
+`texture_storage_1d<texel_format>`
+  // %1 = OpTypeImage sampled_type 1D 0 0 0 2 image_format
 
-`texture_storage_ro_1d_array<texel_format>`
-  # %1 = OpTypeImage sampled_type 1D 0 1 0 2 image_format
+`texture_storage_1d_array<texel_format>`
+  // %1 = OpTypeImage sampled_type 1D 0 1 0 2 image_format
 
-`texture_storage_ro_2d<texel_format>`
-  # %1 = OpTypeImage sampled_type 2D 0 0 0 2 image_format
+`texture_storage_2d<texel_format>`
+  // %1 = OpTypeImage sampled_type 2D 0 0 0 2 image_format
 
-`texture_storage_ro_2d_array<texel_format>`
-  # %1 = OpTypeImage sampled_type 2D 0 1 0 2 image_format
+`texture_storage_2d_array<texel_format>`
+  // %1 = OpTypeImage sampled_type 2D 0 1 0 2 image_format
 
-`texture_storage_ro_3d<texel_format>`
-  # %1 = OpTypeImage sampled_type 3D 0 0 0 2 texel_format
+`texture_storage_3d<texel_format>`
+  // %1 = OpTypeImage sampled_type 3D 0 0 0 2 texel_format
 </pre>
 
 In the SPIR-V mapping:
@@ -1297,73 +1327,36 @@ In the SPIR-V mapping:
 * The *Sampled Type* parameter of the image type declaration is
     the SPIR-V scalar type corresponding to the channel format for the texel format.
 
-When mapping to SPIR-V, a read-only storage texture variable must also have a `NonWritable` decoration.
+When mapping to SPIR-V, a read-only storage texture variable must have a `NonWritable` decoration and
+a write-only storage texture variable must have a `NonReadable` decoration.
+
 For example:
 
-<div class='example' heading='Mapping a texture_storage_ro_1d variable to SPIR-V'>
+<div class='example wgsl global-scope' heading='Mapping a readable texture_storage_1d variable to SPIR-V'>
   <xmp>
-      var tbuf : texture_storage_ro_1d<rgba8unorm>;
+      var tbuf : [[access(read)]] texture_storage_1d<rgba8unorm>;
 
-      # Maps to the following SPIR-V:
-      #  OpDecorate %tbuf NonWritable
-      #  ...
-      #  %float = OpTypeFloat 32
-      #  %image_type = OpTypeImage %float 1D 0 0 0 2 Rgba8
-      #  %image_ptr_type = OpTypePointer UniformConstant %image_type
-      #  %tbuf = OpVariable %image_ptr_type UniformConstant
+      // Maps to the following SPIR-V:
+      //  OpDecorate %tbuf NonWritable
+      //  ...
+      //  %float = OpTypeFloat 32
+      //  %image_type = OpTypeImage %float 1D 0 0 0 2 Rgba8
+      //  %image_ptr_type = OpTypePointer UniformConstant %image_type
+      //  %tbuf = OpVariable %image_ptr_type UniformConstant
   </xmp>
 </div>
 
-### Write-only Storage Texture Types ### {#texture-wo}
-
-A <dfn noexport>write-only storage texture</dfn> supports writing a single texel, with automatic conversion
-of the shader value to a stored texel value.
-See [[#texture-builtin-functions]].
-
-A write-only storage texture type must be parameterized one of [=storage-texel-format|texel formats for storage textures=].
-The texel format determines the conversion function as specified in [[#texel-formats]].
-The *inverse* of the conversion function is used to convert the shader value to
-the stored texel.
-
-TODO(dneto): Move description of the conversion to the builtin function that actually does the writing.
-
-<pre class='def'>
-`texture_storage_wo_1d<texel_format>`
-  # %1 = OpTypeImage %void 1D 0 0 0 2 image_format
-
-`texture_storage_wo_1d_array<texel_format>`
-  # %1 = OpTypeImage %void 1D 0 1 0 2 image_format
-
-`texture_storage_wo_2d<texel_format>`
-  # %1 = OpTypeImage %void 2D 0 0 0 2 image_format
-
-`texture_storage_wo_2d_array<texel_format>`
-  # %1 = OpTypeImage %void 2D 0 1 0 2 image_format
-
-`texture_storage_wo_3d<texel_format>`
-  # %1 = OpTypeImage %void 3D 0 0 0 2 image_format
-</pre>
-
-In the SPIR-V mapping:
-* The *Image Format* parameter of the image type declaration is
-    as specified by the SPIR-V texel format correspondence table in [[#texel-formats]].
-* The *Sampled Type* parameter of the image type declaration is
-    the SPIR-V void type
-
-When mapping to SPIR-V, a write-only storage texture variable must also have a `NonReadable` decoration.
-For example:
-
-<div class='example' heading='Mapping a texture_storage_wo_1d variable to SPIR-V'>
+<div class='example wgsl global-scope' heading='Mapping a writable texture_storage_1d variable to SPIR-V'>
   <xmp>
-      var tbuf : texture_storage_wo_1d<rgba8unorm>;
+      var tbuf : [[access(write)]] texture_storage_1d<rgba8unorm>;
 
-      # Maps to the following SPIR-V:
-      #  OpDecorate %tbuf NonReadable
-      #  ...
-      #  %float = OpTypeFloat 32
-      #  %image_type = OpTypeImage %float 1D 0 0 0 2 Rgba8
-      #  %image_ptr_type = OpTypePointer UniformConstant %image_type
-      #  %tbuf = OpVariable %image_ptr_type UniformConstant
+      // Maps to the following SPIR-V:
+      //  OpDecorate %tbuf NonReadable
+      //  ...
+      //  %float = OpTypeFloat 32
+      //  %image_type = OpTypeImage %float 1D 0 0 0 2 Rgba8
+      //  %image_ptr_type = OpTypePointer UniformConstant %image_type
+      //  %tbuf = OpVariable %image_ptr_type UniformConstant
   </xmp>
 </div>
 
@@ -1419,16 +1412,11 @@ multisampled_texture_type
   : TEXTURE_MULTISAMPLED_2D
 
 storage_texture_type
-  : TEXTURE_STORAGE_RO_1D
-  | TEXTURE_STORAGE_RO_1D_ARRAY
-  | TEXTURE_STORAGE_RO_2D
-  | TEXTURE_STORAGE_RO_2D_ARRAY
-  | TEXTURE_STORAGE_RO_3D
-  | TEXTURE_STORAGE_WO_1D
-  | TEXTURE_STORAGE_WO_1D_ARRAY
-  | TEXTURE_STORAGE_WO_2D
-  | TEXTURE_STORAGE_WO_2D_ARRAY
-  | TEXTURE_STORAGE_WO_3D
+  : TEXTURE_STORAGE_1D
+  | TEXTURE_STORAGE_1D_ARRAY
+  | TEXTURE_STORAGE_2D
+  | TEXTURE_STORAGE_2D_ARRAY
+  | TEXTURE_STORAGE_3D
 
 depth_texture_type
   : TEXTURE_DEPTH_2D
@@ -1517,7 +1505,7 @@ type_alias
   : TYPE IDENT EQUAL type_decl
 </pre>
 
-<div class='example' heading='Type Alias'>
+<div class='example wgsl global-scope' heading='Type Alias'>
   <xmp>
     type Arr = array<i32, 5>;
 
@@ -1600,13 +1588,14 @@ declaration of the identifier as a type alias or structure type.
   </xmp>
 </div>
 
-<div class='example' heading='Access qualifier'>
+<div class='example wgsl global-scope' heading='Access qualifier'>
   <xmp>
-    # Storage buffers
-    var<storage> buf1 : [[access(read)]] Buffer;       # Can read, cannot write.
-    var<storage> buf2 : [[access(read_write)]] Buffer; # Can both read and write
+    // Storage buffers
+    var<storage> buf1 : [[access(read)]] Buffer;       // Can read, cannot write.
+    var<storage> buf2 : [[access(read_write)]] Buffer; // Can both read and write
 
-    # Uniform buffer. Always read-only, and has more restrictive layout rules.
+    // Uniform buffer. Always read-only, and has more restrictive layout rules.
+    struct ParamsTable {};
     var<uniform> params : ParamsTable;
   </xmp>
 </div>
@@ -1662,7 +1651,7 @@ variable_storage_decoration
   <thead>
     <tr><th>Variable declaration decoration keys<th>Valid values<th>Note
   </thead>
-  <tr><td>`access`<td>`read` or `read_write`<td>
+  <tr><td>`access`<td>`read`, `write` or `read_write`<td>
 </table>
 
 The access decoration must only appear on a type used as the store type for a
@@ -1681,28 +1670,30 @@ When a variable is created, its storage contains an initial value as follows:
     * Otherwise, it is the result of evaluating the initializer expression at that point in the program execution.
 * For variables in other storage classes, the execution environment provides the initial value.
 
-<div class='example' header='Variable initial values'>
-  Consider the following snippet of WGSL:
+Consider the following snippet of WGSL:
+<div class='example wsgl function-scope' header='Variable initial values'>
   <xmp highlight='rust'>
-    var i: i32;         # Initial value is 0.  Not recommended style.
+    var i: i32;         // Initial value is 0.  Not recommended style.
     loop {
-      var twice: i32 = 2 * i;   # Re-evaluated each iteration.
+      var twice: i32 = 2 * i;   // Re-evaluated each iteration.
       i = i + 1;
       break if (i == 5);
     }
   </xmp>
-  The loop body will execute five times.
-  Variable `i` will take on values 0, 1, 2, 3, 4, 5, and variable `twice` will take on values 0, 2, 4, 6, 8.
 </div>
+The loop body will execute five times.
+Variable `i` will take on values 0, 1, 2, 3, 4, 5, and variable `twice` will take on values 0, 2, 4, 6, 8.
 
-<div class='example'>
-  Consider the following snippet of WGSL:
+Consider the following snippet of WGSL:
+<div class='example wsgl function-scope'>
   <xmp highlight='rust'>
     var x : f32 = 1.0;
     const y = x * x + x + 1;
   </xmp>
-  Because `x` is a variable, all accesses to it turn into load and store operations.
-  If this snippet was compiled to SPIR-V, it would be represented as
+</div>
+Because `x` is a variable, all accesses to it turn into load and store operations.
+If this snippet was compiled to SPIR-V, it would be represented as
+<div class='example spirv'>
   <xmp highlight='asm'>
     %temp_1 = OpLoad %float %x
     %temp_2 = OpLoad %float %x
@@ -1711,9 +1702,9 @@ When a variable is created, its storage contains an initial value as follows:
     %temp_5 = OpFAdd %float %temp_3 %temp_4
     %y      = OpFAdd %float %temp_5 %one
   </xmp>
-  However, it is expected that either the browser or the driver optimizes this intermediate representation
-  such that the redundant loads are eliminated.
 </div>
+However, it is expected that either the browser or the driver optimizes this intermediate representation
+such that the redundant loads are eliminated.
 
 ## Module Scope Variables ## {#module-scope-variables}
 
@@ -1745,7 +1736,7 @@ uniform buffers, storage buffers, textures, and samplers form the
 [=resource interface of a shader=].
 Such variables are declared with [=group=] and [=binding=] decorations.
 
-<div class='example' heading="Module scope variable declarations">
+<div class='example wgsl global-scope' heading="Module scope variable declarations">
   <xmp>
     var<in> twist: f32;
     var<out> spin: f32;
@@ -1756,16 +1747,16 @@ Such variables are declared with [=group=] and [=binding=] decorations.
       [[offset(0)]] specular: f32;
       [[offset(4)]] count: i32;
     };
-    var<uniform> param: Params;          # A uniform buffer
+    var<uniform> param: Params;          // A uniform buffer
 
     [[block]] struct PositionsBuffer {
       [[offset(0)]] pos: [[stride(8)]] array<vec2<f32>>;
     };
     [[group(0), binding(0)]]
-    var<storage> pbuf: PositionsBuffer;  # A storage buffer
+    var<storage> pbuf: PositionsBuffer;  // A storage buffer
 
     [[group(0), binding(1)]]
-    var filter_params: sampler;   # Textures and samplers are always in "handle" storage.
+    var filter_params: sampler;   // Textures and samplers are always in "handle" storage.
   </xmp>
 </div>
 
@@ -1818,10 +1809,10 @@ until the end of the [SHORTNAME] program.
 When the declaration has no attributes, an initializer expression must be present,
 and the name denotes the value of that expression.
 
-<div class='example' heading='Module constants'>
+<div class='example wgsl global-scope' heading='Module constants'>
   <xmp>
-    const golden : f32 = 1.61803398875;       # The golden ratio
-    const e2 : vec3<i32> = vec3<i32>(0,1,0);  # The second unit vector for three dimensions.
+    const golden : f32 = 1.61803398875;       // The golden ratio
+    const e2 : vec3<i32> = vec3<i32>(0,1,0);  // The second unit vector for three dimensions.
   </xmp>
 </div>
 
@@ -1843,11 +1834,11 @@ the constant is *pipeline-overridable*. In this case:
 Issue(dneto): What happens if the application supplies a constant ID that is not in the program?
 Proposal: pipeline creation fails with an error.
 
-<div class='example' heading='Module constants, pipeline-overrideable'>
+<div class='example wgsl global-scope' heading='Module constants, pipeline-overrideable'>
   <xmp>
-    [[constant_id(0)]]    const has_point_light : bool = true;      # Algorithmic control
-    [[constant_id(1200)]] const specular_param : f32 = 2.3;         # Numeric control
-    [[constant_id(1300)]] const gain : f32;                         # Must be overridden
+    [[constant_id(0)]]    const has_point_light : bool = true;      // Algorithmic control
+    [[constant_id(1200)]] const specular_param : f32 = 2.3;         // Numeric control
+    [[constant_id(1300)]] const gain : f32;                         // Must be overridden
   </xmp>
 </div>
 
@@ -1917,13 +1908,13 @@ A variable declared in function scope is always in the [=storage classes/functio
 The variable storage decoration is optional.
 The variable's [=store type=] must be [=storable=].
 
-<div class='example' heading="Function scope variables and constants">
+<div class='example wgsl global-scope' heading="Function scope variables and constants">
   <xmp highlight='rust'>
     fn f() -> void {
-       var<function> count : u32;  # A variable in function storage class.
-       var delta : i32;            # Another variable in the function storage class.
-       var sum : f32 = 0.0;        # A function storage class variable with initializer.
-       const unit : i32 = 1;       # A constant. Const declarations don't use a storage class.
+       var<function> count : u32;  // A variable in function storage class.
+       var delta : i32;            // Another variable in the function storage class.
+       var sum : f32 = 0.0;        // A function storage class variable with initializer.
+       const unit : i32 = 1;       // A constant. Const declarations don't use a storage class.
     }
   </xmp>
 </div>
@@ -2149,11 +2140,11 @@ The zero values are as follows:
 
 <div class='example' heading="Zero-valued vectors">
   <xmp highlight='rust'>
-    vec2<f32>()                 # The zero-valued vector of two f32 elements.
-    vec2<f32>(0.0, 0.0)         # The same value, written explicitly.
+    vec2<f32>()                 // The zero-valued vector of two f32 elements.
+    vec2<f32>(0.0, 0.0)         // The same value, written explicitly.
 
-    vec3<i32>()                 # The zero-valued vector of four i32 elements.
-    vec3<i32>(0, 0, 0)          # The same value, written explicitly.
+    vec3<i32>()                 // The zero-valued vector of four i32 elements.
+    vec3<i32>(0, 0, 0)          // The same value, written explicitly.
   </xmp>
 </div>
 
@@ -2197,8 +2188,8 @@ The zero values are as follows:
 
 <div class='example' heading="Zero-valued arrays">
   <xmp highlight='rust'>
-    array<bool, 2>()               # The zero-valued array of two booleans.
-    array<bool, 2>(false, false)   # The same value, written explicitly.
+    array<bool, 2>()               // The zero-valued array of two booleans.
+    array<bool, 2>(false, false)   // The same value, written explicitly.
   </xmp>
 </div>
 
@@ -2217,7 +2208,7 @@ The zero values are as follows:
   <tr>
 </table>
 
-<div class='example' heading="Zero-valued structures">
+<div class='example wgsl global-scope' heading="Zero-valued structures">
   <xmp highlight='rust'>
     struct Student {
       grade : i32;
@@ -2225,14 +2216,18 @@ The zero values are as follows:
       attendance : array<bool,4>;
     };
 
-    # The zero value for Student
-    Student()
+    fn func() -> void {
+      var s : Student;
 
-    # The same value, written explicitly.
-    Student(0, 0.0, array<bool,4>(false,false,false,false))
+      // The zero value for Student
+      s = Student();
 
-    # The same value, written with zero-valued members.
-    Student(i32(), f32(), array<bool,4>())
+      // The same value, written explicitly.
+      s = Student(0, 0.0, array<bool,4>(false, false, false, false));
+
+      // The same value, written with zero-valued members.
+      s = Student(i32(), f32(), array<bool,4>());
+    }
   </xmp>
 </div>
 
@@ -2244,6 +2239,22 @@ The zero values are as follows:
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
+  <tr algorithm="coercion to boolean from unsigned">
+      <td>|e| : u32<td>`bool(`|e|`)` : bool
+      <td>Coercion to boolean.<br>
+          The result is false if |e| is 0, and true otherwise.<br>
+          (Use OpINotEqual to compare |e| against 0.)
+  <tr algorithm="coercion to boolean from signed">
+      <td>|e| : i32<td>`bool(`|e|`)` : bool
+      <td>Coercion to boolean.<br>
+          The result is false if |e| is 0, and true otherwise.<br>
+          (Use OpINotEqual to compare |e| against 0.)
+  <tr algorithm="coercion to boolean from floating point">
+      <td>|e| : f32<td>`bool(`|e|`)` : bool
+      <td>Coercion to boolean.<br>
+          The result is false if |e| is 0.0 or -0.0, and true otherwise.
+          In particular NaN and infinity values map to true.<br>
+          (Use OpFUnordNotEqual to compare |e| against `0.0`.)
   <tr algorithm="scalar reinterpretation from unsigned to signed">
       <td>|e| : u32<td>`i32(`|e|`)` : i32
       <td>Reinterpretation of bits.<br>
@@ -2272,6 +2283,27 @@ Details of conversion to and from floating point are explained in [[#floating-po
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
+  <tr algorithm="vector coercion of unsigned integer to boolean">
+     <td>|e| : vec|N|&lt;u32&gt;
+     <td>`vec`|N|&lt;`bool`&gt;`(`|e|`)` : vec|N|&lt;bool&gt
+     <td>Component-wise coercion of a unsigned integer vector to a boolean vector.<br>
+         Component |i| of the result is `bool(`|e|`[`|i|`])`<br>
+         (OpINotEqual to compare |e| against a zero vector.)
+
+  <tr algorithm="vector coercion of signed integer to boolean">
+     <td>|e| : vec|N|&lt;i32&gt;
+     <td>`vec`|N|&lt;`bool`&gt;`(`|e|`)` : vec|N|&lt;bool&gt
+     <td>Component-wise coercion of a signed integer vector to a boolean vector.<br>
+         Component |i| of the result is `bool(`|e|`[`|i|`])`<br>
+         (OpINotEqual to compare |e| against a zero vector.)
+
+  <tr algorithm="vector coercion of floating point to boolean">
+     <td>|e| : vec|N|&lt;f32&gt;
+     <td>`vec`|N|&lt;`bool`&gt;`(`|e|`)` : vec|N|&lt;bool&gt
+     <td>Component-wise coercion of a floating point vector to a boolean vector.<br>
+         Component |i| of the result is `bool(`|e|`[`|i|`])`<br>
+         (OpFUnordNotEqual to compare |e| against a zero vector.)
+
   <tr algorithm="vector reinterpretation from unsigned to signed">
      <td>|e| : vec|N|&lt;u32&gt;
      <td>`vec`|N|&lt;`i32`&gt;`(`|e|`)` : vec|N|&lt;i32&gt
@@ -2422,13 +2454,13 @@ The result type depends on the number of letters provided. Assuming a `vec4<f32>
   <tr><td>rgba<td>`vec4<f32>`
 </table>
 
-<div class='example'>
+<div class='example wgsl function-scope'>
   <xmp highlight='rust'>
     var a : vec3<f32> = vec3<f32>(1., 2., 3.);
-    var b : f32 = a.y;          # b = 2.0
-    var c : vec2<f32> = a.bb;   # c = (3.0, 3.0)
-    var d : vec3<f32> = a.zyx;  # d = (3.0, 2.0, 1.0)
-    var e : f32 = a[1];         # e = 2.0
+    var b : f32 = a.y;          // b = 2.0
+    var c : vec2<f32> = a.bb;   // c = (3.0, 3.0)
+    var d : vec3<f32> = a.zyx;  // d = (3.0, 2.0, 1.0)
+    var e : f32 = a[1];         // e = 2.0
   </xmp>
 </div>
 
@@ -2497,7 +2529,7 @@ TODO: Type rules for vector access
   <tr><td>*e1* : f32<br> *e2* : f32<td>`e1 * e2` : f32<td>Floating point multiplication (OpFMul)
   <tr><td>*e1* : u32<br> *e2* : u32<td>`e1 / e2` : u32<td>Unsigned integer division (OpUDiv)
   <tr><td>*e1* : i32<br> *e2* : i32<td>`e1 / e2` : i32<td>Signed integer division (OpSDiv)
-  <tr><td>*e1* : f32<br> *e2* : f32<td>`e1 / e2` : f32<td>Floating point division (OpFAdd)
+  <tr><td>*e1* : f32<br> *e2* : f32<td>`e1 / e2` : f32<td>Floating point division (OpFDiv)
   <tr><td>*e1* : u32<br> *e2* : u32<td>`e1 % e2` : u32<td>Unsigned integer modulus (OpUMod)
   <tr><td>*e1* : i32<br> *e2* : i32<td>`e1 % e2` : i32<td>Signed integer remainder, where sign of non-zero result matches sign of *e2* (OpSMod)
   <tr><td>*e1* : f32<br> *e2* : f32<td>`e1 % e2` : f32<td>Floating point modulus, where sign of non-zero result matches sign of *e2* (OpFMod)
@@ -3080,7 +3112,7 @@ This design directly expresses loop idioms commonly found in compiled code.
 In particular, placing the loop update statements at the end of the loop body
 allows them to naturally use values defined in the loop body.
 
-<div class='example' heading='GLSL Loop'>
+<div class='example glsl' heading='GLSL Loop'>
   <xmp>
     int a = 2;
     for (int i = 0; i < 4; i++) {
@@ -3089,7 +3121,7 @@ allows them to naturally use values defined in the loop body.
   </xmp>
 </div>
 
-<div class='example' heading="[SHORTNAME] Loop">
+<div class='example wgsl function-scope' heading="[SHORTNAME] Loop">
   <xmp>
     const a : i32 = 2;
     var i : i32 = 0;      // <1>
@@ -3104,7 +3136,7 @@ allows them to naturally use values defined in the loop body.
 </div>
 * <1> The initialization is listed before the loop.
 
-<div class='example' heading='GLSL Loop with continue'>
+<div class='example glsl' heading='GLSL Loop with continue'>
   <xmp>
     int a = 2;
     const int step = 1;
@@ -3115,9 +3147,9 @@ allows them to naturally use values defined in the loop body.
   </xmp>
 </div>
 
-<div class='example' heading="[SHORTNAME] Loop with continue">
+<div class='example wgsl' heading="[SHORTNAME] Loop with continue">
   <xmp>
-    const a : i32 = 2;
+    var a : i32 = 2;
     var i : i32 = 0;
     loop {
       if (i >= 4) { break; }
@@ -3132,9 +3164,9 @@ allows them to naturally use values defined in the loop body.
   </xmp>
 </div>
 
-<div class='example' heading="[SHORTNAME] Loop with continue and continuing">
+<div class='example wgsl' heading="[SHORTNAME] Loop with continue and continuing">
   <xmp>
-    const a : i32 = 2;
+    var a : i32 = 2;
     var i : i32 = 0;
     loop {
       if (i >= 4) { break; }
@@ -3170,7 +3202,7 @@ The `for(initializer; condition; continuing) { body }` statement is syntactic su
 * If `condition` is non-empty, it is checked at the beginning of the loop body and if unsatisfied then a [[#break-statement]] is executed.
 * If `continuing` is non-empty, it becomes a [[#continuing-statement]] at the end of the loop body.
 
-<div class='example' heading="For to Loop transformation">
+<div class='example glsl' heading="For to Loop transformation">
   <xmp>
     for(var i : i32 = 0; i < 4; i = i + 1) {
       if (a == 0) {
@@ -3178,11 +3210,16 @@ The `for(initializer; condition; continuing) { body }` statement is syntactic su
       }
       a = a + 2;
     }
+  </xmp>
+</div>
 
-    Converts to:
+Converts to:
 
-    { # Introduce new scope for loop variable i
+<div class='example wgsl function-scope' heading="For to Loop transformation">
+  <xmp>
+    { // Introduce new scope for loop variable i
       var i : i32 = 0;
+      var a : i32 = 0;
       loop {
         if (!(i < 4)) {
           break;
@@ -3223,9 +3260,9 @@ then:
     * The only statement in the `else` clause of an `if` that has an empty true-branch clause and no `elseif` clauses.
 * That `if` statement must appear last in the `continuing` clause.
 
-<div class='example' heading="[SHORTNAME] Valid loop if-break from a continuing clause">
+<div class='example wgsl function-scope' heading="[SHORTNAME] Valid loop if-break from a continuing clause">
   <xmp>
-    const a : i32 = 2;
+    var a : i32 = 2;
     var i : i32 = 0;
     loop {
       const step : i32 = 1;
@@ -3242,9 +3279,9 @@ then:
   </xmp>
 </div>
 
-<div class='example' heading="[SHORTNAME] Valid loop if-else-break from a continuing clause">
+<div class='example wgsl function-scope' heading="[SHORTNAME] Valid loop if-else-break from a continuing clause">
   <xmp>
-    const a : i32 = 2;
+    var a : i32 = 2;
     var i : i32 = 0;
     loop {
       const step : i32 = 1;
@@ -3261,10 +3298,11 @@ then:
   </xmp>
 </div>
 
-<div class='example' heading="[SHORTNAME] Invalid breaks from a continuing clause">
+<div class='example wgsl function-scope expect-error' heading="[SHORTNAME] Invalid breaks from a continuing clause">
   <xmp>
-    const a : i32 = 2;
+    var a : i32 = 2;
     var i : i32 = 0;
+
     loop {
       const step : i32 = 1;
 
@@ -3301,7 +3339,7 @@ control to an enclosing [[#continuing-statement]].
 A `continue` statement must not be placed such that it would transfer
 control past a declaration used in the targeted continuing construct.
 
-<div class='example' heading="Invalid continue bypasses declaration">
+<div class='example wgsl function-scope expect-error' heading="Invalid continue bypasses declaration">
   <xmp>
     var i : i32 = 0;
     loop {
@@ -3521,19 +3559,23 @@ the [SHORTNAME] module and the entry point's function name.
 An entry point function must have no parameters,
 and its return type must be [=void=].
 
-<div class='example' heading='Entry Point'>
+<div class='example wgsl global-scope' heading='Entry Point'>
   <xmp>
+    [[builtin(position)]]   var<out> gl_Position  : vec4<f32>;
+    [[builtin(frag_coord)]] var<in> coord_in : vec4<f32>;
+    [[location(0)]] var<out> color : vec4<f32>;
+
     [[stage(vertex)]]
     fn vtx_main() -> void { gl_Position = vec4<f32>(); }
-       # OpEntryPoint Vertex %vtx_main "vtx_main" %gl_Position
+       // OpEntryPoint Vertex %vtx_main "vtx_main" %gl_Position
 
     [[stage(fragment)]]
-    fn frag_main -> void { gl_FragColor = vec4<f32>(); }
-       # OpEntryPoint Fragment %frag_main "frag_main" %gl_FragColor
+    fn frag_main() -> void { color = vec4<f32>(coord_in.x, coord_in.y, 0.0, 1.0); }
+       // OpEntryPoint Fragment %frag_main "frag_main" %color %coord_in
 
     [[stage(compute)]]
     fn main() -> void { }
-       # OpEntryPoint GLCompute %main "main"
+       // OpEntryPoint GLCompute %main "main"
   </xmp>
 </div>
 
@@ -3564,22 +3606,22 @@ It will stabilize in a finite number of steps.
 ISSUE: Can we query upper bounds on workgroup size dimensions?  Is it independent of the shader, or
   a property to be queried after creating the shader module?
 
-<div class='example' heading='workgroup_size Attribute'>
+<div class='example wgsl global-scope' heading='workgroup_size Attribute'>
   <xmp>
     [[ stage(compute), workgroup_size(8,1,1) ]]
     fn sorter() -> void { }
-       # OpEntryPoint GLCompute %sorter "sorter"
-       # OpExecutionMode %sorter LocalSize 8 1 1
+       // OpEntryPoint GLCompute %sorter "sorter"
+       // OpExecutionMode %sorter LocalSize 8 1 1
 
     [[ stage(compute), workgroup_size(8) ]]
     fn reverser() -> void { }
-       # OpEntryPoint GLCompute %reverser "reverser"
-       # OpExecutionMode %reverser LocalSize 8 1 1
+       // OpEntryPoint GLCompute %reverser "reverser"
+       // OpExecutionMode %reverser LocalSize 8 1 1
 
     [[ stage(compute) ]]
     fn do_nothing() -> void { }
-       # OpEntryPoint GLCompute %do_nothing "do_nothing"
-       # OpExecutionMode %do_nothing LocalSize 1 1 1
+       // OpEntryPoint GLCompute %do_nothing "do_nothing"
+       // OpExecutionMode %do_nothing LocalSize 1 1 1
   </xmp>
 </div>
 
@@ -3645,15 +3687,15 @@ To declare a variable for accessing a particular output built-in *Y*:
 * Apply a `builtin(`*Y*`)` attribute to the variable.
 * The variable may have an initializer, or not, as described in [[#variables]].
 
-<div class='example' heading="Declaring built-in variables">
+<div class='example wgsl global-scope' heading="Declaring built-in variables">
   <xmp>
-    # vertex shader output builtin
+    // vertex shader output builtin
     [[builtin(position)]] var<out> my_position : vec4<f32>;
 
-    # fragment shader input builtin
+    // fragment shader input builtin
     [[builtin(frag_coord)]] var<in> coord : vec4<f32>;
 
-    # compute shader builtin
+    // compute shader builtin
     [[builtin(global_invocation_id)]] var<in> global_id : vec3<u32>;
   </xmp>
 </div>
@@ -3677,6 +3719,8 @@ Issue:
     2. On the other hand, in Vulkan, builtin variables occoupy I/O location slots (counting toward limits),
 
 #### User Data Attribute TODO #### {#user-data-attributes}
+
+TODO: User data attributes must not be of [=bool=] type or contain a [=bool=] type.
 
 #### Input-output Locations TODO #### {#input-output-locations}
 TODO: *Stub*. Location-sizing of types, non-overlap among variables referenced within an entry point static call tree.
@@ -3907,7 +3951,7 @@ The invocations are organized into workgroups, so that each invocation
      *CSj* mod workgroup_size_y ,
      *CSk* mod workgroup_size_z )
 
-in workgroup instance
+in <dfn noexport>workgroup ID</dfn>
 
    ( &lfloor; *CSi* &div; workgroup_size_x &rfloor;,
      &lfloor; *CSj* &div; workgroup_size_y &rfloor;,
@@ -4003,15 +4047,15 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`BOOL`<td>bool
   <tr><td>`FLOAT32`<td>f32
   <tr><td>`INT32`<td>i32
-  <tr><td>`MAT2x2`<td>mat2x2  # 2 column x 2 row
-  <tr><td>`MAT2x3`<td>mat2x3  # 2 column x 3 row
-  <tr><td>`MAT2x4`<td>mat2x4  # 2 column x 4 row
-  <tr><td>`MAT3x2`<td>mat3x2  # 3 column x 2 row
-  <tr><td>`MAT3x3`<td>mat3x3  # 3 column x 3 row
-  <tr><td>`MAT3x4`<td>mat3x4  # 3 column x 4 row
-  <tr><td>`MAT4x2`<td>mat4x2  # 4 column x 2 row
-  <tr><td>`MAT4x3`<td>mat4x3  # 4 column x 3 row
-  <tr><td>`MAT4x4`<td>mat4x4  # 4 column x 4 row
+  <tr><td>`MAT2x2`<td>mat2x2  // 2 column x 2 row
+  <tr><td>`MAT2x3`<td>mat2x3  // 2 column x 3 row
+  <tr><td>`MAT2x4`<td>mat2x4  // 2 column x 4 row
+  <tr><td>`MAT3x2`<td>mat3x2  // 3 column x 2 row
+  <tr><td>`MAT3x3`<td>mat3x3  // 3 column x 3 row
+  <tr><td>`MAT3x4`<td>mat3x4  // 3 column x 4 row
+  <tr><td>`MAT4x2`<td>mat4x2  // 4 column x 2 row
+  <tr><td>`MAT4x3`<td>mat4x3  // 4 column x 3 row
+  <tr><td>`MAT4x4`<td>mat4x4  // 4 column x 4 row
   <tr><td>`POINTER`<td>ptr
   <tr><td>`SAMPLER`<td>sampler
   <tr><td>`SAMPLER_COMPARISON`<td>sampler_comparison
@@ -4024,16 +4068,11 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`TEXTURE_CUBE`<td>texture_cube
   <tr><td>`TEXTURE_CUBE_ARRAY`<td>texture_cube_array
   <tr><td>`TEXTURE_MULTISAMPLED_2D`<td>texture_multisampled_2d
-  <tr><td>`TEXTURE_STORAGE_RO_1D`<td>texture_storage_ro_1d
-  <tr><td>`TEXTURE_STORAGE_RO_1D_ARRAY`<td>texture_storage_ro_1d_array
-  <tr><td>`TEXTURE_STORAGE_RO_2D`<td>texture_storage_ro_2d
-  <tr><td>`TEXTURE_STORAGE_RO_2D_ARRAY`<td>texture_storage_ro_2d_array
-  <tr><td>`TEXTURE_STORAGE_RO_3D`<td>texture_storage_ro_3d
-  <tr><td>`TEXTURE_STORAGE_WO_1D`<td>texture_storage_wo_1d
-  <tr><td>`TEXTURE_STORAGE_WO_1D_ARRAY`<td>texture_storage_wo_1d_array
-  <tr><td>`TEXTURE_STORAGE_WO_2D`<td>texture_storage_wo_2d
-  <tr><td>`TEXTURE_STORAGE_WO_2D_ARRAY`<td>texture_storage_wo_2d_array
-  <tr><td>`TEXTURE_STORAGE_WO_3D`<td>texture_storage_wo_3d
+  <tr><td>`TEXTURE_STORAGE_1D`<td>texture_storage_1d
+  <tr><td>`TEXTURE_STORAGE_1D_ARRAY`<td>texture_storage_1d_array
+  <tr><td>`TEXTURE_STORAGE_2D`<td>texture_storage_2d
+  <tr><td>`TEXTURE_STORAGE_2D_ARRAY`<td>texture_storage_2d_array
+  <tr><td>`TEXTURE_STORAGE_3D`<td>texture_storage_3d
   <tr><td>`TEXTURE_DEPTH_2D`<td>texture_depth_2d
   <tr><td>`TEXTURE_DEPTH_2D_ARRAY`<td>texture_depth_2d_array
   <tr><td>`TEXTURE_DEPTH_CUBE`<td>texture_depth_cube
@@ -4318,57 +4357,113 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
       <td>in
       <td>vec3&lt;u32&gt;
       <td width="50%">The current invocation's [=global invocation ID=],
-            i.e. its position in the [=compute shader grid=].
+          i.e. its position in the [=compute shader grid=].
 
+  <tr><td>`workgroup_id`
+      <td>compute
+      <td>in
+      <td>vec3&lt;u32&gt;
+      <td width="50%">The current invocation's [=workgroup ID=],
+          i.e. the position of the workgroup in the the [=workgroup grid=].
+
+  <tr><td>`workgroup_size`
+      <td>compute
+      <td>in
+      <td>vec3&lt;u32&gt;
+      <td width="50%">The [=workgroup_size=] of the current entry point.
+
+  <tr><td>`sample_index`
+      <td>fragment
+      <td>in
+      <td>u32
+      <td width="50%">Sample index for the current fragment.
+         The value is least 0 and at most `sampleCount`-1, where
+         [[WebGPU#dom-gpurenderpipelinedescriptor-samplecount|sampleCount]]
+         is the number of MSAA samples specified for the GPU render pipeline.
+         <br>See [[WebGPU#gpurenderpipe|WebGPU &sect; GPURenderPipeline]].
+
+  <tr><td>`sample_mask_in`
+      <td>fragment
+      <td>in
+      <td>u32
+      <td width="50%">Sample coverage mask for the current fragment.
+         It contains a bitmask indicating which samples in this fragment are covered
+         by the primitive being rendered.
+         <br>See [[WebGPU#sample-masking|WebGPU &sect; Sample Masking]].
+
+  <tr><td>`sample_mask_out`
+      <td>fragment
+      <td>out
+      <td>u32
+      <td width="50%">Sample coverage mask control for the current fragment.
+         The last value written to this variable becomes the
+         [[WebGPU#shader-output-mask|shader-output mask]].
+         Zero bits in the written value will cause corresponding samples in
+         the color attachments to be discarded.
+         <br>The value in the variable is significant only if the
+         `sample_mask_out` variable is [=statically accessed=]
+         by the fragment shader. If the variable is not statically accessed,
+         then other factors determine sample coverage.
+         <br>See [[WebGPU#sample-masking|WebGPU &sect; Sample Masking]].
 </table>
 
-<div class='example' heading="Declaring built-in variable: position">
+<div class='example wgsl global-scope' heading="Declaring built-in variable: position">
   <xmp>
     [[builtin(position)]] var<out> my_position : vec4<f32>;
 
-    #   OpDecorate %my_pos BuiltIn Position
-    #   %float = OpTypeFloat 32
-    #   %v4float = OpTypeVector %float 4
-    #   %ptr = OpTypePointer Output %v4float
-    #   %my_pos = OpVariable %ptr Output
+    //   OpDecorate %my_pos BuiltIn Position
+    //   %float = OpTypeFloat 32
+    //   %v4float = OpTypeVector %float 4
+    //   %ptr = OpTypePointer Output %v4float
+    //   %my_pos = OpVariable %ptr Output
 
   </xmp>
 </div>
 
-<div class='example' heading="Example built-in variable: vertex_index">
+<div class='example wgsl global-scope' heading="Example built-in variable: vertex_index">
   <xmp>
     [[builtin(vertex_index)]] var<in> my_index : u32;
 
-    #   OpDecorate %my_index BuiltIn VertexIndex
-    #   %uint = OpTypeInt 32 0
-    #   %ptr = OpTypePointer Input %uint
-    #   %my_index = OpVariable %ptr Input
+    //   OpDecorate %my_index BuiltIn VertexIndex
+    //   %uint = OpTypeInt 32 0
+    //   %ptr = OpTypePointer Input %uint
+    //   %my_index = OpVariable %ptr Input
 
   </xmp>
 </div>
 
-<div class='example' heading="Declaring other built-in variables">
+<div class='example wgsl global-scope' heading="Declaring other built-in variables">
   <xmp>
     [[builtin(instance_index)]] var<in> my_inst_index : u32;
-    #    OpDecorate %gl_InstanceId BuiltIn InstanceIndex
+    //    OpDecorate %gl_InstanceId BuiltIn InstanceIndex
 
     [[builtin(front_facing)]] var<in> is_front : u32;
-    #     OpDecorate %gl_FrontFacing BuiltIn FrontFacing
+    //     OpDecorate %gl_FrontFacing BuiltIn FrontFacing
 
     [[builtin(frag_coord)]] var<in> coord : vec4<f32>;
-    #     OpDecorate %gl_FragCoord BuiltIn FragCoord
+    //     OpDecorate %gl_FragCoord BuiltIn FragCoord
 
     [[builtin(frag_depth)]] var<out> depth : f32;
-    #     OpDecorate %gl_FragDepth BuiltIn FragDepth
+    //     OpDecorate %gl_FragDepth BuiltIn FragDepth
 
     [[builtin(local_invocation_id)]] var<in> local_id : vec3<u32>;
-    #     OpDecorate %gl_LocalInvocationID BuiltIn LocalInvocationId
+    //     OpDecorate %gl_LocalInvocationID BuiltIn LocalInvocationId
 
     [[builtin(local_invocation_index)]] var<in> local_index : u32;
-    #     OpDecorate %gl_LocalInvocationIndex BuiltIn LocalInvocationIndex
+    //     OpDecorate %gl_LocalInvocationIndex BuiltIn LocalInvocationIndex
 
     [[builtin(global_invocation_id)]] var<in> global_id : vec3<u32>;
-    #      OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+    //      OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+
+    [[builtin(sample_index)]] var<in> my_sample_index : u32;
+    //      OpDecorate %gl_SampleId BuiltIn SampleId
+
+    [[builtin(sample_mask_in)]] var<in> mask_in : u32;
+    //      OpDecorate %gl_SampleMaskIn BuiltIn SampleMask ; an input variable
+    //      OpDecorate %gl_SampleMaskIn Flat
+
+    [[builtin(sample_mask_out)]] var<out> mask_out : u32;
+    //      OpDecorate %gl_SampleMask BuiltIn SampleMask ; an output variable
   </xmp>
 </div>
 
@@ -4772,14 +4867,25 @@ TODO: deduplicate these tables
   <thead>
     <tr><th>Precondition<th>Built-in<th>Description
   </thead>
-  <tr algorithm="scalar case, abs">
-    <td>|T| is u32 or i32
-    <td class="nowrap">`abs(`|e|`:` |T| `) ->` |T|
-    <td>(GLSLstd450SAbs)
-  <tr algorithm="vector case, abs">
-    <td>|T| is u32 or i32
-    <td class="nowrap">`abs(`|e|`:` vec|N|<|T|> `) ->` vec|N|<|T|>
-    <td>(GLSLstd450SAbs)
+  <tr algorithm="scalar case, signed abs">
+    <td>
+    <td class="nowrap">`abs`(|e|: i32 ) -> i32
+    <td>The absolute value of |e|.<br>
+        (GLSLstd450SAbs)
+  <tr algorithm="vector case, signed abs">
+    <td>
+    <td class="nowrap">`abs`(|e| : vec|N|&lt;i32&gt; ) -> vec|N|&lt;i32&gt;
+    <td>Component-wise absolute value:
+        Component |i| of the result is `abs(`|e|`[`|i|`])`<br>
+        (GLSLstd450SAbs)
+  <tr algorithm="scalar case, unsigned abs">
+    <td>
+    <td class="nowrap">`abs`(|e| : u32 ) -> u32
+    <td>Result is |e|.  This is provided for symmetry with `abs` for signed integers.
+  <tr algorithm="vector case, unsgined abs">
+    <td>
+    <td class="nowrap">`abs(`|e|`:` vec|N|&lt;u32&gt; `) ->` vec|N|&lt;u32&gt;
+    <td>Result is |e|.  This is provided for symmetry with `abs` for signed integer vectors.
   <tr algorithm="scalar case, unsigned clamp">
     <td>|T| is u32
     <td class="nowrap">`clamp(`|e1|`:` |T| `, `|e2|`:` |T|`, `|e3|`:` |T|`) ->` |T|
@@ -4872,7 +4978,6 @@ TODO: deduplicate these tables
     <tr><th>Vector built-in functions<th>SPIR-V
   </thead>
   <tr><td>dot(vecN&lt;f32&gt;, vecN&lt;f32&gt;) -&gt; float<td>OpDot
-  <tr><td>outerProduct(vecN&lt;f32&gt;, vecM&lt;f32&gt;) -&gt; matNxM&lt;f32&gt;<td>OpOuterProduct
 </table>
 
 ## Derivative built-in functions ## {#derivative-builtin-functions}
@@ -4893,6 +4998,184 @@ TODO: deduplicate these tables
 </table>
 
 ## Texture built-in functions ## {#texture-builtin-functions}
+
+### `textureDimensions` ### {#texturedimensions}
+
+Returns the dimensions of a texture, or texture's mip level in texels.
+
+```rust
+textureDimensions(t : texture_1d<T>) -> i32
+textureDimensions(t : texture_1d_array<T>) -> i32
+textureDimensions(t : texture_2d<T>) -> vec2<i32>
+textureDimensions(t : texture_2d<T>, level : i32) -> vec2<i32>
+textureDimensions(t : texture_2d_array<T>) -> vec2<i32>
+textureDimensions(t : texture_2d_array<T>, level : i32) -> vec2<i32>
+textureDimensions(t : texture_3d<T>) -> vec3<i32>
+textureDimensions(t : texture_3d<T>, level : i32) -> vec3<i32>
+textureDimensions(t : texture_cube<T>) -> vec3<i32>
+textureDimensions(t : texture_cube<T>, level : i32) -> vec3<i32>
+textureDimensions(t : texture_cube_array<T>) -> vec3<i32>
+textureDimensions(t : texture_cube_array<T>, level : i32) -> vec3<i32>
+textureDimensions(t : texture_multisampled_2d<T>)-> vec2<i32>
+textureDimensions(t : texture_multisampled_2d_array<T>)-> vec2<i32>
+textureDimensions(t : texture_depth_2d) -> vec2<i32>
+textureDimensions(t : texture_depth_2d, level : i32) -> vec2<i32>
+textureDimensions(t : texture_depth_2d_array) -> vec2<i32>
+textureDimensions(t : texture_depth_2d_array, level : i32) -> vec2<i32>
+textureDimensions(t : texture_depth_cube) -> vec3<i32>
+textureDimensions(t : texture_depth_cube, level : i32) -> vec3<i32>
+textureDimensions(t : texture_depth_cube_array) -> vec3<i32>
+textureDimensions(t : texture_depth_cube_array, level : i32) -> vec3<i32>
+textureDimensions(t : texture_storage_1d<F>) -> i32
+textureDimensions(t : texture_storage_1d_array<F>) -> i32
+textureDimensions(t : texture_storage_2d<F>) -> vec2<i32>
+textureDimensions(t : texture_storage_2d_array<F>) -> vec2<i32>
+textureDimensions(t : texture_storage_3d<F>) -> vec3<i32>
+```
+
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`t`<td>
+  The [sampled](#sampled-texture-type),
+  [multisampled](#multisampled-texture-type), [depth](#texture-depth), or
+  [storage](#texture-storage) texture.
+  <tr><td>`level`<td>
+  The mip level, with level 0 containing a full size version of the texture.<br>
+  If omitted, the dimensions of level 0 are returned.
+</table>
+
+**Returns:**
+
+The dimensions of the texture in texels.<br>
+
+
+### `textureLoad` ### {#textureload}
+
+Reads a single texel from a texture without sampling or filtering.
+
+```rust
+textureLoad(t : texture_1d<T>, coords : i32, level : i32) -> vec4<T>
+textureLoad(t : texture_1d_array<T>, coords : i32, array_index : i32, level : i32) -> vec4<T>
+textureLoad(t : texture_2d<T>, coords : vec2<i32>, level : i32) -> vec4<T>
+textureLoad(t : texture_2d_array<T>, coords : vec2<i32>, array_index : i32, level : i32) -> vec4<T>
+textureLoad(t : texture_3d<T>, coords : vec3<i32>, level : i32) -> vec4<T>
+textureLoad(t : texture_multisampled_2d<T>, coords : vec2<i32>, sample_index : i32)-> vec4<T>
+textureLoad(t : texture_multisampled_2d_array<T>, coords : vec2<i32>, array_index : i32, sample_index : i32)-> vec4<T>
+textureLoad(t : texture_depth_2d, coords : vec2<i32>, level : i32) -> f32
+textureLoad(t : texture_depth_2d_array, coords : vec2<i32>, array_index : i32, level : i32) -> f32
+textureLoad(t : [[access(read)]] texture_storage_1d<F>, coords : i32) -> vec4<T>
+textureLoad(t : [[access(read)]] texture_storage_1d_array<F>, coords : i32, array_index : i32) -> vec4<T>
+textureLoad(t : [[access(read)]] texture_storage_2d<F>, coords : vec2<i32>) -> vec4<T>
+textureLoad(t : [[access(read)]] texture_storage_2d_array<F>, coords : vec2<i32>, array_index : i32) -> vec4<T>
+textureLoad(t : [[access(read)]] texture_storage_3d<F>, coords : vec3<i32>) -> vec4<T>
+```
+
+For [read-only storage textures](#texture-storage) the returned channel format `T`
+depends on the texel format `F`.
+[See the texel format table](#storage-texel-formats) for the mapping of texel
+format to channel format.
+
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`t`<td>
+  The [sampled](#sampled-texture-type),
+  [multisampled](#multisampled-texture-type), [depth](#texture-depth) or
+  [read-only storage](#texture-storage) texture.
+  <tr><td>`coords`<td>
+  The 0-based texel coordinate.
+  <tr><td>`array_index`<td>
+  The 0-based texture array index.
+  <tr><td>`level`<td>
+  The mip level, with level 0 containing a full size version of the texture.
+  <tr><td>`sample_index`<td>
+  The 0-based sample index of the multisampled texture.
+</table>
+
+**Returns:**
+
+If all the parameters are within bounds, the unfiltered texel data.<br>
+If any of the parameters are out of bounds, then zero in all components.
+
+
+### `textureNumLayers` ### {#texturenumlayers}
+
+Returns the number of layers (elements) of an array texture.
+
+```rust
+textureNumLayers(t : texture_1d_array<T>) -> i32
+textureNumLayers(t : texture_2d_array<T>) -> i32
+textureNumLayers(t : texture_cube_array<T>) -> i32
+textureNumLayers(t : texture_multisampled_2d_array<T>) -> i32
+textureNumLayers(t : texture_depth_2d_array) -> i32
+textureNumLayers(t : texture_depth_cube_array) -> i32
+textureNumLayers(t : texture_storage_1d_array<F>) -> i32
+textureNumLayers(t : texture_storage_2d_array<F>) -> i32
+```
+
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`t`<td>
+  The [sampled](#sampled-texture-type),
+  [multisampled](#multisampled-texture-type), [depth](#texture-depth) or
+  [storage](#texture-storage) array texture.
+</table>
+
+**Returns:**
+
+If the number of layers (elements) of the array texture.
+
+
+### `textureNumLevels` ### {#texturenumlevels}
+
+Returns the number of mip levels of a texture.
+
+```rust
+textureNumLevels(t : texture_2d<T>) -> i32
+textureNumLevels(t : texture_2d_array<T>) -> i32
+textureNumLevels(t : texture_3d<T>) -> i32
+textureNumLevels(t : texture_cube<T>) -> i32
+textureNumLevels(t : texture_cube_array<T>) -> i32
+textureNumLevels(t : texture_depth_2d) -> i32
+textureNumLevels(t : texture_depth_2d_array) -> i32
+textureNumLevels(t : texture_depth_cube) -> i32
+textureNumLevels(t : texture_depth_cube_array) -> i32
+```
+
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`t`<td>
+  The [sampled](#sampled-texture-type) or [depth](#texture-depth) texture.
+</table>
+
+**Returns:**
+
+If the number of mip levels for the texture.
+
+
+### `textureNumSamples` ### {#texturenumsamples}
+
+Returns the number samples per texel in a multisampled texture.
+
+```rust
+textureNumSamples(t : texture_multisampled_2d<T>) -> i32
+textureNumSamples(t : texture_multisampled_2d_array<T>) -> i32
+```
+
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`t`<td>
+  The [multisampled](#multisampled-texture-type) texture.
+</table>
+
+**Returns:**
+
+If the number of samples per texel in the multisampled texture.
+
 
 ### `textureSample` ### {#texturesample}
 
@@ -4932,8 +5215,11 @@ textureSample(t : texture_depth_cube_array, s : sampler, coords : vec3<f32>, arr
   <tr><td>`offset`<td>
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
-  texture wrapping modes. `offset` values may range from `[-8..7]` in all
-  dimensions. Values outside of this range will be clamped to the nearest limit.
+  texture wrapping modes.<br>
+  `offset` must be compile time constant, and may only be provided as a
+  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  Each `offset` component must be at least `-8` and at most `7`. Values outside
+  of this range will be treated as a compile time error.
 </table>
 
 **Returns:**
@@ -4973,8 +5259,105 @@ textureSampleBias(t : texture_cube_array<f32>, s : sampler, coords : vec3<f32>, 
   <tr><td>`offset`<td>
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
-  texture wrapping modes. `offset` values may range from `[-8..7]` in all
-  dimensions. Values outside of this range will be clamped to the nearest limit.
+  texture wrapping modes.<br>
+  `offset` must be compile time constant, and may only be provided as a
+  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  Each `offset` component must be at least `-8` and at most `7`. Values outside
+  of this range will be treated as a compile time error.
+</table>
+
+**Returns:**
+
+The sampled value.
+
+
+### `textureSampleCompare` ### {#texturesamplecompare}
+
+Samples a depth texture and compares the sampled depth values against a reference value.
+
+```rust
+textureSampleCompare(t : texture_depth_2d, s : sampler_comparison, coords : vec2<f32>, depth_ref : f32) -> f32
+textureSampleCompare(t : texture_depth_2d, s : sampler_comparison, coords : vec2<f32>, depth_ref : f32, offset : vec2<i32>) -> f32
+textureSampleCompare(t : texture_depth_2d_array, s : sampler_comparison, coords : vec2<f32>, array_index : i32, depth_ref : f32) -> f32
+textureSampleCompare(t : texture_depth_2d_array, s : sampler_comparison, coords : vec2<f32>, array_index : i32, depth_ref : f32, offset : vec2<i32>) -> f32
+textureSampleCompare(t : texture_depth_cube, s : sampler_comparison, coords : vec3<f32>, depth_ref : f32) -> f32
+textureSampleCompare(t : texture_depth_cube_array, s : sampler_comparison, coords : vec3<f32>, array_index : i32, depth_ref : f32) -> f32
+```
+
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`t`<td>
+  The [depth](#texture-depth) texture to sample.
+  <tr><td>`s`<td>
+  The [sampler comparision](#sampler-type) type.
+  <tr><td>`coords`<td>
+  The texture coordinates used for sampling.
+  <tr><td>`array_index`<td>
+  The 0-based texture array index to sample.
+  <tr><td>`depth_ref`<td>
+  The reference value to compare the sampled depth value against.
+  <tr><td>`offset`<td>
+  The optional texel offset applied to the unnormalized texture coordinate
+  before sampling the texture. This offset is applied before applying any
+  texture wrapping modes.<br>
+  `offset` must be compile time constant, and may only be provided as a
+  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  Each `offset` component must be at least `-8` and at most `7`. Values outside
+  of this range will be treated as a compile time error.
+</table>
+
+**Returns:**
+
+A value in the range `[0.0..1.0]`.
+
+Each sampled texel is compared against the reference value using the comparision
+operator defined by the `sampler_comparison`, resulting in either a `0` or `1`
+value for each texel.
+
+If the `sampler_comparison` uses bilinear filtering then the returned value is
+the filtered average of these values, otherwise the comparision result of a
+single texel is returned.
+
+
+### `textureSampleGrad` ### {#texturesamplegrad}
+
+Samples a texture using explicit gradients.
+
+```rust
+textureSampleGrad(t : texture_2d<f32>, s : sampler, coords : vec2<f32>, ddx : vec2<f32>, ddy : vec2<f32>) -> vec4<f32>
+textureSampleGrad(t : texture_2d<f32>, s : sampler, coords : vec2<f32>, ddx : vec2<f32>, ddy : vec2<f32>, offset : vec2<i32>) -> vec4<f32>
+textureSampleGrad(t : texture_2d_array<f32>, s : sampler, coords : vec2<f32>, array_index : i32, ddx : vec2<f32>, ddy : vec2<f32>) -> vec4<f32>
+textureSampleGrad(t : texture_2d_array<f32>, s : sampler, coords : vec2<f32>, array_index : i32, ddx : vec2<f32>, ddy : vec2<f32>, offset : vec2<i32>) -> vec4<f32>
+textureSampleGrad(t : texture_3d<f32>, s : sampler, coords : vec3<f32>, ddx : vec3<f32>, ddy : vec3<f32>) -> vec4<f32>
+textureSampleGrad(t : texture_3d<f32>, s : sampler, coords : vec3<f32>, ddx : vec3<f32>, ddy : vec3<f32>, offset : vec3<i32>) -> vec4<f32>
+textureSampleGrad(t : texture_cube<f32>, s : sampler, coords : vec3<f32>, ddx : vec3<f32>, ddy : vec3<f32>) -> vec4<f32>
+textureSampleGrad(t : texture_cube_array<f32>, s : sampler, coords : vec3<f32>, array_index : i32, ddx : vec3<f32>, ddy : vec3<f32>) -> vec4<f32>
+```
+
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`t`<td>
+  The [texture](#sampled-texture-type) to sample.
+  <tr><td>`s`<td>
+  The [sampler type](#sampler-type).
+  <tr><td>`coords`<td>
+  The texture coordinates used for sampling.
+  <tr><td>`array_index`<td>
+  The 0-based texture array index to sample.
+  <tr><td>`ddx`<td>
+  The x direction derivative vector used to compute the sampling locations.
+  <tr><td>`ddy`<td>
+  The y direction derivative vector used to compute the sampling locations.
+  <tr><td>`offset`<td>
+  The optional texel offset applied to the unnormalized texture coordinate
+  before sampling the texture. This offset is applied before applying any
+  texture wrapping modes.<br>
+  `offset` must be compile time constant, and may only be provided as a
+  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  Each `offset` component must be at least `-8` and at most `7`. Values outside
+  of this range will be treated as a compile time error.
 </table>
 
 **Returns:**
@@ -5023,155 +5406,16 @@ textureSampleLevel(t : texture_depth_cube_array, s : sampler, coords : vec3<f32>
   <tr><td>`offset`<td>
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
-  texture wrapping modes. `offset` values may range from `[-8..7]` in all
-  dimensions. Values outside of this range will be clamped to the nearest limit.
+  texture wrapping modes.<br>
+  `offset` must be compile time constant, and may only be provided as a
+  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  Each `offset` component must be at least `-8` and at most `7`. Values outside
+  of this range will be treated as a compile time error.
 </table>
 
 **Returns:**
 
 The sampled value.
-
-
-### `textureSampleGrad` ### {#texturesamplegrad}
-
-Samples a texture using explicit gradients.
-
-```rust
-textureSampleGrad(t : texture_2d<f32>, s : sampler, coords : vec2<f32>, ddx : vec2<f32>, ddy : vec2<f32>) -> vec4<f32>
-textureSampleGrad(t : texture_2d<f32>, s : sampler, coords : vec2<f32>, ddx : vec2<f32>, ddy : vec2<f32>, offset : vec2<i32>) -> vec4<f32>
-textureSampleGrad(t : texture_2d_array<f32>, s : sampler, coords : vec2<f32>, array_index : i32, ddx : vec2<f32>, ddy : vec2<f32>) -> vec4<f32>
-textureSampleGrad(t : texture_2d_array<f32>, s : sampler, coords : vec2<f32>, array_index : i32, ddx : vec2<f32>, ddy : vec2<f32>, offset : vec2<i32>) -> vec4<f32>
-textureSampleGrad(t : texture_3d<f32>, s : sampler, coords : vec3<f32>, ddx : vec3<f32>, ddy : vec3<f32>) -> vec4<f32>
-textureSampleGrad(t : texture_3d<f32>, s : sampler, coords : vec3<f32>, ddx : vec3<f32>, ddy : vec3<f32>, offset : vec3<i32>) -> vec4<f32>
-textureSampleGrad(t : texture_cube<f32>, s : sampler, coords : vec3<f32>, ddx : vec3<f32>, ddy : vec3<f32>) -> vec4<f32>
-textureSampleGrad(t : texture_cube_array<f32>, s : sampler, coords : vec3<f32>, array_index : i32, ddx : vec3<f32>, ddy : vec3<f32>) -> vec4<f32>
-```
-
-**Parameters:**
-
-<table class='data'>
-  <tr><td>`t`<td>
-  The [texture](#sampled-texture-type) to sample.
-  <tr><td>`s`<td>
-  The [sampler type](#sampler-type).
-  <tr><td>`coords`<td>
-  The texture coordinates used for sampling.
-  <tr><td>`array_index`<td>
-  The 0-based texture array index to sample.
-  <tr><td>`ddx`<td>
-  The x direction derivative vector used to compute the sampling locations.
-  <tr><td>`ddy`<td>
-  The y direction derivative vector used to compute the sampling locations.
-  <tr><td>`offset`<td>
-  The optional texel offset applied to the unnormalized texture coordinate
-  before sampling the texture. This offset is applied before applying any
-  texture wrapping modes. `offset` values may range from `[-8..7]` in all
-  dimensions. Values outside of this range will be clamped to the nearest limit.
-</table>
-
-**Returns:**
-
-The sampled value.
-
-
-### `textureSampleCompare` ### {#texturesamplecompare}
-
-Samples a depth texture and compares the sampled depth values against a reference value.
-
-```rust
-textureSampleCompare(t : texture_depth_2d, s : sampler_comparison, coords : vec2<f32>, depth_ref : f32) -> f32
-textureSampleCompare(t : texture_depth_2d, s : sampler_comparison, coords : vec2<f32>, depth_ref : f32, offset : vec2<i32>) -> f32
-textureSampleCompare(t : texture_depth_2d_array, s : sampler_comparison, coords : vec2<f32>, array_index : i32, depth_ref : f32) -> f32
-textureSampleCompare(t : texture_depth_2d_array, s : sampler_comparison, coords : vec2<f32>, array_index : i32, depth_ref : f32, offset : vec2<i32>) -> f32
-textureSampleCompare(t : texture_depth_cube, s : sampler_comparison, coords : vec3<f32>, depth_ref : f32) -> f32
-textureSampleCompare(t : texture_depth_cube_array, s : sampler_comparison, coords : vec3<f32>, array_index : i32, depth_ref : f32) -> f32
-```
-
-**Parameters:**
-
-<table class='data'>
-  <tr><td>`t`<td>
-  The [depth](#texture-depth) texture to sample.
-  <tr><td>`s`<td>
-  The [sampler comparision](#sampler-type) type.
-  <tr><td>`coords`<td>
-  The texture coordinates used for sampling.
-  <tr><td>`array_index`<td>
-  The 0-based texture array index to sample.
-  <tr><td>`depth_ref`<td>
-  The reference value to compare the sampled depth value against.
-  <tr><td>`offset`<td>
-  The optional texel offset applied to the unnormalized texture coordinate
-  before sampling the texture. This offset is applied before applying any
-  texture wrapping modes. `offset` values may range from `[-8..7]` in all
-  dimensions. Values outside of this range will be clamped to the nearest limit.
-</table>
-
-**Returns:**
-
-A value in the range `[0.0..1.0]`.
-
-Each sampled texel is compared against the reference value using the comparision
-operator defined by the `sampler_comparison`, resulting in either a `0` or `1`
-value for each texel.
-
-If the `sampler_comparison` uses bilinear filtering then the returned value is
-the filtered average of these values, otherwise the comparision result of a
-single texel is returned.
-
-
-### `textureLoad` ### {#textureload}
-
-Reads a single texel from a texture without sampling or filtering.
-
-```rust
-textureLoad(t : texture_1d<T>, coords : i32) -> vec4<T>
-textureLoad(t : texture_1d_array<T>, coords : i32, array_index : i32) -> vec4<T>
-textureLoad(t : texture_2d<T>, coords : vec2<i32>) -> vec4<T>
-textureLoad(t : texture_2d<T>, coords : vec2<i32>, level : i32) -> vec4<T>
-textureLoad(t : texture_2d_array<T>, coords : vec2<i32>, array_index : i32) -> vec4<T>
-textureLoad(t : texture_2d_array<T>, coords : vec2<i32>, array_index : i32, level : i32) -> vec4<T>
-textureLoad(t : texture_3d<T>, coords : vec3<i32>) -> vec4<T>
-textureLoad(t : texture_3d<T>, coords : vec3<i32>, level : i32) -> vec4<T>
-textureLoad(t : texture_multisampled_2d<T>, coords : vec2<i32>, sample_index : i32)-> vec4<T>
-textureLoad(t : texture_multisampled_2d_array<T>, coords : vec2<i32>, array_index : i32, sample_index : i32)-> vec4<T>
-textureLoad(t : texture_depth_2d, coords : vec2<i32>) -> f32
-textureLoad(t : texture_depth_2d, coords : vec2<i32>, level : i32) -> f32
-textureLoad(t : texture_depth_2d_array, coords : vec2<i32>, array_index : i32) -> f32
-textureLoad(t : texture_depth_2d_array, coords : vec2<i32>, array_index : i32, level : i32) -> f32
-textureLoad(t : texture_storage_ro_1d<F>, coords : i32) -> vec4<T>
-textureLoad(t : texture_storage_ro_1d_array<F>, coords : i32, array_index : i32) -> vec4<T>
-textureLoad(t : texture_storage_ro_2d<F>, coords : vec2<i32>) -> vec4<T>
-textureLoad(t : texture_storage_ro_2d_array<F>, coords : vec2<i32>, array_index : i32) -> vec4<T>
-textureLoad(t : texture_storage_ro_3d<F>, coords : vec3<i32>) -> vec4<T>
-```
-
-For [read-only storage textures](#texture-ro) the returned channel format `T`
-depends on the texel format `F`.
-[See the texel format table](#storage-texel-formats) for the mapping of texel
-format to channel format.
-
-**Parameters:**
-
-<table class='data'>
-  <tr><td>`t`<td>
-  The [sampled](#sampled-texture-type),
-  [multisampled](#multisampled-texture-type), [depth](#texture-depth) or
-  [read-only storage](#texture-ro) texture.
-  <tr><td>`coords`<td>
-  The 0-based texel coordinate.
-  <tr><td>`array_index`<td>
-  The 0-based texture array index.
-  <tr><td>`level`<td>
-  The mip level, with level 0 containing a full size version of the texture.
-  <tr><td>`sample_index`<td>
-  The 0-based sample index of the multisampled texture.
-</table>
-
-**Returns:**
-
-If all the parameters are within bounds, the unfiltered texel data.<br>
-If any of the parameters are out of bounds, then zero in all components.
 
 
 ### `textureStore` ### {#texturestore}
@@ -5179,11 +5423,11 @@ If any of the parameters are out of bounds, then zero in all components.
 Writes a single texel to a texture.
 
 ```rust
-textureStore(t : texture_storage_wo_1d<F>, coords : i32, value : vec4<T>) -> void
-textureStore(t : texture_storage_wo_1d_array<F>, coords : i32, array_index : i32, value : vec4<T>) -> void
-textureStore(t : texture_storage_wo_2d<F>, coords : vec2<i32>, value : vec4<T>) -> void
-textureStore(t : texture_storage_wo_2d_array<F>, coords : vec2<i32>, array_index : i32, value : vec4<T>) -> void
-textureStore(t : texture_storage_wo_3d<F>, coords : vec3<i32>, value : vec4<T>) -> void
+textureStore(t : [[access(write)]] texture_storage_1d<F>, coords : i32, value : vec4<T>) -> void
+textureStore(t : [[access(write)]] texture_storage_1d_array<F>, coords : i32, array_index : i32, value : vec4<T>) -> void
+textureStore(t : [[access(write)]] texture_storage_2d<F>, coords : vec2<i32>, value : vec4<T>) -> void
+textureStore(t : [[access(write)]] texture_storage_2d_array<F>, coords : vec2<i32>, array_index : i32, value : vec4<T>) -> void
+textureStore(t : [[access(write)]] texture_storage_3d<F>, coords : vec3<i32>, value : vec4<T>) -> void
 ```
 
 The channel format `T` depends on the storage texel format `F`.
@@ -5194,7 +5438,7 @@ format to channel format.
 
 <table class='data'>
   <tr><td>`t`<td>
-  The [write-only storage texture](#texture-wo).
+  The [write-only storage texture](#texture-storage).
   <tr><td>`coords`<td>
   The 0-based texel coordinate.<br>
   <tr><td>`array_index`<td>
@@ -5207,7 +5451,6 @@ format to channel format.
 
 If any of the parameters are out of bounds, then the call to `textureStore()`
 does nothing.
-
 
 
 **TODO:**
@@ -5367,9 +5610,9 @@ The following types are *composite types*:
 There are no implicit type promotions in [SHORTNAME]. If you want to convert between
 types you must use the cast syntax to do it.
 
-<div class='example'>
+<div class='example wgsl function-scope'>
   <xmp highlight='rust'>
-    var e : f32 = 3;    # error: literal is the wrong type
+    var e : f32 = 3;    // error: literal is the wrong type
 
     var f : f32 = 1.0;
 
