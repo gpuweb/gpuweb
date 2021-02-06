@@ -7274,6 +7274,14 @@ interface GPUCanvasContext {
 };
 </script>
 
+{{GPUCanvasContext}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUCanvasContext">
+    : <dfn>\[[canvas]]</dfn> of type {{HTMLCanvasElement}}.
+    ::
+        The canvas this context was created from.
+</dl>
+
 {{GPUCanvasContext}} has the following methods:
 
 <dl dfn-type=method dfn-for=GPUCanvasContext>
@@ -7349,13 +7357,25 @@ interface GPUSwapChain {
 GPUSwapChain includes GPUObjectBase;
 </script>
 
-In the "update the rendering [of the] `Document`" step of the "Update the rendering" HTML processing
-model, the contents of the {{GPUTexture}} most recently returned by
-{{GPUSwapChain/getCurrentTexture()}} are used to update the rendering for the `canvas`, and it is as
-if {{GPUTexture/destroy()}} were called on it (making it unusable elsewhere in WebGPU).
+{{GPUSwapChain}} has the following internal slots:
 
-Before this drawing buffer is presented for compositing, the implementation shall ensure that all
-rendering operations have been flushed to the drawing buffer.
+<dl dfn-type=attribute dfn-for="GPUSwapChain">
+    : <dfn>\[[context]]</dfn> of type {{GPUCanvasContext}}.
+    ::
+        The context this swap chain was configured for.
+
+    : <dfn>\[[descriptor]]</dfn> of type {{GPUSwapChainDescriptor}}.
+    ::
+        The descriptor this swap chain was created with.
+
+    : <dfn>\[[currentTexture]]</dfn> of type {{GPUTexture}}.
+    ::
+        The current texture that will be returned by the swap chain when calling
+        {{GPUSwapChain/getCurrentTexture()}}, and the next one to be composited to the document.
+        Initially set to the result of [$allocating a new swap chain texture$] for this swap chain.
+</dl>
+
+{{GPUSwapChain}} has the following methods:
 
 <dl dfn-type=method dfn-for=GPUSwapChain>
     : <dfn>getCurrentTexture()</dfn>
@@ -7364,13 +7384,58 @@ rendering operations have been flushed to the drawing buffer.
         that created this swap chain next.
 
         <div algorithm="GPUSwapChain.getCurrentTexture">
-            **Called on:** {{GPUSwapChain}} this.
+            **Called on:** {{GPUSwapChain}} |this|.
 
             **Returns:** {{GPUTexture}}
 
-            Issue: Describe {{GPUSwapChain/getCurrentTexture()}} algorithm steps.
+            1. If |this|.{{GPUSwapChain/[[currentTexture]]}} is `null`:
+                1. Let |this|.{{GPUSwapChain/[[currentTexture]]}} be the result of [$allocating a
+                    new swap chain texture$] for |this|.
+            1. Return |this|.{{GPUSwapChain/[[currentTexture]]}}.
         </div>
+
+        Note: Developers can expect that the same {{GPUTexture}} object will be returned by every
+        call to {{GPUSwapChain/getCurrentTexture()}} made within the same frame (i.e. between
+        invocations of [=Update the rendering=]).
 </dl>
+
+<div algorithm>
+    During the "update the rendering [of the] `Document`" step of the "[=Update the rendering=]"
+    HTML processing model, each {{GPUSwapChain}} |swapChain| must <dfn abstract-op>present the
+    swap chain content to the canvas</dfn> by running the following steps:
+
+        1. Let |texture| be |swapChain|.{{GPUSwapChain/[[currentTexture]]}}.
+        1. If |texture| is `null`, stop.
+        1. Set |swapChain|.{{GPUSwapChain/[[currentTexture]]}} to `null`.
+        1. Ensure that all submitted work items (e.g. queue submissions) has
+            completed writing to |texture|.
+        1. Update |swapChain|.{{GPUSwapChain/[[context]]}}.{{GPUCanvasContext/[[canvas]]}} with the
+            contents of |texture|.
+        1. Call {{GPUTexture/destroy()}} on |texture|.
+
+    Issue: The texture should mark its `[[destroyed]]` field as true rather than calling the
+    {{GPUTexture/destroy()}} method if we separate object invalid and destroyed states.
+</div>
+
+<div algorithm>
+    To <dfn abstract-op lt='allocating a new swap chain texture'>Allocate a new swap chain texture</dfn>
+    for {{GPUSwapChain}} |swapChain| run the following steps:
+
+        1. Let |canvas| be |swapChain|.{{GPUSwapChain/[[context]]}}.{{GPUCanvasContext/[[canvas]]}}.
+        1. Let |device| be |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/device}}.
+        1. Let |descriptor| be a new {{GPUTextureDescriptor}}.
+        1. Set |descriptor|.{{GPUTextureDescriptor/size}} to [|canvas|.width, |canvas|.height, 1].
+        1. Set |descriptor|.{{GPUTextureDescriptor/format}} to
+            |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/format}}.
+        1. Set |descriptor|.{{GPUTextureDescriptor/usage}} to
+            |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/usage}}.
+        1. Let |texture| be a new {{GPUTexture}} created as if |device|.{{GPUDevice/createTexture()}}
+            were called with |descriptor|.
+            <div class='note'>If a previously presented texture from |swapChain| matches the required criteria,
+            its GPU memory may be re-used.</div>
+        1. Ensure |texture| is cleared to `(0, 0, 0, 0)`.
+        1. Return |texture|.
+</div>
 
 # Errors &amp; Debugging # {#errors-and-debugging}
 
