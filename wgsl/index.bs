@@ -78,10 +78,9 @@ that run on the GPU.
 
 <div class='example wgsl global-scope'>
   <xmp highlight='rust'>
-    [[location(0)]] var<out> gl_FragColor : vec4<f32>;
     [[stage(fragment)]]
-    fn main() -> void {
-        gl_FragColor = vec4<f32>(0.4, 0.4, 0.8, 1.0);
+    fn main() -> [[location(0)]] vec4<f32> {
+        return vec4<f32>(0.4, 0.4, 0.8, 1.0);
     }
   </xmp>
 </div>
@@ -639,6 +638,8 @@ and how to use variables with it.
 
 Issue: The note about read-only [=storage classes/storage=] variables may change depending
 on the outcome of https://github.com/gpuweb/gpuweb/issues/935
+
+Issue: can we remove the "in" and "out" classes entirely?
 
 <pre class='def'>
 storage_class
@@ -1623,7 +1624,7 @@ A <dfn dfn noexport>variable declaration</dfn>:
 
 * Determines the variable’s name, storage class, and store type (and hence its reference type).
 * Ensures the execution environment allocates storage for a value of the store type, for the lifetime of the variable.
-* Optionally have an *initializer* expression, if the variable is in the [=storage classes/private=], [=storage classes/function=], or [=storage classes/out=] storage classes.
+* Optionally have an *initializer* expression, if the variable is in the [=storage classes/private=] or [=storage classes/function=] storage classes.
     If present, the initializer's type must match the store type of the variable.
 
 See [[#module-scope-variables]] and [[#function-scope-variables]] for rules about where
@@ -1665,7 +1666,7 @@ Two variables with overlapping lifetimes will not have overlapping storage.
 
 When a variable is created, its storage contains an initial value as follows:
 
-* For variables in the [=storage classes/private=], [=storage classes/function=], or [=storage classes/out=] storage classes:
+* For variables in the [=storage classes/private=] or [=storage classes/function=] storage classes:
     * The zero value for the store type, if the variable declaration has no initializer.
     * Otherwise, it is the result of evaluating the initializer expression at that point in the program execution.
 * For variables in other storage classes, the execution environment provides the initial value.
@@ -1714,14 +1715,13 @@ of the program.
 
 Variables at module scope are restricted as follows:
 
-* The variable must not be in the [=storage classes/function=] storage class.
-* A variable in the [=storage classes/in=], [=storage classes/out=], [=storage classes/private=], `workgroup`, [=storage classes/uniform=], or [=storage classes/storage=] storage classes:
+* The variable must not be in the [=storage classes/function=], [=storage classes/in=],
+    or [=storage classes/out=] storage classes.
+* A variable in the [=storage classes/private=], [=storage classes/workgroup=], [=storage classes/uniform=], or [=storage classes/storage=] storage classes:
     * Must be declared with an explicit storage class decoration.
     * Must use a [=store type=] as described in [[#storage-class]].
 * If the [=store type=] is a texture type or a sampler type, then the variable declaration must not
     have a storage class decoration.  The storage class will always be [=storage classes/handle=].
-
-Variables in the [=storage classes/in=] and [=storage classes/out=] storage classes are pipeline inputs and outputs. See [[#pipeline-inputs-outputs]].
 
 A variable in the [=storage classes/uniform=] storage class is a <dfn noexport>uniform buffer</dfn> variable.
 Its [=store type=] must be a [=host-shareable=] structure type with [=block=] attribute,
@@ -1738,8 +1738,6 @@ Such variables are declared with [=group=] and [=binding=] decorations.
 
 <div class='example wgsl global-scope' heading="Module scope variable declarations">
   <xmp>
-    var<in> twist: f32;
-    var<out> spin: f32;
     var<private> decibels: f32;
     var<workgroup> worklist: array<i32,10>;
 
@@ -3730,25 +3728,26 @@ as an entry point.
 When configuring the stage in the pipeline, the entry point is specified by providing
 the [SHORTNAME] module and the entry point's function name.
 
-An entry point function must have no parameters,
-and its return type must be [=void=].
+The parameters of an entry point have to be within [=Entry point IO type=]s.
+They have [=storage classes/in=] storage class.
+The return type of an entry point has to be of an [=Entry point IO type=], or [=void=].
 
 <div class='example wgsl global-scope' heading='Entry Point'>
   <xmp>
-    [[builtin(position)]]   var<out> gl_Position  : vec4<f32>;
-    [[builtin(frag_coord)]] var<in> coord_in : vec4<f32>;
-    [[location(0)]] var<out> color : vec4<f32>;
-
     [[stage(vertex)]]
-    fn vtx_main() -> void { gl_Position = vec4<f32>(); }
-       // OpEntryPoint Vertex %vtx_main "vtx_main" %gl_Position
+    fn vtx_main() -> [[builtin(position)]] vec4<f32> {
+      return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+       // OpEntryPoint Vertex %vtx_main "vtx_main" %(gl_Position)
 
     [[stage(fragment)]]
-    fn frag_main() -> void { color = vec4<f32>(coord_in.x, coord_in.y, 0.0, 1.0); }
-       // OpEntryPoint Fragment %frag_main "frag_main" %color %coord_in
+    fn frag_main([[builtin(frag_coord)]] coord_in: vec4<f32>) -> [[location(0)]] vec4<f32> {
+      return vec4<f32>(coord_in.x, coord_in.y, 0.0, 1.0);
+    }
+       // OpEntryPoint Fragment %frag_main "frag_main" %(gl_FragColor) %coord_in
 
     [[stage(compute)]]
-    fn main() -> void { }
+    fn main() { }
        // OpEntryPoint GLCompute %main "main"
   </xmp>
 </div>
@@ -3818,20 +3817,24 @@ and that subexpression is [=in scope=] of the variable's declaration.
 Note that being statically accessed is independent of whether an execution of the shader
 will actually evaluate the subexpression, or even execute the enclosing statement.
 
-More precisely, the <dfn noexport>interface of a shader stage</dfn>
-is the set of module-scope variables
-[=statically accessed=] by [=functions in a shader stage|functions in the shader stage=],
-and which are in storage classes [=storage classes/in=], [=storage classes/out=], [=storage classes/uniform=], [=storage classes/storage=], or [=storage classes/handle=].
+More precisely, the <dfn noexport>interface of a shader stage</dfn> consists of:
+  - all parameters of the entry point (as [=storage classes/in=])
+  - the result value of the entry point
+  - all global variables that are [=statically accessed=] by [=functions in a shader stage|functions in the shader stage=],
+    and which are in storage classes [=storage classes/uniform=], [=storage classes/storage=], or [=storage classes/handle=].
 
 ### Pipeline Input and Output Interface ### {#pipeline-inputs-outputs}
 
+Let's define <dfn dfn>Entry point IO type</dfn> to include the following:
+  - `[[builtin(x)]]`-decorated pipeline built-ins.
+  - `[[location(x)]]`-decorated [=IO-shareable=] types.
+  - structures containing only [=Entry point IO type=]s.
+
 A <dfn noexport>pipeline input</dfn> is data provided to the shader stage from upstream in the pipeline.
-A pipeline input is denoted by a module-scope variable in the [=storage classes/in=] storage class.
-The store type must be [=IO-shareable=].
+A pipeline input is denoted by the arguments of the entry point.
 
 A <dfn noexport>pipeline output</dfn> is data the shader provides for further processing downstream in the pipeline.
-A pipeline output is denoted by a module-scope variable in the [=storage classes/out=] storage class.
-The store type must be [=IO-shareable=].
+A pipeline output is denoted by the result of the entry point.
 
 Each pipeline input or output is one of:
 
@@ -3843,42 +3846,23 @@ Each pipeline input or output is one of:
 A <dfn noexport>built-in input variable</dfn> provides access to system-generated control information.
 The set of built-in inputs are listed in [[#builtin-variables]].
 
-To declare a variable for accessing a particular input built-in *X*:
+To declare a variable for accessing a particular input built-in *X* from an entry point:
 
-* Declare a module-scope variable in the [=storage classes/in=] storage class,
+* Declare a parameter of the entry point function,
     where the [=store type=] is the listed store type for *X*.
-* Apply a `builtin(`*X*`)` attribute to the variable.
-* The variable must not have an initializer. The system provides the value.
+* Apply a `builtin(`*X*`)` attribute to the parameter.
 
 A <dfn noexport>built-in output variable</dfn> is used by the shader to convey
 control information to later processing steps in the pipeline.
 The set of built-in outputs are listed in [[#builtin-variables]].
 
-To declare a variable for accessing a particular output built-in *Y*:
+To declare a variable for accessing a particular output built-in *Y* from an entry point:
 
-* Declare a module-scope variable in the [=storage classes/out=] storage class,
-    where the [=store type=] is the listed store type for *Y*.
-* Apply a `builtin(`*Y*`)` attribute to the variable.
-* The variable may have an initializer, or not, as described in [[#variables]].
+* Add a variable to the result of the entry point, where [=store type=] is the listed store type for *Y*.
+* Apply a `builtin(`*Y*`)` attribute to the result variable.
 
-<div class='example wgsl global-scope' heading="Declaring built-in variables">
-  <xmp>
-    // vertex shader output builtin
-    [[builtin(position)]] var<out> my_position : vec4<f32>;
-
-    // fragment shader input builtin
-    [[builtin(frag_coord)]] var<in> coord : vec4<f32>;
-
-    // compute shader builtin
-    [[builtin(global_invocation_id)]] var<in> global_id : vec3<u32>;
-  </xmp>
-</div>
-
-The `builtin` attribute must not be applied to a variable in a storage class other than [=storage classes/in=] or [=storage classes/out=].
-
-An input built-in must only be applied to a variable in the [=storage classes/in=] storage class.
-
-An output built-in must only be applied to a variable in the [=storage classes/out=] storage class.
+The `builtin` attribute must not be applied to a variables in global scope,
+or the local variables in the function scope.
 
 A variable must not have more than one `builtin` attribute.
 
@@ -3886,7 +3870,6 @@ Each built-in variable has an associated shader stage, as described in [[#builti
 If a built-in variable has stage *S* and is [=statically accessed=] by a function *F*,
 then *F* must be a [=functions in a shader stage|function in a shader=]
 for stage *S*.
-
 
 Issue:
     1. The statement makes it clear that in/out storage classes for builtins are redundant.
@@ -4581,63 +4564,57 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
          <br>See [[WebGPU#sample-masking|WebGPU &sect; Sample Masking]].
 </table>
 
-<div class='example wgsl global-scope' heading="Declaring built-in variable: position">
+<div class='example wgsl global-scope' heading="Declaring built-in variables">
   <xmp>
-    [[builtin(position)]] var<out> my_position : vec4<f32>;
+    struct VertexOutput {
+      [[builtin(position)]] pos: vec4<f32>;
+      //   OpDecorate %my_pos BuiltIn Position
+      //   %float = OpTypeFloat 32
+      //   %v4float = OpTypeVector %float 4
+      //   %ptr = OpTypePointer Output %v4float
+      //   %my_pos = OpVariable %ptr Output
+    };
 
-    //   OpDecorate %my_pos BuiltIn Position
-    //   %float = OpTypeFloat 32
-    //   %v4float = OpTypeVector %float 4
-    //   %ptr = OpTypePointer Output %v4float
-    //   %my_pos = OpVariable %ptr Output
+    [[stage(vertex)]]
+    fn main(
+      [[builtin(vertex_index)]] my_index: u32,
+      //   OpDecorate %my_index BuiltIn VertexIndex
+      //   %uint = OpTypeInt 32 0
+      //   %ptr = OpTypePointer Input %uint
+      //   %my_index = OpVariable %ptr Input
+      [[builtin(instance_index)]] my_inst_index : u32,
+      //    OpDecorate %gl_InstanceId BuiltIn InstanceIndex
+    ) -> VertexOutput;
 
-  </xmp>
-</div>
+    struct FragmentOutput {
+      [[builtin(frag_depth)]] depth: f32;
+      //     OpDecorate %gl_FragDepth BuiltIn FragDepth
+      [[builtin(sample_mask_out)]] mask_out : u32;
+      //      OpDecorate %gl_SampleMask BuiltIn SampleMask ; an output variable
+    };
 
-<div class='example wgsl global-scope' heading="Example built-in variable: vertex_index">
-  <xmp>
-    [[builtin(vertex_index)]] var<in> my_index : u32;
+    [[stage(fragment)]]
+    fn main(
+      [[builtin(front_facing)]] is_front : u32,
+      //     OpDecorate %gl_FrontFacing BuiltIn FrontFacing
+      [[builtin(frag_coord)]] coord : vec4<f32>,
+      //     OpDecorate %gl_FragCoord BuiltIn FragCoord
+      [[builtin(sample_index)]] my_sample_index : u32,
+      //      OpDecorate %gl_SampleId BuiltIn SampleId
+      [[builtin(sample_mask_in)]] mask_in : u32,
+      //      OpDecorate %gl_SampleMaskIn BuiltIn SampleMask ; an input variable
+      //      OpDecorate %gl_SampleMaskIn Flat
+    ) -> FragmentOutput;
 
-    //   OpDecorate %my_index BuiltIn VertexIndex
-    //   %uint = OpTypeInt 32 0
-    //   %ptr = OpTypePointer Input %uint
-    //   %my_index = OpVariable %ptr Input
-
-  </xmp>
-</div>
-
-<div class='example wgsl global-scope' heading="Declaring other built-in variables">
-  <xmp>
-    [[builtin(instance_index)]] var<in> my_inst_index : u32;
-    //    OpDecorate %gl_InstanceId BuiltIn InstanceIndex
-
-    [[builtin(front_facing)]] var<in> is_front : u32;
-    //     OpDecorate %gl_FrontFacing BuiltIn FrontFacing
-
-    [[builtin(frag_coord)]] var<in> coord : vec4<f32>;
-    //     OpDecorate %gl_FragCoord BuiltIn FragCoord
-
-    [[builtin(frag_depth)]] var<out> depth : f32;
-    //     OpDecorate %gl_FragDepth BuiltIn FragDepth
-
-    [[builtin(local_invocation_id)]] var<in> local_id : vec3<u32>;
-    //     OpDecorate %gl_LocalInvocationID BuiltIn LocalInvocationId
-
-    [[builtin(local_invocation_index)]] var<in> local_index : u32;
-    //     OpDecorate %gl_LocalInvocationIndex BuiltIn LocalInvocationIndex
-
-    [[builtin(global_invocation_id)]] var<in> global_id : vec3<u32>;
-    //      OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
-
-    [[builtin(sample_index)]] var<in> my_sample_index : u32;
-    //      OpDecorate %gl_SampleId BuiltIn SampleId
-
-    [[builtin(sample_mask_in)]] var<in> mask_in : u32;
-    //      OpDecorate %gl_SampleMaskIn BuiltIn SampleMask ; an input variable
-    //      OpDecorate %gl_SampleMaskIn Flat
-
-    [[builtin(sample_mask_out)]] var<out> mask_out : u32;
-    //      OpDecorate %gl_SampleMask BuiltIn SampleMask ; an output variable
+    [[stage(compute)]]
+    fn main(
+      [[builtin(local_invocation_id)]] local_id : vec3<u32>,
+      //     OpDecorate %gl_LocalInvocationID BuiltIn LocalInvocationId
+      [[builtin(local_invocation_index)]] local_index : u32,
+      //     OpDecorate %gl_LocalInvocationIndex BuiltIn LocalInvocationIndex
+      [[builtin(global_invocation_id)]] global_id : vec3<u32>,
+      //      OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+   );
   </xmp>
 </div>
 
