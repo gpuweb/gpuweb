@@ -1010,6 +1010,7 @@ The following types are <dfn dfn noexport>storable</dfn>:
 * [[#matrix-types]]
 * [[#array-types]] if its element type is storable.
 * [[#struct-types]] if all its members are storable.
+* [[#atomic-types]]
 
 ### IO-shareable Types ### {#io-shareable-types}
 
@@ -1047,6 +1048,7 @@ The following types are <dfn dfn noexport>host-shareable</dfn>:
 * [[#matrix-types]]
 * [[#array-types]] if the array element type is host-shareable
 * [[#struct-types]] if each member is host-shareable
+* [[#atomic-types]]
 
 [SHORTNAME] defines the following attributes that affect memory layouts:
  * [=attribute/stride=]
@@ -2349,6 +2351,65 @@ texel_format
   | RGBA32FLOAT
      Rgba32f
 
+</pre>
+
+## Atomic Types ## {#atomic-types}
+
+<table class='data'>
+  <thead>
+    <tr><th>Type<th>Description
+  </thead>
+  <tr><td>atomic<*T*><td>Atomic of type *T*. *T* must be either [=u32=] or [=i32=].
+</table>
+
+Operations on atomic objects in [SHORTNAME] are mutually ordered for each
+object. That is, multiple invocations may modify the object without causing a
+data-race.
+
+Atomic objects may only be operated on by the [[#atomic-builtin-functions]].
+
+Atomic types may only be instantiated by `read_write` access variables in the
+[=storage classes/storage=] or [=storage classes/workgroup=] storage classes.
+
+TODO: Add links the eventual memory model descriptions.
+
+<pre class='example storage atomic' heading='Mapping atomics in a storage variable to SPIR-V'>
+  <xmp>
+    [[block]] struct S {
+      a : atomic<i32>;
+      b : atomic<u32>;
+    };
+    
+    var<storage> x : S;
+    
+    // Maps to the following SPIR-V:
+    // - When atomic types are members of a struct, the Volatile decoration
+    //   is annotated on the member.
+    // OpDecorate %S Block
+    // OpMemberDecorate %S 0 Volatile
+    // OpMemberDecorate %S 1 Volatile
+    // ...
+    // %i32 = OpTypeInt 32 1
+    // %u32 = OpTypeInt 32 0
+    // %S = OpTypeStruct %i32 %u32
+    // %ptr_storage_S = OpTypePointer StorageBuffer %S
+    // %x = OpVariable %ptr_storage_S StorageBuffer
+  </xmp>
+</pre>
+
+<pre class='example workgroup atomic' heading='Mapping atomics in a workgroup variable to SPIR-V'>
+  <xmp>
+    var<workgroup> x : atomic<u32>;
+    
+    // Maps to the following SPIR-V:
+    // - When atomic types are directly instantiated by a variable,  the Volatile
+    //   decoration is annotated on the OpVariable.
+    // OpDecorate %x Volatile
+    // ...
+    // %u32 = OpTypeInt 32 0
+    // %ptr_workgroup_u32 = OpTypePointer Workgroup %S
+    // %x = OpVariable %ptr_workgroup_u32 Workgroup
+  </xmp>
 </pre>
 
 ## Type Aliases TODO ## {#type-aliases}
@@ -7023,6 +7084,101 @@ TODO(dsinclair): Need gather operations
 </pre>
 
 ## Atomic built-in functions ## {#atomic-builtin-functions}
+
+Atomic built-in functions can be used to read/write/read-modify-write atomic
+objects. They are the only operations allowed on [[#atomic-types]].
+
+All atomic built-in functions use a `relaxed` memory ordering (**0**-value
+integral constant in SPIR-V for all `Memory Semantics` operands). This means
+no synchronization or ordering guarantees are made on non-atomic memory
+accesses, nor on atomic memory accesses that at different memory locations
+(i.e. unless they are mutually-ordered atomics).
+
+Atomic built-in functions `must` not be used in a [=vertex=] shader stage.
+
+The storage class `SC` of the `atomic_ptr` parameter in all atomic built-in
+functions `must` be either [=storage classes/storage=] or [=storage
+classes/workgroup=]. [=storage classes/workgroup=] atomics have a **Workgroup**
+memory scope in SPIR-V, while [=storage classes/storage=] atomics have a
+**Device** memory scope in SPIR-V.
+
+TODO: Add links to the eventual memory model descriptions.
+
+### Atomic Load ### {#atomic-load}
+
+```rust
+atomicLoad(atomic_ptr : ptr<SC, atomic<T>>) -> T
+
+// Maps to the SPIR-V instruction OpAtomicLoad.
+```
+
+Returns the atomically loaded the value pointed to by `atomic_ptr`.
+
+### Atomic Store ### {#atomic-store}
+
+```rust
+atomicStore(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> void
+
+// Maps to the SPIR-V instruction OpAtomicStore.
+```
+
+Atomically stores the value `v` in the atomic object pointed to by `atomic_ptr`.
+
+### Atomic Read-Modify-Write ### {#atomic-rmw}
+
+```rust
+atomicAdd(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicMax(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicMin(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicAnd(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicOr(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicXor(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+
+// Mappings to SPIR-V instructions:
+// atomicAdd -> OpAtomicIAdd
+// atomicMax -> OpAtomicSMax or OpAtomicUMax (depending on the signedness of T)
+// atomicMin -> OpAtomicSMin or OpAtomicUMin (depending on the signedness of T)
+// atomicAnd -> OpAtomicAnd
+// atomicOr  -> OpAtomicOr
+// atomicXor -> OpAtomicXor
+```
+Each function performs the following steps atomically:
+
+1. Load the original value pointed to by `atomic_ptr`.
+2. Obtains a new value by performing the operation (e.g. max) from the function
+    name with the value |v|.
+3. Store the new value using `atomic_ptr`.
+
+Each function returns the original value stored in the atomic object.
+
+```rust
+atomicExchange(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+
+// Maps to the SPIR-V instruction OpAtomicExchange.
+```
+
+Atomically stores the value `v` in the atomic object pointed to
+`atomic_ptr` and returns the original value stored in the atomic object.
+
+```rust
+atomicCompareExchangeWeak(atomic_ptr : ptr<SC, atomic<T>>, cmp : T, v : T) -> vec2<T>
+
+// Maps to the SPIR-V instruction OpAtomicCompareExchange.
+```
+
+Performs the following steps atomically:
+
+1. Load the original value pointed to by `atomic_ptr`.
+2. Compare the original value to the value `v` using an equality operation.
+3. Store the value `v` `only if` the result of the equality comparison was **true**.
+
+Returns a two-element vector, where the first element is the original value of
+the atomic object and the second element is whether or not the comparison
+succeeded (**1** if successful, **0** otherwise).
+
+Note: the equality comparison may spuriously fail on some implementations. That
+is, the second element of the result vector may be **0** even if the first
+element of the result vector equals `cmp`.
 
 ## Data packing built-in functions ## {#pack-builtin-functions}
 
