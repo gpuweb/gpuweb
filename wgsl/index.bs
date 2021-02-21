@@ -1013,67 +1013,87 @@ Note: Pointers are not storable.
   <xmp highlight='rust'>
     ptr<storage, i32>
     ptr<private, array<i32, 12>>
+    ptr<in, SomeStruct>
   </xmp>
 </div>
 
 ### Abstract Operations on Pointers TODO ### {#abstract-pointer-operations}
 
-A pointer value *P* supports the following operations:
+A pointer value *p: ptr<T,SC>* supports the following abstract operations:
 
 <table class='data'>
-  <tr><td>P.Write(V)<td>Place a value V into the referenced storage.
-               V’s type must match P’s pointee type.
-  <tr><td>P.Read()<td>An evaluation yielding the value currently in the P’s
-             referenced storage.  The result type is P's pointee type.
-  <tr><td>P.Subaccess(K)<td>Valid for pointers with a composite pointee type where
+  <tr><td>`PtrStore(p: ptr<T,SC>, v: T) -> void`
+      <td>Place a value V into the referenced storage.
+               `v`'s type must match `p`'s pointee type.
+  <tr><td>`PtrLoad(p: ptr<T,SC>) -> T`
+      <td>An evaluation yielding the value currently in `p`'s
+             referenced storage.  The result type is p's pointee type.
+  <tr><td>`PtrSubaccess(p: ptr<T,SC>, K) -> ptr<T.K,SC>`
+      <td>Valid for pointers with a composite pointee type where
                    *K* must evaluate to an integer between 0 and one
-                   less than the number of components in *P*’s pointee type.
+                   less than the number of components in *P*'s pointee type.
                    The subaccess evaluation yields a pointer to the storage for
-                   the K’th component within P’s referenced storage,
+                   the Kth component within P's referenced storage,
                    using zero-based indexing. If P's [=storage class=] is SC, and
-                   the K'th member of P's pointee type is of type T, then
-                   the result type is `ptr<SC,T>`.
+                   the Kth member of P's pointee type is of type U, then
+                   the result type is `ptr<SC,U>`.
 </table>
 
 Note: Assignment of swizzled values is not permitted (SubaccessSwizzle).<br>
            e.g. `vec4<i32> v; v.xz = vec2<i32>(0, 1);` is not allowed.
 
-### Pointer Evaluation TODO ### {#pointer-evaluation}
-
-TODO: *This is a stub*: Using pointers in context. Disambiguating which abstract operation occurs based on context:
-pointer semantics vs. dereferenced value semantics.
+### Pointer Operations ### {#pointer-operations}
 
 ---
 
-A pointer may appear in exactly the following contexts
+A pointer has the following operations
 
 <table class='data'>
-  <tr><td>Indexing<td>
+  <tr><td>Array indexing<td>
 A subaccessing evaluation
 * E.g. `a[12]`
-    * If `a` is a pointer to an array, this evaluates to *a.Subaccess(12)*
+    * If `a` is a pointer to an array, this evaluates to *PtrSubaccess(a,12)*
 
+  <tr><td>Member indexing<td>
 * E.g. `s.foo`
-    * If `s` is a pointer to a structure of type *S*, `k` is the index of the `foo` element of *S*, this evaluates to *s.Subaccess(k)*
+    * If `s` is a pointer to a structure of type *S*, `k` is the index of the `foo` element of *S*, this evaluates to *PtrSubaccess(s,k)*
 
-  <tr><td>Assigning (L-Value)<td>
+  <tr><td>Store-Dereference<td>
 On the left hand side of an assignment operation, and the right hand side
-matches the pointee type of the pointer.
-* E.g. `v = 12;` assuming prior declaration `var v : i32`
+matches the pointee type of the pointer, then `*LHS = RHS` evaluates to *PtrStore(LHS, RHS)*.
+```rust
+struct MyStruct {
+  foo: i32;
+};
+fn example(v: ptr<private,i32>, s: ptr<private,MyStruct>) {
+  *v = 12;
+  *s.foo = 3;
+}
+```
 
-  <tr><td>Copying<td>
-On the right hand side of a const-declaration, and the type of the
-const-declaration matches the pointer type.
-* E.g. `const v2 : ptr<private,i32> = v;`  assuming prior declaration
-        `var<private> v:i32`
+  <tr><td>Load-Dereference<td>
+When not as the expression on the left-hand-side of an assignment, unary `*EXPR` evaluates to *PtrLoad(EXPR)*.
+```rust
+struct MyStruct {
+  foo: i32;
+};
+fn bar(b: i32) {}
+fn example(v: ptr<private,i32>, s: ptr<private,MyStruct>) {
+  const a: i32 = *v;
+  bar(*s.foo + 1);
+}
+```
 
-  <tr><td>Parameter<td>
-Used in a function call, where the function’s parameter type matches the
-pointer type.
-
-  <tr><td>Reading (R-Value)<td>
-Any other context.  Evaluates to *P.Read()*, yielding a value of *P*’s pointee
-type.
+  <tr><td>Copying/renaming of pointer intermediate<td>
+Pointer intermediates are copiable, and can be passed as arguments to functions.
+```rust
+fn bat(c: ptr<private,i32>) {}
+fn example(v: ptr<private,i32>) {
+  const w: ptr<private,i32> = v;
+  bat(v);
+  bat(w); // Same effect as `bat(v)` again
+}
+```
 </table>
 
 ## Texture and Sampler Types ## {#texture-types}
@@ -2927,6 +2947,8 @@ unary_expression
       OpLogicalNot
   | TILDE unary_expression
       OpNot
+  | STAR unary_expression
+      OpLoad
 
 singular_expression
   : primary_expression postfix_expression
@@ -3018,7 +3040,7 @@ short_circuit_or_expression
 
 <pre class='def'>
 assignment_statement
-  : singular_expression EQUAL short_circuit_or_expression
+  : STAR singular_expression EQUAL short_circuit_or_expression
       If singular_expression is a variable, this maps to OpStore to the variable.
       Otherwise, singular expression is a pointer expression in an Assigning (L-value) context
       which maps to OpAccessChain followed by OpStore
