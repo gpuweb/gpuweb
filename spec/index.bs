@@ -3944,7 +3944,7 @@ configuring each of the [=render stages=].
 
         Issue: define somewhere what a render pass state is?
 
-        1. Resolve indices.
+        1. **Resolve indices**.
             The pipeline builds a list of vertices to process for each instance.
             If |drawCall| is an indexed draw call:
                 - for |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
@@ -3960,7 +3960,7 @@ configuring each of the [=render stages=].
 
             Issue: specify indirect commands better.
 
-        1. Process vertices. Each vertex |vertexIndex| in the |vertexList|,
+        1. **Process vertices**. Each vertex |vertexIndex| in the |vertexList|,
             in each instance of index |rawInstanceIndex|, is processed independently.
             The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
             This processing happens in parallel, and any side effects, such as
@@ -4007,7 +4007,7 @@ configuring each of the [=render stages=].
                 result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
                 will only be processed once.
 
-        1. Assemble primitives.
+        1. **Assemble primitives**.
             For each instance, the primitives get assembled from the vertices that have been
             processed by the shaders, based on the |vertexList|.
 
@@ -4052,6 +4052,8 @@ configuring each of the [=render stages=].
 
                 Any incomplete primitives are dropped.
 
+        1. **Clip primitives**. See [[#primitive-clipping]].
+
         1. Rasterize.
             Rasterization is a hardware processing stage that maps the
             generated primitives to the actual screen.
@@ -4094,6 +4096,66 @@ configuring each of the [=render stages=].
 - {{GPURenderPipelineDescriptor/fragment}} describes
     the fragment shader entry point of the [=pipeline=] and its output colors.
     If it's `null`, the [[#no-color-output]] mode is enabled.
+
+### Primitive clipping ### {#primitive-clipping}
+
+Vertex shaders have to produce a built-in "position", which is a 4-component vector
+of floating-point values denoting the <dfn dfn>clip position</dfn> of a vertex.
+
+Primitives are clipped to the <dfn dfn>clip volume</dfn>, which, for any [=clip position=] "p"
+inside a primitive, is defined by the following set of restrictions:
+  - `-p.w <= p.x <= p.w`
+  - `-p.w <= p.y <= p.w`
+  - `0 <= p.z <= p.w` (<dfn dfn>depth clipping</dfn>)
+
+If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/clampDepth}} is `true`,
+the [=depth clipping=] restriction of the [=clip volume=] is not applied.
+
+A primitive passes through this stage unchanged if every one of its edges
+lie entirely inside the [=clip volume=].
+If the edges of a primitives intersect the boundary of the [=clip volume=],
+the intersecting edges are reconnected by new edges that lie along the boundary of the [=clip volume=].
+For triangular primitives (|descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}} is
+{{GPUPrimitiveTopology/"triangle-list"}} or {{GPUPrimitiveTopology/"triangle-strip"}}), this reconnection
+may result in introduction of new vertices into the polygon, internally.
+
+If a primitive intersects an edge of the [=clip volume=]’s boundary,
+the clipped polygon must include a point on this boundary edge.
+
+If the vertex shader outputs other floating-point values (scalars and vectors), qualified with
+"perspective" interpolation, they also get clipped.
+The output values associated with a vertex that lies within the clip volume are unaffected by clipping.
+If a primitive is clipped, however, the output values assigned to vertices produced by clipping are clipped.
+
+Considering an edge between vertices |a| and |b| that got clipped, resulting in the vertex |c|,
+let's define "t" to be the ratio between the edge vertices: `c.p = t * a.p + (1 - t) * b.p`,
+where |x|.p is the output [=clip position=] of a vertex |x|.
+
+For each vertex output value "v" with a corresponding fragment input,
+|a|.v and |b|.v would be the outputs for |a| and |b| vertices respectively.
+The clipped shader output |c|.v is produced based on the interpolation qualifier:
+<dl class="switch">
+    : "flat"
+    ::
+        Flat interpolation is unaffected, and is based on <dfn dfn>provoking vertex</dfn>,
+        which is the first vertex in the primitive. The output value is the same
+        for the whole primitive, and matches the vertex output of the [=provoking vertex=]:
+        `c.v = provokingVertex.v`
+
+    : "linear"
+    ::
+        The interpolation ratio gets adjusted against the perspective coordinates of the
+        [=clip position=]s, so that the result of interpolation is linear in screen space:
+        `c.v = t * a.v * c.p.w / a.p.w + (1 - t) * b.v * c.p.w / b.p.w`
+        Here, |x|.p.w is the "w" component of the [=clip position=] of a vertex |x|.
+
+    : "perspective"
+    ::
+        The value is linearly interpolated in clip space, producing perspective-correct values:
+        `c.v = t * a.v + (1 - t) * b.v`.
+</dl>
+
+Issue: link to interpolation qualifiers in WGSL
 
 ### No Color Output ### {#no-color-output}
 
