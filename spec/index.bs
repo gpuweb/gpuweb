@@ -771,8 +771,8 @@ to form complete [=texel blocks=] in the [=subresource=].
   - For pixel-based {{GPUTextureFormat|GPUTextureFormats}}, the [=physical size=] is always equal to the size of the [=texture subresource=]
     used in the sampling hardwares.
   - [=Textures=] in block-based compressed {{GPUTextureFormat|GPUTextureFormats}} always have a [=mipmap level=] 0 whose {{GPUTexture/[[textureSize]]}}
-    is a multiple of the [=texel block size=], but the lower mipmap levels might not be the multiple of the [=texel block size=] and can
-    have paddings.
+    is a multiple of the [=texel block size=], but the lower mipmap levels might not be
+    the multiple of the [=texel block size=] and can have paddings.
 
 <div class="example">
 Considering a {{GPUTexture}} in BC format whose {{GPUTexture/[[textureSize]]}} is {60, 60, 1}, when sampling
@@ -2052,6 +2052,21 @@ GPUTexture includes GPUObjectBase;
 
 </dl>
 
+<div algorithm>
+    <dfn abstract-op>compute render extent</dfn>(baseSize, mipLevel)
+        **Arguments:**
+            - {{GPUExtent3D}} |baseSize|
+            - {{GPUSize32}} |mipLevel|
+
+        **Returns:** {{GPUExtent3DDict}}
+
+        1. Let |extent| be a new {{GPUExtent3DDict}} object.
+        1. Set |extent|.{{GPUExtent3DDict/width}} to max(1, |baseSize|.[=Extent3D/width=] &divide; |mipLevel|).
+        1. Set |extent|.{{GPUExtent3DDict/height}} to max(1, |baseSize|.[=Extent3D/height=] &divide; |mipLevel|).
+        1. Set |extent|.{{GPUExtent3DDict/depthOrArrayLayers}} to 1.
+        1. Return |extent|.
+</div>
+
 ### Texture Creation ### {#texture-creation}
 
 <script type=idl>
@@ -2145,6 +2160,12 @@ GPUTextureView includes GPUObjectBase;
         The {{GPUTextureViewDescriptor}} describing this texture view.
 
         All optional fields of {{GPUTextureViewDescriptor}} are defined.
+    : <dfn>\[[renderExtent]]</dfn>
+    ::
+        For renderable views, this is the effective {{GPUExtent3DDict}} for rendering.
+
+        Note: this extent depends on the {{GPUTextureViewDescriptor/baseMipLevel}}.
+
 </dl>
 
 ### Texture View Creation ### {#texture-view-creation}
@@ -2259,6 +2280,9 @@ enum GPUTextureAspect {
                     1. Let |view| be a new {{GPUTextureView}} object.
                     1. Set |view|.{{GPUTextureView/[[texture]]}} to |this|.
                     1. Set |view|.{{GPUTextureView/[[descriptor]]}} to |descriptor|.
+                    1. If |this|.{{GPUTexture/[[textureUsage]]}} contains {{GPUTextureUsage/RENDER_ATTACHMENT}}:
+                        1. Let |renderExtent| be [$compute render extent$](|this|.{{GPUTexture/[[textureSize]]}}, |descriptor|.{{GPUTextureViewDescriptor/baseMipLevel}}).
+                        1. Set |view|.{{GPUTextureView/[[renderExtent]]}} to |renderExtent|.
                     1. Return |view|.
                 </div>
         </div>
@@ -4054,10 +4078,7 @@ configuring each of the [=render stages=].
 
         1. **Clip primitives**. See [[#primitive-clipping]].
 
-        1. Rasterize.
-            Rasterization is a hardware processing stage that maps the
-            generated primitives to the actual screen.
-            Issue: fill out the section
+        1. Rasterize. See [[#rasterization]].
         1. Process fragments.
             Issue: fill out the section
         1. Process depth/stencil.
@@ -4176,6 +4197,22 @@ It guarantees that:
   - if |alpha| is 1.0 or greater, the result is 0xFFFFFFFF
   - if |alpha| is greater than some other |alpha1|,
     then the produced sample mask has at least as many bits set to 1 as the mask for |alpha1|
+
+### Rasterization ### {#rasterization}
+
+Rasterization is the hardware processing stage that maps the generated primitives
+to the 2-dimensional rendering area.
+
+First, the clipped vertices are transformed into <dfn dfn>NDC</dfn> - normalized device coordinates.
+Given the output position "p", the [=NDC=] coordinates are computed as:
+`ndc(p) = [p.x / p.w, p.y / p.w, p.z / p.w]`.
+
+Let "renderExtent" be [=RenderPassDescriptor/renderExtent=] of the active render pass.
+
+Then the [=NDC=] coordinates are converted into framebuffer coordinates, based on the size of the render targets:
+`framebuffer(n) = [(n.x * 0.5 + 0.5) * renderExtent.width, (n.y * 0.5 + 0.5) * renderExtent.height]`
+
+Issue: fill out the section
 
 ### Sample Masking ### {#sample-masking}
 
@@ -4944,7 +4981,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     <div class=validusage>
                         - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
                         - |descriptor| meets the
-                            [$GPURenderPassDescriptor/GPURenderPassDescriptor Valid Usage$] rules.
+                            [$GPURenderPassDescriptor/Valid Usage$] rules.
                     </div>
                 1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/encoding a render pass}}.
                 1. For each |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
@@ -6204,7 +6241,7 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 </dl>
 
 <div class=validusage dfn-for=GPURenderPassDescriptor>
-    <dfn abstract-op>GPURenderPassDescriptor Valid Usage</dfn>
+    <dfn abstract-op>Valid Usage</dfn>
 
     Given a {{GPURenderPassDescriptor}} |this| the following validation rules apply:
 
@@ -6224,9 +6261,9 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
         and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}},
         if present, must have all have the same {{GPUTexture/[[sampleCount]]}}.
 
-    1. The dimensions of the [=subresource=]s seen by each {{GPURenderPassColorAttachment/view}} in |this|.{{GPURenderPassDescriptor/colorAttachments}}
+    1. For each {{GPURenderPassColorAttachment/view}} in |this|.{{GPURenderPassDescriptor/colorAttachments}}
         and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}},
-        if present, must match.
+        if present, the {{GPUTextureView/[[renderExtent]]}} must match.
 
     1. If |this|.{{GPURenderPassDescriptor/occlusionQuerySet}} is not `null`:
 
@@ -6236,6 +6273,18 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
     Issue: Define <dfn for=>maximum color attachments</dfn>
 
     Issue(gpuweb/gpuweb#503): support for no attachments
+</div>
+
+<div algorithm="GPURenderPassDescriptor accessors" dfn-for=RenderPassDescriptor>
+    For a given {{GPURenderPassDescriptor}} value |descriptor|, the syntax:
+
+      - |descriptor|.<dfn dfn>renderExtent</dfn> refers to
+        {{GPUTextureView/[[renderExtent]]}} of any {{GPUTextureView/[[descriptor]]}}
+        in either |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}/{{GPURenderPassDepthStencilAttachment/view}},
+        or any of the {{GPURenderPassColorAttachment/view}} in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}.
+
+    Note: the [$GPURenderPassDescriptor/Valid Usage$] guarantees that all of the render extents
+    of the attachments are the same, so we can take any of them, assumign the descriptor is valid.
 </div>
 
 #### Color Attachments #### {#color-attachments}
