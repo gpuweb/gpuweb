@@ -4150,7 +4150,7 @@ If a primitive is clipped, however, the output values assigned to vertices produ
 
 Considering an edge between vertices |a| and |b| that got clipped, resulting in the vertex |c|,
 let's define |t| to be the ratio between the edge vertices:
-|c|.p = |t| &times; |a|.p + (1 &minus; |t|) &times; |b|.p,
+|c|.p = |t| &times; |a|.p &plus; (1 &minus; |t|) &times; |b|.p,
 where |x|.p is the output [=clip position=] of a vertex |x|.
 
 For each vertex output value "v" with a corresponding fragment input,
@@ -4169,7 +4169,7 @@ The clipped shader output |c|.v is produced based on the interpolation qualifier
         The interpolation ratio gets adjusted against the perspective coordinates of the
         [=clip position=]s, so that the result of interpolation is linear in screen space:
 
-        |c|.v = |t| &times; |a|.v &times; |c|.p.w &divide; |a|.p.w + (1 &minus; |t|) &times; |b|.v &times; |c|.p.w &divide; |b|.p.w
+        |c|.v = |t| &times; |a|.v &times; |c|.p.w &divide; |a|.p.w &plus; (1 &minus; |t|) &times; |b|.v &times; |c|.p.w &divide; |b|.p.w
 
         Here, |x|.p.w is the "w" component of the [=clip position=] of a vertex |x|.
 
@@ -4177,7 +4177,7 @@ The clipped shader output |c|.v is produced based on the interpolation qualifier
     ::
         The value is linearly interpolated in clip space, producing perspective-correct values:
 
-        |c|.v = |t| &times; |a|.v + (1 - |t|) &times; |b|.v
+        |c|.v = |t| &times; |a|.v &plus; (1 &minus; |t|) &times; |b|.v
 </dl>
 
 Issue: link to interpolation qualifiers in WGSL
@@ -4187,16 +4187,51 @@ Issue: link to interpolation qualifiers in WGSL
 Rasterization is the hardware processing stage that maps the generated primitives
 to the 2-dimensional rendering area.
 
-First, the clipped vertices are transformed into <dfn dfn>NDC</dfn> - normalized device coordinates.
-Given the output position |p|, the [=NDC=] coordinates are computed as:
+1. First, the clipped vertices are transformed into <dfn dfn>NDC</dfn> - normalized device coordinates.
+    Given the output position |p|, the [=NDC=] coordinates are computed as:
 
-ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
+    ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
 
-Let |renderExtent| be [=RenderPassDescriptor/renderExtent=] of the active render pass.
+2. Let |renderExtent| be [=RenderPassDescriptor/renderExtent=] of the active render pass.
 
-Then the [=NDC=] coordinates |n| are converted into framebuffer coordinates, based on the size of the render targets:
+    Then the [=NDC=] coordinates |n| are converted into framebuffer coordinates, based on the size of the render targets:
 
-framebuffer(n) = vector(|n|.x &times; 0.5 + 0.5) &times; |renderExtent|.{{GPUExtent3DDict/width}}, (|n|.y &times; 0.5 + 0.5) &times; |renderExtent|.{{GPUExtent3DDict/height}})
+    framebufferCoords(n) = 0.5&times;vector((|n|.x&plus;1) &times; |renderExtent|.{{GPUExtent3DDict/width}}, (|n|.y&plus;1) &times; |renderExtent|.{{GPUExtent3DDict/height}})
+
+
+#### Polygon Rasterization #### {#polygon-rasterization}
+
+Let |v|(|i|) be the framebuffer coordinates for the clipped vertex number |i| (starting with 1)
+in a rasterized polygon of |n| vertices.
+
+Note: this section uses the term "polygon" instead of a "triangle",
+since {#primitive-clipping} stage may have introduced additional vertices.
+This is non-observable by the application.
+
+The first step of polygon rasterization is determining if the polygon is <dfn dfn>front-facing</dfn> or <dfn dfn>back-facing</dfn>.
+This depends on the sign of the |area| occupied by the polygon in framebuffer coordinates:
+
+|area| = 0.5 &times; ((|v|(1).x &times; |v|(|n|).y &minus; |v|(|n|).x &times; |v|(1).y) &plus; &sum; (|v|(|i|&plus;1).x &times; |v|(|i|).y &minus; |v|(|i|).x &times; |v|(|i|&plus;1).y))
+
+The sign of |area| is interpreted based on the {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/frontFace}}:
+<dl class="switch">
+    : {{GPUFrontFace/"ccw"}}
+    :: |area| &gt; 0 is considered [=front-facing=], otherwise [=back-facing=]
+    : {{GPUFrontFace/"cw"}}
+    :: |area| &lt; 0 is considered [=front-facing=], otherwise [=back-facing=]
+    : "linear"
+</dl>
+
+The polygon can be culled by {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/cullMode}}:
+<dl class="switch">
+    : {{GPUCullMode/"none"}}
+    :: All polygons pass this test.
+    : {{GPUCullMode/"front"}}
+    :: The [=front-facing=] polygons are discarded,
+        and do not process in later stages of the render pipeline.
+    : {{GPUCullMode/"back"}}
+    :: The [=back-facing=] polygons are discarded.
+</dl>
 
 Issue: fill out the section
 
