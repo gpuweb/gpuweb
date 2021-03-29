@@ -169,11 +169,6 @@ See [[#keyword-summary]] for a list of keywords.
   <tr><td>`IDENT`<td>`[a-zA-Z][0-9a-zA-Z_]*`
 </table>
 
-Note: literals are parsed greedy. This means that for statements like `a -5`
-      this will *not* parse as `a` `minus` `5` but instead as `a` `-5` which
-      may be unexpected. A space must be inserted after the `-` if the first
-      expression is desired.
-
 An identifier must not have the same spelling as a keyword or as a reserved keyword.
 
 ## Attributes ## {#attributes}
@@ -270,8 +265,12 @@ literal_or_ident
     <td>non-negative i32 literal
     <td>Must only be applied to an entry point function parameter, entry point
     return type, or member of a [=structure=] type.
+    Must only be applied to declarations of [=numeric scalar=] or [=numeric
+    vector=] type.
+    Must not be used with the [=compute=] shader stage.
 
-    Specifies a part of the user-defined IO of an entry point. See TBD.
+    Specifies a part of the user-defined IO of an entry point.
+    See [[#input-output-locations]].
 
   <tr><td><dfn noexport dfn-for="attribute">`size`</dfn>
     <td>positive i32 literal
@@ -326,7 +325,7 @@ the following kinds of objects:
 In other words, a declaration introduces a <dfn noexport>name</dfn> for an object.
 
 The <dfn noexport>scope</dfn> of a declaration is the set of
-program locations where a use of the declared identifier would denote
+program locations where a use of the declared identifier potentially denotes
 its associated object.
 We say the identifier is <dfn noexport>in scope</dfn>
 (of the declaration) at those source locations.
@@ -344,10 +343,70 @@ Examples of predeclared objects are:
 * built-in types.
 
 A declaration must not introduce a name when that identifier is
-already in scope at the start of the declaration.
-That is, shadow names are not allowed in [SHORTNAME].
+already in scope with the same end scope as another instance of that name.
+When an identifier is used in scope of one or more declarations for that name,
+the identifier will denote the object of the declaration appearing closest to
+that use.
+We say the identifier use <dfn noexport>resolves</dfn> to that declaration.
 
-Issue: PR [1472](https://github.com/gpuweb/gpuweb/pull/1472) is intended to relax this constraint.
+Note: A declaration always precedes its identifier's scope.
+Therefore, the nearest in scope declaration of an identifier always precedes the
+use of the identifier.
+
+<div class='example' heading='Valid and invalid declarations'>
+  <xmp>
+    // Invalid, cannot reuse built-in function names.
+    var<private> modf : f32 = 0.0;
+
+    // Valid, foo_1 is in scope until the end of the program.
+    var<private> foo : f32 = 0.0; // foo_1
+
+    // Valid, bar_1 is in scope until the end of the program.
+    var<private> bar : u32 = 0u; // bar_1
+
+    // Valid, my_func_1 is in scope until the end of the program.
+    // Valid, foo_2 is in scope until the end of the function.
+    fn my_func(foo : f32) { // my_func_1, foo_2
+      // Any reference to 'foo' resolves to the function parameter.
+
+      // Invalid, the scope of foo_3 ends at the of the function.
+      var foo : f32; // foo_3
+
+      // Valid, bar_2 is in scope until the end of the function.
+      var bar : u32; // bar_2
+      // References to 'bar' resolve to bar_2
+      {
+        // Valid, bar_3 is in scope until the end of the compound statement.
+        var bar : u32; // bar_3
+        // References to 'bar' resolve to bar_3
+
+        // Invalid, bar_4 has the same end scope as bar_3.
+        var bar : i32; // bar_4
+
+        // Valid, i_1 is in scope until the end of the for loop
+        for (var i : i32 = 0; i < 10; i = i + 1) { // i_1
+          // Invalid, i_2 has the same end scope as i_1.
+          var i : i32 = 1; // i_2.
+        }
+      }
+
+      // Invalid, bar_5 has the same end scope as bar_2.
+      var bar : u32; // bar_5
+    }
+
+    // Invalid, bar_6 has the same end scope as bar_1.
+    var<private> bar : u32 = 1u; // bar_6
+
+    // Invalid, my_func_2 has the same end scope as my_func_1.
+    fn my_func() { } // my_func_2
+
+    // Valid, my_foo_1 is in scope until the end of the program.
+    fn my_foo(
+      // Valid, my_foo_2 is in scope until the end of the function.
+      my_foo : i32 // my_foo_2
+    ) { }
+  </xmp>
+</div>
 
 There are multiple levels of scoping depending on how and where things are
 declared.
@@ -3466,9 +3525,8 @@ short_circuit_or_expression
 ## Compound Statement ## {#compound-statement}
 
 A compound statement is a brace-enclosed group of zero or more statements.
-When a declaration is one of the statements those statements, its identifier is
-[=in scope=] from the start of the next statement until the end of the compound
-statement.
+When a declaration is one of those statements, its identifier is [=in scope=]
+from the start of the next statement until the end of the compound statement.
 
 <pre class='def'>
 compound_statement
@@ -3989,22 +4047,15 @@ A function declaration must only occur at [=module scope=].
 The function name is [=in scope=] from the start of the formal parameter list
 until the end of the program.
 
-The function name must be different from the name of every other declared object, including
-those declared inside other functions.
-
-Note: This restriction is in addition to the rules in [[#declaration-and-scope]].
-
-Issue: PR [#1472](https://github.com/gpuweb/gpuweb/pull/1472) is intended to relax this constraint.
-
 A <dfn noexport>formal parameter</dfn> declaration specifies an identifier name and a type for a value that must be
 provided when invoking the function.
 A formal parameter may have attributes.
 See [[#function-calls]].
-The scope of the identifier is the whole function body.
+The identifier is [=in scope=] until the end of the function.
 Two formal parameters for a given function must not have the same name.
 
 If the return type of the function is specified, then the last statement
-in the function body must be a return statement.
+in the function body must be a [=return=] statement. 
 
 <pre class='def'>
 function_decl
@@ -4053,7 +4104,6 @@ parameters and return types:
     }
   </xmp>
 </div>
-
 
 ## Function calls TODO ## {#function-calls}
 
@@ -4226,9 +4276,10 @@ More precisely, the <dfn noexport>interface of a shader stage</dfn> consists of:
 ### Pipeline Input and Output Interface ### {#pipeline-inputs-outputs}
 
 The <dfn dfn>Entry point IO type</dfn>s include the following:
-  - `[[builtin(x)]]`-decorated pipeline built-ins.
-  - `[[location(x)]]`-decorated [=IO-shareable=] types.
-  - structures containing only [=Entry point IO type=]s.
+  - Built-in variables. See [[#builtin-inputs-outputs]].
+  - User-defined IO. See [[#user-data-attributes]]
+  - Structures containing only built-in variables and user-defined IO.
+    The structure must not contain a nested structure.
 
 A <dfn noexport>pipeline input</dfn> is data provided to the shader stage from upstream in the pipeline.
 A pipeline input is denoted by the arguments of the entry point.
@@ -4276,10 +4327,112 @@ Issue: in Vulkan, builtin variables occoupy I/O location slots counting toward l
 
 #### User Data Attribute TODO #### {#user-data-attributes}
 
-TODO: User data attributes must not be of [=bool=] type or contain a [=bool=] type.
+User-defined data can be passed as input to the start of a pipeline, passed
+between stages of a pipeline or output from the end of a pipeline.
+User-defined IO must not be passed to [=compute=] shader entry points.
+User-defined IO must be [=numeric scalar=] or [=numeric vector=] types .
+All user defined IO must be assigned locations (See [[#input-output-locations]]).
 
-#### Input-output Locations TODO #### {#input-output-locations}
-TODO: *Stub*. Location-sizing of types, non-overlap among variables referenced within an entry point static call tree.
+#### Input-output Locations #### {#input-output-locations}
+
+Each location can store a value up to 16 bytes in size.
+The byte size of a type is defined using the *SizeOf* column in [[#alignment-and-size]].
+For example, a four-element vector of floating-point values occupies a single location.
+
+Locations are specified via the [=attribute/location=] attribute.
+
+Every user-defined input and output must have a fully specified set of
+locations.
+Each structure member in the entry point IO must be one of either a builtin variable
+(see [[#builtin-inputs-outputs]]), or assigned a location.
+
+For a given entry point, the locations of the return type are distinct from
+the locations of the function parameters.
+Within each set of locations, there must be no overlap.
+
+Note: the number of available locations for an entry point is defined by the WebGPU API.
+
+<div class='example applying location attribute' heading='Applying location attributes'>
+  <xmp>
+    struct A {
+      [[location(0)]] x : f32;
+      // Despite locations being 16-bytes, x and y cannot share a location
+      [[location(1)]] y : f32;
+    };
+
+    // in1 occupies locations 0 and 1.
+    // in2 occupies location 2.
+    // The return value occupies location 0.
+    [[stage(fragment)]]
+    fn fragShader(in1 : A, [[location(2)]] in2 : f32) -> [[location(0)]] vec4<f32> {
+     // ...
+    }
+  </xmp>
+</div>
+
+User-defined IO can be mixed with builtin variables in the same structure. For example,
+
+<div class='example mixing builtins and user-defined IO' heading='Mixing builtins and user-defined IO'>
+  <xmp>
+    // Mixed builtins and user-defined inputs.
+    struct MyInputs {
+      [[location(0)]] x : vec4<f32>;
+      [[builtin(front_facing)]] y : bool;
+      [[location(1)]] z : u32;
+    };
+
+    struct MyOutputs {
+      [[builtin(frag_depth)]] x : f32;
+      [[location(0)]] y : vec4<f32>;
+    };
+
+    [[stage(fragment)]]
+    fn fragShader(in1 : MyInputs) -> MyOutputs {
+      // ...
+    }
+  </xmp>
+</div>
+
+<div class='example invalid locations' heading='Invalid location assignments'>
+  <xmp>
+    struct A {
+      [[location(0)]] x : u32;
+      // Invalid, x and y cannot share a location.
+      [[location(0)]] y : u32;
+    };
+
+    struct B {
+      [location(0)]] x : f32;
+    };
+
+    struct C {
+      // Invalid, structures with user-defined IO cannot be nested.
+      b : B;
+    };
+
+    struct D {
+      x : vec4<f32>;
+    };
+
+    [[stage(fragment)]]
+    // Invalid, location cannot be applied to a structure type.
+    fn fragShader1([[location(0)]] in1 : D) -> void {
+      // ...
+    }
+
+    [[stage(fragment)]]
+    // Invalid, in1 and in2 cannot share a location.
+    fn fragShader2([location(0)]] in1 : f32, [[location(0)]] in2 : f32) -> void {
+      // ...
+    }
+
+    [[stage(fragment)]]
+    // Invalid, location cannot be applied to a structure.
+    fn fragShader3([[location(0)]] in1 : vec4<f32>) -> [[location(0)]] D {
+      // ...
+    }
+  </xmp>
+</div>
 
 ### Resource interface ### {#resource-interface}
 
