@@ -5980,8 +5980,6 @@ immediate termination of the invocation.
 After a `discard` statement is executed, control flow is non-uniform for the
 duration of the entry point.
 
-Issue: [[#uniform-control-flow]] needs to state whether all invocations being discarded maintains uniform control flow.
-
 <div class='example wgsl' heading='Using the discard statement to throw away a fragment'>
   <xmp>
   var<private> will_emit_color: bool = false;
@@ -7272,13 +7270,330 @@ See [[#expressions]].
 Statements in a [SHORTNAME] program are executed in control flow order.
 See [[#statements]] and [[#function-calls]].
 
-## Uniformity TODO ## {#uniformity}
+## Uniformity ## {#uniformity}
 
-### Uniform control flow TODO ### {#uniform-control-flow}
+### Terminology and concepts ### {#uniformity-concepts}
 
-### Divergence and reconvergence TODO ### {#divergence-reconvergence}
+The following definitions are merely informative, trying to give an intuition for what the analysis in the next subsection is computing.
+The analysis is what actually defines these concepts, and when a program is valid or breaks the uniformity rules.
 
-### Uniformity restrictions TODO ### {#uniformity-restrictions}
+Control flow is said to be uniform at a point in the program if all invocations execute in lockstep at that program point.
+An expression is said to be uniform if it is in uniform control flow, and all invocations compute the same value for it.
+A local variable is said to be uniform, if all invocations have the same value in that variable at every program point where it is live.
+
+### Uniformity analysis overview ### {#uniformity-overview}
+
+In this section we specify an analysis that verifies that functions which are only safe to call in uniform control flow (e.g. barriers and derivatives) are only called in such a context.
+
+<div class="note">Note: This analysis has the following desirable properties:
+      - Sound (meaning that it rejects every program that would break the uniformity requirements of builtins)
+      - Linear time complexity (in the number of tokens in the program)
+      - Refactoring a piece of code into a function cannot make it invalid if it was valid before
+      - If the analysis refuses a program, it provides a straightforward chain of implications that can be used to craft a good error message
+</div>
+
+The analysis analyzes each function in turn, verifying that there is a context where it is safe to call this function. It rejects the program as invalid if there is no such context.
+
+At the same time, it computes metadata about the function to help analyze its callers in turn.
+This means that the call graph must first be built, and functions must be analyzed from the leaves upwards, i.e. from functions that call no function outside the standard library toward the entry point.
+This way, whenever a function is analyzed, the metadata for all of its callees has already been computed.
+There is no risk of being trapped in a cycle, as recurrence is forbidden in the language.
+
+Note: another way of saying the same thing is that we do a topological sort of functions ordered by the "is a (possibly indirect) callee of" partial order, and analyze them in that order.
+
+### Analyzing the uniformity requirements of a function ### {#uniformity-function}
+
+Each function is analyzed in two phases.
+
+The first phase walks over the syntax of the function, building a directed graph along the way based on the rules in the following subsections.
+The second phase explores that graph, resulting in either rejecting the program, or computing the constraints on calling this function.
+
+<div class="note">Note: apart from two special nodes MustBeUniform and CannotBeUniform, all nodes can be understood as having one of the following meanings:
+        - The control flow at a specific program point must be uniform
+        - The value of a specific expression must be uniform
+        - A specific variable must always hold a uniform value
+
+        An edge can be understood as an implication from the statement corresponding to its source node to the statement corresponding to its target node.
+
+        To express that something must always be uniform (e.g. the control flow at the call site of a derivative), we add an edge from MustBeUniform to the corresponding node.
+        One way to understand this, is that MustBeUniform corresponds to the proposition True, so that MustBeUniform -> X is the same as saying that X is true.
+
+        Reciprocally, to express that we cannot ensure the uniformity of something (e.g. a variable which holds the thread id), we add an edge from the corresponding node to CannotBeUniform.
+        One way to understand this, is that CannotBeUniform corresponds to the proposition False, so that X -> CannotBeUniform is the same as saying that X is false.
+
+        A consequence of this interpretation is that every node reachable from MustBeUniform corresponds to something which must be uniform for the program to be valid, and every node from which cannotBeUniform is reachable corresponds to something whose uniformity we cannot guarantee. It follows that we have a uniformity violation (and thus reject the program) if there is any path from MustBeUniform to CannotBeUniform.
+</div>
+
+In more detail, here is what we compute for each function:
+
+* A tag about the control-flow in which the function can be called: one of {AlwaysMustBeUniform, MustBeUniformForControlFlowAfter}
+* A tag for each parameter of the function: one of {AlwaysMustBeUniform, MustBeUniformForControlFlowAfter, MustBeUniformForReturnValue, NoRestriction}
+* A tag for the function as a whole: one of {ControlFlowCannotBeUniformAfter, ReturnValueCannotBeUniform, NoRestriction}
+
+Here is the algorithm for computing this data for a given function:
+
+* Create nodes called "MustBeUniform", "CannotBeUniform", "CF_start", "CF_return", and if the function is non-void a node called "Value_return"
+* Create one node for each parameter of the function which we'll call "arg_i"
+* Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next section, using CF_start as the starting control-flow for the function's body.
+* Look at which nodes are reachable from "MustBeUniform"
+    * If this set includes the node "CannotBeUniform", then reject the program.
+    * If this set includes "CF_start", then the control-flow in which the function can be called is AlwaysMustBeUniform.
+    * Otherwise it is MustBeUniformForControlFlowAfter
+    * For each "arg_i" in this set, the corresponding parameter is AlwaysMustBeUniform
+    * Remove from the graph all nodes that have been visited
+* Look at which nodes are reachable from "CF_return"
+    * If this set includes "CannotBeUniform", then the function is ControlFlowCannotBeUniformAfter
+    * For each "arg_i" in this set, the corresponding parameter is MustBeUniformForControlFlowAfter
+    * Remove from the graph all nodes that have been visited
+* If "Value_return" exists, look at which nodes are reachable from it
+    * If this set includes "CannotBeUniform", then the function is ReturnValueCannotBeUniform
+    * For each "arg_i" in this set, the corresponding parameter is MustBeUniformForReturnValue
+* If the function has not been assigned a tag, then it is NoRestriction.
+* For each parameter, if it has not been assigned a tag, then it is NoRestriction.
+
+Note: The entire graph can be destroyed at this point. The tags listed above are all that we need to remember to analyze callers of this function.
+
+### Uniformity rules for statements ### {#uniformity-statements}
+
+In order to properly deal with reconvergence we must know when there is a single way for control to flow out of a statement.
+This is achieved by following the behaviors analysis (see [[#behaviors]]).
+
+If the set of behaviors for a statement is {Next}, this means that we either did not diverge within the statement, or we reconverged, and we pick the node corresponding to control flow at the start of the statement as the node corresponding to control flow at the exit of the statement, overriding what the other rules below say about the resulting control-flow node.
+
+The rules for analyzing statements take as argument both the statement itself and the node corresponding to control flow at the beginning of it (which we'll note "CF" below) and return both of the following:
+
+* A node corresponding to control flow at the exit of it
+* A set of new nodes and edges to add to the graph
+
+In the table below, `(CF1, S) => CF2` means "run the analysis on S starting with control flow CF1, apply the required changes to the graph, and name the resulting control flow CF2".
+Similarly, `(CF1, E) => (CF2, V)` means "run the analysis on expression E, starting with control flow CF1, apply the required changes to the graph, and name the resulting control flow node CF2 and the resulting value node V" (see next section for the analysis of expressions).
+
+We have a similar set of rules for expressions in left-value positions, that we denote by `LValue: (CF, E) => (CF, L)`. Instead of computing the node which corresponds to the uniformity of the value, it computes the node which corresponds to the uniformity of the variable we are adressing.
+
+When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `X -> Y, X -> Z`.
+
+<table class='data'>
+  <caption>Uniformity rules for statements</caption>
+  <thead>
+    <tr><th>Statement<th>New nodes<th>Recursive analyses<th>Resulting control flow node (if behavior is not {Next})<th>New edges
+  </thead>
+  <tr><td class="nowrap">*s1*; *s2*
+      <td>
+      <td class = "nowrap">(*CF*, *s1*) => *CF1*<br>
+          (*CF1*, *s2*) => *CF2*
+      <td>*CF2*
+      <td>
+  <tr><td class="nowrap">if (*e*) *s1* else *s2*
+      <td>*CFend*
+      <td class="nowrap">(*CF*, *e*) => (*CF'*, *V*)<br>
+          (*V*, *s1*) => *CF1*<br>
+          (*V*, *s2*) => *CF2*
+      <td>*CFend*
+      <td class="nowrap">*CFend* -> {*CF1*, *CF2*}
+  <tr><td class="nowrap">loop {*s1* continuing {*s2*}}
+      <td>*CF'*
+      <td class="nowrap">(*CF'*, *s1*) => *CF1*<br>
+          (*CF1*, *s2*) => *CF2*
+      <td>*CF'*
+      <td class="nowrap">*CF'* -> {*CF2*, *CF*}
+  <tr><td class="nowrap">loop {*s1*}
+      <td>*CF'*
+      <td class="nowrap">(*CF'*, *s1*) => *CF1*
+      <td>*CF'*
+      <td class="nowrap">*CF'* -> {*CF1*, *CF*}
+  <tr><td class="nowrap">switch(*e*) case _: *s_1* .. case _: *s_n*
+      <td>*CFend*
+      <td class="nowrap">(*CF*, *e*) => (*CF'*, *V*)<br>
+        (*V*, *s_1*) => *CF_1*<br>
+        ...<br>
+        if *s_(n-1)* may fallthrough, (*CF_(n-1)*, *s_n*) => *CF_n*<br>
+        else (*V*, *s_n*) => *CF_n*
+      <td>*CFend*
+      <td class="nowrap">*CFend* -> {*CF_1*, ..., *CF_n*}
+  <tr><td class="nowrap">break;
+      <td>
+      <td>
+      <td>*CF*
+      <td>
+  <tr><td class="nowrap">continue;
+      <td>
+      <td>
+      <td>*CF*
+      <td>
+<tr><td class="nowrap">fallthrough;
+      <td>
+      <td>
+      <td>*CF*
+      <td>
+  <tr><td class="nowrap">discard;
+      <td>
+      <td>
+      <td>*CF*
+      <td>
+  <tr><td class="nowrap">return;
+      <td>
+      <td>
+      <td>*CF*
+      <td>*CF_return* -> *CF*
+  <tr><td class="nowrap">return *e*;
+      <td>
+      <td class="nowrap">(*CF*, *e*) => (*CF'*, *V*)
+      <td>*CF'*
+      <td>*CF_return* -> *CF'*<br>
+          *Value_return* -> *V*
+  <tr><td class="nowrap">e1 = e2;
+      <td>
+      <td class="nowrap">LValue: (*CF*, *e1*) => (*CF1*, *L1*)<br>
+          (*CF1*, *e2*) => (*CF2*, *V2*)
+      <td>*CF2*
+      <td>*L1* -> *V2*
+</table>
+
+### Uniformity rules for function calls ### {#uniformity-function-calls}
+
+The most complex rule is for function calls:
+- For each argument, apply the corresponding expression rule, with the control flow at the exit of the previous argument (using the control flow at the beginning of the function call for the first argument). Name the corresponding value nodes "arg_i" and the corresponding control flow nodes "CF_i"
+- Create two new nodes, named "Result" and "CF_after"
+- If the control-flow at the start of the function was tagged AlwaysMustBeUniform, then add an edge from MustBeUniform to the last CF_i
+- Otherwise add an edge from CF_after to the last CF_i
+- If the function was tagged ControlFlowCannotBeUniformAfter, then add an edge from CF_after to CannotBeUniform
+- Else if it was tagged ReturnValueCannotBeUniform, then add an edge from Result to CannotBeUniform
+- Add an edge from Result to CF_after
+- For each argument *i*:
+    - If the corresponding parameter was tagged AlwaysMustBeUniform, then add an edge from MustBeUniform to arg_i
+    - Else if it was tagged MustBeUniformForControlFlowAfter, then add an edge from CF_after to arg_i
+    - Else if it was tagged MustBeUniformForReturnValue, then add an edge from Result to arg_i
+
+Note: Notice that this rule only requires adding a number of edges bounded by 3 + the number of parameters of the functions, independently of how complex the implementation of the function might be. This is key to the linear complexity of the overall algorithm.
+
+Most built-in functions have tags of:
+- for the control-flow in which they can be called: MustBeUniformForControlFlowAfter
+- for the function as a whole: NoRestriction
+- for each parameter: MustBeUniformForReturnValue
+
+Here is the list of exceptions:
+- All functions in [[#sync-builtin-functions]] are AlwaysMustBeUniform
+- All functions in [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]] are AlwaysMustBeUniform and ReturnValueCannotBeUniform
+
+### Uniformity rules for expressions ### {#uniformity-expressions}
+
+The rules for analyzing expressions take as argument both the expression itself and the node corresponding to control flow at the beginning of it (which we'll note "CF" below) and return the following:
+
+* A node corresponding to control flow at the exit of it
+* A node corresponding to its value
+* A set of new nodes and edges to add to the graph
+
+Like for statements, if the set of behaviors for an expression is {Next}, then the node corresponding to control flow at the exit of it is replaced by *CF* (the control flow at the beginning of it), overriding what the rules below say about the resulting control-flow node.
+
+<table class='data'>
+  <caption>Uniformity rules for expressions (in normal rvalue position)</caption>
+  <thead>
+    <tr><th>Expression<th>New nodes<th>Recursive analyses<th>Resulting control flow node (if behavior is not {Next}), value node<th>New edges
+  </thead>
+  <tr><td class="nowrap">e1 || e2
+      <td>
+      <td class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)<br>
+          (*V1*, *e2*) => (*CF2*, *V2*)
+      <td class="nowrap">*CF2*, *V2*
+      <td>
+  <tr><td class="nowrap">e1 && e2
+      <td>
+      <td class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)<br>
+          (*V1*, *e2*) => (*CF2*, *V2*)
+      <td class="nowrap">*CF2*, *V2*
+      <td>
+  <tr><td class="nowrap">Literal
+      <td>
+      <td>
+      <td class="nowrap">*CF*, *CF*
+      <td>
+   <tr><td class="nowrap">reference to local variable "x"
+      <td>*Result*
+      <td class="nowrap">*X* is the node corresponding to "x"
+      <td class="nowrap">*CF*, *Result*
+      <td class="nowrap">*Result* -> {*CF*, *X*}
+   <tr><td class="nowrap">reference to uniform built-in variable "x"
+      <td>
+      <td>
+      <td class="nowrap">*CF*, *CF*
+      <td>
+   <tr><td class="nowrap">reference to non-uniform built-in variable "x"
+      <td>
+      <td>
+      <td class="nowrap">*CF*, *CannotBeUniform*
+      <td>
+   <tr><td class="nowrap">reference to read-only global variable "x"
+      <td>
+      <td>
+      <td class="nowrap">*CF*, *CF*
+      <td>
+   <tr><td class="nowrap">reference to non-read-only global variable "x"
+      <td>
+      <td>
+      <td class="nowrap">*CF*, *CannotBeUniform*
+      <td>
+   <tr><td class="nowrap">e1.field
+      <td>
+      <td class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)
+      <td class="nowrap">*CF1*, *V1*
+      <td>
+   <tr><td class="nowrap">e1[e2]
+      <td> *Result*
+      <td class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)<br>
+          (*CF1*, *e2*) => (*CF2*, *V2*)
+      <td class="nowrap">*CF2*, *Result*
+      <td class="nowrap">*Result* -> {*V1*, *V2*}
+</table>
+
+The following built-in input variables are considered uniform:
+- workgroup_id
+- num_workgroups
+
+All other ones (see [[#builtin-variables]]) are considered non-uniform.
+
+<table class='data'>
+  <caption>Uniformity rules for expressions in lvalue positions</caption>
+  <thead>
+    <tr><th>Expression<th>New nodes<th>Recursive analyses<th>Resulting control flow node, variable node<th>New edges
+  </thead>
+  <tr><td class="nowrap">reference to local variable "x"
+      <td>
+      <td class="nowrap">*X* is the node corresponding to "x"
+      <td class="nowrap">*CF*, *X*
+      <td>
+  <tr><td class="nowrap">reference to global variable "x"
+      <td>
+      <td>
+      <td class="nowrap">*CF*, *CannotBeUniform*
+      <td>
+  <tr><td class="nowrap">e1.field
+      <td>
+      <td class="nowrap">LValue: (*CF*, *e1*) => (*CF1*, *L1*)
+      <td class="nowrap">*CF1*, *L1*
+      <td>
+  <tr><td class="nowrap">e1[e2]
+      <td>
+      <td class="nowrap">LValue: (*CF*, *e1*) => (*CF1*, *L1*)<br>
+          (*CF1*, *e2*) => (*CF2*, *V2*)
+      <td class="nowrap">*CF2*, *L1*
+      <td class="nowrap">*L1* -> *V2*
+</table>
+
+### Annotating the uniformity of every point in the control-flow ### {#uniformity-optional-diagnosis-mode}
+
+This entire subsection is non-normative.
+
+If implementers want to provide developers with a diagnostic mode that shows for each point in the control-flow of the entire shader whether it is uniform or not (and thus whether it would be valid to call a function that requires uniformity there), we suggest the following:
+- Run the (mandatory, normative) analysis described in the previous subsections, keeping the graph for every function.
+- Reverse all edges in all of those graphs
+- Go through each function, starting with the entry point and never visiting a function before having visited all of its callers:
+    - Add an edge from CannotBeUniform to every argument that was non-uniform in at least one caller
+    - Add an edge from CannotBeUniform to CF_start if the function was called in non-uniform control-flow in at least one caller
+    - Look at which nodes are reachable from CannotBeUniform. Every node visited is an expression or point in the control-flow whose uniformity cannot be proven by the analysis
+
+Any node which is not visited by these reachability analyses can be proven to be uniform by the analysis (and so it would be safe to call a derivative or similar function there).
+
+Note: The bottom-up analysis is still required, as it lets us know what edges to add to the graphs when encountering calls.
 
 ## Compute Shaders and Workgroups ## {#compute-shader-workgroups}
 
