@@ -265,8 +265,12 @@ literal_or_ident
     <td>non-negative i32 literal
     <td>Must only be applied to an entry point function parameter, entry point
     return type, or member of a [=structure=] type.
+    Must only be applied to declarations of [=numeric scalar=] or [=numeric
+    vector=] type.
+    Must not be used with the [=compute=] shader stage.
 
-    Specifies a part of the user-defined IO of an entry point. See TBD.
+    Specifies a part of the user-defined IO of an entry point.
+    See [[#input-output-locations]].
 
   <tr><td><dfn noexport dfn-for="attribute">`size`</dfn>
     <td>positive i32 literal
@@ -4113,7 +4117,6 @@ parameters and return types:
   </xmp>
 </div>
 
-
 ## Function calls TODO ## {#function-calls}
 
 A function call is a statement or expression which invokes a function.
@@ -4283,9 +4286,10 @@ More precisely, the <dfn noexport>interface of a shader stage</dfn> consists of:
 ### Pipeline Input and Output Interface ### {#pipeline-inputs-outputs}
 
 The <dfn dfn>Entry point IO type</dfn>s include the following:
-  - `[[builtin(x)]]`-decorated pipeline built-ins.
-  - `[[location(x)]]`-decorated [=IO-shareable=] types.
-  - structures containing only [=Entry point IO type=]s.
+  - Built-in variables. See [[#builtin-inputs-outputs]].
+  - User-defined IO. See [[#user-data-attributes]]
+  - Structures containing only built-in variables and user-defined IO.
+    The structure must not contain a nested structure.
 
 A <dfn noexport>pipeline input</dfn> is data provided to the shader stage from upstream in the pipeline.
 A pipeline input is denoted by the arguments of the entry point.
@@ -4333,10 +4337,112 @@ Issue: in Vulkan, builtin variables occoupy I/O location slots counting toward l
 
 #### User Data Attribute TODO #### {#user-data-attributes}
 
-TODO: User data attributes must not be of [=bool=] type or contain a [=bool=] type.
+User-defined data can be passed as input to the start of a pipeline, passed
+between stages of a pipeline or output from the end of a pipeline.
+User-defined IO must not be passed to [=compute=] shader entry points.
+User-defined IO must be [=numeric scalar=] or [=numeric vector=] types .
+All user defined IO must be assigned locations (See [[#input-output-locations]]).
 
-#### Input-output Locations TODO #### {#input-output-locations}
-TODO: *Stub*. Location-sizing of types, non-overlap among variables referenced within an entry point static call tree.
+#### Input-output Locations #### {#input-output-locations}
+
+Each location can store a value up to 16 bytes in size.
+The byte size of a type is defined using the *SizeOf* column in [[#alignment-and-size]].
+For example, a four-element vector of floating-point values occupies a single location.
+
+Locations are specified via the [=attribute/location=] attribute.
+
+Every user-defined input and output must have a fully specified set of
+locations.
+Each structure member in the entry point IO must be one of either a builtin variable
+(see [[#builtin-inputs-outputs]]), or assigned a location.
+
+For a given entry point, the locations of the return type are distinct from
+the locations of the function parameters.
+Within each set of locations, there must be no overlap.
+
+Note: the number of available locations for an entry point is defined by the WebGPU API.
+
+<div class='example applying location attribute' heading='Applying location attributes'>
+  <xmp>
+    struct A {
+      [[location(0)]] x : f32;
+      // Despite locations being 16-bytes, x and y cannot share a location
+      [[location(1)]] y : f32;
+    };
+
+    // in1 occupies locations 0 and 1.
+    // in2 occupies location 2.
+    // The return value occupies location 0.
+    [[stage(fragment)]]
+    fn fragShader(in1 : A, [[location(2)]] in2 : f32) -> [[location(0)]] vec4<f32> {
+     // ...
+    }
+  </xmp>
+</div>
+
+User-defined IO can be mixed with builtin variables in the same structure. For example,
+
+<div class='example mixing builtins and user-defined IO' heading='Mixing builtins and user-defined IO'>
+  <xmp>
+    // Mixed builtins and user-defined inputs.
+    struct MyInputs {
+      [[location(0)]] x : vec4<f32>;
+      [[builtin(front_facing)]] y : bool;
+      [[location(1)]] z : u32;
+    };
+
+    struct MyOutputs {
+      [[builtin(frag_depth)]] x : f32;
+      [[location(0)]] y : vec4<f32>;
+    };
+
+    [[stage(fragment)]]
+    fn fragShader(in1 : MyInputs) -> MyOutputs {
+      // ...
+    }
+  </xmp>
+</div>
+
+<div class='example invalid locations' heading='Invalid location assignments'>
+  <xmp>
+    struct A {
+      [[location(0)]] x : u32;
+      // Invalid, x and y cannot share a location.
+      [[location(0)]] y : u32;
+    };
+
+    struct B {
+      [location(0)]] x : f32;
+    };
+
+    struct C {
+      // Invalid, structures with user-defined IO cannot be nested.
+      b : B;
+    };
+
+    struct D {
+      x : vec4<f32>;
+    };
+
+    [[stage(fragment)]]
+    // Invalid, location cannot be applied to a structure type.
+    fn fragShader1([[location(0)]] in1 : D) -> void {
+      // ...
+    }
+
+    [[stage(fragment)]]
+    // Invalid, in1 and in2 cannot share a location.
+    fn fragShader2([location(0)]] in1 : f32, [[location(0)]] in2 : f32) -> void {
+      // ...
+    }
+
+    [[stage(fragment)]]
+    // Invalid, location cannot be applied to a structure.
+    fn fragShader3([[location(0)]] in1 : vec4<f32>) -> [[location(0)]] D {
+      // ...
+    }
+  </xmp>
+</div>
 
 ### Resource interface ### {#resource-interface}
 
