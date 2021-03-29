@@ -572,9 +572,9 @@ WebGPU's coordinate systems match DirectX and Metal's coordinate systems in a gr
   - Y-axis is up in normalized device coordinate (NDC): point(-1.0, -1.0) in NDC is located at the bottom-left corner of NDC.
     In addition, x and y in NDC should be between -1.0 and 1.0 inclusive, while z in NDC should be between 0.0 and 1.0 inclusive.
     Vertices out of this range in NDC will not introduce any errors, but they will be clipped.
-  - Y-axis is down in framebuffer coordinate, viewport coordinate and fragment/pixel coordinate:
+  - Y-axis is down in [=framebuffer=] coordinate, viewport coordinate and fragment/pixel coordinate:
     origin(0, 0) is located at the top-left corner in these coordinate systems.
-  - Window/present coordinate matches framebuffer coordinate.
+  - Window/present coordinate matches [=framebuffer=] coordinate.
   - UV of origin(0, 0) in texture coordinate represents the first texel (the lowest byte) in texture memory.
 
 
@@ -4185,7 +4185,11 @@ Issue: link to interpolation qualifiers in WGSL
 ### Rasterization ### {#rasterization}
 
 Rasterization is the hardware processing stage that maps the generated primitives
-to the 2-dimensional rendering area.
+to the 2-dimensional rendering area of the <dfn dfn>framebuffer</dfn> -
+the set of render attachments in the current {{GPURenderPassEncoder}}.
+
+The [=framebuffer=] coordinates start from the top-left corner of the render targets.
+Each unit corresponds exactly to a pixel. See {#coordinate-systems} for more information.
 
 1. First, the clipped vertices are transformed into <dfn dfn>NDC</dfn> - normalized device coordinates.
     Given the output position |p|, the [=NDC=] coordinates are computed as:
@@ -4194,14 +4198,14 @@ to the 2-dimensional rendering area.
 
 2. Let |renderExtent| be [=RenderPassDescriptor/renderExtent=] of the active render pass.
 
-    Then the [=NDC=] coordinates |n| are converted into framebuffer coordinates, based on the size of the render targets:
+    Then the [=NDC=] coordinates |n| are converted into [=framebuffer=] coordinates, based on the size of the render targets:
 
     framebufferCoords(n) = 0.5&times;vector((|n|.x&plus;1) &times; |renderExtent|.{{GPUExtent3DDict/width}}, (|n|.y&plus;1) &times; |renderExtent|.{{GPUExtent3DDict/height}})
 
 
 #### Polygon Rasterization #### {#polygon-rasterization}
 
-Let |v|(|i|) be the framebuffer coordinates for the clipped vertex number |i| (starting with 1)
+Let |v|(|i|) be the [=framebuffer=] coordinates for the clipped vertex number |i| (starting with 1)
 in a rasterized polygon of |n| vertices.
 
 Note: this section uses the term "polygon" instead of a "triangle",
@@ -4209,7 +4213,7 @@ since {#primitive-clipping} stage may have introduced additional vertices.
 This is non-observable by the application.
 
 The first step of polygon rasterization is determining if the polygon is <dfn dfn>front-facing</dfn> or <dfn dfn>back-facing</dfn>.
-This depends on the sign of the |area| occupied by the polygon in framebuffer coordinates:
+This depends on the sign of the |area| occupied by the polygon in [=framebuffer=] coordinates:
 
 |area| = 0.5 &times; ((|v|(1).x &times; |v|(|n|).y &minus; |v|(|n|).x &times; |v|(1).y) &plus; &sum; (|v|(|i|&plus;1).x &times; |v|(|i|).y &minus; |v|(|i|).x &times; |v|(|i|&plus;1).y))
 
@@ -4233,7 +4237,28 @@ The polygon can be culled by {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrim
     :: The [=back-facing=] polygons are discarded.
 </dl>
 
-Issue: fill out the section
+The next step is determining a set of <dfn dfn>fragments</dfn> inside the polygon in framebuffer space -
+these are locations scheduled for the per-fragment operations.
+The determination is based on |descriptor|.{{GPURenderPipelineDescriptor/multisample}}:
+<dl class="switch">
+    : disabled
+    :: [=Fragment=]s are associated with pixel centers. That is, all the points with coordinates |C|, where
+        fract(|C|) = vector2(0.5, 0.5) in the [=framebuffer=] space, enclosed into the polygon, are included.
+        If a pixel center is on the edge of the polygon, whether or not it's included is not defined.
+
+        Note: this becomes a subject of precision for the rasterizer.
+
+    : enabled
+    :: Each pixel is associated with |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}
+        locations, which are implementation-defined.
+        The locations are ordered, and the list is the same for each pixel of the [=framebuffer=].
+        Each location corresponds to one fragment in the multisampled [=framebuffer=].
+
+        The rasterizer builds a mask of locations being hit inside each pixel and provides is as "sample-mask"
+        built-in to the fragment shader.
+
+        Issue: do we want to force-enable the "Standard sample locations" in Vulkan?
+</dl>
 
 ### No Color Output ### {#no-color-output}
 
