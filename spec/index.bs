@@ -572,9 +572,9 @@ WebGPU's coordinate systems match DirectX and Metal's coordinate systems in a gr
   - Y-axis is up in normalized device coordinate (NDC): point(-1.0, -1.0) in NDC is located at the bottom-left corner of NDC.
     In addition, x and y in NDC should be between -1.0 and 1.0 inclusive, while z in NDC should be between 0.0 and 1.0 inclusive.
     Vertices out of this range in NDC will not introduce any errors, but they will be clipped.
-  - Y-axis is down in framebuffer coordinate, viewport coordinate and fragment/pixel coordinate:
+  - Y-axis is down in [=framebuffer=] coordinate, viewport coordinate and fragment/pixel coordinate:
     origin(0, 0) is located at the top-left corner in these coordinate systems.
-  - Window/present coordinate matches framebuffer coordinate.
+  - Window/present coordinate matches [=framebuffer=] coordinate.
   - UV of origin(0, 0) in texture coordinate represents the first texel (the lowest byte) in texture memory.
 
 
@@ -771,8 +771,8 @@ to form complete [=texel blocks=] in the [=subresource=].
   - For pixel-based {{GPUTextureFormat|GPUTextureFormats}}, the [=physical size=] is always equal to the size of the [=texture subresource=]
     used in the sampling hardwares.
   - [=Textures=] in block-based compressed {{GPUTextureFormat|GPUTextureFormats}} always have a [=mipmap level=] 0 whose {{GPUTexture/[[textureSize]]}}
-    is a multiple of the [=texel block size=], but the lower mipmap levels might not be the multiple of the [=texel block size=] and can
-    have paddings.
+    is a multiple of the [=texel block size=], but the lower mipmap levels might not be
+    multiples of the [=texel block size=] and can have paddings.
 
 <div class="example">
 Considering a {{GPUTexture}} in BC format whose {{GPUTexture/[[textureSize]]}} is {60, 60, 1}, when sampling
@@ -2052,6 +2052,24 @@ GPUTexture includes GPUObjectBase;
 
 </dl>
 
+<div algorithm>
+    <dfn abstract-op>compute render extent</dfn>(baseSize, mipLevel)
+
+    **Arguments:**
+        - {{GPUExtent3D}} |baseSize|
+        - {{GPUSize32}} |mipLevel|
+
+    **Returns:** {{GPUExtent3DDict}}
+
+    1. Let |extent| be a new {{GPUExtent3DDict}} object.
+    1. Set |extent|.{{GPUExtent3DDict/width}} to max(1, |baseSize|.[=Extent3D/width=] &Gt; |mipLevel|).
+    1. Set |extent|.{{GPUExtent3DDict/height}} to max(1, |baseSize|.[=Extent3D/height=] &Gt; |mipLevel|).
+    1. Set |extent|.{{GPUExtent3DDict/depthOrArrayLayers}} to 1.
+    1. Return |extent|.
+</div>
+
+Issue: share this definition with the part of the specification that describes sampling.
+
 ### Texture Creation ### {#texture-creation}
 
 <script type=idl>
@@ -2145,6 +2163,12 @@ GPUTextureView includes GPUObjectBase;
         The {{GPUTextureViewDescriptor}} describing this texture view.
 
         All optional fields of {{GPUTextureViewDescriptor}} are defined.
+    : <dfn>\[[renderExtent]]</dfn>
+    ::
+        For renderable views, this is the effective {{GPUExtent3DDict}} for rendering.
+
+        Note: this extent depends on the {{GPUTextureViewDescriptor/baseMipLevel}}.
+
 </dl>
 
 ### Texture View Creation ### {#texture-view-creation}
@@ -2259,6 +2283,9 @@ enum GPUTextureAspect {
                     1. Let |view| be a new {{GPUTextureView}} object.
                     1. Set |view|.{{GPUTextureView/[[texture]]}} to |this|.
                     1. Set |view|.{{GPUTextureView/[[descriptor]]}} to |descriptor|.
+                    1. If |this|.{{GPUTexture/[[textureUsage]]}} contains {{GPUTextureUsage/RENDER_ATTACHMENT}}:
+                        1. Let |renderExtent| be [$compute render extent$](|this|.{{GPUTexture/[[textureSize]]}}, |descriptor|.{{GPUTextureViewDescriptor/baseMipLevel}}).
+                        1. Set |view|.{{GPUTextureView/[[renderExtent]]}} to |renderExtent|.
                     1. Return |view|.
                 </div>
         </div>
@@ -3944,7 +3971,7 @@ configuring each of the [=render stages=].
 
         Issue: define somewhere what a render pass state is?
 
-        1. Resolve indices.
+        1. **Resolve indices**.
             The pipeline builds a list of vertices to process for each instance.
             If |drawCall| is an indexed draw call:
                 - for |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
@@ -3960,7 +3987,7 @@ configuring each of the [=render stages=].
 
             Issue: specify indirect commands better.
 
-        1. Process vertices. Each vertex |vertexIndex| in the |vertexList|,
+        1. **Process vertices**. Each vertex |vertexIndex| in the |vertexList|,
             in each instance of index |rawInstanceIndex|, is processed independently.
             The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
             This processing happens in parallel, and any side effects, such as
@@ -4007,7 +4034,7 @@ configuring each of the [=render stages=].
                 result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
                 will only be processed once.
 
-        1. Assemble primitives.
+        1. **Assemble primitives**.
             For each instance, the primitives get assembled from the vertices that have been
             processed by the shaders, based on the |vertexList|.
 
@@ -4052,10 +4079,9 @@ configuring each of the [=render stages=].
 
                 Any incomplete primitives are dropped.
 
-        1. Rasterize.
-            Rasterization is a hardware processing stage that maps the
-            generated primitives to the actual screen.
-            Issue: fill out the section
+        1. **Clip primitives**. See [[#primitive-clipping]].
+
+        1. Rasterize. See [[#rasterization]].
         1. Process fragments.
             Issue: fill out the section
         1. Process depth/stencil.
@@ -4094,6 +4120,149 @@ configuring each of the [=render stages=].
 - {{GPURenderPipelineDescriptor/fragment}} describes
     the fragment shader entry point of the [=pipeline=] and its output colors.
     If it's `null`, the [[#no-color-output]] mode is enabled.
+
+### Primitive clipping ### {#primitive-clipping}
+
+Vertex shaders have to produce a built-in "position" (of type `vec4<f32>`),
+which denotes the <dfn dfn>clip position</dfn> of a vertex.
+
+Issue: link to WGSL built-ins
+
+Primitives are clipped to the <dfn dfn>clip volume</dfn>, which, for any [=clip position=] |p|
+inside a primitive, is defined by the following inequalities:
+  - &minus;|p|.w &le; |p|.x &le; |p|.w
+  - &minus;|p|.w &le; |p|.y &le; |p|.w
+  - 0 &le; |p|.z &le; |p|.w (<dfn dfn>depth clipping</dfn>)
+
+If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/clampDepth}} is `true`,
+the [=depth clipping=] restriction of the [=clip volume=] is not applied.
+
+A primitive passes through this stage unchanged if every one of its edges
+lie entirely inside the [=clip volume=].
+If the edges of a primitives intersect the boundary of the [=clip volume=],
+the intersecting edges are reconnected by new edges that lie along the boundary of the [=clip volume=].
+For triangular primitives (|descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}} is
+{{GPUPrimitiveTopology/"triangle-list"}} or {{GPUPrimitiveTopology/"triangle-strip"}}), this reconnection
+may result in introduction of new vertices into the polygon, internally.
+
+If a primitive intersects an edge of the [=clip volume=]’s boundary,
+the clipped polygon must include a point on this boundary edge.
+
+If the vertex shader outputs other floating-point values (scalars and vectors), qualified with
+"perspective" interpolation, they also get clipped.
+The output values associated with a vertex that lies within the clip volume are unaffected by clipping.
+If a primitive is clipped, however, the output values assigned to vertices produced by clipping are clipped.
+
+Considering an edge between vertices |a| and |b| that got clipped, resulting in the vertex |c|,
+let's define |t| to be the ratio between the edge vertices:
+|c|.p = |t| &times; |a|.p &plus; (1 &minus; |t|) &times; |b|.p,
+where |x|.p is the output [=clip position=] of a vertex |x|.
+
+For each vertex output value "v" with a corresponding fragment input,
+|a|.v and |b|.v would be the outputs for |a| and |b| vertices respectively.
+The clipped shader output |c|.v is produced based on the interpolation qualifier:
+<dl class="switch">
+    : "flat"
+    ::
+        Flat interpolation is unaffected, and is based on <dfn dfn>provoking vertex</dfn>,
+        which is the first vertex in the primitive. The output value is the same
+        for the whole primitive, and matches the vertex output of the [=provoking vertex=]:
+        |c|.v = [=provoking vertex=].v
+
+    : "linear"
+    ::
+        The interpolation ratio gets adjusted against the perspective coordinates of the
+        [=clip position=]s, so that the result of interpolation is linear in screen space:
+
+        |c|.v = |t| &times; |a|.v &times; |c|.p.w &divide; |a|.p.w &plus; (1 &minus; |t|) &times; |b|.v &times; |c|.p.w &divide; |b|.p.w
+
+        Here, |x|.p.w is the "w" component of the [=clip position=] of a vertex |x|.
+
+    : "perspective"
+    ::
+        The value is linearly interpolated in clip space, producing perspective-correct values:
+
+        |c|.v = |t| &times; |a|.v &plus; (1 &minus; |t|) &times; |b|.v
+</dl>
+
+Issue: link to interpolation qualifiers in WGSL
+
+### Rasterization ### {#rasterization}
+
+Rasterization is the hardware processing stage that maps the generated primitives
+to the 2-dimensional rendering area of the <dfn dfn>framebuffer</dfn> -
+the set of render attachments in the current {{GPURenderPassEncoder}}.
+
+The [=framebuffer=] coordinates start from the top-left corner of the render targets.
+Each unit corresponds exactly to a pixel. See {#coordinate-systems} for more information.
+
+1. First, the clipped vertices are transformed into <dfn dfn>NDC</dfn> - normalized device coordinates.
+    Given the output position |p|, the [=NDC=] coordinates are computed as:
+
+    ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
+
+2. Let |viewport| be {{GPURenderPassEncoder/[[viewport]]}} of the current render pass.
+    Then the [=NDC=] coordinates |n| are converted into [=framebuffer=] coordinates, based on the size of the render targets:
+
+    framebufferCoords(n) = vector(|viewport|.`x` &plus; 0.5&times;(|n|.x&plus;1)&times;|viewport|.`width`, |viewport|.`y` &plus; 0.5&times;(|n|.y&plus;1)&times;|viewport|.`height`)
+
+
+#### Polygon Rasterization #### {#polygon-rasterization}
+
+Let |v|(|i|) be the [=framebuffer=] coordinates for the clipped vertex number |i| (starting with 1)
+in a rasterized polygon of |n| vertices.
+
+Note: this section uses the term "polygon" instead of a "triangle",
+since {#primitive-clipping} stage may have introduced additional vertices.
+This is non-observable by the application.
+
+The first step of polygon rasterization is determining if the polygon is <dfn dfn>front-facing</dfn> or <dfn dfn>back-facing</dfn>.
+This depends on the sign of the |area| occupied by the polygon in [=framebuffer=] coordinates:
+
+|area| = 0.5 &times; ((|v|(1).x &times; |v|(|n|).y &minus; |v|(|n|).x &times; |v|(1).y) &plus; &sum; (|v|(|i|&plus;1).x &times; |v|(|i|).y &minus; |v|(|i|).x &times; |v|(|i|&plus;1).y))
+
+The sign of |area| is interpreted based on the {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/frontFace}}:
+<dl class="switch">
+    : {{GPUFrontFace/"ccw"}}
+    :: |area| &gt; 0 is considered [=front-facing=], otherwise [=back-facing=]
+    : {{GPUFrontFace/"cw"}}
+    :: |area| &lt; 0 is considered [=front-facing=], otherwise [=back-facing=]
+    : "linear"
+</dl>
+
+The polygon can be culled by {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/cullMode}}:
+<dl class="switch">
+    : {{GPUCullMode/"none"}}
+    :: All polygons pass this test.
+    : {{GPUCullMode/"front"}}
+    :: The [=front-facing=] polygons are discarded,
+        and do not process in later stages of the render pipeline.
+    : {{GPUCullMode/"back"}}
+    :: The [=back-facing=] polygons are discarded.
+</dl>
+
+The next step is determining a set of <dfn dfn>fragments</dfn> inside the polygon in framebuffer space -
+these are locations scheduled for the per-fragment operations.
+The determination is based on |descriptor|.{{GPURenderPipelineDescriptor/multisample}}:
+<dl class="switch">
+    : disabled
+    :: [=Fragment=]s are associated with pixel centers. That is, all the points with coordinates |C|, where
+        fract(|C|) = vector2(0.5, 0.5) in the [=framebuffer=] space, enclosed into the polygon, are included.
+        If a pixel center is on the edge of the polygon, whether or not it's included is not defined.
+
+        Note: this becomes a subject of precision for the rasterizer.
+
+    : enabled
+    :: Each pixel is associated with |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}
+        locations, which are implementation-defined.
+        The locations are ordered, and the list is the same for each pixel of the [=framebuffer=].
+        Each location corresponds to one fragment in the multisampled [=framebuffer=].
+
+        The rasterizer builds a mask of locations being hit inside each pixel and provides is as "sample-mask"
+        built-in to the fragment shader.
+
+        Issue: do we want to force-enable the "Standard sample locations" in Vulkan?
+</dl>
 
 ### No Color Output ### {#no-color-output}
 
@@ -4882,7 +5051,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     <div class=validusage>
                         - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
                         - |descriptor| meets the
-                            [$GPURenderPassDescriptor/GPURenderPassDescriptor Valid Usage$] rules.
+                            [$GPURenderPassDescriptor/Valid Usage$] rules.
                     </div>
                 1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/encoding a render pass}}.
                 1. For each |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
@@ -6104,10 +6273,13 @@ GPURenderPassEncoder includes GPURenderEncoderBase;
     : <dfn>\[[occlusion_query_active]]</dfn>, of type {{boolean}}.
     ::
         Whether the pass's {{GPURenderPassEncoder/[[occlusion_query_set]]}} is being written.
+
+    : <dfn>\[[viewport]]</dfn>
+    ::  Current viewport rectangle and depth range.
 </dl>
 
 When a {{GPURenderPassEncoder}} is created, it has the following default state:
-  * Viewport:
+  * {{GPURenderPassEncoder/[[viewport]]}}:
       * `x, y` = `0.0, 0.0`
       * `width, height` = the dimensions of the pass's render targets
       * `minDepth, maxDepth` = `0.0, 1.0`
@@ -6142,7 +6314,7 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 </dl>
 
 <div class=validusage dfn-for=GPURenderPassDescriptor>
-    <dfn abstract-op>GPURenderPassDescriptor Valid Usage</dfn>
+    <dfn abstract-op>Valid Usage</dfn>
 
     Given a {{GPURenderPassDescriptor}} |this| the following validation rules apply:
 
@@ -6162,9 +6334,9 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
         and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}},
         if present, must have all have the same {{GPUTexture/[[sampleCount]]}}.
 
-    1. The dimensions of the [=subresource=]s seen by each {{GPURenderPassColorAttachment/view}} in |this|.{{GPURenderPassDescriptor/colorAttachments}}
+    1. For each {{GPURenderPassColorAttachment/view}} in |this|.{{GPURenderPassDescriptor/colorAttachments}}
         and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}},
-        if present, must match.
+        if present, the {{GPUTextureView/[[renderExtent]]}} must match.
 
     1. If |this|.{{GPURenderPassDescriptor/occlusionQuerySet}} is not `null`:
 
@@ -6174,6 +6346,20 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
     Issue: Define <dfn for=>maximum color attachments</dfn>
 
     Issue(gpuweb/gpuweb#503): support for no attachments
+</div>
+
+<div algorithm="GPURenderPassDescriptor accessors" dfn-for=RenderPassDescriptor>
+    For a given {{GPURenderPassDescriptor}} value |descriptor|, the syntax:
+
+      - |descriptor|.<dfn dfn>renderExtent</dfn> refers to
+        {{GPUTextureView/[[renderExtent]]}} of any {{GPUTextureView/[[descriptor]]}}
+        in either |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}},
+        or any of the {{GPURenderPassColorAttachment/view}} in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}.
+
+    Issue: make it a define once we reference to this from other places
+
+    Note: the [$GPURenderPassDescriptor/Valid Usage$] guarantees that all of the render extents
+    of the attachments are the same, so we can take any of them, assuming the descriptor is valid.
 </div>
 
 #### Color Attachments #### {#color-attachments}
@@ -6668,7 +6854,7 @@ attachments used by this encoder.
                         - |maxDepth| is greater than or equal to `0.0` and less than or equal to `1.0`.
                         - |maxDepth| is greater than |minDepth|.
                     </div>
-                1. Set the viewport to the extents |x|, |y|, |width|, |height|, |minDepth|, and |maxDepth|.
+                1. Set |this|.{{GPURenderPassEncoder/[[viewport]]}} to the extents |x|, |y|, |width|, |height|, |minDepth|, and |maxDepth|.
             </div>
 
             Issue: Allowed for GPUs to use fixed point or rounded viewport coordinates
@@ -8182,6 +8368,7 @@ All packed texture formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsa
 ## Temporary usages of non-exported dfns ## {#temp-dfn-usages}
 
 [=Origin2D/x=] [=Origin2D/y=]
+[=RenderPassDescriptor/renderExtent=]
 
 Eventually all of these should disappear but they are useful to avoid warning while building the specification.
 
