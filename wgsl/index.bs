@@ -90,7 +90,90 @@ that run on the GPU.
  * Features and semantics are exactly the ones of SPIR-V
  * Each item in this spec *must* provide the mapping to SPIR-V for the construct
 
-## Technical Overview TODO ## {#technical-overview}
+## Technical Overview ## {#technical-overview}
+
+WebGPU issues a unit of work to the GPU in the form of a <dfn noexport>provoking command</dfn>.
+[SHORTNAME] is concerned with two kinds of provoking commands:
+* a <dfn noexport>draw command</dfn> executes a [=GPURenderPipeline|render pipeline=]
+    in the context of [=pipeline input|inputs=], [=pipeline output|outputs=], and attached [=resources=].
+* a <dfn noexport>dispatch command</dfn> executes a [=GPUComputePipeline|compute pipeline=]
+    in the context of [=pipeline input|inputs=], [=pipeline output|outputs=], and attached [=resources=].
+
+Both kinds of pipelines use shaders written in [SHORTNAME].
+
+A <dfn noexport>shader</dfn> is the portion of a [SHORTNAME] program that executes a [=shader stage=] in a pipeline.
+A shader comprises:
+* An [=entry point=] [=function/function=].
+* The transitive closure of all called functions, starting with the entry point.
+    This set includes both [=user-defined function|user-defined=] and [=built-in function|built-in=] functions.
+    (For a more rigorous definition, see "[=functions in a shader stage=]".)
+* The set of variables and constants [=statically accessed=] by all those functions.
+* The set of types used to define or analyze all those functions, variables, and constants.
+
+When executing a shader stage, the implementation:
+* Binds [=resources=] to variables in the shader's [=resource interface of a shader|resource interface=],
+    making the contents of those resources available to the shader during execution.
+* Populates the formal parameters of the entry point, if they exist, with the stage's pipeline inputs.
+* Connects the entry point return value, if one exists, to the stage's pipeline outputs.
+* Then it invokes the entry point.
+
+A [SHORTNAME] program is organized into:
+* Functions, which specify execution behaviour.
+* Statements, which are declarations or units of executable behaviour.
+* Literals, which are text representations for pure mathematical values.
+* Constants, each providing a name for a value computed at a specific time.
+* Variables, each providing a name for storage for holding a value.
+* Function calls, each of which invokes a function to perform work, possibly producing a result value.
+* Expressions, each of which combines a set of values to produce a result value.
+* Types, each of which describes:
+    * a set of values
+    * constraints on supported expressions
+    * the semantics of those expressions.
+
+[SHORTNAME] is an imperative language: behaviour is specified as a sequence of statements to execute.
+Statements:
+* Declare constants or variables
+* Modify the contents of variables
+* Modify execution order using structured programming constructs:
+    * Selective execution: if/else/elseif, switch
+    * Repetition: loop, for
+    * Escaping a nested execution construct: break, continue
+    * Refactoring: function call and return
+    * Discard (fragment shaders only): terminating the invocation and throwing away the output
+* Evaluate expressions to compute values as part of the above behaviours.
+
+[SHORTNAME] is statically typed: each value computed by a particular expression is in a specific type,
+determined only by examining the program source.
+
+[SHORTNAME] has types to describe booleans, numbers, vectors, matrices, and aggregations
+of these in the form of arrays and structures.
+Additional types describe memory.
+
+[SHORTNAME] has texture and sampler types.
+Together with their associated built-in functions, these support functionality
+commonly used for graphics rendering, and commonly provided by GPUs.
+
+The work of a shader stage is partitioned into one or more <dfn noexport>invocations</dfn>,
+each of which executes the entry point, but under slightly different conditions.
+All invocations in a shader stage share access to certain variables:
+* The resources in the shader interface.
+* Variables in the [=storage classes/workgroup=] [=storage class=], if in a [=compute shader stage|compute shader=].
+
+However, the invocations act on different sets of pipeline inputs, including built-in inputs
+that provide an identifying value to distinguish an invocation from its peers.
+Also, each invocation has its own independent storage space in the form
+of variables in the [=storage classes/private=] and [=storage classes/function=] storage classes.
+
+Invocations within a shader stage execute concurrently, and may often execute in parallel.
+The shader author is responsible for ensuring the dynamic behaviour of the invocations
+in a shader stage:
+* Meet the uniformity requirements of certain primitive operations, including texture sampling and control barriers.
+* Coordinate potentially conflicting accesses to shared variables, to avoid race conditions.
+
+[SHORTNAME] sometimes permits several possible behaviours for a given feature.
+This is a portability hazard, as different implementations may exhibit the different behaviours.
+The design of [SHORTNAME] aims to minimize such cases, but is constrained by feasibility,
+and goals for achieving high performance across a broad range of devices.
 
 ## Notation ## {#notation}
 
@@ -4071,7 +4154,7 @@ statement
 
 # Functions # {#functions}
 
-A <dfn noexport>function</dfn> performs computational work when invoked.
+A <dfn dfn-for="function" noexport>function</dfn> performs computational work when invoked.
 
 A function is invoked in one of the following ways:
 * By evaluating a function call expression. See [[#function-call-expr]].
@@ -4189,15 +4272,21 @@ TODO: *This is a stub*
 
 ## Shader Stages ## {#shader-stages-sec}
 
-In WebGPU, a <dfn noexport>pipeline</dfn> is a unit of work executed on the GPU.
+WebGPU issues work to the GPU in the form of draw or dispatch commands.
+These commands execute a pipeline in the context of a set of
+[=pipeline input|inputs=], [=pipeline output|outputs=], and attached [=resources=].
+
+A <dfn noexport>pipeline</dfn> describes the behaviour to be performed on the GPU, as a sequence
+of stages, some of which are programmable.
+In WebGPU, a pipeline is created before scheduling a draw or dispatch command for execution.
 There are two kinds of pipelines: GPUComputePipeline, and GPURenderPipeline.
 
-A <dfn noexport>GPUComputePipeline</dfn> runs a
+A dispatch command uses a <dfn noexport>GPUComputePipeline</dfn> to run a
 <dfn noexport>compute shader stage</dfn> over a logical
 grid of points with a controllable amount of parallelism,
 while reading and possibly updating buffer and image resources.
 
-A <dfn noexport>GPURenderPipeline</dfn> is a multi-stage process with
+A draw command uses a <dfn noexport>GPURenderPipeline</dfn> to run a multi-stage process with
 two programmable stages among other fixed-function stages:
 
 * A <dfn noexport>vertex shader stage</dfn> maps input attributes for a single vertex into
@@ -4313,12 +4402,14 @@ The interface includes:
 * Pipeline inputs and outputs
 * Buffer resources
 * Texture resources
+* Sampler resources
 
 These objects are represented by module-scope variables in certain [=storage classes=].
 
 We say a variable is <dfn noexport>statically accessed</dfn> by a function if any subexpression
 in the body of the function uses the variable's identifier,
 and that subexpression is [=in scope=] of the variable's declaration.
+Static access of a `let`-declared constant is defined similarly.
 Note that being statically accessed is independent of whether an execution of the shader
 will actually evaluate the subexpression, or even execute the enclosing statement.
 
