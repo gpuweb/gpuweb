@@ -1,14 +1,19 @@
 #!/bin/bash
 set -e # Exit with nonzero exit code if anything fails
 
+echo 'Building spec'
 make -C spec
+echo 'Building wgsl'
 make -C wgsl
+echo 'Building explainer'
+make -C explainer
 
 if [ -d out ]; then
-  echo Copy spec/index.html into out/index.html
-  cp spec/index.html out/index.html
-  echo Copy spec/webgpu.idl into out/webgpu.idl
-  cp spec/webgpu.idl out/webgpu.idl
-  echo Copy wgsl/index.html into out/wgsl.html
-  cp wgsl/index.html out/wgsl.html
+  mkdir out/wgsl out/explainer
+  echo 'Copying spec/index.html spec/webgpu.idl -> out/'
+  cp spec/index.html spec/webgpu.idl out/
+  echo 'Copying wgsl/index.html -> out/wgsl/'
+  cp wgsl/index.html out/wgsl/
+  echo 'Copying explainer/index.html -> out/explainer/'
+  cp explainer/index.html out/explainer/
 fi
