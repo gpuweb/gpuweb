@@ -26,16 +26,17 @@ See [Introduction](https://gpuweb.github.io/gpuweb/#introduction).
 
 See [Malicious use considerations](https://gpuweb.github.io/gpuweb/#malicious-use).
 
-# Additional background # {#background}
+# Additional Background # {#background}
 
-## Background on browser's GPU process. ## {#gpu-process}
+## Sandboxed GPU Processes in Web Browsers ## {#gpu-process}
 
 A major design constraint for WebGPU is that it must be implementable and efficient in browsers that use a GPU-process architecture.
-GPU drivers need access to additional kernel syscalls than what's used for Web content and are somewhat crashy.
+GPU drivers need access to additional kernel syscalls than what's otherwise used for Web content, and many GPU drivers are prone to hangs or crashes.
 To improve stability and sandboxing, browsers use a special process that contains the GPU driver and talks with the rest of the browser through asynchronous IPC.
-GPU processes are used, or under construction, in Chromium, Gecko and WebKit.
+GPU processes are (or will be) used in Chromium, Gecko, and WebKit.
 
-GPU processes are less sandboxed than content processes and must validate all messages, for example to prevent a compromised content process from being able to look at the GPU memory used by another content process.
+GPU processes are less sandboxed than content processes, and they are typically shared between multiple origins.
+Therefore, they must validate all messages, for example to prevent a compromised content process from being able to look at the GPU memory used by another content process.
 Most of WebGPU's validation rules are necessary to ensure it is secure to use, so all the validation needs to happen in the GPU process.
 
 Likewise, all GPU driver objects only live in the GPU process, including large allocations (like buffers and textures) and complex objects (like pipelines).
@@ -51,7 +52,7 @@ See also the description of [the content and device timelines in the specificati
 
 ## Object Validity and Destroyed-ness ## {#invalid-and-destroyed}
 
-### WebGPU's Error Monad #### {#error-monad}
+### WebGPU's Error Monad ### {#error-monad}
 
 A.k.a. Contagious Internal Nullability.
 A.k.a. transparent [promise pipelining](http://erights.org/elib/distrib/pipeline.html).
@@ -68,55 +69,65 @@ In this example, because of the performance constraint of WebGPU, it is not poss
 Instead, in WebGPU all objects (like `GPUBuffer`) are created immediately on the content timeline and returned to JavaScript.
 The validation is almost all done asynchronously on the "device timeline".
 In the good case, when no errors occur (validation or out-of-memory), everything looks to JS as if it is synchronous.
-However, when an error occurs, the object is tagged as invalid on the GPU process side.
+However, when an error occurs in a call, it becomes a no-op (aside from error reporting).
+If the call returns an object (like `createBuffer`), the object is tagged as "invalid" on the GPU process side.
+
 All WebGPU calls validate that all their arguments are valid objects.
-Calls become no-ops (aside from error reporting) when validation fails.
-If the call returns a WebGPU object, then the returned object is also invalid (hence the term "contagious").
+As a result, if a call takes one WebGPU object and returns a new one, the new object is also invalid (hence the term "contagious").
 
-<img src="https://i.imgur.com/DY9GheM.png"/>
+<figure>
+    <figcaption>
+        Timeline diagram of messages passing between processes, demonstrating how errors are propagated without synchronization.
+    </figcaption>
+    <img alt="diagram" src="img/error_monad_timeline_diagram.png">
+</figure>
 
-#### Examples #### {#error-monad-examples}
+<div class=example>
+    Using the API when doing only valid calls looks like a synchronous API:
 
-Using the API when doing only valid calls looks like a synchronous API:
-```js
-const srcBuffer = device.createBuffer({
-    size: 4,
-    usage: GPUBufferUsage.COPY_SRC
-});
+    <pre highlight="js">
+        const srcBuffer = device.createBuffer({
+            size: 4,
+            usage: GPUBufferUsage.COPY_SRC
+        });
 
-const dstBuffer = ...;
+        const dstBuffer = ...;
 
-const encoder = device.createCommandEncoder();
-encoder.copyBufferToBuffer(srcBuffer, 0, dstBuffer, 0, 4);
+        const encoder = device.createCommandEncoder();
+        encoder.copyBufferToBuffer(srcBuffer, 0, dstBuffer, 0, 4);
 
-const commands = encoder.finish();
-device.queue.submit([commands]);
-```
+        const commands = encoder.finish();
+        device.queue.submit([commands]);
+    </pre>
+</div>
 
-Errors propagate contagiously when creating objects:
-```js
-// The size of the buffer is too big, this causes an OOM and srcBuffer is invalid.
-const srcBuffer = device.createBuffer({
-    size: BIG_NUMBER,
-    usage: GPUBufferUsage.COPY_SRC
-});
+<div class=example>
+    Errors propagate contagiously when creating objects:
 
-const dstBuffer = ...;
+    <pre highlight="js">
+        // The size of the buffer is too big, this causes an OOM and srcBuffer is invalid.
+        const srcBuffer = device.createBuffer({
+            size: BIG_NUMBER,
+            usage: GPUBufferUsage.COPY_SRC
+        });
 
-// The encoder starts as a valid object.
-const encoder = device.createCommandEncoder();
-// Special case: an invalid object is used when encoding commands so the encoder
-// becomes invalid.
-encoder.copyBufferToBuffer(srcBuffer, 0, dstBuffer, 0, 4);
+        const dstBuffer = ...;
 
-// `commands`, the `this` argument to GPUCommandEncoder.finish is invalid
-// so the call returns an invalid object.
-const commands = encoder.finish();
-// The command references an invalid object so it becomes a noop.
-device.queue.submit([commands]);
-```
+        // The encoder starts as a valid object.
+        const encoder = device.createCommandEncoder();
+        // Special case: an invalid object is used when encoding commands so the encoder
+        // becomes invalid.
+        encoder.copyBufferToBuffer(srcBuffer, 0, dstBuffer, 0, 4);
 
-#### Mental models #### {#error-monad-mental-model}
+        // commands, the this argument to GPUCommandEncoder.finish is invalid
+        // so the call returns an invalid object.
+        const commands = encoder.finish();
+        // The command references an invalid object so it becomes a noop.
+        device.queue.submit([commands]);
+    </pre>
+</div>
+
+#### Mental Models #### {#error-monad-mental-model}
 
 One way to interpret WebGPU's semantics is that every WebGPU object is actually a `Promise` internally and that all WebGPU methods are `async` and `await` before using each of the WebGPU objects it gets as argument.
 However the execution of the async code is outsourced to the GPU process (where it is actually done synchronously).
@@ -125,10 +136,10 @@ Another way, closer to actual implementation details, is to imagine that each `G
 Then during the validation of each command on the GPU process, the `isValid` are all checked and a new, invalid object is returned if validation fails.
 On the content process side, the `GPUFoo` implementation doesn't know if the object is valid or not.
 
-### WebGPU object's early destroy ### {#early-destroy}
+### Early Destruction of WebGPU Objects ### {#early-destroy}
 
-Most of the memory usage of WebGPU objects is in the GPU process: it can be GPU memory held by objects like `GPUBuffer` and `GPUTexture`, serialized commands held in CPU memory held by `GPURenderBundles` or complex object graphs for the WGSL AST in `GPUShaderModule`.
-The Javascript garbage collector (GC) is in the renderer process and doesn't know about the memory usage in the GPU process.
+Most of the memory usage of WebGPU objects is in the GPU process: it can be GPU memory held by objects like `GPUBuffer` and `GPUTexture`, serialized commands held in CPU memory by `GPURenderBundles`, or complex object graphs for the WGSL AST in `GPUShaderModule`.
+The JavaScript garbage collector (GC) is in the renderer process and doesn't know about the memory usage in the GPU process.
 Browsers have many heuristics to trigger GCs but a common one is that it should be triggered on memory pressure scenarios.
 However a single WebGPU object can hold on to MBs or GBs of memory without the GC knowing and never trigger the memory pressure event.
 
@@ -138,24 +149,26 @@ That's why WebGPU has a `.destroy()` method on those object types which can hold
 It signals that the application doesn't need the content of the object anymore and that it can be freed as soon as possible.
 Of course, it becomes a validation to use the object after the call to `.destroy()`.
 
-```js
-const dstBuffer = device.createBuffer({
-    size: 4
-    usage: GPUBufferUsage.COPY_DST
-});
+<div class=example>
+    <pre highlight="js">
+        const dstBuffer = device.createBuffer({
+            size: 4
+            usage: GPUBufferUsage.COPY_DST
+        });
 
-// The buffer is not destroyed (and valid), success!
-device.queue.writeBuffer(dstBuffer, 0, myData);
+        // The buffer is not destroyed (and valid), success!
+        device.queue.writeBuffer(dstBuffer, 0, myData);
 
-buffer.destroy();
+        buffer.destroy();
 
-// The buffer is now destroyed, commands using that would use its
-// content produce validation errors.
-device.queue.writeBuffer(dstBuffer, 0, myData);
-```
+        // The buffer is now destroyed, commands using that would use its
+        // content produce validation errors.
+        device.queue.writeBuffer(dstBuffer, 0, myData);
+    </pre>
+</div>
 
 Note that, while this looks somewhat similar to the behavior of an invalid buffer, it is distinct.
-Unlike invalidity, destroyed-ness can change after creation, is not contagious, and is not validated when creating dependent objects (like command encoders, see above).
+Unlike invalidity, destroyed-ness can change after creation, is not contagious, and is validated only when work is actually submitted (e.g. `queue.writeBuffer()` or `queue.submit()`), not when creating dependent objects (like command encoders, see above).
 
 ## Errors ## {#errors}
 
