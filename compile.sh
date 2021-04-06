@@ -11,13 +11,17 @@ make -C explainer
 if [ -d out ]; then
   mkdir out/wgsl out/explainer
 
-  echo 'Copying spec/index.html spec/webgpu.idl -> out/'
-  cp spec/index.html spec/webgpu.idl out/
+  echo 'Copying wgsl/* -> out/wgsl/'
+  cp -r wgsl/* out/wgsl/
+  rm out/wgsl/{Makefile,*.bs}
 
-  echo 'Copying wgsl/index.html -> out/wgsl/'
-  cp wgsl/index.html out/wgsl/
+  echo 'Copying explainer/* -> out/explainer/'
+  cp -r explainer/* out/explainer/
+  rm out/explainer/{Makefile,*.bs}
+
+  echo 'Copying spec/* -> out/'
+  cp spec/* out/
+  rm out/{README.md,Makefile,*.py,*.bs}
+
   echo '<meta http-equiv="refresh" content="0;url=wgsl/" />' > out/wgsl.html
-
-  echo 'Copying explainer/index.html -> out/explainer/'
-  cp explainer/index.html out/explainer/
 fi
