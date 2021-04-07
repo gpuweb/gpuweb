@@ -3970,22 +3970,34 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
 A {{GPURenderPipelineDescriptor}} describes the state of a render [=pipeline=] by
 configuring each of the [=render stages=].
 
+A <dfn dfn>RenderState</dfn> is an internal object representing the state
+of the current {{GPURenderPassEncoder}} during command encoding.
+[=RenderState=] is a spec namespace for the following definitions:
+<div algorithm="RenderState accessors" dfn-for=RenderState>
+    For a given {{GPURenderPassEncoder}} |pass|, the syntax:
+
+      - |pass|.<dfn dfn>indexBuffer</dfn> refers to
+        the index buffer bound via {{GPURenderEncoderBase/setIndexBuffer()}}, if any.
+      - |pass|.<dfn dfn>vertexBuffers</dfn> refers to
+        [=list=]&lt;vertex buffer&gt; bound by {{GPURenderEncoderBase/setVertexBuffer()}}.
+      - |pass|.<dfn dfn>bindGroups</dfn> refers to
+        [=list=]&lt;{{GPUBindGroup}}&gt; bound by {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}}.
+</div>
+
 <div algorithm>
-    <dfn abstract-op>render</dfn>(descriptor, drawCall, indexBuffer, vertexBuffers, bindGroups)
+    <dfn abstract-op>render</dfn>(descriptor, drawCall, state)
         **Arguments:**
             - |descriptor|: Description of the current {{GPURenderPipeline}}.
             - |drawCall|: The draw call parameters.
-            - |indexBuffer|: Currently bound index buffer via {{GPURenderEncoderBase/setIndexBuffer()}}.
-            - |vertexBuffers|: [=list=]&lt;vertex buffer&gt; bound by {{GPURenderEncoderBase/setVertexBuffer()}}.
-            - |bindGroups|: [=list=]&lt;{{GPUBindGroup}}&gt; bound by {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}}.
-
-        Issue: define somewhere what a render pass state is?
+            - |state|: [=RenderState=] of the {{GPURenderEncoderBase}} where the draw call is issued.
 
         1. **Resolve indices**.
             The pipeline builds a list of vertices to process for each instance.
             If |drawCall| is an indexed draw call:
                 - for |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
-                    1. let |vertexIndex| be [$fetch index$](|i| + |drawCall|.firstIndex, |indexBuffer|.buffer, |indexBuffer|.offset, |indexBuffer|.format) + |drawCall|.baseVertex
+                    1. let |vertexIndex| be [$fetch index$](|i| + |drawCall|.firstIndex,
+                        |state|.[=RenderState/indexBuffer=].buffer, |state|.[=RenderState/indexBuffer=].offset,
+                        |state|.[=RenderState/indexBuffer=].format) + |drawCall|.baseVertex
                     1. append |vertexIndex| to the |vertexList|
             Otherwise:
                 - initialize the |vertexList| with |drawCall|.vertexCount integers
@@ -3997,97 +4009,11 @@ configuring each of the [=render stages=].
 
             Issue: specify indirect commands better.
 
-        1. **Process vertices**. Each vertex |vertexIndex| in the |vertexList|,
-            in each instance of index |rawInstanceIndex|, is processed independently.
-            The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
-            This processing happens in parallel, and any side effects, such as
-            writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
-            may happen in any order.
-            1. Let |instanceIndex| be |rawInstanceIndex| + |drawCall|.baseInstance.
-            1. For each non-`null` |vertexBufferLayout| in the list of
-                |descriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}:
-                1. Let |i| be the index of the buffer layout in this list.
-                1. Let |vertexBuffer| and |vertexBufferOffset| be the buffer and offset in |vertexBuffers| bindings at slot |i|
-                1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
-                    <dl class="switch">
-                        : {{GPUInputStepMode/"vertex"}}
-                        :: |vertexIndex|
-                        : {{GPUInputStepMode/"instance"}}
-                        :: |instanceIndex|
-                    </dl>
-                1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
-                    1. Let |attributeOffset| be |vertexBufferOffset| +
-                        |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
-                        |attributeDesc|.{{GPUVertexAttribute/offset}}.
-                    1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
-                        from |vertexBuffer| starting at offset |attributeOffset|.
-                    1. Convert the |data| into a shader-visible format.
-                        <div class="example">
-                            An attribute of type {{GPUVertexFormat/"unorm8x2"}} will be converted from
-                            2 bytes of fixed-point unsigned 8-bit integers into 2 floating-point values
-                            as `vec2<f32>` in WGSL.
-                        </div>
-                    1. Bind the |data| to vertex shader input
-                        location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
-            1. For each {{GPUBindGroup}} group at |index| in |bindGroups|:
-                1. For each resource {{GPUBindingResource}} in the bind group:
-                    1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
-                    1. If |entry|.{{GPUBindGroupLayoutEntry}}.visibility includes {{GPUShaderStage/VERTEX}}:
-                        - Bind the resource to the shader under group |index| and binding {{GPUBindGroupLayoutEntry/binding|GPUBindGroupLayoutEntry.binding}}.
-            1. Set the shader builtins:
-                - Set the `VertexIndex` builtin, if any, to |vertexIndex|.
-                - Set the `InstanceIndex` builtin, if any, to |instanceIndex|.
-            1. Invoke vertex shader entry point described by |descriptor|.{{GPURenderPipelineDescriptor/vertex}}.
+        1. **Process vertices**. See [[#vertex-processing]]
+            Execute [$process vertices$](|vertexList|, |drawCall|, |descriptor|.{{GPURenderPipelineDescriptor/vertex}}, |state|).
 
-                Note: The target platform caches the results of vertex shader invocations.
-                There is no guarantee that any |vertexIndex| that repeats more than once will
-                result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
-                will only be processed once.
-
-        1. **Assemble primitives**.
-            For each instance, the primitives get assembled from the vertices that have been
-            processed by the shaders, based on the |vertexList|.
-
-            1. First, if |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/stripIndexFormat}} is not `null`
-                (which means the primitive topology is a strip), and the |drawCall| is indexed,
-                the |vertexList| is split into sub-lists
-                using the maximum value of this index format as a separator.
-
-                Example: a |vertexList| with values `[1, 2, 65535, 4, 5, 6]` of type {{GPUIndexFormat/"uint16"}}
-                will be split in sub-lists `[1, 2]` and `[4, 5, 6]`.
-
-            1. For each of the sub-lists |vl|, primitive generation is done according to the
-                |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}}:
-                <dl class="switch">
-                    : {{GPUPrimitiveTopology/"line-list"}}
-                    ::
-                        Line primitives are composed from (|vl|.0, |vl|.1),
-                        then (|vl|.2, |vl|.3), then (|vl|.4 to |vl|.5), etc.
-                        Each subsequent primitive takes 2 vertices.
-
-                    : {{GPUPrimitiveTopology/"line-strip"}}
-                    ::
-                        Line primitives are composed from (|vl|.0, |vl|.1),
-                        then (|vl|.1, |vl|.2), then (|vl|.2, |vl|.3), etc.
-                        Each subsequent primitive takes 1 vertex.
-
-                    : {{GPUPrimitiveTopology/"triangle-list"}}
-                    ::
-                        Triangle primitives are composed from (|vl|.0, |vl|.1, |vl|.2),
-                        then (|vl|.3, |vl|.4, |vl|.5), then (|vl|.6, |vl|.7, |vl|.8), etc.
-                        Each subsequent primitive takes 3 vertices.
-
-                    : {{GPUPrimitiveTopology/"triangle-strip"}}
-                    ::
-                        Triangle primitives are composed from (|vl|.0, |vl|.1, |vl|.2),
-                        then (|vl|.2, |vl|.1, |vl|.3), then (|vl|.2, |vl|.3, |vl|.4),
-                        then (|vl|.4, |vl|.3, |vl|.5), etc.
-                        Each subsequent primitive takes 1 vertices.
-                </dl>
-
-                Issue: should this be defined more formally?
-
-                Any incomplete primitives are dropped.
+        1. **Assemble primitives**. See [[#primitive-assembly]]
+            Execute [$assemble primitives$](|vertexList|, |drawCall|, |descriptor|.{{GPURenderPipelineDescriptor/primitive}}).
 
         1. **Clip primitives**. See [[#primitive-clipping]].
 
@@ -4130,6 +4056,128 @@ configuring each of the [=render stages=].
 - {{GPURenderPipelineDescriptor/fragment}} describes
     the fragment shader entry point of the [=pipeline=] and its output colors.
     If it's `null`, the [[#no-color-output]] mode is enabled.
+
+### Vertex processing ### {#vertex-processing}
+
+Vertex processing stage is a programmable stage of the render [=pipeline=] that
+processes the vertex attribute data, and produces
+clip space positions for {#primitive-clipping}, as well as other data for the
+{#fragment-processing}.
+
+<div algorithm>
+    <dfn abstract-op>process vertices</dfn>(vertexIndexList, drawCall, desc, state)
+
+        **Arguments:**
+            - |vertexIndexList|: List of vertex indices to process.
+            - |drawCall|: The draw call parameters.
+            - |desc|: The descriptor of type {{GPUVertexState}}.
+            - |state|: The active [=RenderState=].
+
+        Each vertex |vertexIndex| in the |vertexIndexList|,
+        in each instance of index |rawInstanceIndex|, is processed independently.
+        The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
+        This processing happens in parallel, and any side effects, such as
+        writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
+        may happen in any order.
+        1. Let |instanceIndex| be |rawInstanceIndex| + |drawCall|.baseInstance.
+        1. For each non-`null` |vertexBufferLayout| in the list of |desc|.{{GPUVertexState/buffers}}:
+            1. Let |i| be the index of the buffer layout in this list.
+            1. Let |vertexBuffer| and |vertexBufferOffset| be the buffer and offset in
+                |state|.[=RenderState/vertexBuffers=] bindings at slot |i|
+            1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
+                <dl class="switch">
+                    : {{GPUInputStepMode/"vertex"}}
+                    :: |vertexIndex|
+                    : {{GPUInputStepMode/"instance"}}
+                    :: |instanceIndex|
+                </dl>
+            1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
+                1. Let |attributeOffset| be |vertexBufferOffset| +
+                    |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
+                    |attributeDesc|.{{GPUVertexAttribute/offset}}.
+                1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
+                    from |vertexBuffer| starting at offset |attributeOffset|.
+                1. Convert the |data| into a shader-visible format.
+                    <div class="example">
+                        An attribute of type {{GPUVertexFormat/"unorm8x2"}} will be converted from
+                        2 bytes of fixed-point unsigned 8-bit integers into 2 floating-point values
+                        as `vec2<f32>` in WGSL.
+                    </div>
+                1. Bind the |data| to vertex shader input
+                    location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
+        1. For each {{GPUBindGroup}} group at |index| in |state|.[=RenderState/bindGroups=]:
+            1. For each resource {{GPUBindingResource}} in the bind group:
+                1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
+                1. If |entry|.{{GPUBindGroupLayoutEntry}}.visibility includes {{GPUShaderStage/VERTEX}}:
+                    - Bind the resource to the shader under group |index| and binding {{GPUBindGroupLayoutEntry/binding|GPUBindGroupLayoutEntry.binding}}.
+        1. Set the shader builtins:
+            - Set the `VertexIndex` builtin, if any, to |vertexIndex|.
+            - Set the `InstanceIndex` builtin, if any, to |instanceIndex|.
+        1. Invoke vertex shader entry point described by |desc|.
+
+            Note: The target platform caches the results of vertex shader invocations.
+            There is no guarantee that any |vertexIndex| that repeats more than once will
+            result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
+            will only be processed once.
+</div>
+
+### Primitive assembly ### {#primitive-assembly}
+
+Primitives are assembled by a fixed-function stage of GPUs.
+
+<div algorithm>
+    <dfn abstract-op>assemble primitives</dfn>(vertexIndexList, drawCall, desc)
+
+        **Arguments:**
+            - |vertexIndexList|: List of vertex indices to process.
+            - |drawCall|: The draw call parameters.
+            - |desc|: The descriptor of type {{GPUPrimitiveState}}.
+
+        For each instance, the primitives get assembled from the vertices that have been
+        processed by the shaders, based on the |vertexIndexList|.
+
+        1. First, if |desc|.{{GPUPrimitiveState/stripIndexFormat}} is not `null`
+            (which means the primitive topology is a strip), and the |drawCall| is indexed,
+            the |vertexIndexList| is split into sub-lists
+            using the maximum value of this index format as a separator.
+
+            Example: a |vertexIndexList| with values `[1, 2, 65535, 4, 5, 6]` of type {{GPUIndexFormat/"uint16"}}
+            will be split in sub-lists `[1, 2]` and `[4, 5, 6]`.
+
+        1. For each of the sub-lists |vl|, primitive generation is done according to the
+            |desc|.{{GPUPrimitiveState/topology}}:
+            <dl class="switch">
+                : {{GPUPrimitiveTopology/"line-list"}}
+                ::
+                    Line primitives are composed from (|vl|.0, |vl|.1),
+                    then (|vl|.2, |vl|.3), then (|vl|.4 to |vl|.5), etc.
+                    Each subsequent primitive takes 2 vertices.
+
+                : {{GPUPrimitiveTopology/"line-strip"}}
+                ::
+                    Line primitives are composed from (|vl|.0, |vl|.1),
+                    then (|vl|.1, |vl|.2), then (|vl|.2, |vl|.3), etc.
+                    Each subsequent primitive takes 1 vertex.
+
+                : {{GPUPrimitiveTopology/"triangle-list"}}
+                ::
+                    Triangle primitives are composed from (|vl|.0, |vl|.1, |vl|.2),
+                    then (|vl|.3, |vl|.4, |vl|.5), then (|vl|.6, |vl|.7, |vl|.8), etc.
+                    Each subsequent primitive takes 3 vertices.
+
+                : {{GPUPrimitiveTopology/"triangle-strip"}}
+                ::
+                    Triangle primitives are composed from (|vl|.0, |vl|.1, |vl|.2),
+                    then (|vl|.2, |vl|.1, |vl|.3), then (|vl|.2, |vl|.3, |vl|.4),
+                    then (|vl|.4, |vl|.3, |vl|.5), etc.
+                    Each subsequent primitive takes 1 vertices.
+            </dl>
+
+            Issue: should this be defined more formally?
+
+            Any incomplete primitives are dropped.
+
+</div>
 
 ### Primitive clipping ### {#primitive-clipping}
 
@@ -4182,11 +4230,9 @@ The clipped shader output |c|.v is produced based on the interpolation qualifier
     : "linear"
     ::
         The interpolation ratio gets adjusted against the perspective coordinates of the
-        [=clip position=]s, so that the result of interpolation is linear in screen space:
+        [=clip position=]s, so that the result of interpolation is linear in screen space.
 
-        |c|.v = |t| &times; |a|.v &times; |c|.p.w &divide; |a|.p.w &plus; (1 &minus; |t|) &times; |b|.v &times; |c|.p.w &divide; |b|.p.w
-
-        Here, |x|.p.w is the "w" component of the [=clip position=] of a vertex |x|.
+        Issue: provide more specifics here, if possible
 
     : "perspective"
     ::
@@ -4273,6 +4319,10 @@ The determination is based on |descriptor|.{{GPURenderPipelineDescriptor/multisa
 
         Issue: do we want to force-enable the "Standard sample locations" in Vulkan?
 </dl>
+
+### Fragment processing ### {#fragment-processing}
+
+TODO: fill out this section
 
 ### No Color Output ### {#no-color-output}
 
