@@ -16,7 +16,7 @@ Be clear about which agent is doing what:
         part of the text.
 *   Avoid using “we”, as that is often ambiguous.
     *   Exception: It’s ok to write “We say” to introduce alternative terminology.
-*   Avoiding passive voice is one way to achive the needed clairty.
+*   Avoiding passive voice is one way to achive the needed clarity.
 
 Use “must” when there is an absolute requirement to satisfy a condition, either on the part of
 the shader author or the implementation.
