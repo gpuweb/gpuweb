@@ -8,10 +8,15 @@ Prefer short sentences.
 Be clear about which agent is doing what:
 *   The _shader author_ is the person writing the WGSL code for use in their application
 *   The _implementation_ is the thing that runs the application, processing the WGSL code.
-    *   Implicitly, the implementation is a hardware-software combination, and we don’t care about the boundary between them.
-    *   Avoid overly specific terms like “hardware” or “instructions”.
+    *   Implicitly, the implementation is a hardware-software combination, and the
+        normative part of the specification does not care about the boundary between them.
+        However, non-normative explanatory text can call out common cases, to aid the
+        reader's understanding.
+    *   Avoid overly specific terms like “hardware” or “instructions” in the normative
+        part of the text.
 *   Avoid using “we”, as that is often ambiguous.
     *   Exception: It’s ok to write “We say” to introduce alternative terminology.
+*   Avoiding passive voice is one way to achive the needed clairty.
 
 Use “must” when there is an absolute requirement to satisfy a condition, either on the part of
 the shader author or the implementation.
@@ -70,8 +75,6 @@ When there is an interaction between WebGPU and WGSL specs,
 write the rules in the WebGPU spec, not the other way around.
 *   Limit interactions as much as possible.
 *   The rules (in WebGPU) should reference defined terms in WGSL.
-
-Avoid passive voice.
 
 Use the [serial comma](https://en.wikipedia.org/wiki/Serial_comma), also known as the Oxford comma.
 
