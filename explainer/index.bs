@@ -178,6 +178,313 @@ Unlike invalidity, destroyed-ness can change after creation, is not contagious, 
 
 ## Buffer Mapping ## {#buffer-mapping}
 
+A `GPUBuffer` represents a memory allocations usable by other GPU operations.
+This memory can be accessed linearly, contrary to `GPUTexture` for which the actual memory layout of sequences of texels are unknown. Think of `GPUBuffers` as the result of `gpu_malloc()`.
+
+**CPU&rarr;GPU:** When using WebGPU, applications need to transfer data from JavaScript to `GPUBuffer` very often and potentially in large quantities.
+This includes mesh data, drawing and computations parameters, ML model inputs, etc.
+That's why an efficient way to update `GPUBuffer` data is needed. `GPUQueue.writeBuffer` is reasonably efficient but includes at least an extra copy compared to the buffer mapping used for writing buffers.
+
+**GPU&rarr;CPU:** Applications also often need to transfer data from the GPU to Javascript, though usually less often and in lesser quantities.
+This includes screenshots, statistics from computations, simulation or ML model results, etc.
+This transfer is done with buffer mapping for reading buffers.
+
+### Background: Memory Visibility with GPUs and GPU Processes ### {#buffer-mapping-background}
+
+The two major types of GPUs are called "integrated GPUs" and "discrete GPUs".
+Discrete GPUs are separate from the CPU; they usually come as PCI-e cards that you plug into the motherboard of a computer.
+Integrated GPUs live on the same die as the CPU and don't have their own memory chips; instead, they use the same RAM as the CPU.
+
+When using a discrete GPU, it's easy to see that most GPU memory allocations aren't visible to the CPU because they are inside the GPU's RAM (or VRAM for Video RAM).
+For integrated GPUs most memory allocations are in the same physical places, but not made visible to the GPU for various reasons (for example, the CPU and GPU can have separate caches for the same memory, so accesses are not cache-coherent).
+Instead, for the CPU to see the content of a GPU buffer, it must be "mapped", making it available in the virtual memory space of the application (think of mapped as in `mmap()`).
+GPUBuffers must be specially allocated in order to be mappable - this can make it less efficient to access from the GPU (for example if it needs to be allocate in RAM instead of VRAM).
+
+All this discussion was centered around native GPU APIs, but in browsers, the GPU driver is loaded in the _GPU process_, so native GPU buffers can be mapped only in the GPU process's virtual memory.
+In general, it is not possible to map the buffer directly inside the _content process_ (though some systems can do this, providing optional optimizations).
+To work with this architecture an extra "staging" allocation is needed in shared memory between the GPU process and the content process.
+
+The table below recapitulates which type of memory is visible where:
+
+<table class="data">
+    <thead>
+        <tr>
+            <th>
+            <th> Regular `ArrayBuffer`
+            <th> Shared Memory
+            <th> Mappable GPU buffer
+            <th> Non-mappable GPU buffer (or texture)
+        </tr>
+    </thead>
+    <tr>
+        <td> CPU, in the content process
+        <td> **Visible**
+        <td> **Visible**
+        <td> Not visible
+        <td> Not visible
+    <tr>
+        <td> CPU, in the GPU process
+        <td> Not visible
+        <td> **Visible**
+        <td> **Visible**
+        <td> Not visible
+    <tr>
+        <td> GPU
+        <td> Not visible
+        <td> Not visible
+        <td> **Visible**
+        <td> **Visible**
+</table>
+
+### CPU-GPU Ownership Transfer ### {#buffer-mapping-ownership}
+
+In native GPU APIs, when a buffer is mapped, its content becomes accessible to the CPU.
+At the same time the GPU can keep using the buffer's content, which can lead to data races between the CPU and the GPU.
+This means that the usage of mapped buffer is simple but leaves the synchronization to the application.
+
+On the contrary, WebGPU prevents almost all data races in the interest of portability and consistency.
+In WebGPU there is even more risk of non-portability with races on mapped buffers because of the additional "shared memory" step that may be necessary on some drivers.
+That's why `GPUBuffer` mapping is done as an ownership transfer between the CPU and the GPU.
+At each instant, only one of the two can access it, so no race is possible.
+
+When an application requests to map a buffer, it initiates a transfer of the buffer's ownership to the CPU.
+At this time, the GPU may still need to finish executing some operations that use the buffer, so the transfer doesn't complete until all previously-enqueued GPU operations are finished.
+That's why mapping a buffer is an asynchronous operation (we'll discuss the other arguments below):
+
+<xmp highlight=idl>
+typedef [EnforceRange] unsigned long GPUMapModeFlags;
+interface GPUMapMode {
+    const GPUFlagsConstant READ  = 0x0001;
+    const GPUFlagsConstant WRITE = 0x0002;
+};
+
+partial interface GPUBuffer {
+  Promise<undefined> mapAsync(GPUMapModeFlags mode,
+                              optional GPUSize64 offset = 0,
+                              optional GPUSize64 size);
+};
+</xmp>
+
+<div class=example>
+    Using it is done like so:
+
+    <pre highlight="js">
+        // Mapping a buffer for writing. Here offset and size are defaulted t
+        // so the whole buffer is mapped.
+        const myMapWriteBuffer = ...;
+        await myMapWriteBuffer.mapAsync(GPUMapMode.WRITE);
+
+        // Mapping a buffer for reading. Only the first four bytes are mapped.
+        const myMapReadBuffer = ...;
+        await myMapReadBuffer.mapAsync(GPUMapMode.READ, 0, 4);
+    </pre>
+</div>
+
+Once the application has finished using the buffer on the CPU, it can transfer ownership back to the GPU by unmapping it.
+This is an immediate operation that makes the application lose all access to the buffer on the CPU (i.e. detaches `ArrayBuffers`):
+
+<xmp highlight=idl>
+partial interface GPUBuffer {
+  undefined unmap();
+};
+</xmp>
+
+<div class=example>
+    Using it is done like so:
+
+    <pre highlight="js">
+        const myMapReadBuffer = ...;
+        await myMapReadBuffer.mapAsync(GPUMapMode.READ, 0, 4);
+        // Do something with the mapped buffer.
+        buffer.unmap();
+    </pre>
+</div>
+
+When transferring ownership to the CPU, a copy may be necessary from the underlying mapped buffer to shared memory visible to the content process.
+To avoid copying more than necessary, the application can specify which range it is interested in when calling `GPUBuffer.mapAsync`.
+
+`GPUBuffer.mapAsync`'s `mode` argument controls which type of mapping operation is performed.
+At the moment its values are redundant with the buffer creation's usage flags, but it is present for explicitness and future extensibility.
+
+While a `GPUBuffer` is owned by the CPU, it is not possible to submit any operations on the device timeline that use it; otherwise, a validation error is produced.
+However it is valid (and encouraged!) to record `GPUCommandBuffer`s using the `GPUBuffer`.
+
+### Creation of Mappable Buffers ### {#buffer-mapping-creation}
+
+The physical memory location for a `GPUBuffer`'s underlying buffer depends on whether it should be mappable and whether it is mappable for reading or writing (native APIs give some control on the CPU cache behavior for example).
+At the moment mappable buffers can only be used to transfer data (so they can only have the correct `COPY_SRC` or `COPY_DST` usage in addition to a `MAP_*` usage),
+That's why applications must specify that buffers are mappable when they are created using the (currently) mutually exclusive `GPUBufferUsage.MAP_READ` and `GPUBufferUsage.MAP_WRITE` flags:
+
+<div class=example>
+    <pre highlight="js">
+        const myMapReadBuffer = device.createBuffer({
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+            size: 1000,
+        });
+        const myMapWriteBuffer = device.createBuffer({
+            usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+            size: 1000,
+        });
+    </pre>
+</div>
+
+### Accessing Mapped Buffers ### {#buffer-mapping-access}
+
+Once a `GPUBuffer` is mapped, it is possible to access its memory from JavaScript
+ This is done by calling `GPUBuffer.getMappedRange`, which returns an `ArrayBuffer` called a "mapping".
+These are available until `GPUBuffer.unmap` or `GPUBuffer.destroy` is called, at which point they are detached.
+These `ArrayBuffer`s typically aren't new allocations, but instead pointers to some kind of shared memory visible to the content process (IPC shared memory, `mmap`ped file descriptor, etc.)
+
+When transferring ownership to the GPU, a copy may be necessary from the shared memory to the underlying mapped buffer.
+`GPUBuffer.getMappedRange` takes an optional range of the buffer to map (for which `offset` 0 is the start of the buffer).
+This way the browser knows which parts of the underlying `GPUBuffer` have been "invalidated" and need to be updated from the memory mapping.
+
+The range must be within the range requested in `mapAsync()`.
+
+<xmp highlight=idl>
+partial interface GPUBuffer {
+  ArrayBuffer getMappedRange(optional GPUSize64 offset = 0,
+                             optional GPUSize64 size);
+};
+</xmp>
+
+<div class=example>
+    Using it is done like so:
+
+    <pre highlight="js">
+        const myMapReadBuffer = ...;
+        await myMapReadBuffer.mapAsync(GPUMapMode.READ);
+        const data = myMapReadBuffer.getMappedRange();
+        // Do something with the data
+        myMapReadBuffer.unmap();
+    </pre>
+</div>
+
+### Mapping Buffers at Creation ### {#buffer-mapping-at-creation}
+
+A common need is to create a `GPUBuffer` that is already filled with some data.
+This could be achieved by creating a final buffer, then a mappable buffer, filling the mappable buffer, and then copying from the mappable to the final buffer, but this would be inefficient.
+Instead this can be done by making the buffer CPU-owned at creation: we call this "mapped at creation".
+All buffers can be mapped at creation, even if they don't have the `MAP_WRITE` buffer usages.
+The browser will just handle the transfer of data into the buffer for the application.
+
+Once a buffer is mapped at creation, it behaves as regularly mapped buffer: `GPUBUffer.getMappedRange()` is used to retrieve `ArrayBuffer`s, and ownership is transferred to the GPU with `GPUBuffer.unmap()`.
+
+<div class=example>
+    Mapping at creation is done by passing `mappedAtCreation: true` in the buffer descriptor on creation:
+
+    <pre highlight="js">
+        const buffer = device.createBuffer({
+            usage: GPUBufferUsage.UNIFORM,
+            size: 256,
+            mappedAtCreation: true,
+        });
+        const data = buffer.getMappedRange();
+        // write to data
+        buffer.unmap();
+    </pre>
+</div>
+
+When using advanced methods to transfer data to the GPU (with a rolling list of buffers that are mapped or being mapped), mapping buffer at creation can be used to immediately create additional space where to put data to be transferred.
+
+### Examples ### {#buffer-mapping-examples}
+
+<div class=example>
+    The optimal way to create a buffer with initial data, for example here a [Draco](https://google.github.io/draco/)-compressed 3D mesh:
+
+    <pre highlight="js">
+        const dracoDecoder = ...;
+
+        const buffer = device.createBuffer({
+            usage: GPUBuffer.VERTEX | GPUBuffer.INDEX,
+            size: dracoDecoder.decompressedSize,
+            mappedAtCreation: true,
+        });
+
+        dracoDecoder.decodeIn(buffer.getMappedRange());
+        buffer.unmap();
+    </pre>
+</div>
+
+<div class=example>
+    Retrieving data from a texture rendered on the GPU:
+
+    <pre highlight="js">
+        const texture = getTheRenderedTexture();
+
+        const readbackBuffer = device.createBuffer({
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+            size: 4 * textureWidth * textureHeight,
+        });
+
+        // Copy data from the texture to the buffer.
+        const encoder = device.createCommandEncoder();
+        encoder.copyTextureToBuffer(
+            { texture },
+            { buffer, rowPitch: textureWidth * 4 },
+            [textureWidth, textureHeight],
+        );
+        device.submit([encoder.finish()]);
+
+        // Get the data on the CPU.
+        await buffer.mapAsync(GPUMapMode.READ);
+        saveScreenshot(buffer.getMappedRange());
+        buffer.unmap();
+    </pre>
+</div>
+
+<div class=example>
+    Updating a bunch of data on the GPU for a frame:
+
+    <pre highlight="js">
+        void frame() {
+            // Create a new buffer for our updates. In practice we would
+            // reuse buffers from frame to frame by re-mapping them.
+            const stagingBuffer = device.createBuffer({
+                usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+                size: 16 * objectCount,
+                mappedAtCreation: true,
+            });
+            const stagingData = new Float32Array(stagingBuffer.getMappedRange());
+
+            // For each draw we are going to:
+            //  - Put the data for the draw in stagingData.
+            //  - Record a copy from the stagingData to the uniform buffer for the draw
+            //  - Encoder the draw
+            const copyEncoder = device.createCommandEncoder();
+            const drawEncoder = device.createCommandEncoder();
+            const renderPass = myCreateRenderPass(drawEncoder);
+            for (var i = 0; i < objectCount; i++) {
+                stagingData[i * 4 + 0] = ...;
+                stagingData[i * 4 + 1] = ...;
+                stagingData[i * 4 + 2] = ...;
+                stagingData[i * 4 + 3] = ...;
+
+                const {uniformBuffer, uniformOffset} = getUniformsForDraw(i);
+                copyEncoder.copyBufferToBuffer(
+                    stagingData, i * 16,
+                    uniformBuffer, uniformOffset,
+                    16);
+
+                encodeDraw(renderPass, {uniformBuffer, uniformOffset});
+            }
+            renderPass.endPass();
+
+            // We are finished filling the staging buffer, unmap() it so
+            // we can submit commands that use it.
+            stagingBuffer.unmap();
+
+            // Submit all the copies and then all the draws. The copies
+            // will happen before the draw such that each draw will use
+            // the data that was filled inside the for-loop above.
+            device.queue.submit([
+                copyEncoder.finish(),
+                drawEncoder.finish()
+            ]);
+        }
+    </pre>
+</div>
+
 ## Multi-Threading ## {#multi-threading}
 
 ## Command Encoding and Submission ## {#command-encoding}
