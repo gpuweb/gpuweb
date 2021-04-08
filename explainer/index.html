@@ -1323,7 +1323,7 @@ Possible extra rowspan handling
 </style>
   <meta content="Bikeshed version f9f60c8f, updated Fri Sep 25 16:39:03 2020 -0700" name="generator">
   <link href="https://gpuweb.github.io/gpuweb/explainer/" rel="canonical">
-  <meta content="c69e20630528765014ee8e5c27a97ff1c39ac7f6" name="document-revision">
+  <meta content="49ece0dc2f6059b5b3b3878fc04ae03cf06aaeb4" name="document-revision">
 <style>/* style-autolinks */
 
 .css.css, .property.property, .descriptor.descriptor {
@@ -1825,7 +1825,7 @@ c-[il] { color: #000000 } /* Literal.Number.Integer.Long */
   <div class="head">
    <p data-fill-with="logo"></p>
    <h1 class="p-name no-ref" id="title">WebGPU Explainer</h1>
-   <h2 class="no-num no-toc no-ref heading settled" id="subtitle"><span class="content">Living Standard, <time class="dt-updated" datetime="2021-04-07">7 April 2021</time></span></h2>
+   <h2 class="no-num no-toc no-ref heading settled" id="subtitle"><span class="content">Living Standard, <time class="dt-updated" datetime="2021-04-08">8 April 2021</time></span></h2>
    <div data-fill-with="spec-metadata">
     <dl>
      <dt>This version:
@@ -1879,7 +1879,16 @@ Learn more about <a href="http://www.w3.org/community/">W3C Community and Busine
       <li><a href="#errors"><span class="secno">4.3</span> <span class="content">Errors</span></a>
       <li><a href="#initialization"><span class="secno">4.4</span> <span class="content">Adapter Selection and Device Init</span></a>
       <li><a href="#device-loss"><span class="secno">4.5</span> <span class="content">Adapter and Device Loss</span></a>
-      <li><a href="#buffer-mapping"><span class="secno">4.6</span> <span class="content">Buffer Mapping</span></a>
+      <li>
+       <a href="#buffer-mapping"><span class="secno">4.6</span> <span class="content">Buffer Mapping</span></a>
+       <ol class="toc">
+        <li><a href="#buffer-mapping-background"><span class="secno">4.6.1</span> <span class="content">Background: Memory Visibility with GPUs and GPU Processes</span></a>
+        <li><a href="#buffer-mapping-ownership"><span class="secno">4.6.2</span> <span class="content">CPU-GPU Ownership Transfer</span></a>
+        <li><a href="#buffer-mapping-creation"><span class="secno">4.6.3</span> <span class="content">Creation of Mappable Buffers</span></a>
+        <li><a href="#buffer-mapping-access"><span class="secno">4.6.4</span> <span class="content">Accessing Mapped Buffers</span></a>
+        <li><a href="#buffer-mapping-at-creation"><span class="secno">4.6.5</span> <span class="content">Mapping Buffers at Creation</span></a>
+        <li><a href="#buffer-mapping-examples"><span class="secno">4.6.6</span> <span class="content">Examples</span></a>
+       </ol>
       <li><a href="#multi-threading"><span class="secno">4.7</span> <span class="content">Multi-Threading</span></a>
       <li><a href="#command-encoding"><span class="secno">4.8</span> <span class="content">Command Encoding and Submission</span></a>
       <li><a href="#pipelines"><span class="secno">4.9</span> <span class="content">Pipelines</span></a>
@@ -2018,6 +2027,255 @@ Unlike invalidity, destroyed-ness can change after creation, is not contagious, 
    <h3 class="heading settled" data-level="4.4" id="initialization"><span class="secno">4.4. </span><span class="content">Adapter Selection and Device Init</span><a class="self-link" href="#initialization"></a></h3>
    <h3 class="heading settled" data-level="4.5" id="device-loss"><span class="secno">4.5. </span><span class="content">Adapter and Device Loss</span><a class="self-link" href="#device-loss"></a></h3>
    <h3 class="heading settled" data-level="4.6" id="buffer-mapping"><span class="secno">4.6. </span><span class="content">Buffer Mapping</span><a class="self-link" href="#buffer-mapping"></a></h3>
+   <p>A <code>GPUBuffer</code> represents a memory allocations usable by other GPU operations.
+This memory can be accessed linearly, contrary to <code>GPUTexture</code> for which the actual memory layout of sequences of texels are unknown. Think of <code>GPUBuffers</code> as the result of <code>gpu_malloc()</code>.</p>
+   <p><strong>CPU→GPU:</strong> When using WebGPU, applications need to transfer data from JavaScript to <code>GPUBuffer</code> very often and potentially in large quantities.
+This includes mesh data, drawing and computations parameters, ML model inputs, etc.
+That’s why an efficient way to update <code>GPUBuffer</code> data is needed. <code>GPUQueue.writeBuffer</code> is reasonably efficient but includes at least an extra copy compared to the buffer mapping used for writing buffers.</p>
+   <p><strong>GPU→CPU:</strong> Applications also often need to transfer data from the GPU to Javascript, though usually less often and in lesser quantities.
+This includes screenshots, statistics from computations, simulation or ML model results, etc.
+This transfer is done with buffer mapping for reading buffers.</p>
+   <h4 class="heading settled" data-level="4.6.1" id="buffer-mapping-background"><span class="secno">4.6.1. </span><span class="content">Background: Memory Visibility with GPUs and GPU Processes</span><a class="self-link" href="#buffer-mapping-background"></a></h4>
+   <p>The two major types of GPUs are called "integrated GPUs" and "discrete GPUs".
+Discrete GPUs are separate from the CPU; they usually come as PCI-e cards that you plug into the motherboard of a computer.
+Integrated GPUs live on the same die as the CPU and don’t have their own memory chips; instead, they use the same RAM as the CPU.</p>
+   <p>When using a discrete GPU, it’s easy to see that most GPU memory allocations aren’t visible to the CPU because they are inside the GPU’s RAM (or VRAM for Video RAM).
+For integrated GPUs most memory allocations are in the same physical places, but not made visible to the GPU for various reasons (for example, the CPU and GPU can have separate caches for the same memory, so accesses are not cache-coherent).
+Instead, for the CPU to see the content of a GPU buffer, it must be "mapped", making it available in the virtual memory space of the application (think of mapped as in <code>mmap()</code>).
+GPUBuffers must be specially allocated in order to be mappable - this can make it less efficient to access from the GPU (for example if it needs to be allocate in RAM instead of VRAM).</p>
+   <p>All this discussion was centered around native GPU APIs, but in browsers, the GPU driver is loaded in the _GPU process_, so native GPU buffers can be mapped only in the GPU process’s virtual memory.
+In general, it is not possible to map the buffer directly inside the _content process_ (though some systems can do this, providing optional optimizations).
+To work with this architecture an extra "staging" allocation is needed in shared memory between the GPU process and the content process.</p>
+   <p>The table below recapitulates which type of memory is visible where:</p>
+   <table class="data">
+    <thead>
+     <tr>
+      <th>
+      <th> Regular <code>ArrayBuffer</code> 
+      <th> Shared Memory 
+      <th> Mappable GPU buffer 
+      <th> Non-mappable GPU buffer (or texture) 
+    <tbody>
+     <tr>
+      <td> CPU, in the content process 
+      <td> <strong>Visible</strong> 
+      <td> <strong>Visible</strong> 
+      <td> Not visible 
+      <td> Not visible 
+     <tr>
+      <td> CPU, in the GPU process 
+      <td> Not visible 
+      <td> <strong>Visible</strong> 
+      <td> <strong>Visible</strong> 
+      <td> Not visible 
+     <tr>
+      <td> GPU 
+      <td> Not visible 
+      <td> Not visible 
+      <td> <strong>Visible</strong> 
+      <td> <strong>Visible</strong> 
+   </table>
+   <h4 class="heading settled" data-level="4.6.2" id="buffer-mapping-ownership"><span class="secno">4.6.2. </span><span class="content">CPU-GPU Ownership Transfer</span><a class="self-link" href="#buffer-mapping-ownership"></a></h4>
+   <p>In native GPU APIs, when a buffer is mapped, its content becomes accessible to the CPU.
+At the same time the GPU can keep using the buffer’s content, which can lead to data races between the CPU and the GPU.
+This means that the usage of mapped buffer is simple but leaves the synchronization to the application.</p>
+   <p>On the contrary, WebGPU prevents almost all data races in the interest of portability and consistency.
+In WebGPU there is even more risk of non-portability with races on mapped buffers because of the additional "shared memory" step that may be necessary on some drivers.
+That’s why <code>GPUBuffer</code> mapping is done as an ownership transfer between the CPU and the GPU.
+At each instant, only one of the two can access it, so no race is possible.</p>
+   <p>When an application requests to map a buffer, it initiates a transfer of the buffer’s ownership to the CPU.
+At this time, the GPU may still need to finish executing some operations that use the buffer, so the transfer doesn’t complete until all previously-enqueued GPU operations are finished.
+That’s why mapping a buffer is an asynchronous operation (we’ll discuss the other arguments below):</p>
+<pre class="highlight"><c- b>typedef</c-> [<c- g>EnforceRange</c->] <c- b>unsigned</c-> <c- b>long</c-> <c- g>GPUMapModeFlags</c->;
+<c- b>interface</c-> <c- g>GPUMapMode</c-> {
+    <c- b>const</c-> <c- n>GPUFlagsConstant</c-> <c- g>READ</c->  = 0x0001;
+    <c- b>const</c-> <c- n>GPUFlagsConstant</c-> <c- g>WRITE</c-> = 0x0002;
+};
+
+<c- b>partial</c-> <c- b>interface</c-> <c- g>GPUBuffer</c-> {
+  <c- b>Promise</c->&lt;<c- b>undefined</c->> <c- g>mapAsync</c->(<c- n>GPUMapModeFlags</c-> <c- g>mode</c->,
+                              <c- b>optional</c-> <c- n>GPUSize64</c-> <c- g>offset</c-> = 0,
+                              <c- b>optional</c-> <c- n>GPUSize64</c-> <c- g>size</c->);
+};
+</pre>
+   <div class="example" id="example-475276e9">
+    <a class="self-link" href="#example-475276e9"></a> Using it is done like so: 
+<pre class="highlight"><c- c1>// Mapping a buffer for writing. Here offset and size are defaulted t</c->
+<c- c1>// so the whole buffer is mapped.</c->
+<c- kr>const</c-> myMapWriteBuffer <c- o>=</c-> <c- p>...;</c->
+await myMapWriteBuffer<c- p>.</c->mapAsync<c- p>(</c->GPUMapMode<c- p>.</c->WRITE<c- p>);</c->
+
+<c- c1>// Mapping a buffer for reading. Only the first four bytes are mapped.</c->
+<c- kr>const</c-> myMapReadBuffer <c- o>=</c-> <c- p>...;</c->
+await myMapReadBuffer<c- p>.</c->mapAsync<c- p>(</c->GPUMapMode<c- p>.</c->READ<c- p>,</c-> <c- mi>0</c-><c- p>,</c-> <c- mi>4</c-><c- p>);</c->
+</pre>
+   </div>
+   <p>Once the application has finished using the buffer on the CPU, it can transfer ownership back to the GPU by unmapping it.
+This is an immediate operation that makes the application lose all access to the buffer on the CPU (i.e. detaches <code>ArrayBuffers</code>):</p>
+<pre class="highlight"><c- b>partial</c-> <c- b>interface</c-> <c- g>GPUBuffer</c-> {
+  <c- b>undefined</c-> <c- g>unmap</c->();
+};
+</pre>
+   <div class="example" id="example-f8e2458b">
+    <a class="self-link" href="#example-f8e2458b"></a> Using it is done like so: 
+<pre class="highlight"><c- kr>const</c-> myMapReadBuffer <c- o>=</c-> <c- p>...;</c->
+await myMapReadBuffer<c- p>.</c->mapAsync<c- p>(</c->GPUMapMode<c- p>.</c->READ<c- p>,</c-> <c- mi>0</c-><c- p>,</c-> <c- mi>4</c-><c- p>);</c->
+<c- c1>// Do something with the mapped buffer.</c->
+buffer<c- p>.</c->unmap<c- p>();</c->
+</pre>
+   </div>
+   <p>When transferring ownership to the CPU, a copy may be necessary from the underlying mapped buffer to shared memory visible to the content process.
+To avoid copying more than necessary, the application can specify which range it is interested in when calling <code>GPUBuffer.mapAsync</code>.</p>
+   <p><code>GPUBuffer.mapAsync</code>'s <code>mode</code> argument controls which type of mapping operation is performed.
+At the moment its values are redundant with the buffer creation’s usage flags, but it is present for explicitness and future extensibility.</p>
+   <p>While a <code>GPUBuffer</code> is owned by the CPU, it is not possible to submit any operations on the device timeline that use it; otherwise, a validation error is produced.
+However it is valid (and encouraged!) to record <code>GPUCommandBuffer</code>s using the <code>GPUBuffer</code>.</p>
+   <h4 class="heading settled" data-level="4.6.3" id="buffer-mapping-creation"><span class="secno">4.6.3. </span><span class="content">Creation of Mappable Buffers</span><a class="self-link" href="#buffer-mapping-creation"></a></h4>
+   <p>The physical memory location for a <code>GPUBuffer</code>'s underlying buffer depends on whether it should be mappable and whether it is mappable for reading or writing (native APIs give some control on the CPU cache behavior for example).
+At the moment mappable buffers can only be used to transfer data (so they can only have the correct <code>COPY_SRC</code> or <code>COPY_DST</code> usage in addition to a <code>MAP_*</code> usage),
+That’s why applications must specify that buffers are mappable when they are created using the (currently) mutually exclusive <code>GPUBufferUsage.MAP_READ</code> and <code>GPUBufferUsage.MAP_WRITE</code> flags:</p>
+   <div class="example" id="example-136b06ef">
+    <a class="self-link" href="#example-136b06ef"></a> 
+<pre class="highlight"><c- kr>const</c-> myMapReadBuffer <c- o>=</c-> device<c- p>.</c->createBuffer<c- p>({</c->
+    usage<c- o>:</c-> GPUBufferUsage<c- p>.</c->MAP_READ <c- o>|</c-> GPUBufferUsage<c- p>.</c->COPY_DST<c- p>,</c->
+    size<c- o>:</c-> <c- mi>1000</c-><c- p>,</c->
+<c- p>});</c->
+<c- kr>const</c-> myMapWriteBuffer <c- o>=</c-> device<c- p>.</c->createBuffer<c- p>({</c->
+    usage<c- o>:</c-> GPUBufferUsage<c- p>.</c->MAP_WRITE <c- o>|</c-> GPUBufferUsage<c- p>.</c->COPY_SRC<c- p>,</c->
+    size<c- o>:</c-> <c- mi>1000</c-><c- p>,</c->
+<c- p>});</c->
+</pre>
+   </div>
+   <h4 class="heading settled" data-level="4.6.4" id="buffer-mapping-access"><span class="secno">4.6.4. </span><span class="content">Accessing Mapped Buffers</span><a class="self-link" href="#buffer-mapping-access"></a></h4>
+   <p>Once a <code>GPUBuffer</code> is mapped, it is possible to access its memory from JavaScript
+ This is done by calling <code>GPUBuffer.getMappedRange</code>, which returns an <code>ArrayBuffer</code> called a "mapping".
+These are available until <code>GPUBuffer.unmap</code> or <code>GPUBuffer.destroy</code> is called, at which point they are detached.
+These <code>ArrayBuffer</code>s typically aren’t new allocations, but instead pointers to some kind of shared memory visible to the content process (IPC shared memory, <code>mmap</code>ped file descriptor, etc.)</p>
+   <p>When transferring ownership to the GPU, a copy may be necessary from the shared memory to the underlying mapped buffer. <code>GPUBuffer.getMappedRange</code> takes an optional range of the buffer to map (for which <code>offset</code> 0 is the start of the buffer).
+This way the browser knows which parts of the underlying <code>GPUBuffer</code> have been "invalidated" and need to be updated from the memory mapping.</p>
+   <p>The range must be within the range requested in <code>mapAsync()</code>.</p>
+<pre class="highlight"><c- b>partial</c-> <c- b>interface</c-> <c- g>GPUBuffer</c-> {
+  <c- b>ArrayBuffer</c-> <c- g>getMappedRange</c->(<c- b>optional</c-> <c- n>GPUSize64</c-> <c- g>offset</c-> = 0,
+                             <c- b>optional</c-> <c- n>GPUSize64</c-> <c- g>size</c->);
+};
+</pre>
+   <div class="example" id="example-c7f08ce9">
+    <a class="self-link" href="#example-c7f08ce9"></a> Using it is done like so: 
+<pre class="highlight"><c- kr>const</c-> myMapReadBuffer <c- o>=</c-> <c- p>...;</c->
+await myMapReadBuffer<c- p>.</c->mapAsync<c- p>(</c->GPUMapMode<c- p>.</c->READ<c- p>);</c->
+<c- kr>const</c-> data <c- o>=</c-> myMapReadBuffer<c- p>.</c->getMappedRange<c- p>();</c->
+<c- c1>// Do something with the data</c->
+myMapReadBuffer<c- p>.</c->unmap<c- p>();</c->
+</pre>
+   </div>
+   <h4 class="heading settled" data-level="4.6.5" id="buffer-mapping-at-creation"><span class="secno">4.6.5. </span><span class="content">Mapping Buffers at Creation</span><a class="self-link" href="#buffer-mapping-at-creation"></a></h4>
+   <p>A common need is to create a <code>GPUBuffer</code> that is already filled with some data.
+This could be achieved by creating a final buffer, then a mappable buffer, filling the mappable buffer, and then copying from the mappable to the final buffer, but this would be inefficient.
+Instead this can be done by making the buffer CPU-owned at creation: we call this "mapped at creation".
+All buffers can be mapped at creation, even if they don’t have the <code>MAP_WRITE</code> buffer usages.
+The browser will just handle the transfer of data into the buffer for the application.</p>
+   <p>Once a buffer is mapped at creation, it behaves as regularly mapped buffer: <code>GPUBUffer.getMappedRange()</code> is used to retrieve <code>ArrayBuffer</code>s, and ownership is transferred to the GPU with <code>GPUBuffer.unmap()</code>.</p>
+   <div class="example" id="example-f0fb4fc7">
+    <a class="self-link" href="#example-f0fb4fc7"></a> Mapping at creation is done by passing <code>mappedAtCreation: true</code> in the buffer descriptor on creation: 
+<pre class="highlight"><c- kr>const</c-> buffer <c- o>=</c-> device<c- p>.</c->createBuffer<c- p>({</c->
+    usage<c- o>:</c-> GPUBufferUsage<c- p>.</c->UNIFORM<c- p>,</c->
+    size<c- o>:</c-> <c- mi>256</c-><c- p>,</c->
+    mappedAtCreation<c- o>:</c-> <c- kc>true</c-><c- p>,</c->
+<c- p>});</c->
+<c- kr>const</c-> data <c- o>=</c-> buffer<c- p>.</c->getMappedRange<c- p>();</c->
+<c- c1>// write to data</c->
+buffer<c- p>.</c->unmap<c- p>();</c->
+</pre>
+   </div>
+   <p>When using advanced methods to transfer data to the GPU (with a rolling list of buffers that are mapped or being mapped), mapping buffer at creation can be used to immediately create additional space where to put data to be transferred.</p>
+   <h4 class="heading settled" data-level="4.6.6" id="buffer-mapping-examples"><span class="secno">4.6.6. </span><span class="content">Examples</span><a class="self-link" href="#buffer-mapping-examples"></a></h4>
+   <div class="example" id="example-c2073e23">
+    <a class="self-link" href="#example-c2073e23"></a> The optimal way to create a buffer with initial data, for example here a <a href="https://google.github.io/draco/">Draco</a>-compressed 3D mesh: 
+<pre class="highlight"><c- kr>const</c-> dracoDecoder <c- o>=</c-> <c- p>...;</c->
+
+<c- kr>const</c-> buffer <c- o>=</c-> device<c- p>.</c->createBuffer<c- p>({</c->
+    usage<c- o>:</c-> GPUBuffer<c- p>.</c->VERTEX <c- o>|</c-> GPUBuffer<c- p>.</c->INDEX<c- p>,</c->
+    size<c- o>:</c-> dracoDecoder<c- p>.</c->decompressedSize<c- p>,</c->
+    mappedAtCreation<c- o>:</c-> <c- kc>true</c-><c- p>,</c->
+<c- p>});</c->
+
+dracoDecoder<c- p>.</c->decodeIn<c- p>(</c->buffer<c- p>.</c->getMappedRange<c- p>());</c->
+buffer<c- p>.</c->unmap<c- p>();</c->
+</pre>
+   </div>
+   <div class="example" id="example-5b328714">
+    <a class="self-link" href="#example-5b328714"></a> Retrieving data from a texture rendered on the GPU: 
+<pre class="highlight"><c- kr>const</c-> texture <c- o>=</c-> getTheRenderedTexture<c- p>();</c->
+
+<c- kr>const</c-> readbackBuffer <c- o>=</c-> device<c- p>.</c->createBuffer<c- p>({</c->
+    usage<c- o>:</c-> GPUBufferUsage<c- p>.</c->COPY_DST <c- o>|</c-> GPUBufferUsage<c- p>.</c->MAP_READ<c- p>,</c->
+    size<c- o>:</c-> <c- mi>4</c-> <c- o>*</c-> textureWidth <c- o>*</c-> textureHeight<c- p>,</c->
+<c- p>});</c->
+
+<c- c1>// Copy data from the texture to the buffer.</c->
+<c- kr>const</c-> encoder <c- o>=</c-> device<c- p>.</c->createCommandEncoder<c- p>();</c->
+encoder<c- p>.</c->copyTextureToBuffer<c- p>(</c->
+    <c- p>{</c-> texture <c- p>},</c->
+    <c- p>{</c-> buffer<c- p>,</c-> rowPitch<c- o>:</c-> textureWidth <c- o>*</c-> <c- mi>4</c-> <c- p>},</c->
+    <c- p>[</c->textureWidth<c- p>,</c-> textureHeight<c- p>],</c->
+<c- p>);</c->
+device<c- p>.</c->submit<c- p>([</c->encoder<c- p>.</c->finish<c- p>()]);</c->
+
+<c- c1>// Get the data on the CPU.</c->
+await buffer<c- p>.</c->mapAsync<c- p>(</c->GPUMapMode<c- p>.</c->READ<c- p>);</c->
+saveScreenshot<c- p>(</c->buffer<c- p>.</c->getMappedRange<c- p>());</c->
+buffer<c- p>.</c->unmap<c- p>();</c->
+</pre>
+   </div>
+   <div class="example" id="example-f23f26f7">
+    <a class="self-link" href="#example-f23f26f7"></a> Updating a bunch of data on the GPU for a frame: 
+<pre class="highlight"><c- k>void</c-> frame<c- p>()</c-> <c- p>{</c->
+    <c- c1>// Create a new buffer for our updates. In practice we would</c->
+    <c- c1>// reuse buffers from frame to frame by re-mapping them.</c->
+    <c- kr>const</c-> stagingBuffer <c- o>=</c-> device<c- p>.</c->createBuffer<c- p>({</c->
+        usage<c- o>:</c-> GPUBufferUsage<c- p>.</c->MAP_WRITE <c- o>|</c-> GPUBufferUsage<c- p>.</c->COPY_SRC<c- p>,</c->
+        size<c- o>:</c-> <c- mi>16</c-> <c- o>*</c-> objectCount<c- p>,</c->
+        mappedAtCreation<c- o>:</c-> <c- kc>true</c-><c- p>,</c->
+    <c- p>});</c->
+    <c- kr>const</c-> stagingData <c- o>=</c-> <c- k>new</c-> Float32Array<c- p>(</c->stagingBuffer<c- p>.</c->getMappedRange<c- p>());</c->
+
+    <c- c1>// For each draw we are going to:</c->
+    <c- c1>//  - Put the data for the draw in stagingData.</c->
+    <c- c1>//  - Record a copy from the stagingData to the uniform buffer for the draw</c->
+    <c- c1>//  - Encoder the draw</c->
+    <c- kr>const</c-> copyEncoder <c- o>=</c-> device<c- p>.</c->createCommandEncoder<c- p>();</c->
+    <c- kr>const</c-> drawEncoder <c- o>=</c-> device<c- p>.</c->createCommandEncoder<c- p>();</c->
+    <c- kr>const</c-> renderPass <c- o>=</c-> myCreateRenderPass<c- p>(</c->drawEncoder<c- p>);</c->
+    <c- k>for</c-> <c- p>(</c-><c- a>var</c-> i <c- o>=</c-> <c- mi>0</c-><c- p>;</c-> i <c- o>&lt;</c-> objectCount<c- p>;</c-> i<c- o>++</c-><c- p>)</c-> <c- p>{</c->
+        stagingData<c- p>[</c->i <c- o>*</c-> <c- mi>4</c-> <c- o>+</c-> <c- mi>0</c-><c- p>]</c-> <c- o>=</c-> <c- p>...;</c->
+        stagingData<c- p>[</c->i <c- o>*</c-> <c- mi>4</c-> <c- o>+</c-> <c- mi>1</c-><c- p>]</c-> <c- o>=</c-> <c- p>...;</c->
+        stagingData<c- p>[</c->i <c- o>*</c-> <c- mi>4</c-> <c- o>+</c-> <c- mi>2</c-><c- p>]</c-> <c- o>=</c-> <c- p>...;</c->
+        stagingData<c- p>[</c->i <c- o>*</c-> <c- mi>4</c-> <c- o>+</c-> <c- mi>3</c-><c- p>]</c-> <c- o>=</c-> <c- p>...;</c->
+
+        <c- kr>const</c-> <c- p>{</c->uniformBuffer<c- p>,</c-> uniformOffset<c- p>}</c-> <c- o>=</c-> getUniformsForDraw<c- p>(</c->i<c- p>);</c->
+        copyEncoder<c- p>.</c->copyBufferToBuffer<c- p>(</c->
+            stagingData<c- p>,</c-> i <c- o>*</c-> <c- mi>16</c-><c- p>,</c->
+            uniformBuffer<c- p>,</c-> uniformOffset<c- p>,</c->
+            <c- mi>16</c-><c- p>);</c->
+
+        encodeDraw<c- p>(</c->renderPass<c- p>,</c-> <c- p>{</c->uniformBuffer<c- p>,</c-> uniformOffset<c- p>});</c->
+    <c- p>}</c->
+    renderPass<c- p>.</c->endPass<c- p>();</c->
+
+    <c- c1>// We are finished filling the staging buffer, unmap() it so</c->
+    <c- c1>// we can submit commands that use it.</c->
+    stagingBuffer<c- p>.</c->unmap<c- p>();</c->
+
+    <c- c1>// Submit all the copies and then all the draws. The copies</c->
+    <c- c1>// will happen before the draw such that each draw will use</c->
+    <c- c1>// the data that was filled inside the for-loop above.</c->
+    device<c- p>.</c->queue<c- p>.</c->submit<c- p>([</c->
+        copyEncoder<c- p>.</c->finish<c- p>(),</c->
+        drawEncoder<c- p>.</c->finish<c- p>()</c->
+    <c- p>]);</c->
+<c- p>}</c->
+</pre>
+   </div>
    <h3 class="heading settled" data-level="4.7" id="multi-threading"><span class="secno">4.7. </span><span class="content">Multi-Threading</span><a class="self-link" href="#multi-threading"></a></h3>
    <h3 class="heading settled" data-level="4.8" id="command-encoding"><span class="secno">4.8. </span><span class="content">Command Encoding and Submission</span><a class="self-link" href="#command-encoding"></a></h3>
    <h3 class="heading settled" data-level="4.9" id="pipelines"><span class="secno">4.9. </span><span class="content">Pipelines</span><a class="self-link" href="#pipelines"></a></h3>
