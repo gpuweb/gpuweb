@@ -18,15 +18,19 @@ Boilerplate: repository-issue-tracking no
 
 Issue(tabatkins/bikeshed#2006): Set up cross-linking into the WebGPU and WGSL specs.
 
+
 # Motivation # {#motivation}
 
 See [Introduction](https://gpuweb.github.io/gpuweb/#introduction).
+
 
 # Security/Privacy # {#security}
 
 See [Malicious use considerations](https://gpuweb.github.io/gpuweb/#malicious-use).
 
+
 # Additional Background # {#background}
+
 
 ## Sandboxed GPU Processes in Web Browsers ## {#gpu-process}
 
@@ -170,22 +174,246 @@ Of course, it becomes a validation to use the object after the call to `.destroy
 Note that, while this looks somewhat similar to the behavior of an invalid buffer, it is distinct.
 Unlike invalidity, destroyed-ness can change after creation, is not contagious, and is validated only when work is actually submitted (e.g. `queue.writeBuffer()` or `queue.submit()`), not when creating dependent objects (like command encoders, see above).
 
+
 ## Errors ## {#errors}
+
+In a simple world, error handling in apps would be synchronous with JavaScript exceptions.
+However, for multi-process WebGPU implementations, this is prohibitively expensive.
+
+See [[#invalid-and-destroyed]], which also explains how the *browser* handles errors.
+
+### Problems and Solutions ### {#errors-solutions}
+
+Developers and applications need error handling for a number of cases:
+
+- *Debugging*:
+    Getting errors synchronously during development, to break in to the debugger.
+- *Fatal Errors*:
+    Handling device/adapter loss, either by restoring WebGPU or by fallback to non-WebGPU content.
+- *Fallible Allocation*:
+    Making fallible GPU-memory resource allocations (detecting out-of-memory conditions).
+- *Fallible Validation*:
+    Checking success of WebGPU calls, for applications' unit/integration testing, WebGPU
+    conformance testing, or detecting errors in data-driven applications (e.g. loading glTF
+    models that may exceed device limits).
+- *Telemetry*:
+    Collecting error logs in deployment, for bug reporting and telemetry.
+
+The following sections go into more details on these cases and how they are solved.
+
+#### Debugging #### {#errors-cases-debugging}
+
+**Solution:** Dev Tools.
+
+Implementations should provide a way to enable synchronous validation,
+for example via a "break on WebGPU error" option in the developer tools.
+
+This can be achieved with a content-process-gpu-process round-trip in every validated WebGPU
+call, though in practice this would be very slow.
+It can be optimized by running a second, approximated mirror of the validation steps in the
+content process (it will not always have the same results since it cannot immediately know about
+out-of-memory errors).
+
+#### Fatal Errors: Adapter and Device Loss #### {#errors-cases-fatalerrors}
+
+**Solution:** [[#device-loss]].
+
+#### Fallible Allocation, Fallible Validation, and Telemetry #### {#errors-cases-other}
+
+**Solution:** *Error Scopes*.
+
+For important context, see [[#invalid-and-destroyed]]. In particular, all errors (validation and
+out-of-memory) are detected asynchronously, in a remote process.
+In the WebGPU spec, we refer to the thread of work for each WebGPU device as its "device timeline".
+
+As such, applications need a way to instruct the device timeline on what to do with any errors
+that occur. To solve this, WebGPU uses *Error Scopes*.
+
+### Error Scopes ### {#errors-errorscopes}
+
+Each device<sup>1</sup> maintains a persistent "error scope" stack state.
+Initially, the device's error scope stack is empty.
+`GPUDevice.pushErrorScope('validation')` or `GPUDevice.pushErrorScope('out-of-memory')`
+begins an error scope and pushes it onto the stack.
+
+`GPUDevice.popErrorScope()` ends an error scope, popping it from the stack and returning a
+`Promise<GPUError?>`, which resolves once all enclosed fallible operations have completed and
+reported back.
+It resolves to `null` if no errors were captured, and otherwise resolves to an object describing
+the first error that was captured by the scope - either a `GPUValidationError` or a
+`GPUOutOfMemoryError`.
+
+An error scope captures an error if its filter (`'validation'` or `'out-of-memory'`) matches the
+type of the error.
+This filter mechanism avoids, e.g., accidentally silencing validation errors when trying to
+implement fallible allocation.
+
+Any device-timeline error from an operation is passed to the top-most error scope on the stack at
+the time it was issued.
+
+- If an error scope captures an error, the error is not passed down the stack.
+    Each error scope stores only the **first** error it captures; any further errors it captures
+    are **silently ignored**.
+- If not, the error is passed down the stack to the enclosing error scope.
+- If an error reaches the bottom of the stack, it **may**<sup>2</sup> fire the `uncapturederror`
+    event on `GPUDevice`<sup>3</sup> (and could issue a console warning as well).
+
+<sup>1</sup>
+In the plan to add multithreading, error scope state to actually be **per-device, per-realm**.
+That is, when a GPUDevice is posted to a Worker for the first time, the error scope stack for
+that device+realm is always empty.
+(If a GPUDevice is copied *back* to an execution context it already existed on, it shares its
+error scope state with all other copies on that execution context.)
+
+<sup>2</sup>
+The implementation may not choose to always fire the event for a given error, for example if it
+has fired too many times, too many times rapidly, or with too many errors of the same kind.
+This is similar to how Dev Tools console warnings work today for WebGL.
+In poorly-formed applications, this mechanism can prevent the events from having a significant
+performance impact on the system.
+
+<sup>3</sup>
+More specifically, with multithreading, this event would only exists on the *originating*
+`GPUDevice` (the one that came from `createDevice`).
+It doesn't exist on `GPUDevice`s produced by sending messages.
+
+```webidl
+enum GPUErrorFilter {
+    "out-of-memory",
+    "validation"
+};
+
+interface GPUOutOfMemoryError {
+    constructor();
+};
+
+interface GPUValidationError {
+    constructor(DOMString message);
+    readonly attribute DOMString message;
+};
+
+typedef (GPUOutOfMemoryError or GPUValidationError) GPUError;
+
+partial interface GPUDevice {
+    undefined pushErrorScope(GPUErrorFilter filter);
+    Promise<GPUError?> popErrorScope();
+};
+```
+
+#### How this solves *Fallible Allocation* #### {#errors-errorscopes-allocation}
+
+If a call that fallibly allocates GPU memory (e.g. `createBuffer` or `createTexture`) fails, the
+resulting object is invalid (same as if there were a validation error), but an `'out-of-memory'`
+error is generated.
+An `'out-of-memory'` error scope can be used to detect it.
+
+**Example: tryCreateBuffer**
+
+```ts
+async function tryCreateBuffer(device: GPUDevice, descriptor: GPUBufferDescriptor): Promise<GPUBuffer | null> {
+  device.pushErrorScope('out-of-memory');
+  const buffer = device.createBuffer(descriptor);
+  if (await device.popErrorScope() !== null) {
+    return null;
+  }
+  return buffer;
+}
+```
+
+This interacts with buffer mapping in subtle ways, but they are not explained here.
+The principle used to design the interaction is that app code should need to handle as few
+different edge cases as possible, so multiple kinds of situations should result in the same
+behavior.
+
+#### How this solves *Fallible Validation* #### {#errors-errorscopes-validation}
+
+A `'validation'` error scope can be used to detect validation errors, as above.
+
+**Example: Testing**
+
+```ts
+device.pushErrorScope('out-of-memory');
+device.pushErrorScope('validation');
+
+{
+  // (Do stuff that shouldn't produce errors.)
+
+  {
+    device.pushErrorScope('validation');
+    device.doOperationThatIsExpectedToError();
+    device.popErrorScope().then(error => { assert(error !== null); });
+  }
+
+  // (More stuff that shouldn't produce errors.)
+}
+
+// Detect unexpected errors.
+device.popErrorScope().then(error => { assert(error === null); });
+device.popErrorScope().then(error => { assert(error === null); });
+```
+
+#### How this solves *Telemetry* #### {#errors-errorscopes-telemetry}
+
+As mentioned above, if an error is not captured by an error scope, it **may** fire the
+originating device's `uncapturederror` event.
+Applications can either watch for that event, or encapsulate parts of their application with
+error scopes, to detect errors for generating error reports.
+
+`uncapturederror` is not strictly necessary to solve this, but has the benefit of providing a
+single stream for uncaptured errors from all threads.
+
+#### Error Messages and Debug Labels #### {#errors-errorscopes-labels}
+
+Every WebGPU object has a read-write attribute, `label`, which can be set by the application to
+provide information for debugging tools (error messages, native profilers like Xcode, etc.)
+Every WebGPU object creation descriptor has a member `label` which sets the initial value of the
+attribute.
+
+For both debugging (dev tools messages) and telemetry, implementations can choose to report some
+kind of "stack trace" in their error messages, taking advantage of object debug labels.
+For example:
+
+```
+<myQueue>.submit failed:
+- commands[0] (<mainColorPass>) was invalid:
+- in setIndexBuffer, indexBuffer (<mesh3.indices>) was invalid:
+- in createBuffer, desc.usage was invalid (0x89)
+```
+
 
 ## Adapter Selection and Device Init ## {#initialization}
 
+
 ## Adapter and Device Loss ## {#device-loss}
+
+Any situation that prevents further use of a `GPUDevice`, regardless of whether it is caused by a
+WebGPU call (e.g. `device.destroy()`, unrecoverable out-of-memory, GPU process crash, or GPU
+reset) or happens externally (e.g. GPU unplugged), results in a device loss.
+
+**Design principle:**
+There should be as few different-looking error behaviors as possible.
+This makes it easier for developers to test their app's behavior in different situations,
+improves robustness of applications in the wild, and improves portability between browsers.
+
+Issue: Finish this explainer (see [ErrorHandling.md](https://github.com/gpuweb/gpuweb/blob/main/design/ErrorHandling.md#fatal-errors-requestadapter-requestdevice-and-devicelost)).
+
 
 ## Buffer Mapping ## {#buffer-mapping}
 
+
 ## Multi-Threading ## {#multi-threading}
+
 
 ## Command Encoding and Submission ## {#command-encoding}
 
+
 ## Pipelines ## {#pipelines}
+
 
 ## Image, Video, and Canvas input ## {#image-input}
 
+
 ## Canvas Output ## {#canvas-output}
+
 
 # WebGPU Shading Language # {#wgsl}
