@@ -268,7 +268,7 @@ the time it was issued.
     event on `GPUDevice`<sup>3</sup> (and could issue a console warning as well).
 
 <sup>1</sup>
-In the plan to add [[#multi-threading]], error scope state to actually be **per-device, per-realm**.
+In the plan to add [[#multithreading]], error scope state to actually be **per-device, per-realm**.
 That is, when a GPUDevice is posted to a Worker for the first time, the error scope stack for
 that device+realm is always empty.
 (If a GPUDevice is copied *back* to an execution context it already existed on, it shares its
@@ -282,7 +282,7 @@ In poorly-formed applications, this mechanism can prevent the events from having
 performance impact on the system.
 
 <sup>3</sup>
-More specifically, with [[#multi-threading]], this event would only exists on the *originating*
+More specifically, with [[#multithreading]], this event would only exists on the *originating*
 `GPUDevice` (the one that came from `createDevice`).
 It doesn't exist on `GPUDevice`s produced by sending messages.
 
@@ -713,7 +713,75 @@ When using advanced methods to transfer data to the GPU (with a rolling list of 
     </pre>
 </div>
 
-## Multi-Threading ## {#multi-threading}
+## Multithreading ## {#multithreading}
+
+Multithreading is a key part of modern graphics APIs.
+Unlike OpenGL, newer APIs allow applications to encode commands, submit work, upload resources, and
+so on, from multiple threads at once, alleviating CPU bottlenecks.
+This is especially relevant to WebGPU, since IDL bindings are generally much slower than C calls.
+
+WebGPU does not *yet* allow multithreaded use of a single `GPUDevice`, but the API has been
+designed from the ground up with this in mind.
+This section describes the tentative plan for how it will work.
+
+As described in [[#gpu-process]], most WebGPU objects are actually just "handles" that refer to
+objects in the browser's GPU process.
+As such, it is relatively straightforward to allow these to be shared among threads.
+For example, a `GPUTexture` object can simply be `postMessage()`d to another thread, creating a
+new `GPUTexture` JavaScript object containing a handle to the *same* GPU process object.
+
+Several objects, like `GPUBuffer`, have client-side state.
+Applications still need to use them from multiple threads without `transfer`ring them back
+and forth (which would also create new wrapper objects, breaking old references).
+These objects will also be `[Serializable]` but have **shared client-side state**, just like
+`SharedArrayBuffer`.
+For example, for threads Main and Worker:
+
+- Main: createBuffer &rarr; B1.
+- Main: postMessage to Worker.
+- Worker: receive message &rarr; B2.
+- Worker: `B2.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state.
+- Main: `B1.mapAsync()` &rarr; **throws an exception**.
+- Main: Encode some command that uses `B1`, like:
+
+    ```js
+    encoder.copyBufferToTexture(B1, T);
+    const commandBuffer = encoder.finish();
+    ```
+
+    &rarr; succeeds, because this doesn't depend on the buffer's client side state.
+- Main: `queue.submit(commandBuffer)` &rarr; **asynchronous WebGPU error**,
+    because the CPU currently owns the buffer.
+- Worker: waits for the mapping, writes to it, then calls `B2.unmap()`.
+- Main: `queue.submit(commandBuffer)` &rarr; succeeds
+- Main: `B1.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state
+
+Further discussion can be found in [#354](https://github.com/gpuweb/gpuweb/issues/354)
+(note not all of it reflects current thinking).
+
+### Unsolved: Synchronous Object Transfer ### {#multithreading-transfer}
+
+Some application architectures require objects to be passed between threads without having to
+asynchronously wait for a message to arrive on the receiving thread.
+
+The most crucial of these is WebAssembly applications:
+Programs using native C/C++/Rust/etc. bindings for WebGPU will want to assume object handles
+are plain-old-data (e.g. `typedef struct WGPUBufferImpl* WGPUBuffer;`)
+that can be passed between threads freely.
+Unfortunately, this cannot be implemented in C-on-JS bindings (e.g. Emscripten) without complex,
+hidden, and slow asynchronicity (yielding on the receiving thread, interrupting the sending
+thread to send a message, then waiting for the object on the receiving thread).
+
+Some alternatives are mentioned in issue [#747](https://github.com/gpuweb/gpuweb/issues/747):
+
+- `SharedObjectTable`, an object with shared-state (like `SharedArrayBuffer`) containing a table of
+    `[Serializable]` values. Effectively, a store into the table would serialize once, and then any
+    thread with the `SharedObjectTable` could (synchronously) deserialize the object on demand.
+- A synchronous `MessagePort.receiveMessage()` method.
+    This would be less ideal as it would require any thread that creates one of these objects to
+    eagerly send it to every thread, just in case they need it later.
+- Allow "exporting" a numerical ID for an object that can be used to "import" the object on
+    another thread. This bypasses the garbage collector and makes it easy to leak memory.
 
 
 ## Command Encoding and Submission ## {#command-encoding}
