@@ -22,14 +22,14 @@ dictionary GPULimits {
 
 Limit | API Doc | gpuweb issue/PR
 --- | --- | ---
-`maxBindGroups = 4;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxBoundDescriptorSets` |
-`maxDynamicUniformBuffersPerPipelineLayout = 8;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxDescriptorSetUniformBuffersDynamic` | [#406](https://github.com/gpuweb/gpuweb/issues/406)
-`maxDynamicStorageBuffersPerPipelineLayout = 4;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxDescriptorSetStorageBuffersDynamic` | [#406](https://github.com/gpuweb/gpuweb/issues/406)
-`maxSampledTexturesPerShaderStage = 16;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxPerStageDescriptorSampledImages` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
-`maxSamplersPerShaderStage = 16;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxPerStageDescriptorSamplers` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
-`maxStorageBuffersPerShaderStage = 4;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxPerStageDescriptorStorageBuffers` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
-`maxStorageTexturesPerShaderStage = 4;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxPerStageDescriptorStorageImages` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
-`maxUniformBuffersPerShaderStage = 12;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxPerStageDescriptorUniformBuffers` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
-`maxVertexBuffers = 8;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxVertexInputBindings` | [#693](https://github.com/gpuweb/gpuweb/issues/693)
-`maxVertexAttributes = 16;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxVertexInputAttributes` | [#693](https://github.com/gpuweb/gpuweb/issues/693)
-`maxVertexArrayStride = 2048;` | [Vulkan](https://vulkan.lunarg.com/doc/view/latest/linux/chunked_spec/chap40.html#limits-minmax) `maxVertexInputBindingStride` | [#693](https://github.com/gpuweb/gpuweb/issues/693)
+`maxBindGroups = 4;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxBoundDescriptorSets` |
+`maxDynamicUniformBuffersPerPipelineLayout = 8;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxDescriptorSetUniformBuffersDynamic` | [#406](https://github.com/gpuweb/gpuweb/issues/406)
+`maxDynamicStorageBuffersPerPipelineLayout = 4;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxDescriptorSetStorageBuffersDynamic` | [#406](https://github.com/gpuweb/gpuweb/issues/406)
+`maxSampledTexturesPerShaderStage = 16;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxPerStageDescriptorSampledImages` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
+`maxSamplersPerShaderStage = 16;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxPerStageDescriptorSamplers` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
+`maxStorageBuffersPerShaderStage = 4;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxPerStageDescriptorStorageBuffers` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
+`maxStorageTexturesPerShaderStage = 4;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxPerStageDescriptorStorageImages` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
+`maxUniformBuffersPerShaderStage = 12;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxPerStageDescriptorUniformBuffers` | [#409](https://github.com/gpuweb/gpuweb/issues/409)
+`maxVertexBuffers = 8;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxVertexInputBindings` | [#693](https://github.com/gpuweb/gpuweb/issues/693)
+`maxVertexAttributes = 16;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxVertexInputAttributes` | [#693](https://github.com/gpuweb/gpuweb/issues/693)
+`maxVertexArrayStride = 2048;` | [Vulkan](https://vulkan.lunarg.com/doc/view/1.2.170.0/linux/chunked_spec/chap42.html#limits) `maxVertexInputBindingStride` | [#693](https://github.com/gpuweb/gpuweb/issues/693)

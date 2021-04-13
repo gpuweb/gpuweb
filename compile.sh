@@ -1,14 +1,27 @@
 #!/bin/bash
 set -e # Exit with nonzero exit code if anything fails
 
+echo 'Building spec'
 make -C spec
+echo 'Building wgsl'
 make -C wgsl
+echo 'Building explainer'
+make -C explainer
 
 if [ -d out ]; then
-  echo Copy spec/index.html into out/index.html
-  cp spec/index.html out/index.html
-  echo Copy spec/webgpu.idl into out/webgpu.idl
-  cp spec/webgpu.idl out/webgpu.idl
-  echo Copy wgsl/index.html into out/wgsl.html
-  cp wgsl/index.html out/wgsl.html
+  mkdir out/wgsl out/explainer
+
+  echo 'Copying wgsl/* -> out/wgsl/'
+  cp -r wgsl/* out/wgsl/
+  rm out/wgsl/{Makefile,*.bs}
+
+  echo 'Copying explainer/* -> out/explainer/'
+  cp -r explainer/* out/explainer/
+  rm out/explainer/{Makefile,*.bs}
+
+  echo 'Copying spec/* -> out/'
+  cp spec/* out/
+  rm out/{README.md,Makefile,*.py,*.bs}
+
+  echo '<meta http-equiv="refresh" content="0;url=wgsl/" />' > out/wgsl.html
 fi
