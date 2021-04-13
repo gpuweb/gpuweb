@@ -1323,7 +1323,7 @@ Possible extra rowspan handling
 </style>
   <meta content="Bikeshed version f9f60c8f, updated Fri Sep 25 16:39:03 2020 -0700" name="generator">
   <link href="https://gpuweb.github.io/gpuweb/explainer/" rel="canonical">
-  <meta content="889e02ca9057ccdec06ed5d82cd4de18c807470b" name="document-revision">
+  <meta content="a70049a240a5f51749552385f95e0c7d92d7a677" name="document-revision">
 <style>/* style-autolinks */
 
 .css.css, .property.property, .descriptor.descriptor {
@@ -1825,7 +1825,7 @@ c-[il] { color: #000000 } /* Literal.Number.Integer.Long */
   <div class="head">
    <p data-fill-with="logo"></p>
    <h1 class="p-name no-ref" id="title">WebGPU Explainer</h1>
-   <h2 class="no-num no-toc no-ref heading settled" id="subtitle"><span class="content">Living Standard, <time class="dt-updated" datetime="2021-04-12">12 April 2021</time></span></h2>
+   <h2 class="no-num no-toc no-ref heading settled" id="subtitle"><span class="content">Living Standard, <time class="dt-updated" datetime="2021-04-13">13 April 2021</time></span></h2>
    <div data-fill-with="spec-metadata">
     <dl>
      <dt>This version:
@@ -1906,7 +1906,11 @@ Learn more about <a href="http://www.w3.org/community/">W3C Community and Busine
         <li><a href="#buffer-mapping-at-creation"><span class="secno">4.5.5</span> <span class="content">Mapping Buffers at Creation</span></a>
         <li><a href="#buffer-mapping-examples"><span class="secno">4.5.6</span> <span class="content">Examples</span></a>
        </ol>
-      <li><a href="#multi-threading"><span class="secno">4.6</span> <span class="content">Multi-Threading</span></a>
+      <li>
+       <a href="#multithreading"><span class="secno">4.6</span> <span class="content">Multithreading</span></a>
+       <ol class="toc">
+        <li><a href="#multithreading-transfer"><span class="secno">4.6.1</span> <span class="content">Unsolved: Synchronous Object Transfer</span></a>
+       </ol>
       <li><a href="#command-encoding"><span class="secno">4.7</span> <span class="content">Command Encoding and Submission</span></a>
       <li><a href="#pipelines"><span class="secno">4.8</span> <span class="content">Pipelines</span></a>
       <li><a href="#image-input"><span class="secno">4.9</span> <span class="content">Image, Video, and Canvas input</span></a>
@@ -2117,7 +2121,7 @@ are <strong>silently ignored</strong>.</p>
     <li data-md>
      <p>If an error reaches the bottom of the stack, it <strong>may</strong><sup>2</sup> fire the <code>uncapturederror</code> event on <code>GPUDevice</code><sup>3</sup> (and could issue a console warning as well).</p>
    </ul>
-   <p><sup>1</sup> In the plan to add <a href="#multi-threading">§ 4.6 Multi-Threading</a>, error scope state to actually be <strong>per-device, per-realm</strong>.
+   <p><sup>1</sup> In the plan to add <a href="#multithreading">§ 4.6 Multithreading</a>, error scope state to actually be <strong>per-device, per-realm</strong>.
 That is, when a GPUDevice is posted to a Worker for the first time, the error scope stack for
 that device+realm is always empty.
 (If a GPUDevice is copied <em>back</em> to an execution context it already existed on, it shares its
@@ -2127,7 +2131,7 @@ has fired too many times, too many times rapidly, or with too many errors of the
 This is similar to how Dev Tools console warnings work today for WebGL.
 In poorly-formed applications, this mechanism can prevent the events from having a significant
 performance impact on the system.</p>
-   <p><sup>3</sup> More specifically, with <a href="#multi-threading">§ 4.6 Multi-Threading</a>, this event would only exists on the <em>originating</em> <code>GPUDevice</code> (the one that came from <code>createDevice</code>).
+   <p><sup>3</sup> More specifically, with <a href="#multithreading">§ 4.6 Multithreading</a>, this event would only exists on the <em>originating</em> <code>GPUDevice</code> (the one that came from <code>createDevice</code>).
 It doesn’t exist on <code>GPUDevice</code>s produced by sending messages.</p>
 <pre class="language-webidl highlight"><c- b>enum</c-> <c- g>GPUErrorFilter</c-> {
     <c- s>"out-of-memory"</c->,
@@ -2468,7 +2472,77 @@ buffer<c- p>.</c->unmap<c- p>();</c->
 <c- p>}</c->
 </pre>
    </div>
-   <h3 class="heading settled" data-level="4.6" id="multi-threading"><span class="secno">4.6. </span><span class="content">Multi-Threading</span><a class="self-link" href="#multi-threading"></a></h3>
+   <h3 class="heading settled" data-level="4.6" id="multithreading"><span class="secno">4.6. </span><span class="content">Multithreading</span><a class="self-link" href="#multithreading"></a></h3>
+   <p>Multithreading is a key part of modern graphics APIs.
+Unlike OpenGL, newer APIs allow applications to encode commands, submit work, transfer data to the GPU, and
+so on, from multiple threads at once, alleviating CPU bottlenecks.
+This is especially relevant to WebGPU, since IDL bindings are generally much slower than C calls.</p>
+   <p>WebGPU does not <em>yet</em> allow multithreaded use of a single <code>GPUDevice</code>, but the API has been
+designed from the ground up with this in mind.
+This section describes the tentative plan for how it will work.</p>
+   <p>As described in <a href="#gpu-process">§ 3.1 Sandboxed GPU Processes in Web Browsers</a>, most WebGPU objects are actually just "handles" that refer to
+objects in the browser’s GPU process.
+As such, it is relatively straightforward to allow these to be shared among threads.
+For example, a <code>GPUTexture</code> object can simply be <code>postMessage()</code>d to another thread, creating a
+new <code>GPUTexture</code> JavaScript object containing a handle to the <em>same</em> GPU-process object.</p>
+   <p>Several objects, like <code>GPUBuffer</code>, have client-side state.
+Applications still need to use them from multiple threads without having to <code>postMessage</code> such
+objects back and forth with <code>[Transferable]</code> semantics (which would also create new wrapper
+objects, breaking old references).
+Therefore, these objects will also be <code>[Serializable]</code> but have (content-side) <strong>shared state</strong>,
+just like <code>SharedArrayBuffer</code>.
+For example, for threads Main and Worker:</p>
+   <ul>
+    <li data-md>
+     <p>Main: createBuffer → B1.</p>
+    <li data-md>
+     <p>Main: postMessage to Worker.</p>
+    <li data-md>
+     <p>Worker: receive message → B2.</p>
+    <li data-md>
+     <p>Worker: <code>B2.mapAsync()</code> → successfully puts the buffer in the "map pending" state.</p>
+    <li data-md>
+     <p>Main: <code>B1.mapAsync()</code> → <strong>throws an exception</strong>.</p>
+    <li data-md>
+     <p>Main: Encode some command that uses <code>B1</code>, like:</p>
+<pre class="language-js highlight">    encoder<c- p>.</c->copyBufferToTexture<c- p>(</c->B1<c- p>,</c-> T<c- p>);</c->
+    <c- kr>const</c-> commandBuffer <c- o>=</c-> encoder<c- p>.</c->finish<c- p>();</c->
+</pre>
+     <p>→ succeeds, because this doesn’t depend on the buffer’s client side state.</p>
+    <li data-md>
+     <p>Main: <code>queue.submit(commandBuffer)</code> → <strong>asynchronous WebGPU error</strong>,
+because the CPU currently owns the buffer.</p>
+    <li data-md>
+     <p>Worker: waits for the mapping, writes to it, then calls <code>B2.unmap()</code>.</p>
+    <li data-md>
+     <p>Main: <code>queue.submit(commandBuffer)</code> → succeeds</p>
+    <li data-md>
+     <p>Main: <code>B1.mapAsync()</code> → successfully puts the buffer in the "map pending" state</p>
+   </ul>
+   <p>Further discussion can be found in <a href="https://github.com/gpuweb/gpuweb/issues/354">#354</a> (note not all of it reflects current thinking).</p>
+   <h4 class="heading settled" data-level="4.6.1" id="multithreading-transfer"><span class="secno">4.6.1. </span><span class="content">Unsolved: Synchronous Object Transfer</span><a class="self-link" href="#multithreading-transfer"></a></h4>
+   <p>Some application architectures require objects to be passed between threads without having to
+asynchronously wait for a message to arrive on the receiving thread.</p>
+   <p>The most crucial class of such architectures are in WebAssembly applications:
+Programs using native C/C++/Rust/etc. bindings for WebGPU will want to assume object handles
+are plain-old-data (e.g. <code>typedef struct WGPUBufferImpl* WGPUBuffer;</code>)
+that can be passed between threads freely.
+Unfortunately, this cannot be implemented in C-on-JS bindings (e.g. Emscripten) without complex,
+hidden, and slow asynchronicity (yielding on the receiving thread, interrupting the sending
+thread to send a message, then waiting for the object on the receiving thread).</p>
+   <p>Some alternatives are mentioned in issue <a href="https://github.com/gpuweb/gpuweb/issues/747">#747</a>:</p>
+   <ul>
+    <li data-md>
+     <p><code>SharedObjectTable</code>, an object with shared-state (like <code>SharedArrayBuffer</code>) containing a table of <code>[Serializable]</code> values. Effectively, a store into the table would serialize once, and then any
+thread with the <code>SharedObjectTable</code> could (synchronously) deserialize the object on demand.</p>
+    <li data-md>
+     <p>A synchronous <code>MessagePort.receiveMessage()</code> method.
+This would be less ideal as it would require any thread that creates one of these objects to
+eagerly send it to every thread, just in case they need it later.</p>
+    <li data-md>
+     <p>Allow "exporting" a numerical ID for an object that can be used to "import" the object on
+another thread. This bypasses the garbage collector and makes it easy to leak memory.</p>
+   </ul>
    <h3 class="heading settled" data-level="4.7" id="command-encoding"><span class="secno">4.7. </span><span class="content">Command Encoding and Submission</span><a class="self-link" href="#command-encoding"></a></h3>
    <h3 class="heading settled" data-level="4.8" id="pipelines"><span class="secno">4.8. </span><span class="content">Pipelines</span><a class="self-link" href="#pipelines"></a></h3>
    <h3 class="heading settled" data-level="4.9" id="image-input"><span class="secno">4.9. </span><span class="content">Image, Video, and Canvas input</span><a class="self-link" href="#image-input"></a></h3>
