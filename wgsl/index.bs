@@ -4,7 +4,7 @@ Shortname: WGSL
 Level: 1
 Status: w3c/ED
 Group: webgpu
-URL: https://gpuweb.github.io/gpuweb/wgsl.html
+URL: https://gpuweb.github.io/gpuweb/wgsl/
 Ignored Vars: i, e, e1, e2, e3, N, M, v, Stride, Offset, Align, Extent, S, T, T1
 
 !Participate: <a href="https://github.com/gpuweb/gpuweb/issues/new?labels=wgsl">File an issue</a> (<a href="https://github.com/gpuweb/gpuweb/issues?q=is%3Aissue+is%3Aopen+label%3Awgsl">open issues</a>)
@@ -90,7 +90,94 @@ that run on the GPU.
  * Features and semantics are exactly the ones of SPIR-V
  * Each item in this spec *must* provide the mapping to SPIR-V for the construct
 
-## Technical Overview TODO ## {#technical-overview}
+## Technical Overview ## {#technical-overview}
+
+WebGPU issues a unit of work to the GPU in the form of a [[WebGPU#gpu-command|GPU command]].
+[SHORTNAME] is concerned with two kinds of GPU commands:
+* a <dfn noexport>draw command</dfn> executes a [=GPURenderPipeline|render pipeline=]
+    in the context of [=pipeline input|inputs=], [=pipeline output|outputs=], and attached [=resources=].
+* a <dfn noexport>dispatch command</dfn> executes a [=GPUComputePipeline|compute pipeline=]
+    in the context of [=pipeline input|inputs=] and attached [=resources=].
+
+Both kinds of pipelines use shaders written in [SHORTNAME].
+
+A <dfn noexport>shader</dfn> is the portion of a [SHORTNAME] program that executes a [=shader stage=] in a pipeline.
+A shader comprises:
+* An [=entry point=] [=function/function=].
+* The transitive closure of all called functions, starting with the entry point.
+    This set includes both [=user-defined function|user-defined=] and [=built-in function|built-in=] functions.
+    (For a more rigorous definition, see "[=functions in a shader stage=]".)
+* The set of variables and constants [=statically accessed=] by all those functions.
+* The set of types used to define or analyze all those functions, variables, and constants.
+
+When executing a shader stage, the implementation:
+* Binds [=resources=] to variables in the shader's [=resource interface of a shader|resource interface=],
+    making the contents of those resources available to the shader during execution.
+* Allocates storage for other [=module scope|module-scope=] variables,
+    and populates that storage with the specified initial values.
+* Populates the formal parameters of the entry point, if they exist, with the stage's pipeline inputs.
+* Connects the entry point return value, if one exists, to the stage's pipeline outputs.
+* Then it invokes the entry point.
+
+A [SHORTNAME] program is organized into:
+* Functions, which specify execution behaviour.
+* Statements, which are declarations or units of executable behaviour.
+* Literals, which are text representations for pure mathematical values.
+* Constants, each providing a name for a value computed at a specific time.
+* Variables, each providing a name for storage for holding a value.
+* Expressions, each of which combines a set of values to produce a result value.
+* Types, each of which describes:
+    * A set of values.
+    * Constraints on supported expressions.
+    * The semantics of those expressions.
+
+[SHORTNAME] is an imperative language: behaviour is specified as a sequence of statements to execute.
+Statements:
+* Declare constants or variables
+* Modify the contents of variables
+* Modify execution order using structured programming constructs:
+    * Selective execution: if/else/elseif, switch
+    * Repetition: loop, for
+    * Escaping a nested execution construct: break, continue
+    * Refactoring: function call and return
+    * Discard (fragment shaders only): terminating the invocation and throwing away the output
+* Evaluate expressions to compute values as part of the above behaviours.
+
+[SHORTNAME] is statically typed: each value computed by a particular expression is in a specific type,
+determined only by examining the program source.
+
+[SHORTNAME] has types to describe booleans, numbers, vectors, matrices, and aggregations
+of these in the form of arrays and structures.
+Additional types describe memory.
+
+[SHORTNAME] has texture and sampler types.
+Together with their associated built-in functions, these support functionality
+commonly used for graphics rendering, and commonly provided by GPUs.
+
+The work of a shader stage is partitioned into one or more <dfn noexport>invocations</dfn>,
+each of which executes the entry point, but under slightly different conditions.
+Invocations in a shader stage share access to certain variables:
+* All invocations in the stage share the resources in the shader interface.
+* In a [=compute shader stage|compute shader=], invocations in the same
+     [=compute shader stage/workgroup=] share
+     variables in the [=storage classes/workgroup=] [=storage class=].
+     Invocations in different workgroups do not share those variables.
+
+However, the invocations act on different sets of pipeline inputs, including built-in inputs
+that provide an identifying value to distinguish an invocation from its peers.
+Also, each invocation has its own independent storage space in the form
+of variables in the [=storage classes/private=] and [=storage classes/function=] storage classes.
+
+Invocations within a shader stage execute concurrently, and may often execute in parallel.
+The shader author is responsible for ensuring the dynamic behaviour of the invocations
+in a shader stage:
+* Meet the uniformity requirements of certain primitive operations, including texture sampling and control barriers.
+* Coordinate potentially conflicting accesses to shared variables, to avoid race conditions.
+
+[SHORTNAME] sometimes permits several possible behaviours for a given feature.
+This is a portability hazard, as different implementations may exhibit the different behaviours.
+The design of [SHORTNAME] aims to minimize such cases, but is constrained by feasibility,
+and goals for achieving high performance across a broad range of devices.
 
 ## Notation ## {#notation}
 
@@ -105,6 +192,80 @@ The <dfn noexport>ceiling expression</dfn> is defined over real numbers |x|:
 The <dfn noexport>roundUp</dfn> function is defined for positive integers |k| and |n| as:
 
 * roundUp(|k|, |n|) = &lceil;|n| &div; |k|&rceil; &times; |k|
+
+The <dfn noexport>transpose</dfn> of an |n|-column |m|-row matrix |A| is the |m|-column |n|-row matrix
+|A|<sup>T</sup> formed by copying the rows of |A| as the columns of |A|<sup>T</sup>:
+
+* transpose(|A|) = |A|<sup>T</sup>
+* transpose(|A|)<sub>|i|,|j|</sub> = |A|<sub>|j|,|i|</sub>
+
+The transpose of a column vector is defined by interpreting the column vector as a 1-row matrix.
+Similarly, the transpose of a row vector is defined by interpreting the row vector as a 1-column matrix.
+
+# Shader Lifecycle # {#program-lifecycle}
+
+There are four key events in the lifecycle of a [SHORTNAME] program and the shaders it may contain.
+The first two correspond to the WebGPU API methods used to prepare a [SHORTNAME] program
+for execution.
+The last two are the start and end of execution of a shader.
+
+The events are:
+
+1. <dfn noexport>Shader module creation</dfn>
+    * This occurs when the 
+        [[WebGPU#dom-gpudevice-createshadermodule|WebGPU createShaderModule]] method
+        is called.
+        The source text for a [SHORTNAME] program is provided at this time.
+2. <dfn noexport>Pipeline creation</dfn>
+    * This occurs when the
+        [[WebGPU#dom-gpudevice-createcomputepipeline|WebGPU createComputePipeline]] method
+        or the
+        [[WebGPU#dom-gpudevice-createrenderputepipeline|WebGPU createRenderPipeline]] method
+        is invoked.
+        These methods use one or more previously created shader modules, together with other
+        configuration information.
+3. <dfn noexport>Shader execution start</dfn>
+    * This occurs when a [=draw command|draw=] or [=dispatch command=] is issued to the GPU,
+        begins executing the pipeline,
+        and invokes the [=shader stage=] [=entry point=] function.
+4. <dfn noexport>Shader execution end</dfn>
+    * This occurs when all work in the shader completes:
+        * all its [=invocations=] terminate
+        * and all accesses to [=resources=] complete
+        * outputs, if any, are passed to downstream pipeline stages.
+
+The events are ordered due to:
+*  data dependencies: shader execution requires a pipeline, and a pipeline requires a shader module.
+*  causality: the shader must start executing before it can finish executing.
+
+## Kinds of errors ## {#kinds-of-errors}
+
+A <dfn export>program error</dfn> is a failure to satisfy the requirements of this specification.
+
+There are three kinds of errors, corresponding to the shader lifecycle:
+
+* A <dfn export>shader-creation error</dfn>
+    is an error feasibly detectable at [=shader module creation=] time.
+    Detection must rely only on the [SHORTNAME] program source text
+    and other information available to the `createShaderModule` API method.
+
+* A <dfn export>pipeline-creation error</dfn>
+    is an error feasibly detectable at [=pipeline creation=] time.
+    Detection must rely only on the [SHORTNAME] program source text
+    and other information available to the particular pipeline creation API method.
+
+* A <dfn export>dynamic error</dfn> is an error occurring during shader execution.
+    These errors may or may not be detectable.
+
+Note: For example, a race condition may not be detectable.
+
+Each requirement in this specification corresponds to a single kind of error.
+Generally, a requirement corresponds to the earliest error kind at which its violation could be feasibly detected.
+When unclear, the corresponding error kind is explicitly specified.
+
+The WebGPU specification describes the consequences of each kind of error.
+
+TODO: Update the WebGPU spec, referring back to the three kinds of errors defined here.
 
 # Textual structure TODO # {#textual-structure}
 
@@ -261,6 +422,22 @@ literal_or_ident
     Specifies the binding group of the resource.
     See [[#resource-interface]].
 
+  <tr><td><dfn noexport dfn-for="attribute">`interpolate`
+    <td>One or two parameters.
+
+    The first parameter must be an [=interpolation type=].
+    The second parameter, if present, must specify the [=interpolation sampling=].
+    <td>Must only be applied to an entry point function parameter, entry point
+    return type, or member of a [=structure=] type.
+    Must only be applied to declarations of scalars or vectors of floating-point type.
+    Must not be used with the [=compute=] shader stage.
+    If the first parameter is `flat`, the second parameter must not be specified.
+
+    Specifies how the user-defined IO must be interpolated.
+    The attribute is only significant on user-defined [=vertex=] outputs
+    and [=fragment=] inputs.
+    See [[#interpolation]].
+
   <tr><td><dfn noexport dfn-for="attribute">`location`
     <td>non-negative i32 literal
     <td>Must only be applied to an entry point function parameter, entry point
@@ -292,8 +469,10 @@ literal_or_ident
     start of the next element.
 
   <tr><td><dfn noexport dfn-for="attribute">`workgroup_size`</dfn>
-    <td>One, two or three parameters. Each parameter is either a positive i32
-    literal or the name of a [=pipeline-overridable=] constant of i32 type.
+    <td>One, two or three parameters.
+
+    Each parameter is either a positive i32 literal or the name of a
+    [=pipeline-overridable=] constant of i32 type.
     <td>Must only be applied to a [=compute shader stage=] function declaration.
 
     Specifies the x, y, and z dimensions of the [=workgroup grid=] for the compute shader.
@@ -445,7 +624,7 @@ Some [SHORTNAME] types are only used for analyzing a source program and
 for determining the program's runtime behaviour.
 This specification will describe such types, but they do not appear in [SHORTNAME] source text.
 
-Note: [SHORTNAME] reference types are not written in [SHORTNAME] programs. See TODO forward reference to ptr/ref.
+Note: [SHORTNAME] [=reference types=] are not written in [SHORTNAME] programs. See TODO forward reference to ptr/ref.
 
 ## Type Checking ## {#type-checking-section}
 
@@ -469,7 +648,7 @@ The rules of [SHORTNAME] are designed so that the static type of an expression d
 Statements often use expressions, and may place requirements on the static types of those expressions.
 For example:
 * The condition expression of an `if` statement must be of type [=bool=].
-* In a `const` declaration, the type of the initializer value must be the same as the declared type of the constant.
+* In a `let` declaration, the initializer must evaluate to the declared type of the constant.
 
 <dfn noexport>Type checking</dfn> a successfully parsed [SHORTNAME] program is the process of mapping
 each expression to its static type,
@@ -494,15 +673,16 @@ A <dfn noexport>type rule</dfn> has two parts:
 * Preconditions, consisting of:
     * Type assertions for subexpressions, when there are subexpressions.
     * Conditions on the other schematic parameters, if any.
+    * How the expression is used in a statement.
     * Optionally, other static context.
 
 A <dfn noexport>type rule applies to an expression</dfn> when:
 * The rule's conclusion matches a valid parse of the expression, and
 * The rule's preconditions are satisfied.
 
-TODO: write an example such as `1+2`, or `3 - a`, where `a` is in-scope of a const declaration with `i32` type.
+TODO: write an example such as `1+2`, or `3 - a`, where `a` is in-scope of a let declaration with `i32` type.
 
-The type rules are designed so if parsing succeeds, at most one type rule will apply to each expression.
+The type rules are designed so that if parsing succeeds, at most one type rule will apply to each expression.
 If a type rule applies to an expression, then the conclusion is asserted, and therefore determines the static type of the expression.
 
 A [SHORTNAME] source program is <dfn noexport>well-typed</dfn> when:
@@ -793,20 +973,37 @@ to define a [=uniform buffer=] or a [=storage buffer=]. See [[#memory-layouts]].
   </xmp>
 </div>
 
+### Composite Types ### {#composite-types}
 
-## Memory TODO ## {#memory}
+A type is <dfn noexport>composite</dfn> if it has internal structure
+expressed as a composition of other types.
+The internal parts do not overlap, and are called <dfn noexport>components</dfn>.
 
-TODO: This section is a stub.
+The composite types are:
+
+* [=vector=] type
+* [=matrix=] type
+* [=array=] type
+* [=structure=] type
+
+A [=plain type|plain=] type is either [=composite=] or [=scalar=].
+
+## Memory ## {#memory}
 
 In [SHORTNAME], a value of [=storable=] type may be stored in memory, for later retrieval.
+This section describes the structure of memory, and how [SHORTNAME] types are used to
+describe the contents of memory.
 
 In general [SHORTNAME] follows the [[!VulkanMemoryModel|Vulkan Memory Model]].
 
-### Memory Locations ### {#memory-locations}
+### Memory Locations ### {#memory-locations-section}
 
-Memory consists of a set of distinct locations. Each memory location is 8-bits
+Memory consists of a set of distinct <dfn noexport>memory locations</dfn>.
+Each memory location is 8-bits
 in size. An operation affecting memory interacts with a set of one or more
-memory locations. Two sets of memory locations overlap if the intersection of
+memory locations.
+
+Two sets of memory locations <dfn noexport>overlap</dfn> if the intersection of
 their sets of memory locations is non-empty. Each variable declaration has a
 set of memory locations that does not overlap with the sets of memory locations of
 any other variable declaration. Memory operations on structures and arrays may
@@ -822,6 +1019,7 @@ The following types are <dfn dfn noexport>storable</dfn>:
 * [[#matrix-types]]
 * [[#array-types]] if its element type is storable.
 * [[#struct-types]] if all its members are storable.
+* [[#atomic-types]]
 
 ### IO-shareable Types ### {#io-shareable-types}
 
@@ -859,6 +1057,7 @@ The following types are <dfn dfn noexport>host-shareable</dfn>:
 * [[#matrix-types]]
 * [[#array-types]] if the array element type is host-shareable
 * [[#struct-types]] if each member is host-shareable
+* [[#atomic-types]]
 
 [SHORTNAME] defines the following attributes that affect memory layouts:
  * [=attribute/stride=]
@@ -1082,6 +1281,9 @@ following table:
   <tr><td>[[[=stride=](|Q|)]]<br> array<|E|>
       <td>[=AlignOf=](|E|)
       <td>N<sub>runtime</sub> * |Q|
+  <tr><td>atomic<|T|>
+      <td>[=AlignOf=](|T|)
+      <td>[=SizeOf=](|T|)
 </table>
 
 
@@ -1337,6 +1539,9 @@ required alignment of host-shareable type |S| when used by storage class |C|.
       <td>struct&lt;T<sub>0</sub>, ..., T<sub>N</sub>&gt;
       <td>max([=AlignOf=](T<sub>0</sub>), ..., [=AlignOf=](T<sub>N</sub>))
       <td>[=roundUp=](16, max([=AlignOf=](T<sub>0</sub>), ..., [=AlignOf=](T<sub>N</sub>)))<br>
+  <tr><td>atomic<|T|>
+      <td>[=AlignOf=](|T|)
+      <td>[=AlignOf=](|T|)
 </table>
 
 All structure members of type |T| must have a byte offset from the start of the
@@ -1368,86 +1573,386 @@ Therefore, a data value must not be placed in the padding at the end of a struct
 nor in the padding at the last element of an array.
 Counting such padding as part of the size allows [SHORTNAME] to capture this constraint.
 
-## Pointer Types TODO ## {#pointer-types}
+## Memory View Types ## {#memory-view-types}
+
+In addition to calculating with [=plain types|plain=] values, a [SHORTNAME] program will
+also often read values from memory or write values to memory.
+Operations that read or write to memory are called <dfn noexport>memory accesses</dfn>.
+Each memory access is performed via a [=memory view=].
+
+A <dfn noexport>memory view</dfn> is a set of [=memory locations=] in a particular [=storage class=],
+together with an interpretation of the contents of those locations as a [SHORTNAME] [=type=].
+
+
+[SHORTNAME] has two kinds of types for representing memory views:
+[=reference types=] and [=pointer types=].
+
 <table class='data'>
   <thead>
-    <tr><th>Type<th>Description
+    <tr><th>Constraint<th>Type<th>Description
   </thead>
-  <tr><td>ptr<*SC*,*T*><td>Pointer (or reference) to storage in [=storage class=] *SC*
-                            which can hold a value of the [=storable=] *T*.
-                            Here, *T* is the known as the *pointee* type.
+  <tr algorithm="memory reference type">
+    <td>|SC| is a [=storage class=],<br>|T| is a [=storable=] type
+    <td>ref&lt;|SC|,|T|&gt;
+    <td>The <dfn noexport>reference type</dfn>
+        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|.<br>
+        In this context |T| is known as the <dfn noexport>store type</dfn>.<br>
+        Reference types are not written [SHORTNAME] progam source; instead they are used to analyze a [SHORTNAME] program.
+  <tr algorithm="pointer type">
+    <td>|SC| is a [=storage class=],<br>|T| is a [=storable=] type
+    <td>ptr&lt;|SC|,|T|&gt;
+    <td>The <dfn noexport>pointer type</dfn> 
+        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|.<br>
+        In this context |T| is known as the <dfn noexport>pointee type</dfn>.<br>
+        Pointer types appear in [SHORTNAME] progam source.
 </table>
 
-Note: We've described a SPIR-V logical pointer type.
-
-Note: Pointers are not storable.
-
-<div class='example wgsl' heading='Pointer'>
+<div class='example wgsl' heading='Pointer type (program fragment)'>
   <xmp highlight='rust'>
-    ptr<storage, i32>
-    ptr<private, array<i32, 12>>
+    fn my_function(
+      // 'ptr<function,i32>' is the type of a pointer value that references storage
+      // for keeping an 'i32' value, using memory locations in the 'function' storage
+      // class.  Here 'i32' is the pointee type.
+      ptr_int: ptr<function,i32>,
+
+      // 'ptr<private,array<f32,50>>' is the type of a pointer value that refers to
+      // storage for keeping an array of 50 elements of type 'f32', using memory
+      // locations in the 'private' storage class.
+      // Here the pointee type is 'array<f32,50>'.
+      ptr_array: ptr<private, array<f32, 50>>
+    ) { }
   </xmp>
 </div>
 
-### Abstract Operations on Pointers TODO ### {#abstract-pointer-operations}
+Reference types and pointer types are both sets of memory views:
+a particular memory view is associated with a unique reference value and also a unique pointer value:
 
-A pointer value *P* supports the following operations:
+<blockquote algorithm="pointer reference correspondence">
+Each pointer value |p| of type ptr&lt;|SC|,|T|&gt; corresponds to a unique reference value |r| of type ref&lt;|SC|,|T|&gt;,
+and vice versa,
+where |p| and |r| describe the same memory view.
+</blockquote>
 
-<table class='data'>
-  <tr><td>P.Write(V)<td>Place a value V into the referenced storage.
-               V’s type must match P’s pointee type.
-  <tr><td>P.Read()<td>An evaluation yielding the value currently in the P’s
-             referenced storage.  The result type is P's pointee type.
-  <tr><td>P.Subaccess(K)<td>Valid for pointers with a composite pointee type where
-                   *K* must evaluate to an integer between 0 and one
-                   less than the number of components in *P*’s pointee type.
-                   The subaccess evaluation yields a pointer to the storage for
-                   the K’th component within P’s referenced storage,
-                   using zero-based indexing. If P's [=storage class=] is SC, and
-                   the K'th member of P's pointee type is of type T, then
-                   the result type is `ptr<SC,T>`.
-</table>
+In [SHORTNAME] a reference value always corresponds to the memory view
+for some or all of the memory locations for some variable.
+This defines the <dfn noexport>originating variable</dfn> for the reference value.
+A pointer value always corresponds to a reference value, and so the originating variable
+of a pointer is the same as the originating variable of the corresponding reference.
 
-Note: Assignment of swizzled values is not permitted (SubaccessSwizzle).<br>
-           e.g. `vec4<i32> v; v.xz = vec2<i32>(0, 1);` is not allowed.
+Note: The originating variable is a dynamic concept.
+The originating variable for a formal parameter of a function depends on the call sites for the function.
+Different call sites may supply pointers into different originating variables.
 
-### Pointer Evaluation TODO ### {#pointer-evaluation}
+References and pointers are distinguished by how they are used:
 
-TODO: *This is a stub*: Using pointers in context. Disambiguating which abstract operation occurs based on context:
-pointer semantics vs. dereferenced value semantics.
+* The type of a [=variable=] is a reference type.
+* The [=address-of=] operation (unary `&`) converts a reference value to its corresponding pointer value.
+* The [=indirection=] operation (unary `*`) converts a pointer value to its corresponding reference value.
+* A const declaration can be of pointer type, but not of reference type.
+* A [=formal parameter=] can be of pointer type, but not of reference type.
+* An [=assignment statement=] updates the contents of memory via a reference:
+    * The left-hand side of the assignment statement must be of reference type.
+    * The right-hand side of the assignment statement must evaluate to the store type of the left-hand side.
+* The <dfn noexport>Load Rule</dfn>: Inside a function, a reference is automatically dereferenced (read from) to satisfy type rules:
+    * In a function, when a reference expression |r| with store type |T| is used in a statement or an expression, where
+    * The only potentially matching type rules require |r| to have a value of type |T|, then
+    * That type rule requirement is considered to have been met, and
+    * The result of evaluating |r| in that context is the value (of type |T|) stored in the memory locations
+        referenced by |r| at the time of evaluation.
 
----
+Defining references in this way enables simple idiomatic use of variables:
 
-A pointer may appear in exactly the following contexts
+<div class='example wgsl' heading='Reference types enable simple use of variables'>
+  <xmp highlight='rust'>
+    [[stage(compute)]]
+    fn main() {
+      // 'i' has reference type ref<function,i32>
+      // The memory locations for 'i' store the i32 value 0.
+      var i: i32 = 0;
 
-<table class='data'>
-  <tr><td>Indexing<td>
-A subaccessing evaluation
-* E.g. `a[12]`
-    * If `a` is a pointer to an array, this evaluates to *a.Subaccess(12)*
+      // 'i + 1' can only match a type rule where the 'i' subexpression is of type i32.
+      // So the expression 'i + 1' has type i32, and at evaluation, the 'i' subexpression
+      // evaluates to the i32 value stored in the memory locations for 'i' at the time
+      // of evaluation.
+      const one: i32 = i + 1;
 
-* E.g. `s.foo`
-    * If `s` is a pointer to a structure of type *S*, `k` is the index of the `foo` element of *S*, this evaluates to *s.Subaccess(k)*
+      // Update the value in the locations referenced by 'i' so they hold the value 2.
+      i = one + 1;
 
-  <tr><td>Assigning (L-Value)<td>
-On the left hand side of an assignment operation, and the right hand side
-matches the pointee type of the pointer.
-* E.g. `v = 12;` assuming prior declaration `var v : i32`
+      // Update the value in the locations referenced by 'i' so they hold the value 5.
+      // The evaluation of the right-hand-side occurs before the assignment takes effect.
+      i = i + 3;
+    }
+  </xmp>
+</div>
 
-  <tr><td>Copying<td>
-On the right hand side of a const-declaration, and the type of the
-const-declaration matches the pointer type.
-* E.g. `const v2 : ptr<private,i32> = v;`  assuming prior declaration
-        `var<private> v:i32`
+<div class='example wgsl' heading='Returning a reference returns the value loaded via the reference'>
+  <xmp highlight='rust'>
+    var<private> age: i32;
+    fn get_age() -> i32 {
+      // The type of the expression in the return statement must be 'i32' since it
+      // must match the declared return type of the function.
+      // The 'age' expression is of type ref<private,i32>.
+      // Apply the Load Rule, since the store type of the reference matches the
+      // required type of the expression, and no other type rule applies.
+      // The evaluation of 'age' in this context is the i32 value loaded from the
+      // memory locations referenced by 'age' at the time the return statement is
+      // executed.
+      return age;
+    }
 
-  <tr><td>Parameter<td>
-Used in a function call, where the function’s parameter type matches the
-pointer type.
+    fn caller() {
+      age = 21;
+      // The copy_age constant will get the i32 value 21.
+      const copy_age: i32 = get_age();
+    }
+  </xmp>
+</div>
 
-  <tr><td>Reading (R-Value)<td>
-Any other context.  Evaluates to *P.Read()*, yielding a value of *P*’s pointee
-type.
-</table>
+Defining pointers in this way enables two key use cases:
+
+* Using a const declaration with pointer type, to form a short name for part of the contents of a variable.
+* Using a formal parameter of a function to refer to the storage of a variable that is accessible to the calling function.
+    * The call to such a function must supply a pointer value for that operand.
+        This often requires using the unary `&` operation to get a pointer to the variable's contents.
+
+Note: The following examples use [SHORTNAME] features explained later in this specification.
+
+<div class='example wgsl' heading='Using a pointer as a short name for part of a variable'>
+  <xmp highlight='rust'>
+    struct Particle {
+      position: vec3<f32>;
+      velocity: vec3<f32>;
+    };
+    [[block]] struct System {
+      active_index: i32;
+      timestep: f32;
+      particles: array<Particle,100>;
+    };
+    [[group(0), binding(0)]] var<storage> system: [[access(read_write)]] System;
+
+    [[stage(compute)]]
+    fn main() {
+      // Form a pointer to a specific Particle in storage memory.
+      const active_particle: ptr<storage,Particle> =
+          &system.particles[system.active_index];
+
+      const delta_position: vec3<f32> = (*active_particle).velocity * system.timestep;
+      const current_position: vec3<f32>  = (*active_particle).position;
+      (*active_particle).position = delta_position + current_position;
+    }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='Using a pointer as a formal parameter'>
+  <xmp highlight='rust'>
+    fn add_one(x: ptr<function,i32>) {
+      // Update the locations for 'x' to contain the next higher integer value,
+      // (or to wrap around to the largest negative i32 value).
+      // On the left-hand side, unary '*' converts the pointer to a reference that
+      // can then be assigned to.
+      // On the right-hand side:
+      //    - Unary '*' converts the pointer to a reference
+      //    - The only matching type rule is for addition (+) and requires '*x' to
+      //      have type i32, which is the store type for '*x'.  So the Load Rule
+      //      applies and '*x' evaluates to the value stored in the memory for '*x'
+      //      at the time of evaluation, which is the i32 value for 0.
+      //    - Add 1 to 0, to produce a final value of 1 for the right-hand side.
+      // Store 1 into the memory for '*x'.
+      *x = *x + 1;
+    }
+
+    [[stage(compute)]]
+    fn main() {
+      var i: i32 = 0;
+
+      // Modify the contents of 'i' so it will contain 1.
+      // Use unary '&' to get a pointer value for 'i'.
+      // This is a clear signal that the called function has access to the storage
+      // for 'i', and may modify it.
+      add_one(&i);
+      const one: i32 = i;  // 'one' has value 1.
+    }
+  </xmp>
+</div>
+
+### Forming reference and pointer values ### {#forming-references-and-pointers}
+
+A reference value is formed in one of the following ways:
+
+* The identifer [=resolves|resolving=] to an [=in scope|in-scope=] variable *v* denotes the reference value for *v*'s storage.
+    * The resolved variable is the [=originating variable=] for the reference.
+* Use the [=indirection=] (unary `*`) operation on a pointer.
+    * The originating variable of the result is defined as the originating variable of the pointer.
+* Use a <dfn noexport>composite reference component expression</dfn>.
+    In each case the originating variable of the result is defined as the originating variable of the
+    original reference.
+    * Given a reference with a vector store type, appending a single-letter vector access phrase
+        results in a reference to the named component of the vector.
+        See [[#component-reference-from-vector-reference]].
+    * Given a reference with a vector store type, appending an array index access phrase
+        results in a reference to the indexed component of the vector.
+        See [[#component-reference-from-vector-reference]].
+    * Given a reference with a matrix store type, appending an array index access phrase
+        results in a reference to the indexed column vector of the matrix.
+        See [[#matrix-access-expr]].
+    * Given a reference with an array store type, appending an array index access phrase
+        results in a reference to the indexed element of the array.
+        See [[#array-access-expr]].
+    * Given a reference with a structure store type, appending a member access phrase
+        results in a reference to the named member of the structure.
+        See [[#struct-access-expr]].
+
+<div class='example wgsl' heading='Component reference from a composite reference'>
+  <xmp highlight='rust'>
+    struct S {
+        age: i32;
+        weight: f32;
+    };
+    var<private> person : S;
+
+    fn f() {
+        var uv: vec2<f32>;
+        // Evaluate the left-hand side of the assignment:
+        //   Evaluate 'uv.x' to yield a reference:
+        //   1. First evaluate 'uv', yielding a reference to the storage for
+        //      the 'uv' variable. The result has type ref<function,vec2<f32>>.
+        //   2. Then apply the '.x' vector access phrase, yielding a reference to
+        //      the storage for the first component of the vector pointed at by the
+        //      reference value from the previous step.
+        //      The result has type ref<function,f32>.
+        // Evaluating the right-hand side of the assignment yields the f32 value 1.0.
+        // Store the f32 value 1.0 into the storage memory locations referenced by uv.x.
+        uv.x = 1.0;
+
+        // Evaluate the left-hand side of the assignment:
+        //   Evaluate 'uv[1]' to yield a reference:
+        //   1. First evaluate 'uv', yielding a reference to the storage for
+        //      the 'uv' variable. The result has type ref<function,vec2<f32>>.
+        //   2. Then apply the '[1]' array index phrase, yielding a reference to
+        //      the storage for second component of the vector referenced from
+        //      the previous step.  The result has type ref<function,f32>.
+        // Evaluating the right-hand side of the assignment yields the f32 value 2.0.
+        // Store the f32 value 2.0 into the storage memory locations referenced by uv[1].
+        uv[1] = 2.0;
+
+        var m: mat3x2<f32>;
+        // When evaluating 'm[2]':
+        // 1. First evaluate 'm', yielding a reference to the storage for
+        //    the 'm' variable. The result has type ref<function,mat3x2<f32>>.
+        // 2. Then apply the '[2]' array index phrase, yielding a reference to
+        //    the storage for the third column vector pointed at by the reference
+        //    value from the previous step.
+        //    Therefore the 'm[2]' expression has type ref<function,vec2<f32>>.
+        // The 'const' declaration is for type vec2<f32>, so the declaration
+        // statement requires the initializer to be of type vec2<f32>.
+        // The Load Rule applies (because no other type rule can apply), and
+        // the evaluation of the initializer yields the vec2<f32> value loaded
+        // from the memory locations referenced by 'm[2]' at the time the declaration
+        // is executed.
+        const p_m_col2: vec2<f32> = m[2];
+
+        var A: array<i32,5>;
+        // When evaluating 'A[4]'
+        // 1. First evaluate 'A', yielding a reference to the storage for
+        //    the 'A' variable. The result has type ptr<function,array<i32,5>>.
+        // 2. Then apply the '[4]' array index phrase, yielding a reference to
+        //    the storage for the fifth element of the array referenced by
+        //    the reference value from the previous step.
+        //    The result value has type ref<function,i32>.
+        // The const declaration requires the right-hand-side to be of type i32.
+        // The Load Rule applies (because no other type rule can apply), and
+        // the evaluation of the initializer yields the i32 value loaded from
+        // the memory locations referenced by 'A[5]' at the time the declaration
+        // is executed.
+        const A_4_value: i32 = A[4];
+
+        // When evaluating 'person.weight'
+        // 1. First evaluate 'person', yielding a reference to the storage for
+        //    the 'person' variable declared at module scope.
+        //    The result has type ref<private,S>.
+        // 2. Then apply the '.weight' member access phrase, yielding a reference to
+        //    the storage for the second member of the memory referenced by
+        //    the reference value from the previous step.
+        //    The result has type ref<private,f32>.
+        // The const declaration requires the right-hand-side to be of type f32.
+        // The Load Rule applies (because no other type rule can apply), and
+        // the evaluation of the initializer yields the f32 value loaded from
+        // the memory locations referenced by 'person.weight' at the time the
+        // declaration is executed.
+        const person_weight: f32 = person.weight;
+    }
+  </xmp>
+</div>
+
+A pointer value is formed in one of the following ways:
+
+* Use the [=address-of=] (unary '&') operator on a reference.
+    * The originating variable of the result is defined as the originating variable of the reference.
+* If a function [=formal parameter=] has pointer type, then when the function is invoked
+    at runtime the uses of the formal parameter denote the pointer value
+    provided to the corresponding operand at the call site in the calling function.
+    * The originating variable of the formal parameter (at runtime) is defined as
+        the originating variable of the pointer operand at the call site.
+
+<div class='example wgsl' heading='Pointer from a variable'>
+  <xmp highlight='rust'>
+    // Declare a variable in the private storage class, for storing an f32 value.
+    var<private> x: f32;
+
+    fn f() {
+        // Declare a variable in the function storage class, for storing an i32 value.
+        var y: i32;
+
+        // The name 'x' resolves to the module-scope variable 'x',
+        // and has reference type ref<private,f32>.
+        // Applying the unary '&' operator converts the reference to a pointer.
+        const x_ptr: ptr<private,f32> = &x;
+
+        // The name 'y' resolves to the function-scope variable 'y',
+        // and has reference type ref<private,i32>.
+        // Applying the unary '&' operator converts the reference to a pointer.
+        const y_ptr: ptr<function,i32> = &y;
+
+        // A new variable, distinct from the variable declared at module scope.
+        var x: u32;
+
+        // Here, the name 'x' resolves to the function-scope variable 'x' declared in
+        // the previous statement, and has type ref<function,u32>.
+        // Applying the unary '&' operator converts the reference to a pointer.
+        const inner_x_ptr: ptr<function,u32> = &x;
+    }
+  </xmp>
+</div>
+
+
+### Comparison with references and pointers in other languages ### {#pointers-other-languages}
+
+This section is informative, not normative.
+
+References and pointers in [SHORTNAME] are more restricted than in other languages.
+In particular:
+
+* In [SHORTNAME] a reference can't directly be declared as an alias to another reference or variable,
+    either as a variable or as a formal parameter.
+* In [SHORTNAME] pointers and references are not [=storable=].
+    That is, the content of a [SHORTNAME] variable may not contain a pointer or a reference.
+* In [SHORTNAME] a function must not return a pointer or reference.
+* In [SHORTNAME] there is no way to convert between integer values and pointer values.
+* In [SHORTNAME] there is no way to forcibly change the type of a pointer value into another pointer type.
+    * A composite component reference expression is different:
+        it takes a reference to a composite value and yields a reference to
+        one of the components or elements inside the composite value.
+        These are considered different references in [SHORTNAME], even though they may
+        have the same machine address at a lower level of implementation abstraction.
+* In [SHORTNAME] there is no way to forcibly change the type of a reference value into another reference type.
+* In [SHORTNAME] there is no way to allocate new storage from a "heap".
+* In [SHORTNAME] there is no way to explicitly destroy a variable.
+    The storage for a [SHORTNAME] variable becomes inaccessible only when the variable goes out of scope.
+
+Note: From the above rules, it is not possible to form a "dangling" pointer,
+i.e. a pointer that does not reference the storage for a valid (or "live")
+originating variable.
 
 ## Texture and Sampler Types ## {#texture-types}
 
@@ -1863,6 +2368,74 @@ texel_format
 
 </pre>
 
+## Atomic Types ## {#atomic-types}
+
+Operations on atomic objects in [SHORTNAME] are mutually ordered for each object.
+That is, during execution of a shader stage, for each atomic object A, all
+agents observe the same order of operations applied to A.
+The ordering for distinct atomic objects may not be related in any way; no
+causality is implied.
+Note that variables in [=storage classes/workgroup=] storage are shared within a
+[=compute shader stage/workgroup=], but are not shared between different
+workgroups.
+
+Atomic objects may only be operated on by the
+[[#atomic-builtin-functions|atomic builtin functions]].
+
+Atomic types may only be instantiated by variables in the [=storage
+classes/workgroup=] storage class or `read_write` [=attribute/access=] variables in the
+[=storage classes/storage=] storage class.
+
+<table class='data'>
+  <thead>
+    <tr><th>Type<th>Description
+  </thead>
+  <tr algorith="atomic type"><td>atomic&lt;|T|&gt;
+    <td>Atomic of type |T|. |T| must be either [=u32=] or [=i32=].
+</table>
+
+TODO: Add links the eventual memory model descriptions.
+
+<pre class='example storage atomic' heading='Mapping atomics in a storage variable to SPIR-V'>
+  <xmp>
+    [[block]] struct S {
+      a : atomic<i32>;
+      b : atomic<u32>;
+    };
+    
+    [[group(0), binding(0)]]
+    var<storage> x : [[access(read_write)]] S;
+    
+    // Maps to the following SPIR-V:
+    // - When atomic types are members of a struct, the Volatile decoration
+    //   is annotated on the member.
+    // OpDecorate %S Block
+    // OpMemberDecorate %S 0 Volatile
+    // OpMemberDecorate %S 1 Volatile
+    // ...
+    // %i32 = OpTypeInt 32 1
+    // %u32 = OpTypeInt 32 0
+    // %S = OpTypeStruct %i32 %u32
+    // %ptr_storage_S = OpTypePointer StorageBuffer %S
+    // %x = OpVariable %ptr_storage_S StorageBuffer
+  </xmp>
+</pre>
+
+<pre class='example workgroup atomic' heading='Mapping atomics in a workgroup variable to SPIR-V'>
+  <xmp>
+    var<workgroup> x : atomic<u32>;
+    
+    // Maps to the following SPIR-V:
+    // - When atomic types are directly instantiated by a variable,  the Volatile
+    //   decoration is annotated on the OpVariable.
+    // OpDecorate %x Volatile
+    // ...
+    // %u32 = OpTypeInt 32 0
+    // %ptr_workgroup_u32 = OpTypePointer Workgroup %S
+    // %x = OpVariable %ptr_workgroup_u32 Workgroup
+  </xmp>
+</pre>
+
 ## Type Aliases TODO ## {#type-aliases}
 
 <pre class='def'>
@@ -1960,12 +2533,12 @@ declaration of the identifier as a type alias or structure type.
   </xmp>
 </div>
 
-# Variable and const # {#variables}
+# `var` and `let` # {#variables}
 
-TODO: *Stub* (describe what a constant is): A constant is a name for a value, declared via a `const` declaration.
+TODO: *Stub* (describe what a constant is): A constant is a name for a value, declared via a `let` declaration.
 What types are permitted?  Storable, plus pointer to store type.
 
-TODO(dneto): A const may not be of type pointer-to-handle. A function parameter may not have type pointer-to-handle.
+TODO(dneto): A `let` may not be of type pointer-to-handle. A function parameter may not have type pointer-to-handle.
 Otherwise we'd have a need to make a pointer-to-handle type expression. But we've reserved the [=storage classes/handle=] keyword.
 When translating from SPIR-V, you must trace through
 the OpCopyObject (or no-index OpAccessChain) instructions that might be between
@@ -1974,14 +2547,14 @@ the pointer-to-array and the pointer-to-struct.
 A <dfn dfn noexport>variable</dfn> is a named reference to storage that can contain a value of a
 particular storable type.
 
-Two types are associated with a variable: its <dfn noexport>store type</dfn> (the type of value
-that may be placed in the referenced storage) and its <dfn noexport>reference type</dfn> (the type
+Two types are associated with a variable: its [=store type=] (the type of value
+that may be placed in the referenced storage) and its [=reference type=] (the type
 of the variable itself).  If a variable has store type *T* and [=storage class=] *S*,
 then its reference type is pointer-to-*T*-in-*S*.
 
 A <dfn dfn noexport>variable declaration</dfn>:
 
-* Determines the variable’s name, storage class, and store type (and hence its reference type).
+* Determines the variable’s name, storage class, and store type (and hence its [=reference type=]).
 * Ensures the execution environment allocates storage for a value of the store type, for the lifetime of the variable.
 * Optionally have an *initializer* expression, if the variable is in the [=storage classes/private=] or [=storage classes/function=] storage classes.
     If present, the initializer's type must match the store type of the variable.
@@ -1994,7 +2567,7 @@ and when the storage class decoration is required, optional, or forbidden.
 variable_statement
   : variable_decl
   | variable_decl EQUAL short_circuit_or_expression
-  | CONST (IDENT | variable_ident_decl) EQUAL short_circuit_or_expression
+  | LET (IDENT | variable_ident_decl) EQUAL short_circuit_or_expression
 
 variable_decl
   : VAR variable_storage_decoration? variable_ident_decl
@@ -2007,10 +2580,10 @@ variable_storage_decoration
 
 </pre>
 
-The `const` identifiers denote values that are immutable.
-When a `const` identifier is declared without the corresponding type,
-e.g. `const foo = 4`, the type is automatically inferred from the expression to the right of `=`.
-If the type is provided, e.g `const foo: i32 = 4`, it has to match exactly to the type of the initializer expression.
+The `let` identifiers denote values that are immutable.
+When a `let` identifier is declared without the corresponding type,
+e.g. `let foo = 4`, the type is automatically inferred from the expression to the right of `=`.
+If the type is provided, e.g `let foo: i32 = 4`, it has to match exactly to the type of the initializer expression.
 
 Variables in the [=storage classes/storage=] storage class and variables with a
 [storage texture](#texture-storage) type must have an [=access=] attribute
@@ -2043,7 +2616,7 @@ Consider the following snippet of WGSL:
 <div class='example wsgl function-scope'>
   <xmp highlight='rust'>
     var x : f32 = 1.0;
-    const y = x * x + x + 1;
+    let y = x * x + x + 1;
   </xmp>
 </div>
 Because `x` is a variable, all accesses to it turn into load and store operations.
@@ -2143,8 +2716,8 @@ and the name denotes the value of that expression.
 
 <div class='example wgsl global-scope' heading='Module constants'>
   <xmp>
-    const golden : f32 = 1.61803398875;       // The golden ratio
-    const e2 : vec3<i32> = vec3<i32>(0,1,0);  // The second unit vector for three dimensions.
+    let golden : f32 = 1.61803398875;       // The golden ratio
+    let e2 : vec3<i32> = vec3<i32>(0,1,0);  // The second unit vector for three dimensions.
   </xmp>
 </div>
 
@@ -2153,7 +2726,7 @@ the constant is <dfn noexport>pipeline-overridable</dfn>. In this case:
 
   * The type must one of the [=scalar=] types.
   * The initializer expression is optional.
-  * The attribute's literal operand is known as the *pipeline constant ID*,
+  * The attribute's literal operand is known as the <dfn noexport>pipeline constant ID</dfn>,
     and must be a non-negative integer value representable in 32 bits.
   * Pipeline constant IDs must be unique within the [SHORTNAME] program: Two module constants
     must not use the same pipeline constant ID.
@@ -2168,9 +2741,9 @@ Proposal: pipeline creation fails with an error.
 
 <div class='example wgsl global-scope' heading='Module constants, pipeline-overrideable'>
   <xmp>
-    [[constant_id(0)]]    const has_point_light : bool = true;      // Algorithmic control
-    [[constant_id(1200)]] const specular_param : f32 = 2.3;         // Numeric control
-    [[constant_id(1300)]] const gain : f32;                         // Must be overridden
+    [[constant_id(0)]]    let has_point_light : bool = true;      // Algorithmic control
+    [[constant_id(1200)]] let specular_param : f32 = 2.3;         // Numeric control
+    [[constant_id(1300)]] let gain : f32;                         // Must be overridden
   </xmp>
 </div>
 
@@ -2182,7 +2755,7 @@ is the one from the constant's declaration or from a pipeline override.
 
 <pre class='def'>
 global_constant_decl
-  : attribute_list* CONST variable_ident_decl global_const_initializer?
+  : attribute_list* LET variable_ident_decl global_const_initializer?
 
 global_const_initializer
   : EQUAL const_expr
@@ -2238,7 +2811,7 @@ The variable's [=store type=] must be [=storable=].
        var<function> count : u32;  // A variable in function storage class.
        var delta : i32;            // Another variable in the function storage class.
        var sum : f32 = 0.0;        // A function storage class variable with initializer.
-       const unit : i32 = 1;       // A constant. Const declarations don't use a storage class.
+       let unit : i32 = 1;       // A constant. Let declarations don't use a storage class.
     }
   </xmp>
 </div>
@@ -2752,7 +3325,7 @@ value in one type as a value in another type.
 
 </table>
 
-## Composite Value Expressions TODO ## {#composite-value-expr}
+## Composite Value Decomposition Expressions ## {#composite-value-decomposition-expr}
 
 ### Vector Access Expression ### {#vector-access-expr}
 
@@ -2917,7 +3490,63 @@ Issue: Which index is used when it's out of bounds?
            (OpVectorShuffle)
 </table>
 
-### Matrix Access Expression TODO ### {#matrix-access-expr}
+#### Component reference from vector reference #### {#component-reference-from-vector-reference}
+
+<table class='data'>
+  <caption>Getting a reference to a component from a reference to a vector</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="first vector component reference selection">
+       <td>|r| : ref&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
+       <td class="nowrap">
+           |r|`.x` : ref&lt;|SC|,|T|&gt;<br>
+           |r|`.r` : ref&lt;|SC|,|T|&gt;<br>
+       <td>Compute a reference to the first component of the vector referenced by the reference |r|.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain with index value 0)
+  <tr algorithm="second vector component reference selection">
+       <td>|r| : ref&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
+       <td class="nowrap">
+           |r|`.y` : ref&lt;|SC|,|T|&gt;<br>
+           |r|`.g` : ref&lt;|SC|,|T|&gt;<br>
+       <td>Compute a reference to the second component of the vector referenced by the reference |r|.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain with index value 1)
+  <tr algorithm="third vector component reference selection">
+       <td>|r| : ref&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
+           |N| is 3 or 4
+       <td class="nowrap">
+           |r|`.z` : ref&lt;|SC|,|T|&gt;<br>
+           |r|`.b` : ref&lt;|SC|,|T|&gt;<br>
+       <td>Compute a reference to the third component of the vector referenced by the reference |r|.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain with index value 2)
+  <tr algorithm="fourth vector component reference selection">
+       <td>|r| : ref&lt;|SC|,vec4&lt;|T|&gt;&gt;<br>
+       <td class="nowrap">
+           |r|`.w` : ref&lt;|SC|,|T|&gt;<br>
+           |r|`.a` : ref&lt;|SC|,|T|&gt;<br>
+       <td>Compute a reference to the fourth component of the vector referenced by the reference |r|.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain with index value 3)
+  <tr algorithm="vector indexed component reference selection">
+       <td>|r| : ref&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
+          |i| : *Int*
+       <td class="nowrap">
+           |r|[|i|] : ref&lt;|SC|,|T|&gt;
+       <td>Compute a reference to the |i|'<sup>th</sup> component of the vector referenced by the reference |r|.<br>
+           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain)
+</table>
+
+### Matrix Access Expression ### {#matrix-access-expr}
 
 <table class='data'>
   <caption>Column vector extraction</caption>
@@ -2931,14 +3560,29 @@ Issue: Which index is used when it's out of bounds?
        <td class="nowrap">
            |e|[|i|] : vec|M|&lt;|T|&gt;
        <td>The result is the |i|'<sup>th</sup> column vector of |e|.<br>
-           The first column vector is at index |i|=0.<br>
            If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
            (OpCompositeExtract)
 </table>
 
-Issue: Which index is used when it's out of bounds?
+<table class='data'>
+  <caption>Getting a reference to a column vector from a reference to a matrix</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="matrix indexed column vector reference selection">
+       <td class="nowrap">
+          |r| : ref&lt;|SC|,mat|N|x|M|&lt;|T|&gt;&gt;<br>
+          |i| : *Int*
+       <td class="nowrap">
+           |r|[|i|] : ref&lt;vec|M|&lt;|SC|,|T|&gt;&gt;
+       <td>Compute a reference to the |i|'<sup>th</sup> column vector of the matrix referenced by the reference |r|.<br>
+           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain)
+</table>
 
-### Array Access Expression TODO ### {#array-access-expr}
+### Array Access Expression ### {#array-access-expr}
 
 <table class='data'>
   <caption>Array element extraction</caption>
@@ -2952,22 +3596,40 @@ Issue: Which index is used when it's out of bounds?
        <td class="nowrap">
            |e|[|i|] : |T|
        <td>The result is the value of the |i|'<sup>th</sup> element of the array value |e|.<br>
-           The first element is at index |i|=0.<br>
            If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
-  <tr algorithm="runtime-sized array indexed element selection">
-       <td class="nowrap">
-          |e| : array&lt;|T|&gt;<br>
-          |i| : *Int*
-       <td class="nowrap">
-           |e|[|i|] : |T|
-       <td>The result is the value of the |i|'<sup>th</sup> element of the array value |e|.<br>
-           The first element is at index |i|=0.<br>
-           If |i| is outside the range [0,arrayLength(|e|)-1], then an index in the range [0, arrayLength(|e|)-1] is used instead.<br>
+           (OpCompositeExtract)
 </table>
 
-Issue: Which index is used when it's out of bounds?
+<table class='data'>
+  <caption>Getting a reference to an array element from a reference to an array</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="sized array indexed reference selection">
+       <td class="nowrap">
+          |r| : ref&lt;|SC|,array&lt;|T|,|N|&gt;&gt;<br>
+          |i| : *Int*
+       <td class="nowrap">
+           |r|[|i|] : ref&lt;|SC|,|T|&gt;
+       <td>Compute a reference to the |i|'<sup>th</sup> element of the array referenced by the reference |r|.<br>
+           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain)
+  <tr algorithm="array indexed reference selection">
+       <td>|r| : ref&lt;|SC|,array&lt;|T|&gt;&gt;<br>
+          |i| : *Int*
+       <td class="nowrap">
+           |r|[|i|] : ref&lt;|SC|,|T|&gt;
+       <td>Compute a reference to the |i|'<sup>th</sup> element of the runtime-sized array referenced by the reference |r|.<br>
+           If at runtime the array has |N| elements, and |i| is outside the range [0,|N|-1], then an index in the
+           range [0, |N|-1] is used instead.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain)
+</table>
 
-### Structure Access Expression TODO ### {#struct-access-expr}
+### Structure Access Expression ### {#struct-access-expr}
 
 <table class='data'>
   <caption>Structure member extraction</caption>
@@ -2983,6 +3645,24 @@ Issue: Which index is used when it's out of bounds?
            |e|.|M| : |T|
        <td>The result is the value of the member with name |M| from the structure value |e|.<br>
            (OpCompositeExtract, using the member index)
+</table>
+
+<table class='data'>
+  <caption>Getting a reference to a structure member from a reference to a structure</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="structure member reference selection">
+       <td class="nowrap">
+          |S| is a structure type<br>
+          |M| is the name of a member of |S|, having type |T|<br>
+          |r| : ref&lt;|SC|,|S|&gt;<br>
+       <td class="nowrap">
+           |r|.|M| : ref&lt;|SC|,|T|&gt;
+       <td>Given a reference to a structure, the result is a reference to the structure member with identifier name |M|.<br>
+           The [=originating variable=] of the resulting reference is
+           the same as the originating variable of |r|.<br>
+           (OpAccessChain, using the index of the structure member)
 </table>
 
 ## Logical Expressions TODO ## {#logical-expr}
@@ -3067,35 +3747,93 @@ Issue: Which index is used when it's out of bounds?
   <tr><td>*e1* : *T*<br> *e2* : *T*<br> *T* is *FloatVec*<td>`e1 % e2` : *T*<td>Component-wise floating point modulus (OpFMod)
 </table>
 
+
 <table class='data'>
-  <caption>Binary arithmetic expressions with mixed scalar, vector, and matrix operands</caption>
+  <caption>Binary arithmetic expressions with mixed scalar and vector operands</caption>
   <thead>
-    <tr><th>Precondition<th>Conclusion<th>Notes
+    <th>Preconditions<th>Conclusions<th>Semantics
   </thead>
-  <tr><td>*e1* : f32<br>
-          *e2* : *T*<br>
-          *T* is *FloatVec*
-      <td>`e1 * e2` : *T*<br>
-          `e2 * e1` : *T*
-      <td>Multiplication of a vector and a scalar (OpVectorTimesScalar)
-  <tr><td>*e1* : f32<br>
-          *e2* : *T*<br>
-          *T* is mat*N*x*M*&lt;f32&gt;
-      <td>`e1 * e2` : *T*<br>
-          `e2 * e1` : *T*
-      <td>Multiplication of a matrix and a scalar (OpMatrixTimesScalar)
-  <tr><td>*e1* : vec*M*&lt;f32&gt;<br>
-          *e2* : mat*N*x*M*&lt;f32&gt;
-      <td>`e1 * e2` : vec*N*&lt;f32&gt;<br>
-      <td>Vector times matrix (OpVectorTimesMatrix)
-  <tr><td>*e1* : mat*N*x*M*&lt;f32&gt;<br>
-          *e2* : vec*N*&lt;f32&gt;
-      <td>`e1 * e2` : vec*M*&lt;f32&gt;<br>
-      <td>Matrix times vector (OpMatrixTimesVector)
-  <tr><td>*e1* : mat*K*x*N*&lt;f32&gt;<br>
-          *e2* : mat*M*x*K*&lt;f32&gt;<br>
-      <td>`e1 * e2` : mat*M*x*N*&lt;f32&gt;<br>
-      <td>Matrix times matrix (OpMatrixTimesMatrix)
+  <tr algorithm="vector-scalar arithmetic, any scalar type">
+    <td rowspan="8">|S| is one of f32, i32, u32<br>
+        |V| is vec|N|&lt;|S|&gt<br>
+        |es|: |S|<br>
+        |ev|: |V|
+    <td>|ev| `+` |es|: |V|
+    <td>|ev| `+` |V|(|es|)
+  <tr>
+    <td>|es| `+` |ev|: |V|
+    <td>|V|(|es|) `+` |ev|
+  <tr>
+    <td>|ev| `-` |es|: |V|
+    <td>|ev| `-` |V|(|es|)
+  <tr>
+    <td>|es| `-` |ev|: |V|
+    <td>|V|(|es|) `-` |ev|
+  <tr>
+    <td>|ev| `*` |es|: |V|
+    <td>|ev| `*` |V|(|es|)
+  <tr>
+    <td>|es| `*` |ev|: |V|
+    <td>|V|(|es|) `*` |ev|
+  <tr>
+    <td>|ev| `/` |es|: |V|
+    <td>|ev| `/` |V|(|es|)
+  <tr>
+    <td>|es| `/` |ev|: |V|
+    <td>|V|(|es|) `/` |ev|
+  <tr algorithm="vector-scalar integer arithmetic">
+    <td rowspan="2">|S| is one of i32, u32<br>
+        |V| is vec|N|&lt;|S|&gt<br>
+        |es|: |S|<br>
+        |ev|: |V|
+    <td>|ev| `%` |es|: |V|
+    <td>|ev| `%` |V|(|es|)
+  <tr>
+    <td>|es| `%` |ev|: |V|
+    <td>|V|(|es|) `%` |ev|
+</table>
+
+<table class='data'>
+  <caption>Matrix arithmetic</caption>
+  <thead>
+    <th>Preconditions<th>Conclusions<th>Semantics
+  </thead>
+  <tr algorithm="matrix addition">
+    <td rowspan=2>|e1|, |e2|: mat|M|x|N|&lt;f32&gt
+    <td>|e1| `+` |e2|: mat|M|x|N|&lt;f32&gt<br>
+    <td>Matrix addition: column |i| of the result is |e1|[i] + |e2|[i]
+  <tr algorithm="matrix subtraction">
+    <td>|e1| `-` |e2|: mat|M|x|N|&lt;f32&gt
+    <td>Matrix subtraction: column |i| of the result is |e1|[|i|] - |e2|[|i|]
+  <tr algorithm="matrix-scalar multiply">
+    <td rowspan=2>|m|: mat|M|x|N|&lt;f32&gt<br>
+        |s|: f32
+    <td>|m| `*` |s| :  mat|M|x|N|&lt;f32&gt<br>
+    <td>Component-wise scaling: (|m| `*` |s|)[i][j] is |m|[i][j] `*` |s|
+  <tr algorithm="scalar-matrix multiply">
+    <td>|s| `*` |m| :  mat|M|x|N|&lt;f32&gt<br>
+    <td>Component-wise scaling: (|s| `*` |m|)[i][j] is |m|[i][j] `*` |s|
+  <tr algorithm="matrix-column-vector multiply">
+    <td>|m|: mat|M|x|N|&lt;f32&gt<br>
+        |v|: vec|M|&lt;f32&gt
+    <td>|m| `*` |v| :  vec|N|&lt;f32&gt<br>
+    <td>Linear algebra matrix-column-vector product:
+        Component |i| of the result is `dot`(|m|[|i|],|v|)
+       <br>OpMatrixTimesVector
+  <tr algorithm="matrix-row-vector multiply">
+    <td>
+        |m|: mat|M|x|N|&lt;f32&gt<br>
+        |v|: vec|N|&lt;f32&gt
+    <td>|v| `*` |m| :  vec|M|&lt;f32&gt<br>
+    <td>Linear algebra row-vector-matrix product:<br>
+        [=transpose=](transpose(|m|) `*` transpose(|v|))
+       <br>OpVectorTimesMatrix
+  <tr algorithm="matrix-matrix multiply">
+    <td>|e1|: mat|K|x|N|&lt;f32&gt<br>
+        |e2|: mat|M|x|K|&lt;f32&gt
+    <td>|e1| `*` |e2| :  mat|M|x|N|&lt;f32&gt<br>
+    <td>Linear algebra matrix product.<br>OpMatrixTimesMatrix
+
 </table>
 
 ## Comparison Expressions TODO ## {#comparison-expr}
@@ -3406,11 +4144,110 @@ Issue: Which index is used when it's out of bounds?
 
 TODO: *Stub*. Call to function that has a [=return type=] is an expression.
 
-## Variable or const reference TODO ## {#var-const-ref-expr}
+## Variable Identifier Expression ## {#var-identifier-expr}
 
-## Pointer Expressions TODO ## {#pointer-expr}
+<table class='data'>
+  <caption>Getting a reference from a variable name</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="variable reference">
+       <td>
+          |v| is an identifier [=resolves|resolving=] to
+          an [=in scope|in-scope=] variable declared in [=storage class=] |SC|
+          with [=store type=] |T|
+       <td class="nowrap">
+          |v| : ref&lt;|SC|,|T|&gt;
+       <td>Result is a reference to the storage for the named variable |v|.
+</table>
 
-TODO: *Stub*: how to write each of the abstract pointer operations
+## Formal Parameter Expression  ## {#formal-parameter-expr}
+
+<table class='data'>
+  <caption>Getting the value of an identifier declared as a formal parameter to a function</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="formal parameter value">
+       <td>
+          |a| is an identifier [=resolves|resolving=] to
+          an [=in scope|in-scope=] formal paramter declaration with type |T|
+       <td class="nowrap">
+          |a| : |T|
+       <td>Result is the value supplied for the corresponding function call operand at the call site
+           invoking this instance of the function.
+</table>
+
+## Address-Of Expression  ## {#address-of-expr}
+
+The <dfn noexport>address-of</dfn> operator converts a reference to its corresponding pointer.
+
+<table class='data'>
+  <caption>Getting a pointer from a reference</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="address-of expression">
+       <td>
+          |r| : ref&lt;|SC|,|T|&gt;
+       <td class="nowrap">
+          `&`|r| : ptr&lt;|SC|,|T|&gt;
+       <td>Result is the pointer value corresponding to the
+           same [=memory view=] as the reference value |r|.
+</table>
+
+## Indirection Expression  ## {#indirection-expr}
+
+The <dfn noexport>indirection</dfn> operator converts a pointer to its corresponding reference.
+
+<table class='data'>
+  <caption>Getting a reference from a pointer</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="indirection expression">
+       <td>
+          |p| : ptr&lt;|SC|,|T|&gt;
+       <td class="nowrap">
+          `*`|p| : ref&lt;|SC|,|T|&gt;
+       <td>Result is the reference value corresponding to the
+           same [=memory view=] as the pointer value |p|.
+</table>
+
+## Constant Identifier Expression  ## {#constant-identifier-expr}
+
+<table class='data'>
+  <caption>Getting the value of a `let`-declared identifier</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="pipeline-overridable constant value">
+       <td>
+          |c| is an identifier [=resolves|resolving=] to
+          an [=in scope|in-scope=] [=pipeline-overridable=] `let` declaration with type |T|
+       <td class="nowrap">
+          |c| : |T|
+       <td>If pipeline creation specified a value for the [=pipeline constant ID|constant ID=],
+           then the result is that value.
+           This value may be different for different pipeline instances.<br>
+           Otherwise, the result is the value computed for the initializer expression.
+           Pipeline-overridable constants appear at module-scope, so evaluation occurs
+           before the shader begins execution.<br>
+           Note: Pipeline creation fails if no initial value was specified in the API call
+           and the `let`-declaration has no intializer expression.
+  <tr algorithm="constant value">
+       <td>
+          |c| is an identifier [=resolves|resolving=] to
+          an [=in scope|in-scope=] `let` declaration with type |T|,
+          and is not pipeline-overridable
+       <td class="nowrap">
+          |c| : |T|
+       <td>Result is the value computed for the initializer expression.<br>
+           For a `let` declaration at module scope, evaluation occurs before the shader begins execution.<br>
+           For a `let` declaration inside a function, evaluation occurs each time control reaches
+           the declaration.<br>
+</table>
+
 
 ## Expression Grammar Summary ## {#expression-grammar}
 
@@ -3440,6 +4277,8 @@ unary_expression
       OpLogicalNot
   | TILDE unary_expression
       OpNot
+  | STAR unary_expression
+  | AND unary_expression
 
 singular_expression
   : primary_expression postfix_expression
@@ -3538,7 +4377,62 @@ compound_statement
   : BRACE_LEFT statements BRACE_RIGHT
 </pre>
 
-## Assignment TODO ## {#assignment}
+## Assignment Statement ## {#assignment}
+
+An <dfn noexport>assignment statement</dfn> replaces the contents of a variable,
+or a portion of a variable, with a new value.
+
+The
+expression to the left of the equals token is the <dfn noexport>left-hand side</dfn>,
+and the
+expression to the right of the equals token is the <dfn noexport>right-hand side</dfn>.
+
+<table class='data'>
+  <thead>
+    <tr><th>Precondition<th>Statement<th>Description
+  </thead>
+  <tr algorithm="assignment">
+    <td>|r| : ref<|SC|,|T|>,<br>
+        |e| : |T|,<br>
+        |T| is [=storable=],<br>
+        |SC| is a writable [=storage class=]
+    <td class="nowrap">|r| = |e|;
+    <td>Evaluates |e|, evaluates |r|, then writes the value computed for |e| into
+        the [=memory locations=] referenced by |r|.<br>
+        (OpStore)
+</table>
+
+The [=originating variable=] of the left-hand side must not have an `access(read)` access attribute.
+
+In the simplest case, the left hand side of the assignment statement is the
+name of a variable.  See [[#forming-references-and-pointers]] for other cases.
+
+    <div class='example wgsl' heading='Assignments'>
+      <xmp highlight='rust'>
+        struct S {
+            age: i32;
+            weight: f32;
+        };
+        var<private> person : S;
+
+        fn f() {
+            var a: i32 = 20;
+            a = 30;           // Replace the contents of 'a' with 30.
+
+            person.age = 31;  // Write 31 into the age field of the person variable.
+
+            var uv: vec2<f32>;
+            uv.y = 1.25;      // Place 1.25 into the second component of uv.
+
+            const uv_x_ptr: ptr<function,f32> = &uv.x;
+            *uv_x_ptr = 2.5;   // Place 2.5 into the first component of uv.
+
+            var friend : S;
+            // Copy the contents of the 'person' variable into the 'friend' variable.
+            friend = person;
+        }
+      </xmp>
+    </div>
 
 <pre class='def'>
 assignment_statement
@@ -3547,10 +4441,6 @@ assignment_statement
       Otherwise, singular expression is a pointer expression in an Assigning (L-value) context
       which maps to OpAccessChain followed by OpStore
 </pre>
-
-### Writing to a variable TODO ### {#writing-to-var}
-
-### Writing to a part of a composite variable TODO ### {#writing-to-part-of-composite}
 
 ## Control flow TODO ## {#control-flow}
 
@@ -3659,7 +4549,7 @@ allows them to naturally use values defined in the loop body.
 
 <div class='example wgsl function-scope' heading="[SHORTNAME] Loop">
   <xmp>
-    const a : i32 = 2;
+    let a : i32 = 2;
     var i : i32 = 0;      // <1>
     loop {
       if (i >= 4) { break; }
@@ -3690,7 +4580,7 @@ allows them to naturally use values defined in the loop body.
     loop {
       if (i >= 4) { break; }
 
-      const step : i32 = 1;
+      let step : i32 = 1;
 
       i = i + 1;
       if (i % 2 == 0) { continue; }
@@ -3707,7 +4597,7 @@ allows them to naturally use values defined in the loop body.
     loop {
       if (i >= 4) { break; }
 
-      const step : i32 = 1;
+      let step : i32 = 1;
 
       if (i % 2 == 0) { continue; }
 
@@ -3812,7 +4702,7 @@ then:
     var a : i32 = 2;
     var i : i32 = 0;
     loop {
-      const step : i32 = 1;
+      let step : i32 = 1;
 
       if (i % 2 == 0) { continue; }
 
@@ -3831,7 +4721,7 @@ then:
     var a : i32 = 2;
     var i : i32 = 0;
     loop {
-      const step : i32 = 1;
+      let step : i32 = 1;
 
       if (i % 2 == 0) { continue; }
 
@@ -3851,7 +4741,7 @@ then:
     var i : i32 = 0;
 
     loop {
-      const step : i32 = 1;
+      let step : i32 = 1;
 
       if (i % 2 == 0) { continue; }
 
@@ -3893,7 +4783,7 @@ control past a declaration used in the targeted continuing construct.
       if (i >= 4) { break; }
       if (i % 2 == 0) { continue; } // <3>
 
-      const step : i32 = 2;
+      let step : i32 = 2;
 
       continuing {
         i = i + step;
@@ -4022,7 +4912,7 @@ statement
 
 # Functions # {#functions}
 
-A <dfn noexport>function</dfn> performs computational work when invoked.
+A <dfn dfn-for="function" noexport>function</dfn> performs computational work when invoked.
 
 A function is invoked in one of the following ways:
 * By evaluating a function call expression. See [[#function-call-expr]].
@@ -4106,7 +4996,7 @@ parameters and return types:
     // It invokes the ordinary_two function, and captures
     // the resulting value in the named value 'two'.
     [[stage(compute)]] fn main() {
-       const six: i32 = add_two(4, 5.0);
+       let six: i32 = add_two(4, 5.0);
     }
   </xmp>
 </div>
@@ -4119,12 +5009,19 @@ TODO: explain how invocation works: supply operands matching formal parameter ty
 "suspend" execution of the caller, then resume after
 the callee is done (unless discard). Describe return value.
 
+TODO: A function call site is a dynamic context. This matters when discussing the originating
+variable for the dynamic value provided as the operand for a formal argument having pointer type.
+
 The names in the parameter list of a function definition are available for use in the body
 of the function.
 During a particular function evaluation,
 the parameter names denote the values specified to the function call expression or statement
 which initiated the function evaluation;
 the names and values are associated by position.
+
+TODO: define 'formal parameter'.
+
+## Function calls TODO ## {#func-call-semantics}
 
 ## Restrictions TODO ## {#function-restriction}
 TODO: *This is a stub*
@@ -4140,15 +5037,21 @@ TODO: *This is a stub*
 
 ## Shader Stages ## {#shader-stages-sec}
 
-In WebGPU, a <dfn noexport>pipeline</dfn> is a unit of work executed on the GPU.
+WebGPU issues work to the GPU in the form of [=draw command|draw=] or [=dispatch commands=].
+These commands execute a pipeline in the context of a set of
+[=pipeline input|inputs=], [=pipeline output|outputs=], and attached [=resources=].
+
+A <dfn noexport>pipeline</dfn> describes the behaviour to be performed on the GPU, as a sequence
+of stages, some of which are programmable.
+In WebGPU, a pipeline is created before scheduling a draw or dispatch command for execution.
 There are two kinds of pipelines: GPUComputePipeline, and GPURenderPipeline.
 
-A <dfn noexport>GPUComputePipeline</dfn> runs a
+A [=dispatch command=] uses a <dfn noexport>GPUComputePipeline</dfn> to run a
 <dfn noexport>compute shader stage</dfn> over a logical
 grid of points with a controllable amount of parallelism,
 while reading and possibly updating buffer and image resources.
 
-A <dfn noexport>GPURenderPipeline</dfn> is a multi-stage process with
+A [=draw command=] uses a <dfn noexport>GPURenderPipeline</dfn> to run a multi-stage process with
 two programmable stages among other fixed-function stages:
 
 * A <dfn noexport>vertex shader stage</dfn> maps input attributes for a single vertex into
@@ -4264,12 +5167,14 @@ The interface includes:
 * Pipeline inputs and outputs
 * Buffer resources
 * Texture resources
+* Sampler resources
 
 These objects are represented by module-scope variables in certain [=storage classes=].
 
 We say a variable is <dfn noexport>statically accessed</dfn> by a function if any subexpression
 in the body of the function uses the variable's identifier,
 and that subexpression is [=in scope=] of the variable's declaration.
+Static access of a `let`-declared constant is defined similarly.
 Note that being statically accessed is independent of whether an execution of the shader
 will actually evaluate the subexpression, or even execute the enclosing statement.
 
@@ -4338,6 +5243,36 @@ between stages of a pipeline or output from the end of a pipeline.
 User-defined IO must not be passed to [=compute=] shader entry points.
 User-defined IO must be [=numeric scalar=] or [=numeric vector=] types .
 All user defined IO must be assigned locations (See [[#input-output-locations]]).
+
+#### Interpolation #### {#interpolation}
+
+Authors can control how user-defined IO data is interpolated through the use of
+the [=attribute/interpolate=] attribute.
+[SHORTNAME] offers two aspects of interpolation to control: the type of
+interpolation, and the sampling of the interpolation.
+
+The <dfn noexport>interpolation type</dfn> must be one of:
+* `perspective` - Values are interpolated in a perspective correct manner.
+* `linear` - Values are interpolated in a linear, non-perspective correct manner.
+* `flat` - Values are not interpolated.
+    Interpolation sampling is not used with `flat` interpolation.
+
+The <dfn noexport>interpolation sampling</dfn> must be one of:
+* `center` - Interpolation is performed at the center of the pixel.
+* `centroid` - Interpolation is performed at a point that lies within all the
+    samples covered by the fragment within the current primitive.
+    This value is the same for all samples in the primitive.
+* `sample` - Interpolation is performed per sample.
+    The [=fragment=] shader is invoked once per sample when this attribute is
+    applied.
+
+The default interpolation of user-defined IO of scalar or vector floating-point
+type is `[[interpolate(perspective, center)]]`.
+User-defined IO of scalar or vector integer type is always
+`[[interpolate(flat)]]` and, therefore, must not be specified in a [SHORTNAME] program.
+
+Interpolation attributes must match between [=vertex=] outputs and [=fragment=]
+inputs with the same [=attribute/location=] assignment within the same [=pipeline=].
 
 #### Input-output Locations #### {#input-output-locations}
 
@@ -4422,13 +5357,13 @@ User-defined IO can be mixed with builtin variables in the same structure. For e
 
     [[stage(fragment)]]
     // Invalid, location cannot be applied to a structure type.
-    fn fragShader1([[location(0)]] in1 : D) -> void {
+    fn fragShader1([[location(0)]] in1 : D) {
       // ...
     }
 
     [[stage(fragment)]]
     // Invalid, in1 and in2 cannot share a location.
-    fn fragShader2([location(0)]] in1 : f32, [[location(0)]] in2 : f32) -> void {
+    fn fragShader2([location(0)]] in1 : f32, [[location(0)]] in2 : f32) {
       // ...
     }
 
@@ -4592,11 +5527,11 @@ the implementation can issue a clear diagnostic.
 
     // Assuming the f16 extension enables use of the f16 type:
     //    - as function return value
-    //    - as the type for const declaration
+    //    - as the type for let declaration
     //    - as a type constructor, with an i32 argument
     //    - as operands to the division operator: /
     fn halve_it(x: f16) -> f16 {
-       const two: f16 = f16(2);
+       let two: f16 = f16(2);
        return x / two;
     };
 
@@ -4867,7 +5802,6 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`BLOCK`<td>block
   <tr><td>`BREAK`<td>break
   <tr><td>`CASE`<td>case
-  <tr><td>`CONST`<td>const
   <tr><td>`CONTINUE`<td>continue
   <tr><td>`CONTINUING`<td>continuing
   <tr><td>`DEFAULT`<td>default
@@ -4881,6 +5815,7 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`FOR`<td>for
   <tr><td>`FUNCTION`<td>function
   <tr><td>`IF`<td>if
+  <tr><td>`LET`<td>let
   <tr><td>`LOOP`<td>loop
   <tr><td>`PRIVATE`<td>private
   <tr><td>`RETURN`<td>return
@@ -4952,7 +5887,7 @@ The following is a list of keywords which are reserved for future expansion.
     <td>i8
     <td>i16
     <td>i64
-    <td>let
+    <td>const
   <tr>
     <td>typedef
     <td>u8
@@ -5305,8 +6240,9 @@ That's not a full user-defined function declaration.
     <td>|e| : |T|, |T| is *FloatVec*
     <td>`isNormal(`|e|`)` : vec|N|&lt;bool&gt;, where |N| = *Arity(*|T|*)*<td>Component-wise test for normal number. Component *i* of the result is *isNormal(e[i])*. (emulated)
   <tr algorithm="runtime array length">
-    <td>|e| : array<|T|>
-    <td>`arrayLength(`|e|`)` : u32<td>Returns the length of the runtime array. (OpArrayLength)
+    <td>|e| : ptr&lt;storage,array&lt;|T|&gt;&gt;
+    <td>`arrayLength(`|e|`)` : u32<td>Returns the number of elements in the runtime array.<br>
+        (OpArrayLength, but you have to trace back to get the pointer to the enclosing struct.)
 </table>
 
 ## Float built-in functions ## {#float-builtin-functions}
@@ -6232,6 +7168,103 @@ TODO(dsinclair): Need gather operations
 
 ## Atomic built-in functions ## {#atomic-builtin-functions}
 
+Atomic built-in functions can be used to read/write/read-modify-write atomic
+objects. They are the only operations allowed on [[#atomic-types]].
+
+All atomic built-in functions use a `relaxed` memory ordering (**0**-value
+integral constant in SPIR-V for all `Memory Semantics` operands).
+This means synchronization and ordering guarantees only apply among atomic
+operations acting on the same [=memory locations=].
+No synchronization or ordering guarantees apply between atomic and
+non-atomic memory accesses, or between atomic accesses acting on different
+memory locations.
+
+Atomic built-in functions `must` not be used in a [=vertex=] shader stage.
+
+The storage class `SC` of the `atomic_ptr` parameter in all atomic built-in
+functions `must` be either [=storage classes/storage=] or [=storage
+classes/workgroup=]. [=storage classes/workgroup=] atomics have a **Workgroup**
+memory scope in SPIR-V, while [=storage classes/storage=] atomics have a
+**Device** memory scope in SPIR-V.
+
+TODO: Add links to the eventual memory model descriptions.
+
+### Atomic Load ### {#atomic-load}
+
+```rust
+atomicLoad(atomic_ptr : ptr<SC, atomic<T>>) -> T
+
+// Maps to the SPIR-V instruction OpAtomicLoad.
+```
+
+Returns the atomically loaded the value pointed to by `atomic_ptr`.
+
+### Atomic Store ### {#atomic-store}
+
+```rust
+atomicStore(atomic_ptr : ptr<SC, atomic<T>>, v : T)
+
+// Maps to the SPIR-V instruction OpAtomicStore.
+```
+
+Atomically stores the value `v` in the atomic object pointed to by `atomic_ptr`.
+
+### Atomic Read-Modify-Write ### {#atomic-rmw}
+
+```rust
+atomicAdd(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicMax(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicMin(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicAnd(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicOr(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+atomicXor(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+
+// Mappings to SPIR-V instructions:
+// atomicAdd -> OpAtomicIAdd
+// atomicMax -> OpAtomicSMax or OpAtomicUMax (depending on the signedness of T)
+// atomicMin -> OpAtomicSMin or OpAtomicUMin (depending on the signedness of T)
+// atomicAnd -> OpAtomicAnd
+// atomicOr  -> OpAtomicOr
+// atomicXor -> OpAtomicXor
+```
+Each function performs the following steps atomically:
+
+1. Load the original value pointed to by `atomic_ptr`.
+2. Obtains a new value by performing the operation (e.g. max) from the function
+    name with the value |v|.
+3. Store the new value using `atomic_ptr`.
+
+Each function returns the original value stored in the atomic object.
+
+```rust
+atomicExchange(atomic_ptr : ptr<SC, atomic<T>>, v : T) -> T
+
+// Maps to the SPIR-V instruction OpAtomicExchange.
+```
+
+Atomically stores the value `v` in the atomic object pointed to
+`atomic_ptr` and returns the original value stored in the atomic object.
+
+```rust
+atomicCompareExchangeWeak(atomic_ptr : ptr<SC, atomic<T>>, cmp : T, v : T) -> vec2<T>
+
+// Maps to the SPIR-V instruction OpAtomicCompareExchange.
+```
+
+Performs the following steps atomically:
+
+1. Load the original value pointed to by `atomic_ptr`.
+2. Compare the original value to the value `v` using an equality operation.
+3. Store the value `v` `only if` the result of the equality comparison was **true**.
+
+Returns a two-element vector, where the first element is the original value of
+the atomic object and the second element is whether or not the comparison
+succeeded (**1** if successful, **0** otherwise).
+
+Note: the equality comparison may spuriously fail on some implementations. That
+is, the second element of the result vector may be **0** even if the first
+element of the result vector equals `cmp`.
+
 ## Data packing built-in functions ## {#pack-builtin-functions}
 
 Data packing builtin functions can be used to encode values using data formats that
@@ -6394,6 +7427,19 @@ TODO: Add links to the eventual memory model.
   </xmp>
 </div>
 
+## Value-steering functions ## {#value-steering-functions}
+
+<table class='data'>
+  <thead>
+    <tr><th>Built-in<th>Description
+  </thead>
+  <tr algorithm="compute a value then ignore it">
+    <td class="nowrap">
+        `ignore`(|e|: |T|)
+    <td>Evaluates |e|, and then ignores the result.<br>
+        Type |T| is any type that can be returned from a function.<br>
+</table>
+
 # Glossary # {#glossary}
 
 TODO: Remove terms unused in the rest of the specification.
@@ -6414,17 +7460,6 @@ TODO: Remove terms unused in the rest of the specification.
 
 # MATERIAL TO BE MOVED TO A NEW HOME OR DELETED # {#junkyard}
 
-## Composite types ## {#composite-types}
-
-A type is *composite* if its values have a well-defined internal
-structure of typed *components*.
-
-The following types are *composite types*:
-
-* [[#vector-types]]
-* [[#matrix-types]]
-* [[#array-types]]
-* [[#struct-types]]
 
 [SHORTNAME] has operations for:
 
