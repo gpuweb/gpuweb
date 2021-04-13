@@ -883,6 +883,22 @@ An [=adapter=] has the following internal slots:
 
         Each adapter limit must be the same or [=limit/better=] than its default value
         in [=supported limits=].
+
+    : <dfn>\[[current]]</dfn>, of type boolean
+    ::
+        Indicates whether the adapter is allowed to vend new devices at this time.
+        Its value may change at any time.
+
+        It is initially set to `true` inside {{GPU/requestAdapter()}}.
+        It becomes `false` inside "[=lose the device=]" and "[=mark adapters stale=]".
+        Once set to `false`, it cannot become `true` again.
+
+        Note:
+        This mechanism ensures that various adapter-creation scenarios look similar to applications,
+        so they can easily be robust to more scenarios with less testing: first initialization,
+        reinitialization due to an unplugged adapter, reinitialization due to a test
+        {{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc. It also ensures applications use
+        the latest system state to make decisions about which adapter to use.
 </dl>
 
 [=Adapters=] are exposed via {{GPUAdapter}}.
@@ -894,7 +910,7 @@ through which [=internal objects=] are created.
 It can be shared across multiple [=agents=] (e.g. dedicated workers).
 
 A [=device=] is the exclusive owner of all [=internal objects=] created from it:
-when the [=device=] is lost, it and all objects created on it (directly, e.g.
+when the [=device=] is [=lose the device|lost=], it and all objects created on it (directly, e.g.
 {{GPUDevice/createTexture()}}, or indirectly, e.g. {{GPUTexture/createView()}}) become
 [=invalid=].
 
@@ -933,6 +949,22 @@ and adds extra `[[`/`]]` in spec text. Consider removing the brackets.
     - Let |device|.{{device/[[limits]]}} be a [=supported limits=] object with the default values.
         For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/nonGuaranteedLimits}}, set the
         member corresponding to |key| in |device|.{{device/[[limits]]}} to the value |value|.
+</div>
+
+Any time the user agent needs to revoke access to a device, it calls
+[=lose the device=](device, `undefined`).
+
+<div algorithm>
+    To <dfn dfn>lose the device</dfn>(|device|, |reason|):
+
+    1. Set |device|.{{device/[[adapter]]}}.{{adapter/[[current]]}} to `false`.
+    1. Issue: explain how to get from |device| to its "primary" {{GPUDevice}}.
+    1. Resolve {{GPUDevice/lost|GPUDevice.lost}} with a new {{GPUDeviceLostInfo}} with
+        {{GPUDeviceLostInfo/reason}} set to |reason| and
+        {{GPUDeviceLostInfo/message}} set to an implementation-defined value.
+
+        Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
+        information and should never be parsed by applications.
 </div>
 
 [=Devices=] are exposed via {{GPUDevice}}.
@@ -1225,12 +1257,13 @@ interface GPU {
             1. Let |promise| be [=a new promise=].
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
-                    1. If the user agent chooses to return an adapter:
+                    1. If the user agent chooses to return an adapter, it should:
 
-                        1. The user agent chooses an [=adapter=] |adapter| according to the rules in
+                        1. Create an [=adapter=] |adapter| with {{adapter/[[current]]}} set to `true`,
+                            chosen according to the rules in
                             [[#adapter-selection]] and the criteria in |options|.
 
-                        1. |promise| [=resolves=] with a new {{GPUAdapter}} encapsulating |adapter|.
+                        1. [=Resolve=] |promise| with a new {{GPUAdapter}} encapsulating |adapter|.
 
                     1. Otherwise, |promise| [=resolves=] with `null`.
                 </div>
@@ -1240,6 +1273,38 @@ interface GPU {
                  that violate IDL rules), specify that they reject the promise. -->
         </div>
 </dl>
+
+{{GPU}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for=GPU>
+    : <dfn>\[[previously_returned_adapters]]</dfn>, of type [=ordered set=]&lt;[=adapter=]&gt;
+    ::
+        The set of [=adapters=] that have been returned via {{GPU/requestAdapter()}}.
+        It is used, then cleared, in [=mark adapters stale=].
+</dl>
+
+Upon any change in the system's state that could affect the result of any {{GPU/requestAdapter()}}
+call, the user agent *should* [=mark adapters stale=]. For example:
+
+- A physical adapter is added/removed (via plug, driver update, TDR, etc.)
+- The system's power configuration has changed (laptop unplugged, power settings changed, etc.)
+
+Additionally, [=mark adapters stale=] may by scheduled at any time.
+User agents may choose to do this often even when there has been no system state change (e.g.
+several seconds after the last call to {{GPUAdapter/requestDevice()}}.
+This has no effect on well-formed applications, obfuscates real system state changes, and makes
+developers more aware that calling {{GPU/requestAdapter()}} again is always necessary before
+calling {{GPUAdapter/requestDevice()}}.
+
+<div algorithm>
+    To <dfn dfn>mark adapters stale</dfn>:
+
+    1. For each |adapter| in `navigator.gpu.`{{GPU/[[previously_returned_adapters]]}}:
+        1. Set |adapter|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[current]]}} to `false`.
+    1. [=list/Empty=] `navigator.gpu.`{{GPU/[[previously_returned_adapters]]}}.
+
+    Issue: Update here if an `adaptersadded`/`adapterschanged` event is introduced.
+</div>
 
 <div class="example">
     Request a {{GPUAdapter}}:
@@ -1408,16 +1473,22 @@ interface GPUAdapter {
                                 |adapter|.{{adapter/[[limits]]}}.
                         </div>
 
-                    1. If the user agent cannot fulfill the request:
+                    1. If |adapter|.{{adapter/[[current]]}} is `false`,
+                        or the user agent otherwise cannot fulfill the request:
 
-                        1. Let |device| be a new {{GPUDevice}} object which has
-                            {{GPUDevice/lost|GPUDevice.lost}} resolved with a {{GPUDeviceLostInfo}}
-                            with {{GPUDeviceLostInfo/reason}} `undefined` and an
-                            implementation-defined {{GPUDeviceLostInfo/message}}.
+                        1. Let |device| be a new [=device=].
+                        1. [=Lose the device=](|device|, `undefined`).
 
-                            Issue: Probably centralize this better with other device loss triggering, once added.
+                            Note:
+                            This makes |adapter|.{{adapter/[[current]]}} `false`, if it wasn't already.
 
-                        1. [=Resolve=] |promise| with |device| and stop.
+                            Note:
+                            User agents should consider issuing developer-visible warnings in
+                            most or all cases when this occurs. Applications should perform
+                            reinitialization logic starting with {{GPU/requestAdapter()}}.
+
+                        1. [=Resolve=] |promise| with a new {{GPUDevice}} encapsulating |device|,
+                            and stop.
 
                     1. [=Resolve=] |promise| with a new {{GPUDevice}} object encapsulating
                         [=a new device=] with the capabilities described by |descriptor|.
@@ -1548,24 +1619,19 @@ Those not defined here are defined elsewhere in this document.
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>destroy()</dfn>
     ::
-        Destroys the [=device=].
+        Destroys the [=device=], preventing further operations on it.
+        Outstanding asynchronous operations will fail.
 
         <div algorithm=GPUDevice.destroy()>
             **Called on:** {{GPUDevice}} |this|.
 
-            1. Make |this|.{{GPUDevice/[[device]]}} [=invalid=].
-            1. Resolve {{GPUDevice/lost}}, on every {{GPUDevice}} associated with
-                |this|.{{GPUDevice/[[device]]}}, with a {{GPUDeviceLostInfo}} with
-                {{GPUDeviceLostInfo/reason}} {{GPUDeviceLostReason/"destroyed"}}
-                and an implementation-defined {{GPUDeviceLostInfo/message}}.
-
-            Issue: Probably centralize this better with other device loss triggering, once added.
+            1. [=Lose the device=](|this|.{{GPUDevice/[[device]]}},
+                {{GPUDeviceLostReason/"destroyed"}}).
         </div>
 
         Note:
-        This prevents any further operations on the device.
-        Implementations can free resource allocations immediately.
-        Outstanding asynchronous operations will fail, so implementations can abort them early.
+        Since no further operations can occur on this device, implementations can free resource
+        allocations and abort outstanding asynchronous operations immediately.
 </dl>
 
 {{GPUDevice}} objects are [=serializable objects=].
