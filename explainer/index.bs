@@ -796,6 +796,87 @@ Some alternatives are mentioned in issue [#747](https://github.com/gpuweb/gpuweb
 
 ## Canvas Output ## {#canvas-output}
 
+Historically, drawing APIs (2d canvas, WebGL) are initialized from canvases using `getContext()`.
+However, WebGPU is more than a drawing API, and many applications do not need a canvas.
+WebGPU is initialized without a canvas - see [[#initialization]].
+
+Following this, WebGPU has no "default" drawing buffer.
+Instead, a WebGPU device may be connected to *any number* of canvases (zero or more)
+and render to any number of them each frame.
+
+Canvas context creation and WebGPU device creation are decoupled.
+Any `GPUCanvasContext` may be dynamically used with any `GPUDevice`.
+This makes device switches easy (e.g. after recovering from a device loss).
+(In comparison, WebGL context restoration is done on the same `WebGLRenderingContext` object,
+even though context state does not persist across loss/restoration.)
+
+In order to access a canvas, an app gets a `GPUTexture` from the `GPUCanvasContext`
+and then writes to it, as it would with a normal `GPUTexture`.
+
+### Swap Chains ### {#canvas-output-swap-chains}
+
+Canvas `GPUTexture`s are vended in a very structured way:
+
+- `canvas.getContext('gpupresent')` provides a `GPUCanvasContext`.
+- `GPUCanvasContext.configureSwapChain({ device, format, usage })` provides a `GPUSwapChain`,
+    invalidating any previous swapchains, attaching the canvas to the provided device, and
+    setting the `GPUTextureFormat` and `GPUTextureUsage` for vended textures.
+- `GPUSwapChain.getCurrentTexture()` provides a `GPUTexture`.
+
+This structure provides maximal compatibility with optimized paths in native graphics APIs.
+In these, typically, a platform-specific "surface" object can produce an API object called a
+"swap chain" which provides, possibly up-front, a possibly-fixed list of 1-3 textures to render
+into.
+
+### Current Texture ### {#canvas-output-current-texture}
+
+A `GPUSwapChain` provides a "current texture" via `getCurrentTexture()`.
+For <{canvas}> elements, this returns a texture for the *current frame*:
+
+- On `getCurrentTexture()`, `[[currentTexture]]` is created if it doesn't exist, then returned.
+- During the "[=Update the rendering=]" step, the browser compositor takes ownership of the
+    `[[currentTexture]]` for display, and that internal slot is cleared for the next frame.
+
+### `getSwapChainPreferredFormat()` ### {#canvas-output-preferred-format}
+
+Due to framebuffer hardware differences, different devices have different preferred byte layouts
+for display surfaces.
+Any allowed format is allowed on all systems, but applications may save power by using the
+preferred format.
+The exact format cannot be hidden, because the format is observable - e.g.,
+in the behavior of a `copyBufferToTexture` call and in compatibility rules with render pipelines
+(which specify a format, see `GPUColorTargetState.format`).
+
+Desktop-lineage hardware usually prefers `bgra8unorm` (4 bytes in BGRA order),
+while mobile-lineage hardware usually prefers `rgba8unorm` (4 bytes in RGBA order).
+
+For high-bit-depth, different systems may also prefer different formats,
+like `rgba16float` or `rgb10a2unorm`.
+
+### Multiple Displays ### {#canvas-output-multiple-displays}
+
+Some systems have multiple displays with different capabilities (e.g. HDR vs non-HDR).
+Browser windows can be moved between these displays.
+
+As today with WebGL, user agents can make their own decisions about how to expose these
+capabilities, e.g. choosing the capabilities of the initial, primary, or most-capable display.
+
+In the future, an event might be provided that allows applications to detect when a canvas moves
+to a display with different properties so they can call `getSwapChainPreferredFormat()` and
+`configureSwapChain()` again.
+
+#### Multiple Adapters #### {#canvas-output-multiple-adapters}
+
+Some systems have multiple displays connected to different hardware adapters; for example,
+laptops with switchable graphics might have the internal display connected to the integrated GPU
+and the HDMI port connected to the discrete GPU.
+
+This can incur overhead, as rendering on one adapter and displaying on another typically incurs
+a copy or direct-memory-access (DMA) over a PCI bus.
+
+Currently, WebGPU does not provide a way to detect which adapter is optimal for a given display.
+In the future, applications may be able to detect this, and receive events when this changes.
+
 
 ## Bitflags ## {#bitflags}
 
