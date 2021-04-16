@@ -58,7 +58,8 @@ It returns a Promise which resolves when a device is ready.
 The Promise may not resolve for a long time - for example, even if the
 adapter is still valid, the browser could delay until a background tab is
 foregrounded, to make sure that system resources are conserved until then.
-If the adapter is lost and therefore unable to create a device, `requestDevice()` returns null.
+If the adapter is lost and therefore unable to create a device, `requestDevice()`
+returns an already-lost device.
 If the `descriptor` is invalid (e.g. it exceeds the limits of the adapter), `requestDevice()` rejects.
 
 The `GPUDevice` may be lost if something goes fatally wrong on the device
@@ -71,8 +72,7 @@ The device and all objects created from the device have become invalid.
 All further operations on the device and its objects are errors.
 The `"validationerror"` event will no longer fire. (This makes all further operations no-ops.)
 
-An app should never give up on getting WebGPU access due to
-`requestDevice` returning `null` or `GPUDevice.lost` resolving.
+An app should never give up on getting WebGPU access due to `GPUDevice.lost` resolving.
 Instead of giving up, the app should try again starting with `requestAdapter`.
 
 It *should* give up based on a `requestAdapter` returning `null` or rejecting.
@@ -117,6 +117,7 @@ class MyRenderer {
     // ... Upload resources, etc.
     return true;
   }
+  // TODO: This example should not retry on the current adapter, it should get a new adapter.
   async tryEnsureDeviceOnCurrentAdapter() {
     // If no adapter, get one.
     // If we can't, rejects and the app falls back.
@@ -129,10 +130,8 @@ class MyRenderer {
     }
 
     // Try to get a device.
-    //   null => try new adapter
     //   rejection => options were invalid (app programming error)
     this.device = await this.adapter.requestDevice({ /* options */ });
-    if (!this.device) return;
 
     // When the device is lost, just try to get a device again.
     device.lost.then((info) => {
@@ -197,7 +196,8 @@ All devices and adapters are lost (except for software?) because GPU access has 
 WebGPU access has been disabled for the page.
  - `requestAdapter` returns null (or a software adapter).
 
-The device is lost right as it's being returned by requestDevice.
+The device is lost right as it's being returned by requestDevice, or otherwise couldn't be
+created due to non-deterministic/internal reasons.
  - `device.lost` resolves.
 
 ## Operation Errors and Internal Nullability

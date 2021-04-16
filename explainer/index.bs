@@ -1,0 +1,1143 @@
+<pre class='metadata'>
+Title: WebGPU Explainer
+Shortname: webgpu-explainer
+Level: 1
+Status: LS
+Group: webgpu
+URL: https://gpuweb.github.io/gpuweb/explainer/
+Issue Tracking: gpuweb/gpuweb#1321 https://github.com/gpuweb/gpuweb/issues/1321
+No Editor: true
+No Abstract: true
+Markup Shorthands: markdown yes
+Markup Shorthands: dfn yes
+Markup Shorthands: idl yes
+Markup Shorthands: css no
+Assume Explicit For: yes
+Boilerplate: repository-issue-tracking no
+</pre>
+
+Issue(tabatkins/bikeshed#2006): Set up cross-linking into the WebGPU and WGSL specs.
+
+
+# Motivation # {#motivation}
+
+See [Introduction](https://gpuweb.github.io/gpuweb/#introduction).
+
+
+# Security/Privacy # {#security}
+
+See [Malicious use considerations](https://gpuweb.github.io/gpuweb/#malicious-use).
+
+
+# Additional Background # {#background}
+
+
+## Sandboxed GPU Processes in Web Browsers ## {#gpu-process}
+
+A major design constraint for WebGPU is that it must be implementable and efficient in browsers that use a GPU-process architecture.
+GPU drivers need access to additional kernel syscalls than what's otherwise used for Web content, and many GPU drivers are prone to hangs or crashes.
+To improve stability and sandboxing, browsers use a special process that contains the GPU driver and talks with the rest of the browser through asynchronous IPC.
+GPU processes are (or will be) used in Chromium, Gecko, and WebKit.
+
+GPU processes are less sandboxed than content processes, and they are typically shared between multiple origins.
+Therefore, they must validate all messages, for example to prevent a compromised content process from being able to look at the GPU memory used by another content process.
+Most of WebGPU's validation rules are necessary to ensure it is secure to use, so all the validation needs to happen in the GPU process.
+
+Likewise, all GPU driver objects only live in the GPU process, including large allocations (like buffers and textures) and complex objects (like pipelines).
+In the content process, WebGPU types (`GPUBuffer`, `GPUTexture`, `GPURenderPipeline`, ...) are mostly just "handles" that identify objects that live in the GPU process.
+This means that the CPU and GPU memory used by WebGPU object isn't necessarily known in the content process.
+A `GPUBuffer` object can use maybe 150 bytes of CPU memory in the content process but hold a 1GB allocation of GPU memory.
+
+See also the description of [the content and device timelines in the specification](https://gpuweb.github.io/gpuweb/#programming-model-timelines).
+
+
+# JavaScript API # {#api}
+
+
+## Adapter Selection and Device Init ## {#initialization}
+
+Issue: Some changes are expected here.
+
+A WebGPU "adapter" (`GPUAdapter`) is an object which provides a connection to a particular WebGPU
+implementation on the system (e.g. a hardware accelerated implementation on an integrated or
+discrete GPU, or software implementation).
+To get a `GPUAdapter` is to select which implementation to use (if multiple are available).
+
+Each adapter may have different optional capabilities called "features" and "limits".
+These are the maximum possible capabilities that can be requested when a device is created.
+
+To get an adapter, an application calls `navigator.gpu.requestAdapter()`, optionally passing
+options which may influence what adapter is chosen.
+
+`requestAdapter()` always resolves, but may resolve to null if an adapter can't be returned with
+the specified options.
+
+<pre highlight=js>
+const adapter = await navigator.gpu.requestAdapter(options);
+if (!adapter) return goToFallback();
+</pre>
+
+A WebGPU "device" (`GPUDevice`) represents a connection to a WebGPU implementation, as well as
+an arena for all WebGPU objects created from it (textures, command buffers, etc.)
+All WebGPU usage is done through a WebGPU "device" (`GPUDevice`) or objects created from it.
+In this sense, it serves a subset of the purpose of `WebGLRenderingContext`; however, unlike
+`WebGLRenderingContext`, it is not associated with a canvas object, and most commands are
+issued through "child" objects.
+
+To get a device, an application calls `adapter.requestDevice()`, optionally passing a descriptor
+which enables additional optional capabilities (features and limits).
+When any work is issued to the device, it is strictly validated against the capabilities passed
+to `requestDevice()` - not the capabilities of the adapter.
+
+`requestDevice()` will reject (only) if the request exceeds the capabilities of the adapter.
+It may *not* resolve to `null`; instead, to simplify the number of different cases an app must
+handle, it may resolve to a `GPUDevice` which has already been lost - see [[#device-loss]].
+
+<pre highlight=js>
+const device = await adapter.requestDevice(descriptor);
+device.lost.then(recoverFromDeviceLoss);
+</pre>
+
+An adapter may become unavailable, e.g. if it is unplugged from the system, disabled to save
+power, or marked "stale" (`[[current]]` becomes false).
+Such an adapter can no longer vend valid devices, and always returns already-lost `GPUDevice`s.
+
+
+## Object Validity and Destroyed-ness ## {#invalid-and-destroyed}
+
+### WebGPU's Error Monad ### {#error-monad}
+
+A.k.a. Contagious Internal Nullability.
+A.k.a. transparent [promise pipelining](http://erights.org/elib/distrib/pipeline.html).
+
+WebGPU is a very chatty API, with some applications making tens of thousands of calls per frame to render complex scenes.
+We have seen that the GPU processes needs to validate the commands to satisfy their security property.
+To avoid the overhead of validating commands twice in both the GPU and content process, WebGPU is designed so Javascript calls can be forwarded directly to the GPU process and validated there.
+See the error section for more details on what's validated where and how errors are reported.
+
+At the same time, during a single frame WebGPU objects can be created that depend on one another.
+For example a `GPUCommandBuffer` can be recorded with commands that use temporary `GPUBuffer`s created in the same frame.
+In this example, because of the performance constraint of WebGPU, it is not possible to send the message to create the `GPUBuffer` to the GPU process and synchronously wait for its processing before continuing Javascript execution.
+
+Instead, in WebGPU all objects (like `GPUBuffer`) are created immediately on the content timeline and returned to JavaScript.
+The validation is almost all done asynchronously on the "device timeline".
+In the good case, when no errors occur (validation or out-of-memory), everything looks to JS as if it is synchronous.
+However, when an error occurs in a call, it becomes a no-op (aside from error reporting).
+If the call returns an object (like `createBuffer`), the object is tagged as "invalid" on the GPU process side.
+
+All WebGPU calls validate that all their arguments are valid objects.
+As a result, if a call takes one WebGPU object and returns a new one, the new object is also invalid (hence the term "contagious").
+
+<figure>
+    <figcaption>
+        Timeline diagram of messages passing between processes, demonstrating how errors are propagated without synchronization.
+    </figcaption>
+    <object type="image/svg+xml" data="img/error_monad_timeline_diagram.svg"></object>
+</figure>
+
+<div class=example>
+    Using the API when doing only valid calls looks like a synchronous API:
+
+    <pre highlight="js">
+        const srcBuffer = device.createBuffer({
+            size: 4,
+            usage: GPUBufferUsage.COPY_SRC
+        });
+
+        const dstBuffer = ...;
+
+        const encoder = device.createCommandEncoder();
+        encoder.copyBufferToBuffer(srcBuffer, 0, dstBuffer, 0, 4);
+
+        const commands = encoder.finish();
+        device.queue.submit([commands]);
+    </pre>
+</div>
+
+<div class=example>
+    Errors propagate contagiously when creating objects:
+
+    <pre highlight="js">
+        // The size of the buffer is too big, this causes an OOM and srcBuffer is invalid.
+        const srcBuffer = device.createBuffer({
+            size: BIG_NUMBER,
+            usage: GPUBufferUsage.COPY_SRC
+        });
+
+        const dstBuffer = ...;
+
+        // The encoder starts as a valid object.
+        const encoder = device.createCommandEncoder();
+        // Special case: an invalid object is used when encoding commands so the encoder
+        // becomes invalid.
+        encoder.copyBufferToBuffer(srcBuffer, 0, dstBuffer, 0, 4);
+
+        // commands, the this argument to GPUCommandEncoder.finish is invalid
+        // so the call returns an invalid object.
+        const commands = encoder.finish();
+        // The command references an invalid object so it becomes a noop.
+        device.queue.submit([commands]);
+    </pre>
+</div>
+
+#### Mental Models #### {#error-monad-mental-model}
+
+One way to interpret WebGPU's semantics is that every WebGPU object is actually a `Promise` internally and that all WebGPU methods are `async` and `await` before using each of the WebGPU objects it gets as argument.
+However the execution of the async code is outsourced to the GPU process (where it is actually done synchronously).
+
+Another way, closer to actual implementation details, is to imagine that each `GPUFoo` JS object maps to a `gpu::InternalFoo` C++/Rust object on the GPU process that contains a `bool isValid`.
+Then during the validation of each command on the GPU process, the `isValid` are all checked and a new, invalid object is returned if validation fails.
+On the content process side, the `GPUFoo` implementation doesn't know if the object is valid or not.
+
+### Early Destruction of WebGPU Objects ### {#early-destroy}
+
+Most of the memory usage of WebGPU objects is in the GPU process: it can be GPU memory held by objects like `GPUBuffer` and `GPUTexture`, serialized commands held in CPU memory by `GPURenderBundles`, or complex object graphs for the WGSL AST in `GPUShaderModule`.
+The JavaScript garbage collector (GC) is in the renderer process and doesn't know about the memory usage in the GPU process.
+Browsers have many heuristics to trigger GCs but a common one is that it should be triggered on memory pressure scenarios.
+However a single WebGPU object can hold on to MBs or GBs of memory without the GC knowing and never trigger the memory pressure event.
+
+It is important for WebGPU applications to be able to directly free the memory used by some WebGPU objects without waiting for the GC.
+For example applications might create temporary textures and buffers each frame and without the explicit `.destroy()` call they would quickly run out of GPU memory.
+That's why WebGPU has a `.destroy()` method on those object types which can hold on to arbitrary amount of memory.
+It signals that the application doesn't need the content of the object anymore and that it can be freed as soon as possible.
+Of course, it becomes a validation to use the object after the call to `.destroy()`.
+
+<div class=example>
+    <pre highlight="js">
+        const dstBuffer = device.createBuffer({
+            size: 4
+            usage: GPUBufferUsage.COPY_DST
+        });
+
+        // The buffer is not destroyed (and valid), success!
+        device.queue.writeBuffer(dstBuffer, 0, myData);
+
+        buffer.destroy();
+
+        // The buffer is now destroyed, commands using that would use its
+        // content produce validation errors.
+        device.queue.writeBuffer(dstBuffer, 0, myData);
+    </pre>
+</div>
+
+Note that, while this looks somewhat similar to the behavior of an invalid buffer, it is distinct.
+Unlike invalidity, destroyed-ness can change after creation, is not contagious, and is validated only when work is actually submitted (e.g. `queue.writeBuffer()` or `queue.submit()`), not when creating dependent objects (like command encoders, see above).
+
+
+## Errors ## {#errors}
+
+In a simple world, error handling in apps would be synchronous with JavaScript exceptions.
+However, for multi-process WebGPU implementations, this is prohibitively expensive.
+
+See [[#invalid-and-destroyed]], which also explains how the *browser* handles errors.
+
+### Problems and Solutions ### {#errors-solutions}
+
+Developers and applications need error handling for a number of cases:
+
+- *Debugging*:
+    Getting errors synchronously during development, to break in to the debugger.
+- *Fatal Errors*:
+    Handling device/adapter loss, either by restoring WebGPU or by fallback to non-WebGPU content.
+- *Fallible Allocation*:
+    Making fallible GPU-memory resource allocations (detecting out-of-memory conditions).
+- *Fallible Validation*:
+    Checking success of WebGPU calls, for applications' unit/integration testing, WebGPU
+    conformance testing, or detecting errors in data-driven applications (e.g. loading glTF
+    models that may exceed device limits).
+- *Telemetry*:
+    Collecting error logs in deployment, for bug reporting and telemetry.
+
+The following sections go into more details on these cases and how they are solved.
+
+#### Debugging #### {#errors-cases-debugging}
+
+**Solution:** Dev Tools.
+
+Implementations should provide a way to enable synchronous validation,
+for example via a "break on WebGPU error" option in the developer tools.
+
+This can be achieved with a content-process-gpu-process round-trip in every validated WebGPU
+call, though in practice this would be very slow.
+It can be optimized by running a second, approximated mirror of the validation steps in the
+content process (it will not always have the same results since it cannot immediately know about
+out-of-memory errors).
+
+#### Fatal Errors: Adapter and Device Loss #### {#errors-cases-fatalerrors}
+
+**Solution:** [[#device-loss]].
+
+#### Fallible Allocation, Fallible Validation, and Telemetry #### {#errors-cases-other}
+
+**Solution:** *Error Scopes*.
+
+For important context, see [[#invalid-and-destroyed]]. In particular, all errors (validation and
+out-of-memory) are detected asynchronously, in a remote process.
+In the WebGPU spec, we refer to the thread of work for each WebGPU device as its "device timeline".
+
+As such, applications need a way to instruct the device timeline on what to do with any errors
+that occur. To solve this, WebGPU uses *Error Scopes*.
+
+### Error Scopes ### {#errors-errorscopes}
+
+WebGL exposed errors using a `getError` function returning the first error the last `getError` call.
+This is simple, but has two problems.
+
+- It is synchronous, incurring a round-trip and requiring all previously issued work to be finished.
+    We solve this by returning errors asynchronously.
+- Its flat state model composes poorly: errors can leak to/from unrelated code, possibly in
+    libraries/middleware, browser extensions, etc. We solve this with a stack of error "scopes",
+    allowing each component to hermetically capture and handle its own errors.
+
+Each device<sup>1</sup> maintains a persistent "error scope" stack state.
+Initially, the device's error scope stack is empty.
+`GPUDevice.pushErrorScope('validation')` or `GPUDevice.pushErrorScope('out-of-memory')`
+begins an error scope and pushes it onto the stack.
+This scope captures only errors of a particular type depending on the type of error the application
+wants to detect.
+
+`GPUDevice.popErrorScope()` ends an error scope, popping it from the stack and returning a
+`Promise<GPUError?>`, which resolves once all enclosed fallible operations have completed and
+reported back.
+It resolves to `null` if no errors were captured, and otherwise resolves to an object describing
+the first error that was captured by the scope - either a `GPUValidationError` or a
+`GPUOutOfMemoryError`.
+
+Any device-timeline error from an operation is passed to the top-most error scope on the stack at
+the time it was issued.
+
+- If an error scope captures an error, the error is not passed down the stack.
+    Each error scope stores only the **first** error it captures; any further errors it captures
+    are **silently ignored**.
+- If not, the error is passed down the stack to the enclosing error scope.
+- If an error reaches the bottom of the stack, it **may**<sup>2</sup> fire the `uncapturederror`
+    event on `GPUDevice`<sup>3</sup> (and could issue a console warning as well).
+
+<sup>1</sup>
+In the plan to add [[#multithreading]], error scope state to actually be **per-device, per-realm**.
+That is, when a GPUDevice is posted to a Worker for the first time, the error scope stack for
+that device+realm is always empty.
+(If a GPUDevice is copied *back* to an execution context it already existed on, it shares its
+error scope state with all other copies on that execution context.)
+
+<sup>2</sup>
+The implementation may not choose to always fire the event for a given error, for example if it
+has fired too many times, too many times rapidly, or with too many errors of the same kind.
+This is similar to how Dev Tools console warnings work today for WebGL.
+In poorly-formed applications, this mechanism can prevent the events from having a significant
+performance impact on the system.
+
+<sup>3</sup>
+More specifically, with [[#multithreading]], this event would only exists on the *originating*
+`GPUDevice` (the one that came from `createDevice`).
+It doesn't exist on `GPUDevice`s produced by sending messages.
+
+```webidl
+enum GPUErrorFilter {
+    "out-of-memory",
+    "validation"
+};
+
+interface GPUOutOfMemoryError {
+    constructor();
+};
+
+interface GPUValidationError {
+    constructor(DOMString message);
+    readonly attribute DOMString message;
+};
+
+typedef (GPUOutOfMemoryError or GPUValidationError) GPUError;
+
+partial interface GPUDevice {
+    undefined pushErrorScope(GPUErrorFilter filter);
+    Promise<GPUError?> popErrorScope();
+};
+```
+
+#### How this solves *Fallible Allocation* #### {#errors-errorscopes-allocation}
+
+If a call that fallibly allocates GPU memory (e.g. `createBuffer` or `createTexture`) fails, the
+resulting object is invalid (same as if there were a validation error), but an `'out-of-memory'`
+error is generated.
+An `'out-of-memory'` error scope can be used to detect it.
+
+**Example: tryCreateBuffer**
+
+```ts
+async function tryCreateBuffer(device: GPUDevice, descriptor: GPUBufferDescriptor): Promise<GPUBuffer | null> {
+  device.pushErrorScope('out-of-memory');
+  const buffer = device.createBuffer(descriptor);
+  if (await device.popErrorScope() !== null) {
+    return null;
+  }
+  return buffer;
+}
+```
+
+This interacts with buffer mapping in subtle ways, but they are not explained here.
+The principle used to design the interaction is that app code should need to handle as few
+different edge cases as possible, so multiple kinds of situations should result in the same
+behavior.
+
+#### How this solves *Fallible Validation* #### {#errors-errorscopes-validation}
+
+A `'validation'` error scope can be used to detect validation errors, as above.
+
+**Example: Testing**
+
+```ts
+device.pushErrorScope('out-of-memory');
+device.pushErrorScope('validation');
+
+{
+  // (Do stuff that shouldn't produce errors.)
+
+  {
+    device.pushErrorScope('validation');
+    device.doOperationThatIsExpectedToError();
+    device.popErrorScope().then(error => { assert(error !== null); });
+  }
+
+  // (More stuff that shouldn't produce errors.)
+}
+
+// Detect unexpected errors.
+device.popErrorScope().then(error => { assert(error === null); });
+device.popErrorScope().then(error => { assert(error === null); });
+```
+
+#### How this solves *Telemetry* #### {#errors-errorscopes-telemetry}
+
+As mentioned above, if an error is not captured by an error scope, it **may** fire the
+originating device's `uncapturederror` event.
+Applications can either watch for that event, or encapsulate parts of their application with
+error scopes, to detect errors for generating error reports.
+
+`uncapturederror` is not strictly necessary to solve this, but has the benefit of providing a
+single stream for uncaptured errors from all threads.
+
+#### Error Messages and Debug Labels #### {#errors-errorscopes-labels}
+
+Every WebGPU object has a read-write attribute, `label`, which can be set by the application to
+provide information for debugging tools (error messages, native profilers like Xcode, etc.)
+Every WebGPU object creation descriptor has a member `label` which sets the initial value of the
+attribute.
+
+Additionally, parts of command buffers can be labeled with debug markers and debug groups.
+See [[#command-encoding-debug]].
+
+For both debugging (dev tools messages) and telemetry, implementations can choose to report some
+kind of "stack trace" in their error messages, taking advantage of object debug labels.
+For example:
+
+```
+<myQueue>.submit failed:
+- commands[0] (<mainColorPass>) was invalid:
+- in the debug group <environment>:
+- in the debug group <tree 123>:
+- in setIndexBuffer, indexBuffer (<mesh3.indices>) was invalid:
+- in createBuffer, desc.usage was invalid (0x89)
+```
+
+
+## Device Loss ## {#device-loss}
+
+Any situation that prevents further use of a `GPUDevice`, regardless of whether it is caused by a
+WebGPU call (e.g. `device.destroy()`, unrecoverable out-of-memory, GPU process crash, or GPU
+reset) or happens externally (e.g. GPU unplugged), results in a device loss.
+
+**Design principle:**
+There should be as few different-looking error behaviors as possible.
+This makes it easier for developers to test their app's behavior in different situations,
+improves robustness of applications in the wild, and improves portability between browsers.
+
+Issue: Finish this explainer (see [ErrorHandling.md](https://github.com/gpuweb/gpuweb/blob/main/design/ErrorHandling.md#fatal-errors-requestadapter-requestdevice-and-devicelost)).
+
+
+## Buffer Mapping ## {#buffer-mapping}
+
+A `GPUBuffer` represents a memory allocations usable by other GPU operations.
+This memory can be accessed linearly, contrary to `GPUTexture` for which the actual memory layout of sequences of texels are unknown. Think of `GPUBuffers` as the result of `gpu_malloc()`.
+
+**CPU&rarr;GPU:** When using WebGPU, applications need to transfer data from JavaScript to `GPUBuffer` very often and potentially in large quantities.
+This includes mesh data, drawing and computations parameters, ML model inputs, etc.
+That's why an efficient way to update `GPUBuffer` data is needed. `GPUQueue.writeBuffer` is reasonably efficient but includes at least an extra copy compared to the buffer mapping used for writing buffers.
+
+**GPU&rarr;CPU:** Applications also often need to transfer data from the GPU to Javascript, though usually less often and in lesser quantities.
+This includes screenshots, statistics from computations, simulation or ML model results, etc.
+This transfer is done with buffer mapping for reading buffers.
+
+### Background: Memory Visibility with GPUs and GPU Processes ### {#buffer-mapping-background}
+
+The two major types of GPUs are called "integrated GPUs" and "discrete GPUs".
+Discrete GPUs are separate from the CPU; they usually come as PCI-e cards that you plug into the motherboard of a computer.
+Integrated GPUs live on the same die as the CPU and don't have their own memory chips; instead, they use the same RAM as the CPU.
+
+When using a discrete GPU, it's easy to see that most GPU memory allocations aren't visible to the CPU because they are inside the GPU's RAM (or VRAM for Video RAM).
+For integrated GPUs most memory allocations are in the same physical places, but not made visible to the GPU for various reasons (for example, the CPU and GPU can have separate caches for the same memory, so accesses are not cache-coherent).
+Instead, for the CPU to see the content of a GPU buffer, it must be "mapped", making it available in the virtual memory space of the application (think of mapped as in `mmap()`).
+GPUBuffers must be specially allocated in order to be mappable - this can make it less efficient to access from the GPU (for example if it needs to be allocate in RAM instead of VRAM).
+
+All this discussion was centered around native GPU APIs, but in browsers, the GPU driver is loaded in the _GPU process_, so native GPU buffers can be mapped only in the GPU process's virtual memory.
+In general, it is not possible to map the buffer directly inside the _content process_ (though some systems can do this, providing optional optimizations).
+To work with this architecture an extra "staging" allocation is needed in shared memory between the GPU process and the content process.
+
+The table below recapitulates which type of memory is visible where:
+
+<table class="data">
+    <thead>
+        <tr>
+            <th>
+            <th> Regular `ArrayBuffer`
+            <th> Shared Memory
+            <th> Mappable GPU buffer
+            <th> Non-mappable GPU buffer (or texture)
+        </tr>
+    </thead>
+    <tr>
+        <td> CPU, in the content process
+        <td> **Visible**
+        <td> **Visible**
+        <td> Not visible
+        <td> Not visible
+    <tr>
+        <td> CPU, in the GPU process
+        <td> Not visible
+        <td> **Visible**
+        <td> **Visible**
+        <td> Not visible
+    <tr>
+        <td> GPU
+        <td> Not visible
+        <td> Not visible
+        <td> **Visible**
+        <td> **Visible**
+</table>
+
+### CPU-GPU Ownership Transfer ### {#buffer-mapping-ownership}
+
+In native GPU APIs, when a buffer is mapped, its content becomes accessible to the CPU.
+At the same time the GPU can keep using the buffer's content, which can lead to data races between the CPU and the GPU.
+This means that the usage of mapped buffer is simple but leaves the synchronization to the application.
+
+On the contrary, WebGPU prevents almost all data races in the interest of portability and consistency.
+In WebGPU there is even more risk of non-portability with races on mapped buffers because of the additional "shared memory" step that may be necessary on some drivers.
+That's why `GPUBuffer` mapping is done as an ownership transfer between the CPU and the GPU.
+At each instant, only one of the two can access it, so no race is possible.
+
+When an application requests to map a buffer, it initiates a transfer of the buffer's ownership to the CPU.
+At this time, the GPU may still need to finish executing some operations that use the buffer, so the transfer doesn't complete until all previously-enqueued GPU operations are finished.
+That's why mapping a buffer is an asynchronous operation (we'll discuss the other arguments below):
+
+<xmp highlight=idl>
+typedef [EnforceRange] unsigned long GPUMapModeFlags;
+interface GPUMapMode {
+    const GPUFlagsConstant READ  = 0x0001;
+    const GPUFlagsConstant WRITE = 0x0002;
+};
+
+partial interface GPUBuffer {
+  Promise<undefined> mapAsync(GPUMapModeFlags mode,
+                              optional GPUSize64 offset = 0,
+                              optional GPUSize64 size);
+};
+</xmp>
+
+<div class=example>
+    Using it is done like so:
+
+    <pre highlight="js">
+        // Mapping a buffer for writing. Here offset and size are defaulted t
+        // so the whole buffer is mapped.
+        const myMapWriteBuffer = ...;
+        await myMapWriteBuffer.mapAsync(GPUMapMode.WRITE);
+
+        // Mapping a buffer for reading. Only the first four bytes are mapped.
+        const myMapReadBuffer = ...;
+        await myMapReadBuffer.mapAsync(GPUMapMode.READ, 0, 4);
+    </pre>
+</div>
+
+Once the application has finished using the buffer on the CPU, it can transfer ownership back to the GPU by unmapping it.
+This is an immediate operation that makes the application lose all access to the buffer on the CPU (i.e. detaches `ArrayBuffers`):
+
+<xmp highlight=idl>
+partial interface GPUBuffer {
+  undefined unmap();
+};
+</xmp>
+
+<div class=example>
+    Using it is done like so:
+
+    <pre highlight="js">
+        const myMapReadBuffer = ...;
+        await myMapReadBuffer.mapAsync(GPUMapMode.READ, 0, 4);
+        // Do something with the mapped buffer.
+        buffer.unmap();
+    </pre>
+</div>
+
+When transferring ownership to the CPU, a copy may be necessary from the underlying mapped buffer to shared memory visible to the content process.
+To avoid copying more than necessary, the application can specify which range it is interested in when calling `GPUBuffer.mapAsync`.
+
+`GPUBuffer.mapAsync`'s `mode` argument controls which type of mapping operation is performed.
+At the moment its values are redundant with the buffer creation's usage flags, but it is present for explicitness and future extensibility.
+
+While a `GPUBuffer` is owned by the CPU, it is not possible to submit any operations on the device timeline that use it; otherwise, a validation error is produced.
+However it is valid (and encouraged!) to record `GPUCommandBuffer`s using the `GPUBuffer`.
+
+### Creation of Mappable Buffers ### {#buffer-mapping-creation}
+
+The physical memory location for a `GPUBuffer`'s underlying buffer depends on whether it should be mappable and whether it is mappable for reading or writing (native APIs give some control on the CPU cache behavior for example).
+At the moment mappable buffers can only be used to transfer data (so they can only have the correct `COPY_SRC` or `COPY_DST` usage in addition to a `MAP_*` usage),
+That's why applications must specify that buffers are mappable when they are created using the (currently) mutually exclusive `GPUBufferUsage.MAP_READ` and `GPUBufferUsage.MAP_WRITE` flags:
+
+<div class=example>
+    <pre highlight="js">
+        const myMapReadBuffer = device.createBuffer({
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+            size: 1000,
+        });
+        const myMapWriteBuffer = device.createBuffer({
+            usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+            size: 1000,
+        });
+    </pre>
+</div>
+
+### Accessing Mapped Buffers ### {#buffer-mapping-access}
+
+Once a `GPUBuffer` is mapped, it is possible to access its memory from JavaScript
+ This is done by calling `GPUBuffer.getMappedRange`, which returns an `ArrayBuffer` called a "mapping".
+These are available until `GPUBuffer.unmap` or `GPUBuffer.destroy` is called, at which point they are detached.
+These `ArrayBuffer`s typically aren't new allocations, but instead pointers to some kind of shared memory visible to the content process (IPC shared memory, `mmap`ped file descriptor, etc.)
+
+When transferring ownership to the GPU, a copy may be necessary from the shared memory to the underlying mapped buffer.
+`GPUBuffer.getMappedRange` takes an optional range of the buffer to map (for which `offset` 0 is the start of the buffer).
+This way the browser knows which parts of the underlying `GPUBuffer` have been "invalidated" and need to be updated from the memory mapping.
+
+The range must be within the range requested in `mapAsync()`.
+
+<xmp highlight=idl>
+partial interface GPUBuffer {
+  ArrayBuffer getMappedRange(optional GPUSize64 offset = 0,
+                             optional GPUSize64 size);
+};
+</xmp>
+
+<div class=example>
+    Using it is done like so:
+
+    <pre highlight="js">
+        const myMapReadBuffer = ...;
+        await myMapReadBuffer.mapAsync(GPUMapMode.READ);
+        const data = myMapReadBuffer.getMappedRange();
+        // Do something with the data
+        myMapReadBuffer.unmap();
+    </pre>
+</div>
+
+### Mapping Buffers at Creation ### {#buffer-mapping-at-creation}
+
+A common need is to create a `GPUBuffer` that is already filled with some data.
+This could be achieved by creating a final buffer, then a mappable buffer, filling the mappable buffer, and then copying from the mappable to the final buffer, but this would be inefficient.
+Instead this can be done by making the buffer CPU-owned at creation: we call this "mapped at creation".
+All buffers can be mapped at creation, even if they don't have the `MAP_WRITE` buffer usages.
+The browser will just handle the transfer of data into the buffer for the application.
+
+Once a buffer is mapped at creation, it behaves as regularly mapped buffer: `GPUBUffer.getMappedRange()` is used to retrieve `ArrayBuffer`s, and ownership is transferred to the GPU with `GPUBuffer.unmap()`.
+
+<div class=example>
+    Mapping at creation is done by passing `mappedAtCreation: true` in the buffer descriptor on creation:
+
+    <pre highlight="js">
+        const buffer = device.createBuffer({
+            usage: GPUBufferUsage.UNIFORM,
+            size: 256,
+            mappedAtCreation: true,
+        });
+        const data = buffer.getMappedRange();
+        // write to data
+        buffer.unmap();
+    </pre>
+</div>
+
+When using advanced methods to transfer data to the GPU (with a rolling list of buffers that are mapped or being mapped), mapping buffer at creation can be used to immediately create additional space where to put data to be transferred.
+
+### Examples ### {#buffer-mapping-examples}
+
+<div class=example>
+    The optimal way to create a buffer with initial data, for example here a [Draco](https://google.github.io/draco/)-compressed 3D mesh:
+
+    <pre highlight="js">
+        const dracoDecoder = ...;
+
+        const buffer = device.createBuffer({
+            usage: GPUBuffer.VERTEX | GPUBuffer.INDEX,
+            size: dracoDecoder.decompressedSize,
+            mappedAtCreation: true,
+        });
+
+        dracoDecoder.decodeIn(buffer.getMappedRange());
+        buffer.unmap();
+    </pre>
+</div>
+
+<div class=example>
+    Retrieving data from a texture rendered on the GPU:
+
+    <pre highlight="js">
+        const texture = getTheRenderedTexture();
+
+        const readbackBuffer = device.createBuffer({
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+            size: 4 * textureWidth * textureHeight,
+        });
+
+        // Copy data from the texture to the buffer.
+        const encoder = device.createCommandEncoder();
+        encoder.copyTextureToBuffer(
+            { texture },
+            { buffer, rowPitch: textureWidth * 4 },
+            [textureWidth, textureHeight],
+        );
+        device.submit([encoder.finish()]);
+
+        // Get the data on the CPU.
+        await buffer.mapAsync(GPUMapMode.READ);
+        saveScreenshot(buffer.getMappedRange());
+        buffer.unmap();
+    </pre>
+</div>
+
+<div class=example>
+    Updating a bunch of data on the GPU for a frame:
+
+    <pre highlight="js">
+        void frame() {
+            // Create a new buffer for our updates. In practice we would
+            // reuse buffers from frame to frame by re-mapping them.
+            const stagingBuffer = device.createBuffer({
+                usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+                size: 16 * objectCount,
+                mappedAtCreation: true,
+            });
+            const stagingData = new Float32Array(stagingBuffer.getMappedRange());
+
+            // For each draw we are going to:
+            //  - Put the data for the draw in stagingData.
+            //  - Record a copy from the stagingData to the uniform buffer for the draw
+            //  - Encoder the draw
+            const copyEncoder = device.createCommandEncoder();
+            const drawEncoder = device.createCommandEncoder();
+            const renderPass = myCreateRenderPass(drawEncoder);
+            for (var i = 0; i < objectCount; i++) {
+                stagingData[i * 4 + 0] = ...;
+                stagingData[i * 4 + 1] = ...;
+                stagingData[i * 4 + 2] = ...;
+                stagingData[i * 4 + 3] = ...;
+
+                const {uniformBuffer, uniformOffset} = getUniformsForDraw(i);
+                copyEncoder.copyBufferToBuffer(
+                    stagingData, i * 16,
+                    uniformBuffer, uniformOffset,
+                    16);
+
+                encodeDraw(renderPass, {uniformBuffer, uniformOffset});
+            }
+            renderPass.endPass();
+
+            // We are finished filling the staging buffer, unmap() it so
+            // we can submit commands that use it.
+            stagingBuffer.unmap();
+
+            // Submit all the copies and then all the draws. The copies
+            // will happen before the draw such that each draw will use
+            // the data that was filled inside the for-loop above.
+            device.queue.submit([
+                copyEncoder.finish(),
+                drawEncoder.finish()
+            ]);
+        }
+    </pre>
+</div>
+
+## Multithreading ## {#multithreading}
+
+Multithreading is a key part of modern graphics APIs.
+Unlike OpenGL, newer APIs allow applications to encode commands, submit work, transfer data to the GPU, and
+so on, from multiple threads at once, alleviating CPU bottlenecks.
+This is especially relevant to WebGPU, since IDL bindings are generally much slower than C calls.
+
+WebGPU does not *yet* allow multithreaded use of a single `GPUDevice`, but the API has been
+designed from the ground up with this in mind.
+This section describes the tentative plan for how it will work.
+
+As described in [[#gpu-process]], most WebGPU objects are actually just "handles" that refer to
+objects in the browser's GPU process.
+As such, it is relatively straightforward to allow these to be shared among threads.
+For example, a `GPUTexture` object can simply be `postMessage()`d to another thread, creating a
+new `GPUTexture` JavaScript object containing a handle to the *same* GPU-process object.
+
+Several objects, like `GPUBuffer`, have client-side state.
+Applications still need to use them from multiple threads without having to `postMessage` such
+objects back and forth with `[Transferable]` semantics (which would also create new wrapper
+objects, breaking old references).
+Therefore, these objects will also be `[Serializable]` but have (content-side) **shared state**,
+just like `SharedArrayBuffer`.
+For example, for threads Main and Worker:
+
+- Main: createBuffer &rarr; B1.
+- Main: postMessage to Worker.
+- Worker: receive message &rarr; B2.
+- Worker: `B2.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state.
+- Main: `B1.mapAsync()` &rarr; **throws an exception**.
+- Main: Encode some command that uses `B1`, like:
+
+    ```js
+    encoder.copyBufferToTexture(B1, T);
+    const commandBuffer = encoder.finish();
+    ```
+
+    &rarr; succeeds, because this doesn't depend on the buffer's client side state.
+- Main: `queue.submit(commandBuffer)` &rarr; **asynchronous WebGPU error**,
+    because the CPU currently owns the buffer.
+- Worker: waits for the mapping, writes to it, then calls `B2.unmap()`.
+- Main: `queue.submit(commandBuffer)` &rarr; succeeds
+- Main: `B1.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state
+
+Further discussion can be found in [#354](https://github.com/gpuweb/gpuweb/issues/354)
+(note not all of it reflects current thinking).
+
+### Unsolved: Synchronous Object Transfer ### {#multithreading-transfer}
+
+Some application architectures require objects to be passed between threads without having to
+asynchronously wait for a message to arrive on the receiving thread.
+
+The most crucial class of such architectures are in WebAssembly applications:
+Programs using native C/C++/Rust/etc. bindings for WebGPU will want to assume object handles
+are plain-old-data (e.g. `typedef struct WGPUBufferImpl* WGPUBuffer;`)
+that can be passed between threads freely.
+Unfortunately, this cannot be implemented in C-on-JS bindings (e.g. Emscripten) without complex,
+hidden, and slow asynchronicity (yielding on the receiving thread, interrupting the sending
+thread to send a message, then waiting for the object on the receiving thread).
+
+Some alternatives are mentioned in issue [#747](https://github.com/gpuweb/gpuweb/issues/747):
+
+- `SharedObjectTable`, an object with shared-state (like `SharedArrayBuffer`) containing a table of
+    `[Serializable]` values. Effectively, a store into the table would serialize once, and then any
+    thread with the `SharedObjectTable` could (synchronously) deserialize the object on demand.
+- A synchronous `MessagePort.receiveMessage()` method.
+    This would be less ideal as it would require any thread that creates one of these objects to
+    eagerly send it to every thread, just in case they need it later.
+- Allow "exporting" a numerical ID for an object that can be used to "import" the object on
+    another thread. This bypasses the garbage collector and makes it easy to leak memory.
+
+
+## Command Encoding and Submission ## {#command-encoding}
+
+Many operations in WebGPU are purely GPU-side operations that don't use data from the CPU.
+These operations are not issued directly; instead, they are encoded into `GPUCommandBuffer`s
+via the builder-like `GPUCommandEncoder` interface, then later sent to the GPU with
+`gpuQueue.submit()`.
+This design is used by the underlying native APIs as well. It provides several benefits:
+
+- Command buffer encoding is independent of other state, allowing encoding (and command buffer
+    validation) work to utilize multiple CPU threads.
+- Provides a larger chunk of work at once, allowing the GPU driver to do more global
+    optimization, especially in how it schedules work across the GPU hardware.
+
+### Debug Markers and Debug Groups ### {#command-encoding-debug}
+
+For error messages and debugging tools, it is possible to label work inside a command buffer.
+(See [[#errors-errorscopes-labels]].)
+
+- `insertDebugMarker(markerLabel)` marks a point in a stream of commands.
+- `pushDebugGroup(groupLabel)`/`popDebugGroup()` nestably demarcate sub-streams of commands.
+    This can be used e.g. to label which part of a command buffer corresponds to different objects
+    or parts of a scene.
+
+### Passes ### {#command-encoding-passes}
+
+Issue: Briefly explain passes?
+
+
+## Pipelines ## {#pipelines}
+
+
+## Image, Video, and Canvas input ## {#image-input}
+
+Issue: Exact API still in flux as of this writing.
+
+WebGPU is largely isolated from the rest of the Web platform, but has several interop points.
+One of these is image data input into the API.
+Aside from the general data read/write mechanisms (`writeTexture`, `writeBuffer`, and `mapAsync`),
+data can also come from `<img>`/`ImageBitmap`, canvases, and videos.
+There are many use-cases that require these, including:
+
+- Initializing textures from encoded images (JPEG, PNG, etc.)
+- Rendering text with 2D canvas for use in WebGPU.
+- Video element and video camera input for image processing, ML, 3D scenes, etc.
+
+There are two paths:
+
+- `copyExternalImageToTexture()` copies color data from a sub-rectangle of an
+    image/video/canvas object into an equally-sized sub-rectangle of a `GPUTexture`.
+    The input data is captured at the moment of the call.
+- `importTexture()` takes a video or canvas and creates a `GPUExternalTexture` object which *can*
+    provide direct read access to an underlying resource if it exists on the (same) GPU already,
+    avoiding unnecessary copies or CPU-GPU bandwidth.
+    This is typically true of hardware-decoded videos and most canvas elements.
+
+Issue: Update both names to whatever we settle on.
+
+### GPUExternalTexture ### {#image-input-external-texture}
+
+A `GPUExternalTexture` is a sampleable texture object which can be used in similar ways to normal
+sampleable `GPUTexture` objects.
+In particular, it can be bound as a texture resource to a shader and used directly from the GPU:
+when it is bound, additional metadata is attached that allows WebGPU to "automagically"
+transform the data from its underlying representation (e.g. YUV) to RGB sampled data.
+
+A `GPUExternalTexture` represents a particular imported image, so the underlying data must not
+change after import, either from internal (WebGPU) or external (Web platform) access.
+
+Issue:
+Describe how this is achieved for video element, VideoFrame, canvas element, and OffscreenCanvas.
+
+
+## Canvas Output ## {#canvas-output}
+
+Historically, drawing APIs (2d canvas, WebGL) are initialized from canvases using `getContext()`.
+However, WebGPU is more than a drawing API, and many applications do not need a canvas.
+WebGPU is initialized without a canvas - see [[#initialization]].
+
+Following this, WebGPU has no "default" drawing buffer.
+Instead, a WebGPU device may be connected to *any number* of canvases (zero or more)
+and render to any number of them each frame.
+
+Canvas context creation and WebGPU device creation are decoupled.
+Any `GPUCanvasContext` may be dynamically used with any `GPUDevice`.
+This makes device switches easy (e.g. after recovering from a device loss).
+(In comparison, WebGL context restoration is done on the same `WebGLRenderingContext` object,
+even though context state does not persist across loss/restoration.)
+
+In order to access a canvas, an app gets a `GPUTexture` from the `GPUCanvasContext`
+and then writes to it, as it would with a normal `GPUTexture`.
+
+### Swap Chains ### {#canvas-output-swap-chains}
+
+Canvas `GPUTexture`s are vended in a very structured way:
+
+- `canvas.getContext('gpupresent')` provides a `GPUCanvasContext`.
+- `GPUCanvasContext.configureSwapChain({ device, format, usage })` provides a `GPUSwapChain`,
+    invalidating any previous swapchains, attaching the canvas to the provided device, and
+    setting the `GPUTextureFormat` and `GPUTextureUsage` for vended textures.
+- `GPUSwapChain.getCurrentTexture()` provides a `GPUTexture`.
+
+This structure provides maximal compatibility with optimized paths in native graphics APIs.
+In these, typically, a platform-specific "surface" object can produce an API object called a
+"swap chain" which provides, possibly up-front, a possibly-fixed list of 1-3 textures to render
+into.
+
+### Current Texture ### {#canvas-output-current-texture}
+
+A `GPUSwapChain` provides a "current texture" via `getCurrentTexture()`.
+For <{canvas}> elements, this returns a texture for the *current frame*:
+
+- On `getCurrentTexture()`, `[[currentTexture]]` is created if it doesn't exist, then returned.
+- During the "[=Update the rendering=]" step, the browser compositor takes ownership of the
+    `[[currentTexture]]` for display, and that internal slot is cleared for the next frame.
+
+### `getSwapChainPreferredFormat()` ### {#canvas-output-preferred-format}
+
+Due to framebuffer hardware differences, different devices have different preferred byte layouts
+for display surfaces.
+Any allowed format is allowed on all systems, but applications may save power by using the
+preferred format.
+The exact format cannot be hidden, because the format is observable - e.g.,
+in the behavior of a `copyBufferToTexture` call and in compatibility rules with render pipelines
+(which specify a format, see `GPUColorTargetState.format`).
+
+Desktop-lineage hardware usually prefers `bgra8unorm` (4 bytes in BGRA order),
+while mobile-lineage hardware usually prefers `rgba8unorm` (4 bytes in RGBA order).
+
+For high-bit-depth, different systems may also prefer different formats,
+like `rgba16float` or `rgb10a2unorm`.
+
+### Multiple Displays ### {#canvas-output-multiple-displays}
+
+Some systems have multiple displays with different capabilities (e.g. HDR vs non-HDR).
+Browser windows can be moved between these displays.
+
+As today with WebGL, user agents can make their own decisions about how to expose these
+capabilities, e.g. choosing the capabilities of the initial, primary, or most-capable display.
+
+In the future, an event might be provided that allows applications to detect when a canvas moves
+to a display with different properties so they can call `getSwapChainPreferredFormat()` and
+`configureSwapChain()` again.
+
+#### Multiple Adapters #### {#canvas-output-multiple-adapters}
+
+Some systems have multiple displays connected to different hardware adapters; for example,
+laptops with switchable graphics might have the internal display connected to the integrated GPU
+and the HDMI port connected to the discrete GPU.
+
+This can incur overhead, as rendering on one adapter and displaying on another typically incurs
+a copy or direct-memory-access (DMA) over a PCI bus.
+
+Currently, WebGPU does not provide a way to detect which adapter is optimal for a given display.
+In the future, applications may be able to detect this, and receive events when this changes.
+
+
+## Bitflags ## {#bitflags}
+
+WebGPU uses C-style bitflags in several places.
+(Search `GPUFlagsConstant` in the spec for instances.)
+A typical bitflag definition looks like this:
+
+<xmp highlight=idl>
+typedef [EnforceRange] unsigned long GPUColorWriteFlags;
+[Exposed=Window]
+interface GPUColorWrite {
+    const GPUFlagsConstant RED   = 0x1;
+    const GPUFlagsConstant GREEN = 0x2;
+    const GPUFlagsConstant BLUE  = 0x4;
+    const GPUFlagsConstant ALPHA = 0x8;
+    const GPUFlagsConstant ALL   = 0xF;
+};
+</xmp>
+
+This was chosen because there is no other particularly ergonomic way to describe
+"enum sets" in JavaScript today.
+
+Bitflags are used in WebGL, which many WebGPU developers will be familiar with.
+They also match closely with the API shape that would be used by many native-language bindings.
+
+The closest option is `sequence<enum type>`, but it doesn't naturally describe
+an unordered set of unique items and doesn't easily allow things like
+`GPUColorWrite.ALL` above.
+Additionally, `sequence<enum type>` has significant overhead, so we would have to avoid it in any
+APIs that are expected to be "hot paths" (like command encoder methods), causing inconsistency with
+parts of the API that *do* use it.
+
+See also issue [#747](https://github.com/gpuweb/gpuweb/issues/747)
+which mentions that strongly-typed bitflags in JavaScript would be useful.
+
+
+# WebGPU Shading Language # {#wgsl}
+
+
+# Security and Privacy self-review # {#questionnaire}
+
+## What information might this feature expose to Web sites or other parties, and for what purposes is that exposure necessary? ## {#questionnaire-1}
+
+The feature exposes information about the system's GPUs (or lack of).
+
+It allows determining if one of the GPUs in the system supports WebGPU by requesting a `GPUAdapter` without software fallback.
+This is necessary for sites to be able to fallback to hardware-accelerated WebGL if the system doesn't support hardware-accelerated WebGPU.
+
+For requested adapters the feature exposes a name, set of optional WebGPU capabilities that the `GPUAdapter` supports, as well as a set of numeric limits that the `GPUAdapter` supports.
+This is necessary because there is a lot of diversity in GPU hardware and while WebGPU target the lowest common denominator it is meant to scale to expose more powerful features when the hardware allows it.
+The name can be surfaced to the user when choosing, for example to let it choose an adapter and can be used by sites to do GPU-specific workarounds (this was critical in the past for WebGL).
+
+Note that the user agent controls which name, optional features, and limits are exposed.
+It is not possible for sites to differentiate between hardware not supporting a feature and the user agent choosing not to expose it.
+User agents are expected to bucket the actual capabilities of the GPU and only expose a limited number of such buckets to the site.
+
+## Do features in your specification expose the minimum amount of information necessary to enable their intended uses? ## {#questionnaire-2}
+
+Yes.
+WebGPU only requires exposing if hardware-accelerated WebGPU is available, not why, or if the browser chose to not expose it etc.
+
+For the name, optional features, and limits the information exposed is not specified to be minimal because each site might require a different subset of the limits and optional features.
+Instead the information exposed is controlled by the user-agent that is expected to only expose a small number of buckets that all expose the same information.
+
+## How do the features in your specification deal with personal information, personally-identifiable information (PII), or information derived from them? ## {#questionnaire-3}
+
+WebGPU doesn't deal with PII unless the site puts PII inside the API, which means that Javascript got access to the PII before WebGPU could.
+
+## How do the features in your specification deal with sensitive information? ## {#questionnaire-4}
+
+WebGPU doesn't deal with sensitive information.
+However some of the information it exposes could be correlated with sensitive information: the presence of powerful optional features or a high speed of GPU computation would allow deducing access to "high-end" GPUs which itself correlates with other information.
+
+## Do the features in your specification introduce new state for an origin that persists across browsing sessions? ## {#questionnaire-5}
+
+The WebGPU specification doesn't introduce new state.
+However implementations are expected to cache the result of compiling shaders and pipelines.
+This introduces state that could be inspected by measuring how long compilation of a set of shaders and pipelines take.
+Note that GPU drivers also have their own caches so user-agents will have to find ways to disable that cache (otherwise state could be leaked across origins).
+
+## Do the features in your specification expose information about the underlying platform to origins? ## {#questionnaire-6}
+
+Yes.
+The specification exposes whether hardware-accelerated WebGPU is available and a user-agent controlled name and set of optional features and limits each `GPUAdapter` supports.
+Different requests for adapters returning adapters with different capabilities would also indicate the system contains multiple GPUs.
+
+## Does this specification allow an origin to send data to the underlying platform? ## {#questionnaire-7}
+
+WebGPU allows sending data to the system's GPU.
+The WebGPU specification prevents ill-formed GPU commands from being sent to the hardware.
+It is also expected that user-agents will have work-arounds for bugs in the driver that could cause issue even with well-format GPU commands.
+
+## Do features in this specification allow an origin access to sensors on a user’s device? ## {#questionnaire-8}
+
+No.
+
+## What data do the features in this specification expose to an origin? Please also document what data is identical to data exposed by other features, in the same or different contexts. ## {#questionnaire-9}
+
+WebGPU exposes with hardware-accelerated WebGPU is available, which is a new piece of data.
+The adapter's name, optional features, and limits has a large intersection with WebGL's RENDERER_STRING, limits and extensions: even limits not in WebGL can mostly be deduced from the other limits exposed by WebGL (by deducing what GPU model the system has).
+
+## Do features in this specification enable new script execution/loading mechanisms? ## {#questionnaire-10}
+
+Yes.
+WebGPU allows running arbitrary GPU computations specified with the WebGPU Shading Language (WGSL).
+WGSL is compiled into a `GPUShaderModule` objects that are then used to specify "pipelines" that run computations on the GPU.
+
+## Do features in this specification allow an origin to access other devices? ## {#questionnaire-11}
+
+No.
+WebGPU allows access to PCI-e and external GPUs plugged into the system but these are just part of the system.
+
+## Do features in this specification allow an origin some measure of control over a user agent's native UI? ## {#questionnaire-12}
+
+No.
+However WebGPU can be used to render to fullscreen or WebXR which does change the UI.
+WebGPU can also run GPU computations that take too long and cause of device timeout and a restart of GPU (TDR), which can produce a couple system-wide black frames.
+Note that this is possible with "just" HTML / CSS but WebGPU makes it easier to cause a TDR.
+
+## What temporary identifiers do the features in this specification create or expose to the web? ## {#questionnaire-13}
+
+None.
+
+## How does this specification distinguish between behavior in first-party and third-party contexts? ## {#questionnaire-14}
+
+There are no specific behavior difference between first-party and third-party contexts.
+However the user-agent can decide to limit the `GPUAdapters` returned to third-party contexts: by using less buckets, by using a single bucket, or by not exposing WebGPU.
+
+## How do the features in this specification work in the context of a browser’s Private Browsing or Incognito mode? ## {#questionnaire-15}
+
+There is no difference in Incognito mode, but the user-agent can decide to limit the `GPUAdapters` returned.
+User-agents will need to be careful not to reuse the shader compilation caches when in Incognito mode.
+
+## Does this specification have both "Security Considerations" and "Privacy Considerations" sections? ## {#questionnaire-16}
+
+Yes.
+They are both under the [Malicious use considerations](https://gpuweb.github.io/gpuweb/#malicious-use) section.
+
+## Do features in your specification enable origins to downgrade default security protections? ## {#questionnaire-17}
+
+No.
+Except that WebGPU can be used to render to fullscreen or WebXR.
+
+## What should this questionnaire have asked? ## {#questionnaire-18}
+
+Does the specification allow interacting with cross-origin data? With DRM data?
+
+At the moment WebGPU cannot do that but it is likely that someone will request these features in the future.
+It might be possible to introduce the concept of "protected queues" that only allow computations to end up on the screen, and not into Javascript.
+However investigation in WebGL show that GPU timings can be used to leak from such protected queues.
