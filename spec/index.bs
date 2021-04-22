@@ -1276,7 +1276,7 @@ WebGPU does not provide color management. All values within WebGPU (such as text
 are raw numeric values, not color-managed color values.
 
 WebGPU *does* interface with color-managed outputs (via {{GPUCanvasContext}}) and inputs
-(via {{GPUQueue/copyExternalImageToTexture()}}).
+(via {{GPUQueue/copyExternalImageToTexture()}} and {{GPUDevice/importExternalTexture()}}).
 Color conversion must be performed between the WebGPU numeric values and the external color values.
 These interface points locally define a color space, in which the WebGPU numeric values are to be
 interpreted, from options defined in [[css-color-4#predefined]].
@@ -1662,6 +1662,7 @@ interface GPUDevice : EventTarget {
     GPUBuffer createBuffer(GPUBufferDescriptor descriptor);
     GPUTexture createTexture(GPUTextureDescriptor descriptor);
     GPUSampler createSampler(optional GPUSamplerDescriptor descriptor = {});
+    GPUExternalTexture importExternalTexture(GPUExternalTextureDescriptor descriptor);
 
     GPUBindGroupLayout createBindGroupLayout(GPUBindGroupLayoutDescriptor descriptor);
     GPUPipelineLayout createPipelineLayout(GPUPipelineLayoutDescriptor descriptor);
@@ -2723,6 +2724,140 @@ If a format is listed in [[#plain-color-formats]] with {{GPUTextureUsage/RENDER_
 color renderable format. Any other format is not a color renderable format. Any depth/stencil format is a
 depth or stencil renderable format. Any other format is not a depth or stencil renderable format.
 
+## <dfn interface>GPUExternalTexture</dfn> ## {#gpu-external-texture}
+
+A {{GPUExternalTexture}} is a sampleable texture wrapping an external video object.
+The contents of a {{GPUExternalTexture}} object may not change, either from inside WebGPU
+(it is only sampleable) or from outside WebGPU (e.g. due to video frame advancement).
+
+Issue: Update this description with canvas.
+
+They are bound into bind group layouts using the {{GPUBindGroupLayoutEntry/externalTexture}}
+bind group layout entry member.
+External textures use several binding slots: see [=Exceeds the binding slot limits=].
+
+<div class=note>
+    External textures *can* be implemented without creating a copy of the imported source,
+    but this depends implementation-defined factors.
+    Ownership of the underlying representation may either be exclusive or shared with other
+    owners (such as a video decoder), but this is not visible to the application.
+
+    The underlying representation of an external texture is unobservable
+    (except for sampling behavior) but typically may include
+
+    - Up to three 2D planes of data (e.g. RGBA, Y+UV, Y+U+V).
+    - Metadata for converting coordinates before reading from those planes (crop and rotation).
+    - Metadata for converting values into the specified output color space (matrices, gammas, 3D LUT).
+
+    The configuration used may not be stable across time, systems, user agents, media sources,
+    or frames within a single video source.
+    In order to account for many possible representations,
+    the binding conservatively uses the following, for *each* external texture:
+
+    - three sampled texture bindings (for up to 3 planes),
+    - one sampled texture binding for a 3D LUT,
+    - one sampler binding to sample the 3D LUT, and
+    - one uniform buffer binding for metadata.
+</div>
+
+<script type=idl>
+[Exposed=Window]
+interface GPUExternalTexture {
+};
+GPUExternalTexture includes GPUObjectBase;
+</script>
+
+{{GPUExternalTexture}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPUExternalTexture">
+    : <dfn>\[[destroyed]]</dfn>, of type `boolean`
+    ::
+        Indicates whether the object has been destroyed (can no longer be used).
+        Initially set to `false`.
+
+        <!-- Move this to an internal object if GPUExternalTexture becomes Serializable. -->
+</dl>
+
+### Importing External Textures ### {#external-texture-creation}
+
+An external texture is created from an external video object
+using {{GPUDevice/importExternalTexture()}}.
+
+Issue: Update this description with canvas.
+
+External textures are destroyed automatically, as a microtask,
+instead of manually or upon garbage collection like other resources.
+
+<script type=idl>
+dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
+    required HTMLVideoElement source;
+    GPUPredefinedColorSpace colorSpace = "srgb";
+};
+</script>
+
+<dl dfn-type=method dfn-for=GPUDevice>
+    : <dfn>importExternalTexture(descriptor)</dfn>
+    ::
+        Creates a {{GPUExternalTexture}} wrapping the provided image source.
+
+        <div algorithm=GPUDevice.importExternalTexture>
+            **Called on:** {{GPUDevice}} this.
+
+            **Arguments:**
+            <pre class=argumentdef for="GPUDevice/importExternalTexture(descriptor)">
+                |descriptor|: Provides the external image source object (and any creation options).
+            </pre>
+
+            **Returns:** {{GPUExternalTexture}}
+
+            1. Let |source| be |descriptor|.{{GPUExternalTextureDescriptor/source}}.
+
+            1. If |source| <l spec=html>[=is not origin-clean=]</l>,
+                throw a {{SecurityError}} and stop.
+
+            1. Let |data| be the result of converting the current image contents of |source| into
+                the color space |descriptor|.{{GPUExternalTextureDescriptor/colorSpace}}.
+
+                Note: This is described like a copy, but may be implemented as a reference to
+                read-only underlying data plus appropriate metadata to perform conversion later.
+
+                Issue: It is currently undetermined whether the default colorSpace, "srgb", is
+                extended-srgb or clamped-srgb.
+                This will be determined upstream as the semantics around super-srgb image sources
+                get defined. Unfortunately we can't sidestep it for now because video sources
+                can go already go outside the srgb range.
+                The upstream determination will change whether using the default colorSpace
+                option can result in sampling values greater than 1.0 or not.
+                If upstream decides to make "srgb" mean clamped-srgb, we also have the option
+                of changing our default to `"extended-srgb"`.
+
+            1. Let |result| be a new {{GPUExternalTexture}} object wrapping |data|.
+
+            1. [=Queue a microtask=] to set |result|.{{GPUExternalTexture/[[destroyed]]}} to `true`,
+                releasing the underlying resource.
+
+                Issue: Is this too restrictive?
+
+            1. Return |result|.
+        </div>
+</dl>
+
+### Sampling External Textures ### {#external-texture-sampling}
+
+External textures are represented in WGSL with `texture_external` and may be read using
+`textureLoad` and `textureSampleLevel`.
+
+The `sampler` provided to `textureSampleLevel` is used to sample the underlying textures.
+The result is in the color space set by {{GPUExternalTextureDescriptor/colorSpace}}.
+It is implementation-dependent whether, for any given external texture, the sampler (and filtering)
+is applied before or after conversion from underlying values into the specified color space.
+
+Note:
+If the internal representation is an RGBA plane, sampling behaves as on a regular 2D texture.
+If there are several underlying planes (e.g. Y+UV), the sampler is used to sample each
+underlying texture separately, prior to conversion from YUV to the specified color space.
+
+
 # Samplers # {#samplers}
 
 ## <dfn interface>GPUSampler</dfn> ## {#sampler-interface}
@@ -2998,6 +3133,7 @@ dictionary GPUBindGroupLayoutEntry {
     GPUSamplerBindingLayout sampler;
     GPUTextureBindingLayout texture;
     GPUStorageTextureBindingLayout storageTexture;
+    GPUExternalTextureBindingLayout externalTexture;
 };
 </script>
 
@@ -3018,29 +3154,37 @@ dictionary GPUBindGroupLayoutEntry {
 
     : <dfn>buffer</dfn>
     ::
-        When not `undefined` indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUBufferBinding}}.
 
     : <dfn>sampler</dfn>
     ::
-        When not `undefined` indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUSampler}}.
 
     : <dfn>texture</dfn>
     ::
-        When not `undefined` indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUTextureView}}.
 
     : <dfn>storageTexture</dfn>
     ::
-        When not `undefined` indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUTextureView}}.
+
+    : <dfn>externalTexture</dfn>
+    ::
+        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        is {{GPUExternalTexture}}.
 </dl>
 
-The [=binding member=] of a {{GPUBindGroupLayoutEntry}} is determined by which member of the {{GPUBindGroupLayoutEntry}}
-is defined: {{GPUBindGroupLayoutEntry/buffer}}, {{GPUBindGroupLayoutEntry/sampler}},
-{{GPUBindGroupLayoutEntry/texture}}, or {{GPUBindGroupLayoutEntry/storageTexture}}. Only one may be
-defined for any given {{GPUBindGroupLayoutEntry}}. Each member has an associated {{GPUBindingResource}}
+The [=binding member=] of a {{GPUBindGroupLayoutEntry}} is determined by which member of the
+{{GPUBindGroupLayoutEntry}} is defined:
+{{GPUBindGroupLayoutEntry/buffer}}, {{GPUBindGroupLayoutEntry/sampler}},
+{{GPUBindGroupLayoutEntry/texture}}, {{GPUBindGroupLayoutEntry/storageTexture}}, or
+{{GPUBindGroupLayoutEntry/externalTexture}}.
+Only one may be defined for any given {{GPUBindGroupLayoutEntry}}.
+Each member has an associated {{GPUBindingResource}}
 type and each [=binding type=] has an associated [=internal usage=], given by this table:
 
 <table class="data" style="white-space: nowrap">
@@ -3095,6 +3239,12 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
     <tr>
         <td>{{GPUStorageTextureAccess/"write-only"}}
         <td>[=internal usage/storage-write=]
+
+    <tr>
+        <td rowspan=2>{{GPUBindGroupLayoutEntry/externalTexture}}
+        <td rowspan=2>{{GPUExternalTexture}}
+        <td>
+        <td>[=internal usage/constant=]
 </table>
 
 <div algorithm>
@@ -3131,6 +3281,12 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
                 :: Consider 1 {{supported limits/maxSampledTexturesPerShaderStage}} slot to be used.
                 : |entry|.{{GPUBindGroupLayoutEntry/storageTexture}} is not `undefined`
                 :: Consider 1 {{supported limits/maxStorageTexturesPerShaderStage}} slot to be used.
+                : |entry|.{{GPUBindGroupLayoutEntry/externalTexture}} is not `undefined`
+                :: Consider
+                    4 {{supported limits/maxSampledTexturesPerShaderStage}} slot,
+                    1 {{supported limits/maxSamplersPerShaderStage}} slot, and
+                    1 {{supported limits/maxUniformBuffersPerShaderStage}} slot
+                    to be used.
             </dl>
 </div>
 
@@ -3262,6 +3418,11 @@ truly optional.
             `MTLArgumentBuffer` objects that are more efficient to bind at run-time.
 </dl>
 
+<script type=idl>
+dictionary GPUExternalTextureBindingLayout {
+};
+</script>
+
 A {{GPUBindGroupLayout}} object has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUBindGroupLayout">
@@ -3386,7 +3547,7 @@ dictionary GPUBindGroupDescriptor : GPUObjectDescriptorBase {
 A {{GPUBindGroupEntry}} describes a single resource to be bound in a {{GPUBindGroup}}.
 
 <script type=idl>
-typedef (GPUSampler or GPUTextureView or GPUBufferBinding) GPUBindingResource;
+typedef (GPUSampler or GPUTextureView or GPUBufferBinding or GPUExternalTexture) GPUBindingResource;
 
 dictionary GPUBindGroupEntry {
     required GPUIndex32 binding;
