@@ -5,8 +5,10 @@ Level: 1
 Status: LS
 Group: webgpu
 URL: https://gpuweb.github.io/gpuweb/explainer/
-Issue Tracking: gpuweb/gpuweb#1321 https://github.com/gpuweb/gpuweb/issues/1321
-No Editor: true
+!Participate: <a href="https://github.com/gpuweb/gpuweb/issues/new?labels=explainer">File an issue</a> (<a href="https://github.com/gpuweb/gpuweb/labels/explainer">open issues</a>)
+Editor: Kai Ninomiya, Google https://www.google.com, kainino@google.com
+Editor: Corentin Wallez, Google https://www.google.com, cwallez@google.com
+Editor: Dzmitry Malyshau, Mozilla https://www.mozilla.org, dmalyshau@mozilla.com
 No Abstract: true
 Markup Shorthands: markdown yes
 Markup Shorthands: dfn yes
@@ -18,10 +20,16 @@ Boilerplate: repository-issue-tracking no
 
 Issue(tabatkins/bikeshed#2006): Set up cross-linking into the WebGPU and WGSL specs.
 
+Issue(gpuweb/gpuweb#1321): Complete the planned sections.
+
 
 # Motivation # {#motivation}
 
-See [Introduction](https://gpuweb.github.io/gpuweb/#introduction).
+See [Introduction](https://gpuweb.github.io/gpuweb/#intro).
+
+Issue: This section hasn't been written;
+[more actual motivation](https://w3ctag.github.io/explainers)
+is needed (here, in the spec Introduction section, or both).
 
 
 # Security/Privacy # {#security}
@@ -53,6 +61,10 @@ See also the description of [the content and device timelines in the specificati
 
 # JavaScript API # {#api}
 
+This section goes into details on important and unusual aspects of the WebGPU JavaScript API.
+Generally, each subsection can be considered its own "mini-explainer",
+though some require context from previous subsections.
+
 
 ## Adapter Selection and Device Init ## {#initialization}
 
@@ -61,15 +73,18 @@ Issue: Some changes are expected here.
 A WebGPU "adapter" (`GPUAdapter`) is an object which provides a connection to a particular WebGPU
 implementation on the system (e.g. a hardware accelerated implementation on an integrated or
 discrete GPU, or software implementation).
-To get a `GPUAdapter` is to select which implementation to use (if multiple are available).
+Two different `GPUAdapter` objects on the same page could refer to the same underlying
+implementation, or to two different underlying implementations (e.g. integrated and discrete GPUs).
 
 Each adapter may have different optional capabilities called "features" and "limits".
 These are the maximum possible capabilities that can be requested when a device is created.
 
+The set of adapters, and capabilities exposed on each, are at the discretion of the user agent.
+
 To get an adapter, an application calls `navigator.gpu.requestAdapter()`, optionally passing
 options which may influence what adapter is chosen.
 
-`requestAdapter()` always resolves, but may resolve to null if an adapter can't be returned with
+`requestAdapter()` never rejects, but may resolve to null if an adapter can't be returned with
 the specified options.
 
 <pre highlight=js>
@@ -77,9 +92,15 @@ const adapter = await navigator.gpu.requestAdapter(options);
 if (!adapter) return goToFallback();
 </pre>
 
-A WebGPU "device" (`GPUDevice`) represents a connection to a WebGPU implementation, as well as
-an arena for all WebGPU objects created from it (textures, command buffers, etc.)
-All WebGPU usage is done through a WebGPU "device" (`GPUDevice`) or objects created from it.
+A WebGPU "device" (`GPUDevice`) represents a logical connection to a WebGPU adapter.
+It is called a "device" because it abstracts away the underlying implementation (e.g. video card)
+and encapsulates a single connection: code that owns a device can act as if it is the only user
+of the adapter.
+As part of this encapsulation, a device is the root owner of all WebGPU objects created from it
+(textures, etc.), which can be (internally) freed whenever the device is lost or destroyed.
+Multiple components on a single webpage can each have their own WebGPU device.
+
+All WebGPU usage is done through a WebGPU device or objects created from it.
 In this sense, it serves a subset of the purpose of `WebGLRenderingContext`; however, unlike
 `WebGLRenderingContext`, it is not associated with a canvas object, and most commands are
 issued through "child" objects.
@@ -121,9 +142,12 @@ In this example, because of the performance constraint of WebGPU, it is not poss
 
 Instead, in WebGPU all objects (like `GPUBuffer`) are created immediately on the content timeline and returned to JavaScript.
 The validation is almost all done asynchronously on the "device timeline".
-In the good case, when no errors occur (validation or out-of-memory), everything looks to JS as if it is synchronous.
-However, when an error occurs in a call, it becomes a no-op (aside from error reporting).
+In the good case, when no errors occur , everything looks to JS as if it is synchronous.
+However, when an error occurs in a call, it becomes a no-op (except for error reporting).
 If the call returns an object (like `createBuffer`), the object is tagged as "invalid" on the GPU process side.
+
+Since validation and allocation occur asynchronously, errors are reported asynchronously.
+By itself, this can make for challenging debugging - see [[#errors-cases-debugging]].
 
 All WebGPU calls validate that all their arguments are valid objects.
 As a result, if a call takes one WebGPU object and returns a new one, the new object is also invalid (hence the term "contagious").
@@ -168,14 +192,14 @@ As a result, if a call takes one WebGPU object and returns a new one, the new ob
 
         // The encoder starts as a valid object.
         const encoder = device.createCommandEncoder();
-        // Special case: an invalid object is used when encoding commands so the encoder
+        // Special case: an invalid object is used when encoding commands, so the encoder
         // becomes invalid.
         encoder.copyBufferToBuffer(srcBuffer, 0, dstBuffer, 0, 4);
 
-        // commands, the this argument to GPUCommandEncoder.finish is invalid
-        // so the call returns an invalid object.
+        // Since the encoder is invalid, encoder.finish() is invalid and returns
+        // an invalid object.
         const commands = encoder.finish();
-        // The command references an invalid object so it becomes a noop.
+        // The command references an invalid object so it becomes a no-op.
         device.queue.submit([commands]);
     </pre>
 </div>
@@ -200,7 +224,7 @@ It is important for WebGPU applications to be able to directly free the memory u
 For example applications might create temporary textures and buffers each frame and without the explicit `.destroy()` call they would quickly run out of GPU memory.
 That's why WebGPU has a `.destroy()` method on those object types which can hold on to arbitrary amount of memory.
 It signals that the application doesn't need the content of the object anymore and that it can be freed as soon as possible.
-Of course, it becomes a validation to use the object after the call to `.destroy()`.
+Of course, it becomes a validation error to use the object after the call to `.destroy()`.
 
 <div class=example>
     <pre highlight="js">
@@ -245,8 +269,8 @@ Developers and applications need error handling for a number of cases:
     Checking success of WebGPU calls, for applications' unit/integration testing, WebGPU
     conformance testing, or detecting errors in data-driven applications (e.g. loading glTF
     models that may exceed device limits).
-- *Telemetry*:
-    Collecting error logs in deployment, for bug reporting and telemetry.
+- *App Telemetry*:
+    Collecting error logs in web app deployment, for bug reporting and telemetry.
 
 The following sections go into more details on these cases and how they are solved.
 
@@ -257,11 +281,11 @@ The following sections go into more details on these cases and how they are solv
 Implementations should provide a way to enable synchronous validation,
 for example via a "break on WebGPU error" option in the developer tools.
 
-This can be achieved with a content-process-gpu-process round-trip in every validated WebGPU
+This can be achieved with a content-process&lrarr;gpu-process round-trip in every validated WebGPU
 call, though in practice this would be very slow.
-It can be optimized by running a second, approximated mirror of the validation steps in the
-content process (it will not always have the same results since it cannot immediately know about
-out-of-memory errors).
+It can be optimized by running a "predictive" mirror of the validation steps in the content
+process, which either ignores out-of-memory errors (which it can't predict),
+or uses round-trips for only for calls that can produce out-of-memory errors.
 
 #### Fatal Errors: Adapter and Device Loss #### {#errors-cases-fatalerrors}
 
@@ -280,7 +304,7 @@ that occur. To solve this, WebGPU uses *Error Scopes*.
 
 ### Error Scopes ### {#errors-errorscopes}
 
-WebGL exposed errors using a `getError` function returning the first error the last `getError` call.
+WebGL exposes errors using a `getError` function which returns the first error since the last `getError` call.
 This is simple, but has two problems.
 
 - It is synchronous, incurring a round-trip and requiring all previously issued work to be finished.
@@ -289,12 +313,13 @@ This is simple, but has two problems.
     libraries/middleware, browser extensions, etc. We solve this with a stack of error "scopes",
     allowing each component to hermetically capture and handle its own errors.
 
-Each device<sup>1</sup> maintains a persistent "error scope" stack state.
+In WebGPU, each device<sup>1</sup> maintains a persistent "error scope" stack state.
 Initially, the device's error scope stack is empty.
 `GPUDevice.pushErrorScope('validation')` or `GPUDevice.pushErrorScope('out-of-memory')`
 begins an error scope and pushes it onto the stack.
 This scope captures only errors of a particular type depending on the type of error the application
 wants to detect.
+It is rare to need to detect both, so two nested error scopes are needed to do so.
 
 `GPUDevice.popErrorScope()` ends an error scope, popping it from the stack and returning a
 `Promise<GPUError?>`, which resolves once all enclosed fallible operations have completed and
@@ -328,9 +353,9 @@ In poorly-formed applications, this mechanism can prevent the events from having
 performance impact on the system.
 
 <sup>3</sup>
-More specifically, with [[#multithreading]], this event would only exists on the *originating*
-`GPUDevice` (the one that came from `createDevice`).
-It doesn't exist on `GPUDevice`s produced by sending messages.
+More specifically, with [[#multithreading]], this event would only exist on the *originating*
+`GPUDevice` (the one that came from `createDevice`, and not by receiving posted messages);
+a distinct interface would be used for non-originating device objects.
 
 ```webidl
 enum GPUErrorFilter {
@@ -375,10 +400,14 @@ async function tryCreateBuffer(device: GPUDevice, descriptor: GPUBufferDescripto
 }
 ```
 
-This interacts with buffer mapping in subtle ways, but they are not explained here.
+This interacts with buffer mapping error cases in subtle ways due to numerous possible
+out-of-memory situations in implementations, but they are not explained here.
 The principle used to design the interaction is that app code should need to handle as few
 different edge cases as possible, so multiple kinds of situations should result in the same
 behavior.
+
+In addition, there are (will be) rules on the relative ordering of most promise resolutions,
+to prevent non-portable browser behavior or flaky races between async code.
 
 #### How this solves *Fallible Validation* #### {#errors-errorscopes-validation}
 
@@ -407,7 +436,7 @@ device.popErrorScope().then(error => { assert(error === null); });
 device.popErrorScope().then(error => { assert(error === null); });
 ```
 
-#### How this solves *Telemetry* #### {#errors-errorscopes-telemetry}
+#### How this solves *App Telemetry* #### {#errors-errorscopes-telemetry}
 
 As mentioned above, if an error is not captured by an error scope, it **may** fire the
 originating device's `uncapturederror` event.
@@ -427,9 +456,10 @@ attribute.
 Additionally, parts of command buffers can be labeled with debug markers and debug groups.
 See [[#command-encoding-debug]].
 
-For both debugging (dev tools messages) and telemetry, implementations can choose to report some
-kind of "stack trace" in their error messages, taking advantage of object debug labels.
-For example:
+For both debugging (dev tools messages) and app telemetry (`uncapturederror`)
+implementations can choose to report some kind of "stack trace" in their error messages,
+taking advantage of object debug labels.
+For example, a debug message string could be:
 
 ```
 <myQueue>.submit failed:
@@ -437,15 +467,28 @@ For example:
 - in the debug group <environment>:
 - in the debug group <tree 123>:
 - in setIndexBuffer, indexBuffer (<mesh3.indices>) was invalid:
-- in createBuffer, desc.usage was invalid (0x89)
+- in createBuffer, desc.usage (0x89) was invalid
 ```
+
+### Alternatives Considered ### {#errors-alternatives}
+
+- Synchronous `getError`, like WebGL. Discussed at the beginning: [[#errors-errorscopes]].
+- Callback-based error scope: `device.errorScope('out-of-memory', async () => { ... })`.
+    Since it's necessary to allow asynchronous work inside error scopes, this formulation is
+    actually largely equivalent to the one shown above, as the callback could never resolve.
+    Application architectures would be limited by the need to conform to a compatible call stack,
+    or they would remap the callback-based API into a push/pop-based API.
+    Finally, it's generally not catastrophic if error scopes become unbalanced, though the
+    stack could grow unboundedly resulting in an eventual crash (or device loss).
 
 
 ## Device Loss ## {#device-loss}
 
-Any situation that prevents further use of a `GPUDevice`, regardless of whether it is caused by a
-WebGPU call (e.g. `device.destroy()`, unrecoverable out-of-memory, GPU process crash, or GPU
-reset) or happens externally (e.g. GPU unplugged), results in a device loss.
+Any situation that prevents further use of a `GPUDevice` results in a *device loss*.
+These can arise due to WebGPU calls or external events; for example:
+`device.destroy()`, an unrecoverable out-of-memory condition, a GPU process crash, a long
+operation resulting in GPU reset, a GPU reset caused by another application, a discrete GPU being
+switched off to save power, or an external GPU being unplugged.
 
 **Design principle:**
 There should be as few different-looking error behaviors as possible.
@@ -548,7 +591,7 @@ partial interface GPUBuffer {
     Using it is done like so:
 
     <pre highlight="js">
-        // Mapping a buffer for writing. Here offset and size are defaulted t
+        // Mapping a buffer for writing. Here offset and size are defaulted,
         // so the whole buffer is mapped.
         const myMapWriteBuffer = ...;
         await myMapWriteBuffer.mapAsync(GPUMapMode.WRITE);
@@ -779,21 +822,26 @@ As described in [[#gpu-process]], most WebGPU objects are actually just "handles
 objects in the browser's GPU process.
 As such, it is relatively straightforward to allow these to be shared among threads.
 For example, a `GPUTexture` object can simply be `postMessage()`d to another thread, creating a
-new `GPUTexture` JavaScript object containing a handle to the *same* GPU-process object.
+new `GPUTexture` JavaScript object containing a handle to the *same* (ref-counted) GPU-process object.
 
 Several objects, like `GPUBuffer`, have client-side state.
 Applications still need to use them from multiple threads without having to `postMessage` such
 objects back and forth with `[Transferable]` semantics (which would also create new wrapper
 objects, breaking old references).
-Therefore, these objects will also be `[Serializable]` but have (content-side) **shared state**,
-just like `SharedArrayBuffer`.
+Therefore, these objects will also be `[Serializable]` but have a small amount of (content-side)
+**shared state**, just like `SharedArrayBuffer`.
+
+Access to this shared state is somewhat limited - it can't be changed arbitrarily quickly - it
+might still be a timing attack vector, like `SharedArrayBuffer`, in which case this functionality
+would be gated behind the same mechanisms that gate `SharedArrayBuffer`.
+
 For example, for threads Main and Worker:
 
-- Main: createBuffer &rarr; B1.
-- Main: postMessage to Worker.
-- Worker: receive message &rarr; B2.
-- Worker: `B2.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state.
-- Main: `B1.mapAsync()` &rarr; **throws an exception**.
+- Main: `const B1 = device.createBuffer(...);`.
+- Main: postMessage `B1` to Worker.
+- Worker: receive message &rarr; `B2`.
+- Worker: `const mapPromise = B2.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state.
+- Main: `B1.mapAsync()` &rarr; **throws an exception** (and doesn't change the state of the buffer).
 - Main: Encode some command that uses `B1`, like:
 
     ```js
@@ -804,7 +852,7 @@ For example, for threads Main and Worker:
     &rarr; succeeds, because this doesn't depend on the buffer's client side state.
 - Main: `queue.submit(commandBuffer)` &rarr; **asynchronous WebGPU error**,
     because the CPU currently owns the buffer.
-- Worker: waits for the mapping, writes to it, then calls `B2.unmap()`.
+- Worker: `await mapPromise`, writes to it, then calls `B2.unmap()`.
 - Main: `queue.submit(commandBuffer)` &rarr; succeeds
 - Main: `B1.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state
 
@@ -1026,6 +1074,9 @@ parts of the API that *do* use it.
 See also issue [#747](https://github.com/gpuweb/gpuweb/issues/747)
 which mentions that strongly-typed bitflags in JavaScript would be useful.
 
+Issue(gpuweb/gpuweb#304): This is a known misuse of `interface`; see issue.
+Update this section if that issue is resolved.
+
 
 # WebGPU Shading Language # {#wgsl}
 
@@ -1034,7 +1085,7 @@ which mentions that strongly-typed bitflags in JavaScript would be useful.
 
 ## What information might this feature expose to Web sites or other parties, and for what purposes is that exposure necessary? ## {#questionnaire-1}
 
-The feature exposes information about the system's GPUs (or lack of).
+The feature exposes information about the system's GPUs (or lack thereof).
 
 It allows determining if one of the GPUs in the system supports WebGPU by requesting a `GPUAdapter` without software fallback.
 This is necessary for sites to be able to fallback to hardware-accelerated WebGL if the system doesn't support hardware-accelerated WebGPU.
@@ -1081,7 +1132,7 @@ Different requests for adapters returning adapters with different capabilities w
 
 WebGPU allows sending data to the system's GPU.
 The WebGPU specification prevents ill-formed GPU commands from being sent to the hardware.
-It is also expected that user-agents will have work-arounds for bugs in the driver that could cause issue even with well-format GPU commands.
+It is also expected that user-agents will have work-arounds for bugs in the driver that could cause issue even with well-formed GPU commands.
 
 ## Do features in this specification allow an origin access to sensors on a user’s device? ## {#questionnaire-8}
 
@@ -1089,7 +1140,7 @@ No.
 
 ## What data do the features in this specification expose to an origin? Please also document what data is identical to data exposed by other features, in the same or different contexts. ## {#questionnaire-9}
 
-WebGPU exposes with hardware-accelerated WebGPU is available, which is a new piece of data.
+WebGPU exposes whether hardware-accelerated WebGPU is available, which is a new piece of data.
 The adapter's name, optional features, and limits has a large intersection with WebGL's RENDERER_STRING, limits and extensions: even limits not in WebGL can mostly be deduced from the other limits exposed by WebGL (by deducing what GPU model the system has).
 
 ## Do features in this specification enable new script execution/loading mechanisms? ## {#questionnaire-10}
@@ -1117,7 +1168,7 @@ None.
 ## How does this specification distinguish between behavior in first-party and third-party contexts? ## {#questionnaire-14}
 
 There are no specific behavior difference between first-party and third-party contexts.
-However the user-agent can decide to limit the `GPUAdapters` returned to third-party contexts: by using less buckets, by using a single bucket, or by not exposing WebGPU.
+However the user-agent can decide to limit the `GPUAdapters` returned to third-party contexts: by using fewer buckets, by using a single bucket, or by not exposing WebGPU.
 
 ## How do the features in this specification work in the context of a browser’s Private Browsing or Incognito mode? ## {#questionnaire-15}
 
