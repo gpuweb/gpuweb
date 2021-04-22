@@ -907,7 +907,7 @@ An [=adapter=] has the following internal slots:
         Indicates whether the adapter is allowed to vend new devices at this time.
         Its value may change at any time.
 
-        It is initially set to `true` inside {{GPU/requestAdapter()}}.
+        It is initially set to `true` inside {{GPU/requestAdapters()}}.
         It becomes `false` inside "[=lose the device=]" and "[=mark adapters stale=]".
         Once set to `false`, it cannot become `true` again.
 
@@ -917,6 +917,11 @@ An [=adapter=] has the following internal slots:
         reinitialization due to an unplugged adapter, reinitialization due to a test
         {{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc. It also ensures applications use
         the latest system state to make decisions about which adapter to use.
+
+    : <dfn>\[[software]]</dfn>, of type boolean
+    ::
+        If set to `true` indicates that the adapter is backed by a software implementation of an
+        appropriate graphics API rather than physical GPU hardware.
 </dl>
 
 [=Adapters=] are exposed via {{GPUAdapter}}.
@@ -1246,41 +1251,45 @@ WorkerNavigator includes NavigatorGPU;
 <script type=idl>
 [Exposed=(Window, DedicatedWorker)]
 interface GPU {
-    Promise<GPUAdapter?> requestAdapter(optional GPURequestAdapterOptions options = {});
+    Promise<FrozenArray<GPUAdapter>> requestAdapters(optional GPURequestAdapterOptions options = {});
 };
 </script>
 
 {{GPU}} has the following methods:
 
 <dl dfn-type=method dfn-for=GPU>
-    : <dfn>requestAdapter(options)</dfn>
+    : <dfn>requestAdapters(options)</dfn>
     ::
-        Requests an [=adapter=] from the user agent.
-        The user agent chooses whether to return an adapter, and, if so,
-        chooses according to the provided options.
+        Requests a list of [=adapters=] from the user agent.
+        The user agent chooses which adapters to return, if any, according to the provided options.
 
-        <div algorithm=GPU.requestAdapter>
+        <div algorithm=GPU.requestAdapters>
             **Called on:** {{GPU}} |this|.
 
             **Arguments:**
-            <pre class=argumentdef for="GPU/requestAdapter(options)">
-                |options|: Criteria used to select the adapter.
+            <pre class=argumentdef for="GPU/requestAdapters(options)">
+                |options|: Criteria used to select the adapters.
             </pre>
 
-            **Returns:** {{Promise}}&lt;{{GPUAdapter}}?&gt;
+            **Returns:** {{Promise}}&lt;FrozenArray&lt;{{GPUAdapter}}&gt;&gt;
 
             1. Let |promise| be [=a new promise=].
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
-                    1. If the user agent chooses to return an adapter, it should:
+                    1. Let |adapterList| be an empty [=list=].
 
-                        1. Create an [=adapter=] |adapter| with {{adapter/[[current]]}} set to `true`,
-                            chosen according to the rules in
-                            [[#adapter-selection]] and the criteria in |options|.
+                    1. If the user agent chooses to return a hardware adapter, it should:
+                        1. Create an [=adapter=] |adapter| with {{adapter/[[current]]}} set to
+                            `true` and {{adapter/[[software]]}} set to `false`, chosen according to
+                            the rules in [[#adapter-selection]] and the criteria in |options|.
+                        1. [=list/Append=] a new {{GPUAdapter}} encapsulating |adapter| to |adapterList|.
 
-                        1. [=Resolve=] |promise| with a new {{GPUAdapter}} encapsulating |adapter|.
+                     1. If the user agent chooses to return a software adapter, it should:
+                        1. Create an [=adapter=] |adapter| with {{adapter/[[current]]}} set to
+                            `true` and {{adapter/[[software]]}} set to `true`.
+                        1. [=list/Append=] a new {{GPUAdapter}} encapsulating |adapter| to |adapterList|.
 
-                    1. Otherwise, |promise| [=resolves=] with `null`.
+                    1. [=Resolve=] |promise| with |adapterList|.
                 </div>
             1. Return |promise|.
 
@@ -1294,11 +1303,11 @@ interface GPU {
 <dl dfn-type=attribute dfn-for=GPU>
     : <dfn>\[[previously_returned_adapters]]</dfn>, of type [=ordered set=]&lt;[=adapter=]&gt;
     ::
-        The set of [=adapters=] that have been returned via {{GPU/requestAdapter()}}.
+        The set of [=adapters=] that have been returned via {{GPU/requestAdapters()}}.
         It is used, then cleared, in [=mark adapters stale=].
 </dl>
 
-Upon any change in the system's state that could affect the result of any {{GPU/requestAdapter()}}
+Upon any change in the system's state that could affect the result of any {{GPU/requestAdapters()}}
 call, the user agent *should* [=mark adapters stale=]. For example:
 
 - A physical adapter is added/removed (via plug, driver update, TDR, etc.)
@@ -1308,7 +1317,7 @@ Additionally, [=mark adapters stale=] may by scheduled at any time.
 User agents may choose to do this often even when there has been no system state change (e.g.
 several seconds after the last call to {{GPUAdapter/requestDevice()}}.
 This has no effect on well-formed applications, obfuscates real system state changes, and makes
-developers more aware that calling {{GPU/requestAdapter()}} again is always necessary before
+developers more aware that calling {{GPU/requestAdapters()}} again is always necessary before
 calling {{GPUAdapter/requestDevice()}}.
 
 <div algorithm>
@@ -1322,15 +1331,23 @@ calling {{GPUAdapter/requestDevice()}}.
 </div>
 
 <div class="example">
-    Request a {{GPUAdapter}}:
+    Request a list of {{GPUAdapter}}s:
     <pre highlight="js">
-        const adapter = await navigator.gpu.requestAdapter(/* ... */);
-        const features = adapter.features;
-        // ...
+        const adapters = await navigator.gpu.requestAdapters(/* ... */);
+        if (adapters.length) {
+            const features = adapters[0].features;
+            // ...
+        }
     </pre>
 </div>
 
 ### Adapter Selection ### {#adapter-selection}
+
+{{GPU/requestAdapters()}} must return no more than one hardware adapter and no more than one
+software adapter, though the user agent may choose not to return either.
+
+Issue: consider using the Permissions API to gate the exposure of multiple hardware adapters, or
+even full adapter features.
 
 <dfn dictionary>GPURequestAdapterOptions</dfn>
 provides hints to the user agent indicating what
@@ -1355,10 +1372,10 @@ enum GPUPowerPreference {
     : <dfn>powerPreference</dfn>
     ::
         Optionally provides a hint indicating what class of [=adapter=] should be selected from
-        the system's available adapters.
+        the system's available hardware adapters.
 
-        The value of this hint may influence which adapter is chosen, but it must not
-        influence whether an adapter is returned or not.
+        The value of this hint may influence which hardware adapter is chosen, but it must not
+        influence whether a hardware adapter is returned or not.
 
         Note:
         The primary utility of this hint is to influence which GPU is used in a multi-GPU system.
@@ -1408,7 +1425,7 @@ enum GPUPowerPreference {
 A {{GPUAdapter}} encapsulates an [=adapter=],
 and describes its capabilities ([=features=] and [=limits=]).
 
-To get a {{GPUAdapter}}, use {{GPU/requestAdapter()}}.
+To get a {{GPUAdapter}}, use {{GPU/requestAdapters()}} and select one from the returned list.
 
 <script type=idl>
 [Exposed=Window]
@@ -1416,6 +1433,7 @@ interface GPUAdapter {
     readonly attribute DOMString name;
     [SameObject] readonly attribute GPUSupportedFeatures features;
     [SameObject] readonly attribute GPUAdapterLimits limits;
+    readonly attribute boolean isSoftware;
 
     Promise<GPUDevice> requestDevice(optional GPUDeviceDescriptor descriptor = {});
 };
@@ -1436,6 +1454,10 @@ interface GPUAdapter {
     : <dfn>limits</dfn>
     ::
         The limits in `this`.{{GPUAdapter/[[adapter]]}}.{{adapter/[[limits]]}}.
+
+    : <dfn>isSoftware</dfn>
+    ::
+        Returns the value of {{GPUAdapter/[[adapter]]}}.{{adapter/[[software]]}}.
 </dl>
 
 {{GPUAdapter}} has the following internal slots:
@@ -1500,7 +1522,7 @@ interface GPUAdapter {
                             Note:
                             User agents should consider issuing developer-visible warnings in
                             most or all cases when this occurs. Applications should perform
-                            reinitialization logic starting with {{GPU/requestAdapter()}}.
+                            reinitialization logic starting with {{GPU/requestAdapters()}}.
 
                         1. [=Resolve=] |promise| with a new {{GPUDevice}} encapsulating |device|,
                             and stop.
