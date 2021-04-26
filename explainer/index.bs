@@ -322,8 +322,8 @@ wants to detect.
 It is rare to need to detect both, so two nested error scopes are needed to do so.
 
 `GPUDevice.popErrorScope()` ends an error scope, popping it from the stack and returning a
-`Promise<GPUError?>`, which resolves once all enclosed fallible operations have completed and
-reported back.
+`Promise<GPUError?>`, which resolves once enclosed operations have completed and reported back.
+This includes exactly all fallible operations that were *issued* during between the push and pop calls.
 It resolves to `null` if no errors were captured, and otherwise resolves to an object describing
 the first error that was captured by the scope - either a `GPUValidationError` or a
 `GPUOutOfMemoryError`.
@@ -831,30 +831,33 @@ objects, breaking old references).
 Therefore, these objects will also be `[Serializable]` but have a small amount of (content-side)
 **shared state**, just like `SharedArrayBuffer`.
 
-Access to this shared state is somewhat limited - it can't be changed arbitrarily quickly - it
-might still be a timing attack vector, like `SharedArrayBuffer`, in which case this functionality
-would be gated behind the same mechanisms that gate `SharedArrayBuffer`.
+Though access to this shared state is somewhat limited - it can't be changed arbitrarily quickly
+on a single object - it might still be a timing attack vector, like `SharedArrayBuffer`,
+so it is tentatively gated on cross-origin isolation.
+See [Timing attacks](https://gpuweb.github.io/gpuweb/#security-timing).
 
-For example, for threads Main and Worker:
+<div class=example>
+    Given threads "Main" and "Worker":
 
-- Main: `const B1 = device.createBuffer(...);`.
-- Main: postMessage `B1` to Worker.
-- Worker: receive message &rarr; `B2`.
-- Worker: `const mapPromise = B2.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state.
-- Main: `B1.mapAsync()` &rarr; **throws an exception** (and doesn't change the state of the buffer).
-- Main: Encode some command that uses `B1`, like:
+    - Main: `const B1 = device.createBuffer(...);`.
+    - Main: uses postMessage to send `B1` to Worker.
+    - Worker: receives message &rarr; `B2`.
+    - Worker: `const mapPromise = B2.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state.
+    - Main: `B1.mapAsync()` &rarr; **throws an exception** (and doesn't change the state of the buffer).
+    - Main: encodes some command that uses `B1`, like:
 
-    ```js
-    encoder.copyBufferToTexture(B1, T);
-    const commandBuffer = encoder.finish();
-    ```
+        ```js
+        encoder.copyBufferToTexture(B1, T);
+        const commandBuffer = encoder.finish();
+        ```
 
-    &rarr; succeeds, because this doesn't depend on the buffer's client side state.
-- Main: `queue.submit(commandBuffer)` &rarr; **asynchronous WebGPU error**,
-    because the CPU currently owns the buffer.
-- Worker: `await mapPromise`, writes to it, then calls `B2.unmap()`.
-- Main: `queue.submit(commandBuffer)` &rarr; succeeds
-- Main: `B1.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state
+        &rarr; succeeds, because this doesn't depend on the buffer's client side state.
+    - Main: `queue.submit(commandBuffer)` &rarr; **asynchronous WebGPU error**,
+        because the CPU currently owns the buffer.
+    - Worker: `await mapPromise`, writes to the mapping, then calls `B2.unmap()`.
+    - Main: `queue.submit(commandBuffer)` &rarr; succeeds
+    - Main: `B1.mapAsync()` &rarr; successfully puts the buffer in the "map pending" state
+</div>
 
 Further discussion can be found in [#354](https://github.com/gpuweb/gpuweb/issues/354)
 (note not all of it reflects current thinking).
