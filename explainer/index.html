@@ -1323,7 +1323,7 @@ Possible extra rowspan handling
 </style>
   <meta content="Bikeshed version f9f60c8f, updated Fri Sep 25 16:39:03 2020 -0700" name="generator">
   <link href="https://gpuweb.github.io/gpuweb/explainer/" rel="canonical">
-  <meta content="8bc6bba3b79b744931a8899eb981f6b94274996d" name="document-revision">
+  <meta content="ba30d6ed7623bd4ec37c28bcc47876c5360bba8a" name="document-revision">
 <style>/* style-autolinks */
 
 .css.css, .property.property, .descriptor.descriptor {
@@ -1872,7 +1872,7 @@ c-[il] { color: #000000 } /* Literal.Number.Integer.Long */
   <div class="head">
    <p data-fill-with="logo"></p>
    <h1 class="p-name no-ref" id="title">WebGPU Explainer</h1>
-   <h2 class="no-num no-toc no-ref heading settled" id="subtitle"><span class="content">Living Standard, <time class="dt-updated" datetime="2021-04-24">24 April 2021</time></span></h2>
+   <h2 class="no-num no-toc no-ref heading settled" id="subtitle"><span class="content">Living Standard, <time class="dt-updated" datetime="2021-04-26">26 April 2021</time></span></h2>
    <div data-fill-with="spec-metadata">
     <dl>
      <dt>This version:
@@ -2252,8 +2252,8 @@ Initially, the device’s error scope stack is empty. <code>GPUDevice.pushErrorS
 This scope captures only errors of a particular type depending on the type of error the application
 wants to detect.
 It is rare to need to detect both, so two nested error scopes are needed to do so.</p>
-   <p><code>GPUDevice.popErrorScope()</code> ends an error scope, popping it from the stack and returning a <code>Promise&lt;GPUError?></code>, which resolves once all enclosed fallible operations have completed and
-reported back.
+   <p><code>GPUDevice.popErrorScope()</code> ends an error scope, popping it from the stack and returning a <code>Promise&lt;GPUError?></code>, which resolves once enclosed operations have completed and reported back.
+This includes exactly all fallible operations that were <em>issued</em> during between the push and pop calls.
 It resolves to <code>null</code> if no errors were captured, and otherwise resolves to an object describing
 the first error that was captured by the scope - either a <code>GPUValidationError</code> or a <code>GPUOutOfMemoryError</code>.</p>
    <p>Any device-timeline error from an operation is passed to the top-most error scope on the stack at
@@ -2659,37 +2659,40 @@ Applications still need to use them from multiple threads without having to <cod
 objects back and forth with <code>[Transferable]</code> semantics (which would also create new wrapper
 objects, breaking old references).
 Therefore, these objects will also be <code>[Serializable]</code> but have a small amount of (content-side) <strong>shared state</strong>, just like <code>SharedArrayBuffer</code>.</p>
-   <p>Access to this shared state is somewhat limited - it can’t be changed arbitrarily quickly - it
-might still be a timing attack vector, like <code>SharedArrayBuffer</code>, in which case this functionality
-would be gated behind the same mechanisms that gate <code>SharedArrayBuffer</code>.</p>
-   <p>For example, for threads Main and Worker:</p>
-   <ul>
-    <li data-md>
-     <p>Main: <code>const B1 = device.createBuffer(...);</code>.</p>
-    <li data-md>
-     <p>Main: postMessage <code>B1</code> to Worker.</p>
-    <li data-md>
-     <p>Worker: receive message → <code>B2</code>.</p>
-    <li data-md>
-     <p>Worker: <code>const mapPromise = B2.mapAsync()</code> → successfully puts the buffer in the "map pending" state.</p>
-    <li data-md>
-     <p>Main: <code>B1.mapAsync()</code> → <strong>throws an exception</strong> (and doesn’t change the state of the buffer).</p>
-    <li data-md>
-     <p>Main: Encode some command that uses <code>B1</code>, like:</p>
-<pre class="language-js highlight">    encoder<c- p>.</c->copyBufferToTexture<c- p>(</c->B1<c- p>,</c-> T<c- p>);</c->
-    <c- kr>const</c-> commandBuffer <c- o>=</c-> encoder<c- p>.</c->finish<c- p>();</c->
+   <p>Though access to this shared state is somewhat limited - it can’t be changed arbitrarily quickly
+on a single object - it might still be a timing attack vector, like <code>SharedArrayBuffer</code>,
+so it is tentatively gated on cross-origin isolation.
+See <a href="https://gpuweb.github.io/gpuweb/#security-timing">Timing attacks</a>.</p>
+   <div class="example" id="example-ca230bfa">
+    <a class="self-link" href="#example-ca230bfa"></a> Given threads "Main" and "Worker": 
+    <ul>
+     <li data-md>
+      <p>Main: <code>const B1 = device.createBuffer(...);</code>.</p>
+     <li data-md>
+      <p>Main: uses postMessage to send <code>B1</code> to Worker.</p>
+     <li data-md>
+      <p>Worker: receives message → <code>B2</code>.</p>
+     <li data-md>
+      <p>Worker: <code>const mapPromise = B2.mapAsync()</code> → successfully puts the buffer in the "map pending" state.</p>
+     <li data-md>
+      <p>Main: <code>B1.mapAsync()</code> → <strong>throws an exception</strong> (and doesn’t change the state of the buffer).</p>
+     <li data-md>
+      <p>Main: encodes some command that uses <code>B1</code>, like:</p>
+<pre class="language-js highlight">        encoder<c- p>.</c->copyBufferToTexture<c- p>(</c->B1<c- p>,</c-> T<c- p>);</c->
+        <c- kr>const</c-> commandBuffer <c- o>=</c-> encoder<c- p>.</c->finish<c- p>();</c->
 </pre>
-     <p>→ succeeds, because this doesn’t depend on the buffer’s client side state.</p>
-    <li data-md>
-     <p>Main: <code>queue.submit(commandBuffer)</code> → <strong>asynchronous WebGPU error</strong>,
+      <p>→ succeeds, because this doesn’t depend on the buffer’s client side state.</p>
+     <li data-md>
+      <p>Main: <code>queue.submit(commandBuffer)</code> → <strong>asynchronous WebGPU error</strong>,
 because the CPU currently owns the buffer.</p>
-    <li data-md>
-     <p>Worker: <code>await mapPromise</code>, writes to it, then calls <code>B2.unmap()</code>.</p>
-    <li data-md>
-     <p>Main: <code>queue.submit(commandBuffer)</code> → succeeds</p>
-    <li data-md>
-     <p>Main: <code>B1.mapAsync()</code> → successfully puts the buffer in the "map pending" state</p>
-   </ul>
+     <li data-md>
+      <p>Worker: <code>await mapPromise</code>, writes to the mapping, then calls <code>B2.unmap()</code>.</p>
+     <li data-md>
+      <p>Main: <code>queue.submit(commandBuffer)</code> → succeeds</p>
+     <li data-md>
+      <p>Main: <code>B1.mapAsync()</code> → successfully puts the buffer in the "map pending" state</p>
+    </ul>
+   </div>
    <p>Further discussion can be found in <a href="https://github.com/gpuweb/gpuweb/issues/354">#354</a> (note not all of it reflects current thinking).</p>
    <h4 class="heading settled" data-level="4.6.1" id="multithreading-transfer"><span class="secno">4.6.1. </span><span class="content">Unsolved: Synchronous Object Transfer</span><a class="self-link" href="#multithreading-transfer"></a></h4>
    <p>Some application architectures require objects to be passed between threads without having to
