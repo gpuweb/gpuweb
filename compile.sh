@@ -9,7 +9,7 @@ echo 'Building explainer'
 make -C explainer
 
 if [ -d out ]; then
-  mkdir out/wgsl out/explainer
+  mkdir -p out/wgsl out/explainer out/samples
 
   echo 'Copying wgsl/* -> out/wgsl/'
   cp -r wgsl/* out/wgsl/
@@ -22,6 +22,9 @@ if [ -d out ]; then
   echo 'Copying spec/* -> out/'
   cp spec/* out/
   rm out/{README.md,Makefile,*.py,*.bs}
+
+  echo 'Copying samples/* -> out/samples/'
+  cp samples/* out/samples/
 
   echo '<meta http-equiv="refresh" content="0;url=wgsl/" />' > out/wgsl.html
 fi

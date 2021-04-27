@@ -458,6 +458,24 @@ WebGPU compute pipelines expose access to GPU unobstructed by the fixed-function
 This poses an additional risk for unique device fingerprinting. User agents can take steps
 to dissociate logical GPU invocations with actual compute units to reduce this risk.
 
+### User Agent State ### {#security-user-agent-state}
+
+This specification doesn't define any additional user-agent state for an origin.
+However it is expected that user agents will have compilation caches for the result of expensive
+compilation like {{GPUShaderModule}}, {{GPURenderPipeline}} and {{GPUComputePipeline}}.
+These caches are important to improve the loading time of WebGPU applications after the first
+visit.
+
+For the specification, these caches are indifferentiable from incredibly fast compilation, but
+for applications it would be easy to measure how long {{GPUDevice/createComputePipelineAsync()}}
+takes to resolve. This can leak information across origins (like "did the user access a site with
+this specific shader") so user agents should follow the best practices in
+[storage partitioning](https://github.com/privacycg/storage-partitioning).
+
+The system's GPU driver may also have its own cache of compiled shaders and pipelines. User agents
+may want to disable these when at all possible, or add per-partition data to shaders in ways that
+will make the GPU driver consider them different.
+
 # Fundamentals # {#fundamentals}
 
 ## Conventions ## {#api-conventions}
@@ -937,9 +955,6 @@ A [=device=] has the following internal slots:
         No [=limit/better=] limits can be used, even if the underlying [=adapter=] can support them.
 </dl>
 
-Issue: [=device=] is already an internal concept. Having slots be marked as internal is redundant
-and adds extra `[[`/`]]` in spec text. Consider removing the brackets.
-
 <div algorithm>
     When <dfn dfn>a new device</dfn> |device| is created from [=adapter=] |adapter|
     with {{GPUDeviceDescriptor}} |descriptor|:
@@ -1196,14 +1211,32 @@ interface GPUAdapterLimits {
 
 {{GPUSupportedFeatures}} is a [=setlike=] interface. Its [=set entries=] are
 the {{GPUFeatureName}} values of the [=features=] supported by an adapter or
-device.
+device. It must only contain strings from the {{GPUFeatureName}} enum.
 
 <script type=idl>
 [Exposed=Window]
 interface GPUSupportedFeatures {
-    readonly setlike<GPUFeatureName>;
+    readonly setlike<DOMString>;
 };
 </script>
+
+<div class="note">
+Note: The type of the {{GPUSupportedFeatures}} [=set entries=] is {{DOMString}} to allow user
+agents to gracefully handle valid {{GPUFeatureName}}s which are added in later revisions of the spec
+but which the user agent has not been updated to recognize yet. If the [=set entries=] type was
+{{GPUFeatureName}} the following code would throw an {{TypeError}} rather than reporting `false`:
+
+<div class="example">
+    Check for support of an unrecognized feature:
+    <pre highlight="js">
+        if (adapter.features.has('unknown-feature')) {
+            // Use unknown-feature
+        } else {
+            console.warn('unknown-feature is not supported by this adapter.');
+        }
+    </pre>
+</div>
+</div>
 
 ## Origin Restrictions ## {#origin-restrictions}
 
@@ -1803,7 +1836,7 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
         1. Return `true`.
 </div>
 
-## Buffer Usage ## {#buffer-usage}
+### Buffer Usage ### {#buffer-usage}
 
 <script type=idl>
 typedef [EnforceRange] unsigned long GPUBufferUsageFlags;
@@ -2562,7 +2595,10 @@ note that the set of representable values is not exactly the same:
 for depth24unorm, 1 ULP has a constant value of 1 / (2<sup>24</sup> &minus; 1);
 for depth32float, 1 ULP has a variable value no greater than 1 / (2<sup>24</sup>).
 
-Issue: {{GPUTextureFormat/"rgb9e5ufloat"}} cannot be used as a color attachment.
+A renderable format is either <dfn>color renderable format</dfn>, or <dfn>depth or stencil renderable format</dfn>.
+If a format is listed in [[#plain-color-formats]] with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability, it is a
+color renderable format. Any other format is not a color renderable format. Any depth/stencil format is a
+depth or stencil renderable format. Any other format is not a depth or stencil renderable format.
 
 # Samplers # {#samplers}
 
@@ -3502,25 +3538,6 @@ if their internal {{GPUPipelineLayout/[[bindGroupLayouts]]}} sequences contain
 ## <dfn interface>GPUShaderModule</dfn> ## {#shader-module}
 
 <script type=idl>
-enum GPUCompilationMessageType {
-    "error",
-    "warning",
-    "info"
-};
-
-[Exposed=Window, Serializable]
-interface GPUCompilationMessage {
-    readonly attribute DOMString message;
-    readonly attribute GPUCompilationMessageType type;
-    readonly attribute unsigned long long lineNum;
-    readonly attribute unsigned long long linePos;
-};
-
-[Exposed=Window, Serializable]
-interface GPUCompilationInfo {
-    readonly attribute FrozenArray<GPUCompilationMessage> messages;
-};
-
 [Exposed=Window, Serializable]
 interface GPUShaderModule {
     Promise<GPUCompilationInfo> compilationInfo();
@@ -3568,6 +3585,75 @@ integration such as source-language debugging.
 </dl>
 
 ### Shader Module Compilation Information ### {#shader-module-compilation-information}
+
+<script type=idl>
+enum GPUCompilationMessageType {
+    "error",
+    "warning",
+    "info"
+};
+
+[Exposed=Window, Serializable]
+interface GPUCompilationMessage {
+    readonly attribute DOMString message;
+    readonly attribute GPUCompilationMessageType type;
+    readonly attribute unsigned long long lineNum;
+    readonly attribute unsigned long long linePos;
+    readonly attribute unsigned long long offset;
+    readonly attribute unsigned long long length;
+};
+
+[Exposed=Window, Serializable]
+interface GPUCompilationInfo {
+    readonly attribute FrozenArray<GPUCompilationMessage> messages;
+};
+</script>
+
+{{GPUCompilationMessage}} has the following attributes:
+
+<dl dfn-type=attribute dfn-for=GPUCompilationMessage>
+    : <dfn>message</dfn>
+    ::
+        A human-readable string containing the message generated during the shader compilation.
+    
+    : <dfn>type</dfn>
+    ::
+        The severity level of the message.
+
+    : <dfn>lineNum</dfn>
+    ::
+        The line number in the shader {{GPUShaderModuleDescriptor/code}} the
+        {{GPUCompilationMessage/message}} corresponds to. If {{GPUCompilationMessage/message}}
+        corresponds to a span of characters this points to the line one which the span begins.
+
+        Issue: Reference WGSL spec when it [defines what a line is](https://gpuweb.github.io/gpuweb/wgsl/#comments).
+
+    : <dfn>linePos</dfn>
+    ::
+        The offset, in UTF-16 code units, from the beginning of line {{GPUCompilationMessage/lineNum}}
+        of the shader {{GPUShaderModuleDescriptor/code}} that the {{GPUCompilationMessage/message}}
+        corresponds to. If {{GPUCompilationMessage/message}} corresponds to a span of characters
+        this points to the first character of the span.
+
+    : <dfn>offset</dfn>
+    ::
+        The offset from the beginning of the shader {{GPUShaderModuleDescriptor/code}} in UTF-16
+        code units to the beginning of the span of characters that {{GPUCompilationMessage/message}}
+        corresponds to. Must reference the same position as {{GPUCompilationMessage/lineNum}} and
+        {{GPUCompilationMessage/linePos}}.
+
+    : <dfn>length</dfn>
+    ::
+        The number of UTF-16 code units in the span of characters that
+        {{GPUCompilationMessage/message}} corresponds to. If the message refers to a single point
+        in the shader {{GPUShaderModuleDescriptor/code}} rather than a span of characters then
+        {{GPUCompilationMessage/length}} must be 0.
+</dl>
+
+Note: {{GPUCompilationMessage}}.{{GPUCompilationMessage/offset}} and
+{{GPUCompilationMessage}}.{{GPUCompilationMessage/length}} are appropriate to pass to
+`substr()` in order to retrieve the substring of the shader {{GPUShaderModuleDescriptor/code}} the
+{{GPUCompilationMessage/message}} corresponds to.
 
 <dl dfn-type=method dfn-for=GPUShaderModule>
     : <dfn>compilationInfo()</dfn>
@@ -4259,19 +4345,32 @@ dictionary GPUFragmentState: GPUProgrammableStage {
 
 <div algorithm>
     <dfn abstract-op>validating GPUFragmentState</dfn>(|descriptor|)
-        Return `true` if all of the following conditions are satisfied:
+        Return `true` if all of the following requirements are met:
 
-            - |descriptor|.{{GPUFragmentState/targets}}.length is less than or equal to 4.
-            - For each |colorState| layout descriptor in the list |descriptor|.{{GPUFragmentState/targets}}:
-                - |colorState|.{{GPUColorTargetState/format}} is listed in {#plain-color-formats}
-                    with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
-                - |colorState|.{{GPUColorTargetState/blend}} is either `undefined`,
-                    or the |colorState|.{{GPUColorTargetState/format}} is filterable
-                    according to the {#plain-color-formats} table.
-                - |colorState|.{{GPUColorTargetState/writeMask}} is less than 16.
-                - |descriptor|.{{GPUProgrammableStage/module}} contains an output variable
-                    that is [=statically used=] by |descriptor|.{{GPUProgrammableStage/entryPoint}},
-                    and has a type that is compatible with |colorState|.{{GPUColorTargetState/format}}.
+        - |descriptor|.{{GPUFragmentState/targets}}.length must be &le; 4.
+        - For each |colorState| layout descriptor in the list |descriptor|.{{GPUFragmentState/targets}}:
+            - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
+                with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
+            - If |colorState|.{{GPUColorTargetState/blend}} is not `undefined`:
+                - The |colorState|.{{GPUColorTargetState/format}} must be filterable
+                    according to the [[#plain-color-formats]] table.
+                - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}
+                    must be a [=valid GPUBlendComponent=].
+                - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
+                    must be a [=valid GPUBlendComponent=].
+            - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
+            - |descriptor|.{{GPUProgrammableStage/module}} must contain an output variable that:
+                - is [=statically used=] by |descriptor|.{{GPUProgrammableStage/entryPoint}}, and
+                - has a type that is compatible with |colorState|.{{GPUColorTargetState/format}}.
+</div>
+
+<div algorithm>
+    |component| is a <dfn>valid GPUBlendComponent</dfn> if it meets the following requirements:
+
+    - If |component|.{{GPUBlendComponent/operation}} is
+        {{GPUBlendOperation/"min"}} or {{GPUBlendOperation/"max"}}:
+        - |component|.{{GPUBlendComponent/srcFactor}} and
+            |component|.{{GPUBlendComponent/dstFactor}} must both be {{GPUBlendFactor/"one"}}.
 </div>
 
 Issue: define the area of reach for "statically used" things of `GPUProgrammableStage`
@@ -4320,22 +4419,19 @@ dictionary GPUBlendComponent {
 enum GPUBlendFactor {
     "zero",
     "one",
-    "src-component",
-    "one-minus-src-component",
+    "src",
+    "one-minus-src",
     "src-alpha",
     "one-minus-src-alpha",
-    "dst-component",
-    "one-minus-dst-component",
+    "dst",
+    "one-minus-dst",
     "dst-alpha",
     "one-minus-dst-alpha",
     "src-alpha-saturated",
-    "constant-component",
-    "one-minus-constant-component"
+    "constant",
+    "one-minus-constant"
 };
 </script>
-
-Issue: {{GPUBlendOperation}}s "min" and "max" actually ignore the {{GPUBlendFactor}}.
-Should we validate the `srcFactor`/`dstFactor` both must be "one" with "min"/"max"?
 
 <script type=idl>
 enum GPUBlendOperation {
@@ -4397,7 +4493,7 @@ enum GPUStencilOperation {
 
     Return `true`, if and only if, all of the following conditions are satisfied:
 
-        - |descriptor|.{{GPUDepthStencilState/format}} is listed in {#depth-formats}.
+        - |descriptor|.{{GPUDepthStencilState/format}} is listed in [[#depth-formats]].
         - if |descriptor|.{{GPUDepthStencilState/depthWriteEnabled}} is `true` or
             |descriptor|.{{GPUDepthStencilState/depthCompare}} is not {{GPUCompareFunction/"always"}}:
             - |descriptor|.{{GPUDepthStencilState/format}} must have a depth component.
@@ -5400,7 +5496,7 @@ must be well nested.
 
     : <dfn>insertDebugMarker(markerLabel)</dfn>
     ::
-        Marks the end of a labeled group of commands for the {{GPUCommandEncoder}}.
+        Marks a point in a stream of commands with a label string.
 
         <div algorithm=GPUCommandEncoder.insertDebugMarker>
             **Called on:** {{GPUCommandEncoder}} |this|.
@@ -6225,7 +6321,7 @@ dictionary GPURenderPassColorAttachment {
     Given a {{GPURenderPassColorAttachment}} |this| the following validation rules
     apply:
 
-    1. |this|.{{GPURenderPassColorAttachment/view}} must have a renderable color format.
+    1. |this|.{{GPURenderPassColorAttachment/view}} must have a [=color renderable format=].
     1. |this|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[texture]]}}.{{GPUTexture/[[textureUsage]]}}
         must contain {{GPUTextureUsage/RENDER_ATTACHMENT}}.
     1. |this|.{{GPURenderPassColorAttachment/view}} must be a view of a single [=subresource=].
@@ -6316,8 +6412,8 @@ dictionary GPURenderPassDepthStencilAttachment {
     Given a {{GPURenderPassDepthStencilAttachment}} |this| the following validation
     rules apply:
 
-    1. |this|.{{GPURenderPassDepthStencilAttachment/view}} must have a renderable
-        depth-and/or-stencil format.
+    1. |this|.{{GPURenderPassDepthStencilAttachment/view}} must have a [=depth or stencil renderable
+        format=].
     1. |this|.{{GPURenderPassDepthStencilAttachment/view}} must be a view of a
         single [=texture subresource=].
     1. |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTexture/[[textureUsage]]}}
@@ -6717,8 +6813,8 @@ attachments used by this encoder.
 
     : <dfn>setBlendConstant(color)</dfn>
     ::
-        Sets the constant blend color and alpha values used with {{GPUBlendFactor/"constant-component"}}
-        and {{GPUBlendFactor/"one-minus-constant-component"}} {{GPUBlendFactor}}s.
+        Sets the constant blend color and alpha values used with {{GPUBlendFactor/"constant"}}
+        and {{GPUBlendFactor/"one-minus-constant"}} {{GPUBlendFactor}}s.
 
         <div algorithm="GPURenderPassEncoder.setBlendConstant">
             **Called on:** {{GPURenderPassEncoder}} this.
@@ -7513,10 +7609,17 @@ of the given {{GPUSwapChainDescriptor}}.{{GPUSwapChainDescriptor/device}}, initi
 {{GPUTextureFormat/"rgba8unorm"}}, {{GPUTextureFormat/"rgba8unorm-srgb"}}&raquo;.
 
 <script type=idl>
+
+enum GPUCanvasCompositingAlphaMode {
+    "opaque",
+    "premultiplied",
+};
+
 dictionary GPUSwapChainDescriptor : GPUObjectDescriptorBase {
     required GPUDevice device;
     required GPUTextureFormat format;
     GPUTextureUsageFlags usage = 0x10;  // GPUTextureUsage.RENDER_ATTACHMENT
+    GPUCanvasCompositingAlphaMode compositingAlphaMode = "opaque";
 };
 </script>
 
@@ -7609,6 +7712,35 @@ GPUSwapChain includes GPUObjectBase;
         1. Ensure |texture| is cleared to `(0, 0, 0, 0)`.
         1. Return |texture|.
 </div>
+
+
+## <dfn dfn-type=enum-value dfn-for=GPUCanvasCompositingAlphaMode>GPUCanvasCompositingAlphaMode</dfn> ## {#GPUCanvasCompositingAlphaMode}
+
+This enum selects how the swap chain canvas will paint onto the page.
+
+<table class='data'>
+    <thead>
+        <tr>
+            <th>GPUCanvasCompositingAlphaMode
+            <th>Description
+            <th>dst.rgb
+            <th>dst.a
+    </thead>
+    <tr>
+        <td>{{GPUCanvasCompositingAlphaMode/opaque}}
+        <td>Paint RGB as opaque and ignore alpha values.
+            If the content is not already opaque, implementations may need to clear alpha to opaque during presentation.
+        <td>|dst.rgb = src.rgb|
+        <td>|dst.a = 1|
+    <tr>
+        <td>{{GPUCanvasCompositingAlphaMode/premultiplied}}
+        <td>Composite assuming color values are premultiplied by their alpha value.
+            100% red 50% opaque is [0.5, 0, 0, 0.5].
+            Color values must be less than or equal to their alpha value.
+            [1.0, 0, 0, 0.5] is "super-luminant" and cannot reliably be displayed.
+        <td>|dst.rgb = src.rgb + dst.rgb*(1-src.a)|
+        <td>|dst.a = src.a + dst.a*(1-src.a)|
+</table>
 
 # Errors &amp; Debugging # {#errors-and-debugging}
 
@@ -7842,8 +7974,8 @@ a list of vertices to process for each instance.
 
 Vertex processing stage is a programmable stage of the render [=pipeline=] that
 processes the vertex attribute data, and produces
-clip space positions for {#primitive-clipping}, as well as other data for the
-{#fragment-processing}.
+clip space positions for [[#primitive-clipping]], as well as other data for the
+[[#fragment-processing]].
 
 <div algorithm>
     <dfn abstract-op>process vertices</dfn>(vertexIndexList, drawCall, desc, state)
@@ -8038,7 +8170,7 @@ samples. The locations of samples are the same for each pixel, but not defined i
 Issue: do we want to force-enable the "Standard sample locations" in Vulkan?
 
 The [=framebuffer=] coordinates start from the top-left corner of the render targets.
-Each unit corresponds exactly to a pixel. See {#coordinate-systems} for more information.
+Each unit corresponds exactly to a pixel. See [[#coordinate-systems]] for more information.
 
 1. First, the clipped vertices are transformed into <dfn dfn>NDC</dfn> - normalized device coordinates.
     Given the output position |p|, the [=NDC=] coordinates are computed as:
@@ -8067,7 +8199,7 @@ the sample index, in case [[#sample-frequency-shading]] is active.
 
 The result of rasterization is a set of points, each associated with the following data:
   - [=fragment destination=]
-  - multisample coverage mask (see {#sample-masking})
+  - multisample coverage mask (see [[#sample-masking]])
   - depth, in [=NDC=] coordinates.
   - barycentric coordinates
 
@@ -8430,6 +8562,9 @@ Only formats with {{GPUTextureSampleType}} {{GPUTextureSampleType/"float"}} can 
 
 The {{GPUTextureUsage/STORAGE|GPUTextureUsage.STORAGE}} column specifies the support for {{GPUTextureUsage/STORAGE}}
 usage in the core API, including both {{GPUStorageTextureAccess/"read-only"}} and {{GPUStorageTextureAccess/"write-only"}}.
+
+The {{GPUTextureUsage/STORAGE|GPUTextureUsage.RENDER_ATTACHMENT}} column specifies the support for
+{{GPUTextureUsage/RENDER_ATTACHMENT}} usage in the core API.
 
 <table class='data'>
     <thead class=stickyheader>
