@@ -36,6 +36,9 @@ spec: webidl; urlPrefix: https://heycam.github.io/webidl/#
 spec: web-apis; urlPrefix: https://html.spec.whatwg.org/multipage/webappapis.html#
     type: dfn
         text: cross-origin isolated; url: cross-origin-isolated
+spec: canvas; urlPrefix: https://html.spec.whatwg.org/multipage/canvas.html#
+    type: dfn
+        text: origin-clean; url: concept-canvas-origin-clean
 </pre>
 
 <style>
@@ -1234,6 +1237,24 @@ but which the user agent has not been updated to recognize yet. If the [=set ent
     </pre>
 </div>
 </div>
+
+## Origin Restrictions ## {#origin-restrictions}
+
+WebGPU allows accessing image data stored in images, videos, and canvases.
+Restrictions are imposed on the use of cross-domain media, because shaders can be used to
+indirectly deduce the contents of textures which have been uploaded to the GPU.
+
+WebGPU disallows uploading an image source if it <l spec=html>[=is not origin-clean=]</l>.
+
+This also implies that the [=origin-clean=] flag for a
+canvas rendered using WebGPU will never be set to `false`.
+
+For more information on issuing CORS requests for image and video elements, consult:
+
+- [[html#cors-settings-attributes]]
+- [[html#the-img-element]] <{img}>
+- [[html#media-elements]] {{HTMLMediaElement}}
+
 
 # Initialization # {#initialization}
 
@@ -4937,6 +4958,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 
 ## Copy Commands ## {#copy-commands}
 
+Issue: these dictionary definitions should be inside the image copies section.
+
 ### <dfn dictionary>GPUImageDataLayout</dfn> ### {#gpu-image-data-layout}
 
 <script type=idl>
@@ -4979,13 +5002,14 @@ Issue: Define the exact copy semantics, by reference to common algorithms shared
 
 ### <dfn dictionary>GPUImageCopyBuffer</dfn> ### {#gpu-image-copy-buffer}
 
+In an image copy operation, {{GPUImageCopyBuffer}} defines a {{GPUBuffer}} and, together with
+the `copySize`, how image data is laid out in the buffer's memory (see {{GPUImageDataLayout}}).
+
 <script type=idl>
 dictionary GPUImageCopyBuffer : GPUImageDataLayout {
     required GPUBuffer buffer;
 };
 </script>
-
-A {{GPUImageCopyBuffer}} contains the actual [=texture=] data placed in a [=buffer=] according to {{GPUImageDataLayout}}.
 
 <div algorithm class=validusage>
 <dfn abstract-op>validating GPUImageCopyBuffer</dfn>
@@ -5003,6 +5027,10 @@ A {{GPUImageCopyBuffer}} contains the actual [=texture=] data placed in a [=buff
 
 ### <dfn dictionary>GPUImageCopyTexture</dfn> ### {#gpu-image-copy-texture}
 
+In an image copy operation, a {{GPUImageCopyTexture}} defines a {{GPUTexture}} and, together with
+the `copySize`, the sub-region of the texture (spanning one or more contiguous
+[=texture subresources=] at the same mip-map level).
+
 <script type=idl>
 dictionary GPUImageCopyTexture {
     required GPUTexture texture;
@@ -5012,10 +5040,24 @@ dictionary GPUImageCopyTexture {
 };
 </script>
 
-A {{GPUImageCopyTexture}} is a view of a sub-region of one or multiple contiguous [=texture subresources=] with the initial
-offset {{GPUOrigin3D}} in texels, used when copying data from or to a {{GPUTexture}}.
+<dl dfn-type=dict-member dfn-for=GPUImageCopyTexture>
+    : <dfn>texture</dfn>
+    ::
+        Texture to copy to/from.
 
-  * {{GPUImageCopyTexture/origin}}: If unspecified, defaults to `[0, 0, 0]`.
+    : <dfn>mipLevel</dfn>
+    ::
+        Mip-map level of the {{GPUImageCopyTexture/texture}} to copy to/from.
+
+    : <dfn>origin</dfn>
+    ::
+        Defines the origin of the copy - the minimum corner of the texture sub-region to copy to/from.
+        Together with `copySize`, defines the full copy sub-region.
+
+    : <dfn>aspect</dfn>
+    ::
+        Defines which aspects of the {{GPUImageCopyTexture/texture}} to copy to/from.
+</dl>
 
 <div algorithm class=validusage>
 <dfn abstract-op>validating GPUImageCopyTexture</dfn>
@@ -5045,16 +5087,39 @@ offset {{GPUOrigin3D}} in texels, used when copying data from or to a {{GPUTextu
 
 Issue(gpuweb/gpuweb#69): Define the copies with {{GPUTextureDimension/1d}} and {{GPUTextureDimension/3d}} textures.
 
-### <dfn dictionary>GPUImageCopyImageBitmap</dfn> ### {#gpu-image-copy-image-bitmap-copy}
+### <dfn dictionary>GPUImageCopyExternalImage</dfn> ### {#gpu-image-copy-external-image}
 
 <script type=idl>
-dictionary GPUImageCopyImageBitmap {
-    required ImageBitmap imageBitmap;
+dictionary GPUImageCopyExternalImage {
+    required (ImageBitmap or HTMLCanvasElement or OffscreenCanvas) source;
     GPUOrigin2D origin = {};
 };
 </script>
 
-  * {{GPUImageCopyImageBitmap/origin}}: If unspecified, defaults to `[0, 0]`.
+{{GPUImageCopyExternalImage}} has the following members:
+
+<dl dfn-type=dict-member dfn-for=GPUImageCopyExternalImage>
+    : <dfn>source</dfn>
+    ::
+        The source of the image copy. The copy source data is captured at the moment that
+        {{GPUQueue/copyExternalImageToTexture()}} is issued.
+
+    : <dfn>origin</dfn>
+    ::
+        Defines the origin of the copy - the minimum corner of the source sub-region to copy from.
+        Together with `copySize`, defines the full copy sub-region.
+</dl>
+
+Issue(gpuweb/gpuweb#1483): Needs optional information about the target color encoding.
+ImageBitmap and canvas (and VideoElement) are color-managed: they encode colors.
+GPUTexture is not color-managed: it encodes raw numbers. Producing raw numbers requires knowing
+the target encoding. Probably there should be a particular default value (e.g. the default profile
+used by the browser for unmanaged content?), but eventually we'll want to add knobs.
+
+Issue: Once that's figured out, generally define (and test) the encoding of color values into the
+various formats allowed by {{GPUQueue/copyExternalImageToTexture()}}.
+
+### Buffer Copies ### {#buffer-copies}
 
 <dl dfn-type=method dfn-for=GPUCommandEncoder>
     : <dfn>copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size)</dfn>
@@ -5099,7 +5164,7 @@ dictionary GPUImageCopyImageBitmap {
         </div>
 </dl>
 
-### Copy Between Buffer and Texture ### {#copy-between-buffer-texture}
+### Image Copies ### {#image-copies}
 
 WebGPU provides {{GPUCommandEncoder/copyBufferToTexture()}} for buffer-to-texture copies and
 {{GPUCommandEncoder/copyTextureToBuffer()}} for texture-to-buffer copies.
@@ -7049,8 +7114,8 @@ interface GPUQueue {
       GPUImageDataLayout dataLayout,
       GPUExtent3D size);
 
-    undefined copyImageBitmapToTexture(
-        GPUImageCopyImageBitmap source,
+    undefined copyExternalImageToTexture(
+        GPUImageCopyExternalImage source,
         GPUImageCopyTexture destination,
         GPUExtent3D copySize);
 };
@@ -7170,27 +7235,37 @@ GPUQueue includes GPUObjectBase;
                 </div>
         </div>
 
-    : <dfn>copyImageBitmapToTexture(source, destination, copySize)</dfn>
+    : <dfn>copyExternalImageToTexture(source, destination, copySize)</dfn>
     ::
-        Schedules a copy operation of the contents of an image bitmap into the destination texture.
+        Issues a copy operation of the contents of a platform image/canvas
+        into the destination texture.
 
-        <div algorithm=GPUQueue.copyImageBitmapToTexture>
+        <div algorithm=GPUQueue.copyExternalImageToTexture>
             **Called on:** {{GPUQueue}} this.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUQueue/copyImageBitmapToTexture(source, destination, copySize)">
-                |source|: {{ImageBitmap}} and origin to copy to |destination|.
+            <pre class=argumentdef for="GPUQueue/copyExternalImageToTexture(source, destination, copySize)">
+                |source|: source image and origin to copy to |destination|.
                 |destination|: The [=texture subresource=] and origin to write to.
                 |copySize|: Extents of the content to write from |source| to |destination|.
             </pre>
 
             **Returns:** {{undefined}}
 
-            If any of the following conditions are unsatisfied, throw an {{OperationError}} and stop.
+            - If |source|.{{GPUImageCopyExternalImage/source}}
+                <l spec=html>[=is not origin-clean=]</l>,
+                throw a {{SecurityError}} and stop.
+
+            If any of the following requirements are unmet, throw an {{OperationError}} and stop.
             <div class=validusage>
-                - |copySize|.[=Extent3D/depthOrArrayLayers=] is `1`.
-                - |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[dimension]]}} is {{GPUTextureDimension/"2d"}}.
-                - |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[format]]}} is one of the following:
+                - |copySize|.[=Extent3D/depthOrArrayLayers=] must be `1`.
+                - |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[textureUsage]]}}
+                    must include both {{GPUTextureUsage/RENDER_ATTACHMENT}} and
+                    {{GPUTextureUsage/COPY_DST}}.
+                - |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[dimension]]}}
+                    must be {{GPUTextureDimension/"2d"}}.
+                - |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[format]]}}
+                    must be one of the following:
                     - {{GPUTextureFormat/"rgba8unorm"}}
                     - {{GPUTextureFormat/"rgba8unorm-srgb"}}
                     - {{GPUTextureFormat/"bgra8unorm"}}
@@ -7201,6 +7276,10 @@ GPUQueue includes GPUObjectBase;
                     - {{GPUTextureFormat/"rg8unorm"}}
                     - {{GPUTextureFormat/"rg16float"}}
             </div>
+
+            Issue: The above list was written just for ImageBitmap.
+            Re-evaluate it for canvas (and video).
+            (It's probably still fine, though `rgb10a2unorm` is a bit of an outlier.)
         </div>
 
     : <dfn>submit(commandBuffers)</dfn>
