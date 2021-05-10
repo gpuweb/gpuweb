@@ -454,6 +454,22 @@ literal_or_ident
     and [=fragment=] inputs.
     See [[#interpolation]].
 
+  <tr><td><dfn noexport dfn-for="attribute">`invariant`
+    <td>*None*
+    <td>Must only be applied to the `position` built-in variable.
+
+    When applied to the `position` [=built-in output variable=] of a vertex
+    shader, the computation of the result is invariant across different
+    programs and different invocations of the same entry point.
+    That is, if the data and control flow match for two `position` outputs in
+    different entry points, then the result values are guaranteed to be the
+    same.
+    There is no affect on a `position` [=built-in input variable=].
+
+    Note: this attribute maps to the `Invariant` decoration in SPIR-V, the
+    `invariant` attribute in Metal shading language, the `precise` qualifier in
+    HLSL, the `invariant` qualifier in GLSL.
+
   <tr><td><dfn noexport dfn-for="attribute">`location`
     <td>non-negative i32 literal
     <td>Must only be applied to an entry point function parameter, entry point
@@ -754,10 +770,12 @@ TODO(dneto): Do we still need all these shorthands?
 
 ## Plain Types ## {#plain-types-section}
 
-<dfn noexport>Plain types</dfn> are the types for representing boolean values, numbers, vectors,
+[=Plain types=] are the types for representing boolean values, numbers, vectors,
 matrices, or aggregations of such values.
 
-Note: Plain types in [SHORTNAME] are analogous to Plain-Old-Data types in C++.
+A <dfn>plain type</dfn> is either a [=scalar=] type, an [=atomic type|atomic=] type, or a [=composite=] type.
+
+Note: Plain types in [SHORTNAME] are similar to Plain-Old-Data types in C++, but also include atomic types.
 
 ### Boolean Type ### {#bool-type}
 
@@ -846,6 +864,81 @@ See [[#arithmetic-expr]].
   </xmp>
 </div>
 
+### Atomic Types ### {#atomic-types}
+
+An <dfn noexport>atomic type</dfn> encapsulates a [=scalar=] type such that:
+* atomic objects provide certain guarantees to concurrent observers, and
+* the only valid operations on atomic objects are the [[#atomic-builtin-functions|atomic builtin functions]].
+
+<table class='data'>
+  <thead>
+    <tr><th>Type<th>Description
+  </thead>
+  <tr algorithm="atomic type"><td>atomic&lt;|T|&gt;
+    <td>Atomic of type |T|. |T| must be either [=u32=] or [=i32=].
+</table>
+
+An expression must not evaluate to an atomic type.
+
+Atomic types may only be instantiated by variables in the [=storage
+classes/workgroup=] storage class or `read_write` [=attribute/access=] variables in the
+[=storage classes/storage=] storage class.
+
+An <dfn noexport>atomic modification</dfn> is any operation on an atomic object which sets the content of the object.
+The operation counts as a modification even if the new value is the same as the object's existing value.
+
+In [SHORTNAME], atomic modifications are mutually ordered, for each object.
+That is, during execution of a shader stage, for each atomic object *A*, all
+agents observe the same order of modification operations applied to *A*.
+The ordering for distinct atomic objects may not be related in any way; no
+causality is implied.
+Note that variables in [=storage classes/workgroup=] storage are shared within a
+[=compute shader stage/workgroup=], but are not shared between different
+workgroups.
+
+TODO: Add links the eventual memory model descriptions.
+
+<pre class='example storage atomic' heading='Mapping atomics in a storage variable to SPIR-V'>
+  <xmp>
+    [[block]] struct S {
+      a : atomic<i32>;
+      b : atomic<u32>;
+    };
+
+    [[group(0), binding(0)]]
+    var<storage> x : [[access(read_write)]] S;
+
+    // Maps to the following SPIR-V:
+    // - When atomic types are members of a struct, the Volatile decoration
+    //   is annotated on the member.
+    // OpDecorate %S Block
+    // OpMemberDecorate %S 0 Volatile
+    // OpMemberDecorate %S 1 Volatile
+    // ...
+    // %i32 = OpTypeInt 32 1
+    // %u32 = OpTypeInt 32 0
+    // %S = OpTypeStruct %i32 %u32
+    // %ptr_storage_S = OpTypePointer StorageBuffer %S
+    // %x = OpVariable %ptr_storage_S StorageBuffer
+  </xmp>
+</pre>
+
+<pre class='example workgroup atomic' heading='Mapping atomics in a workgroup variable to SPIR-V'>
+  <xmp>
+    var<workgroup> x : atomic<u32>;
+
+    // Maps to the following SPIR-V:
+    // - When atomic types are directly instantiated by a variable,  the Volatile
+    //   decoration is annotated on the OpVariable.
+    // OpDecorate %x Volatile
+    // ...
+    // %u32 = OpTypeInt 32 0
+    // %ptr_workgroup_u32 = OpTypePointer Workgroup %S
+    // %x = OpVariable %ptr_workgroup_u32 Workgroup
+  </xmp>
+</pre>
+
+
 ### Array Types ### {#array-types}
 
 An <dfn noexport>array</dfn> is an indexable grouping of element values.
@@ -869,6 +962,7 @@ An array element type must be one of:
 * a [=scalar=] type
 * a vector type
 * a matrix type
+* an [=atomic type|atomic=] type
 * an array type
 * a [=structure=] type
 
@@ -880,7 +974,7 @@ Restrictions on runtime-sized arrays:
     for a variable in the [=storage classes/storage=] storage class may be a runtime-sized array.
 * A runtime-sized array must not be used as the store type or contained within
     a store type in any other cases.
-* The type of an expression must not be a runtime-sized array type.
+* An expression must not evaluate to a runtime-sized array type.
 
 Issue: (dneto): Complete description of `Array<E,N>`
 
@@ -904,6 +998,7 @@ A structure member type must be one of:
 * a [=scalar=] type
 * a vector type
 * a matrix type
+* an [=atomic type|atomic=] type
 * an array type
 * a [=structure=] type
 
@@ -1009,7 +1104,14 @@ The composite types are:
 * [=array=] type
 * [=structure=] type
 
-A [=plain type|plain=] type is either [=composite=] or [=scalar=].
+### Atomic-Free Types ### {#atomic-free-types}
+
+A [=plain type=] is <dfn>atomic-free</dfn> if it is one of:
+* a [=scalar=] type
+* a [=vector=] type
+* a [=matrix=] type
+* an [=array=] type, if its element type is atomic-free
+* a [=structure=] type, if all its members are atomic-free.
 
 ## Memory ## {#memory}
 
@@ -1035,14 +1137,18 @@ structure or array.
 
 ### Storable Types ### {#storable-types}
 
-The following types are <dfn dfn noexport>storable</dfn>:
+A type is <dfn dfn noexport>storable</dfn> if it is one of:
 
-* [[#scalar-types]]
-* [[#vector-types]]
-* [[#matrix-types]]
-* [[#array-types]] if its element type is storable.
-* [[#struct-types]] if all its members are storable.
-* [[#atomic-types]]
+* a [=scalar=] type
+* a [=vector=] type
+* a [=matrix=] type
+* an [=atomic type|atomic=] type
+* an [=array=] type, if its element type is storable.
+* a [=structure=] type, if each of member is storable.
+* a [=texture=] type
+* a [=sampler=] type
+
+Note: [=Atomic-free=] [=plain types=] are storable.
 
 ### IO-shareable Types ### {#io-shareable-types}
 
@@ -1073,14 +1179,14 @@ as described in [[#memory-layouts]].
 We will see in [[#module-scope-variables]] that the [=store type=] of [=uniform buffer=] and [=storage buffer=]
 variables must be host-shareable.
 
-The following types are <dfn dfn noexport>host-shareable</dfn>:
+A type is <dfn dfn noexport>host-shareable</dfn> if it is one of:
 
-* [=numeric scalar=] types
-* [=numeric vector=] types
-* [[#matrix-types]]
-* [[#array-types]] if the array element type is host-shareable
-* [[#struct-types]] if each member is host-shareable
-* [[#atomic-types]]
+* a [=numeric scalar=] type
+* a [=numeric vector=] type
+* a [=matrix=] type
+* an [=atomic type|atomic=] type
+* an [=array=] type, if its element type is host-shareable
+* a [=structure=] type, if all its members are host-shareable
 
 [SHORTNAME] defines the following attributes that affect memory layouts:
  * [=attribute/stride=]
@@ -1116,25 +1222,25 @@ and how to use variables with it.
       <td>Read-write
       <td>Same invocation only
       <td>[=Function scope=]
-      <td>[=Storable=]
+      <td>[=Atomic-free=] [=plain type=]
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">private</dfn>
       <td>Read-write
       <td>Same invocation only
       <td>[=Module scope=]
-      <td>[=Storable=]
+      <td>[=Atomic-free=] [=plain type=]
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">workgroup</dfn>
       <td>Read-write
       <td>Invocations in the same [=compute shader stage|compute shader=] [=compute shader stage/workgroup=]
       <td>[=Module scope=]
-      <td>[=Storable=]
+      <td>[=Storable=] types, except for texture and [=sampler=] types
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">uniform</dfn>
       <td>Read-only
       <td>Invocations in the same [=shader stage=]
       <td>[=Module scope=]
-      <td>[=Host-shareable=]
+      <td>[=Atomic-free=] [=host-shareable=] types
       <td>For [=uniform buffer=] variables
   <tr><td><dfn noexport dfn-for="storage classes">storage</dfn>
       <td>Readable.<br>
@@ -1147,7 +1253,7 @@ and how to use variables with it.
       <td>Read-only
       <td>Invocations in the same shader stage
       <td>[=Module scope=]
-      <td>Opaque representation of handle to a sampler or texture
+      <td>[=Sampler=] types or [=texture=] types
       <td>Used for sampler and texture variables<br>
           The token `handle` is reserved: it is never used in a [SHORTNAME] program.
 </table>
@@ -1157,8 +1263,6 @@ on the outcome of https://github.com/gpuweb/gpuweb/issues/935
 
 <pre class='def'>
 storage_class
-  : IN
-  | OUT
   | FUNCTION
   | PRIVATE
   | WORKGROUP
@@ -2271,6 +2375,31 @@ For example:
 </pre>
 
 ### Sampler Type ### {#sampler-type}
+
+A <dfn>sampler</dfn> mediates access to a sampled texture or a depth texture, by performing a combination of:
+* coordinate transformation.
+* optionally modifying mip-level selection.
+* for a sampled texture, optionally filtering retrieved texel values.
+* for a depth texture, determinining the comparison function applied to the retrieved texel.
+
+<table class='data'>
+  <thead>
+    <tr><th>Type<th>Description
+  </thead>
+  <tr algorithmm="sampler type">
+    <td>sampler
+    <td>Sampler. Mediates access to a sampled texture.</td>
+  <tr algorithmm="comparisong sampler type">
+    <td>sampler_comparison
+    <td>Comparison sampler.
+        Mediates access to a depth texture.</td>
+</table>
+
+Samplers are parameterized when created in the WebGPU API.
+They cannot be modified by a [SHORTNAME] program.
+
+Samplers can only be used by the [[#texture-builtin-functions|texture builtin functions]].
+
 <pre class='def'>
 sampler
   OpTypeSampler
@@ -2390,78 +2519,6 @@ texel_format
      Rgba32f
 
 </pre>
-
-## Atomic Types ## {#atomic-types}
-
-An <dfn noexport>atomic type</dfn> encapsulates a [=scalar=] type such that:
-* atomic objects provide certain guarantees to concurrent observers, and
-* the only valid operations on atomic objects are the [[#atomic-builtin-functions|atomic builtin functions]].
-
-<table class='data'>
-  <thead>
-    <tr><th>Type<th>Description
-  </thead>
-  <tr algorithm="atomic type"><td>atomic&lt;|T|&gt;
-    <td>Atomic of type |T|. |T| must be either [=u32=] or [=i32=].
-</table>
-
-Atomic types may only be instantiated by variables in the [=storage
-classes/workgroup=] storage class or `read_write` [=attribute/access=] variables in the
-[=storage classes/storage=] storage class.
-
-An <dfn noexport>atomic modification</dfn> is any operation on an atomic object which sets the content of the object.
-The operation counts as a modification even if the new value is the same as the object's existing value.
-
-In [SHORTNAME], atomic modifications are mutually ordered, for each object.
-That is, during execution of a shader stage, for each atomic object *A*, all
-agents observe the same order of modification operations applied to *A*.
-The ordering for distinct atomic objects may not be related in any way; no
-causality is implied.
-Note that variables in [=storage classes/workgroup=] storage are shared within a
-[=compute shader stage/workgroup=], but are not shared between different
-workgroups.
-
-TODO: Add links the eventual memory model descriptions.
-
-<div class='example storage atomic' heading='Mapping atomics in a storage variable to SPIR-V'>
-  <xmp>
-    [[block]] struct S {
-      a : atomic<i32>;
-      b : atomic<u32>;
-    };
-    
-    [[group(0), binding(0)]]
-    var<storage> x : [[access(read_write)]] S;
-    
-    // Maps to the following SPIR-V:
-    // - When atomic types are members of a struct, the Volatile decoration
-    //   is annotated on the member.
-    // OpDecorate %S Block
-    // OpMemberDecorate %S 0 Volatile
-    // OpMemberDecorate %S 1 Volatile
-    // ...
-    // %i32 = OpTypeInt 32 1
-    // %u32 = OpTypeInt 32 0
-    // %S = OpTypeStruct %i32 %u32
-    // %ptr_storage_S = OpTypePointer StorageBuffer %S
-    // %x = OpVariable %ptr_storage_S StorageBuffer
-  </xmp>
-</div>
-
-<div class='example workgroup atomic' heading='Mapping atomics in a workgroup variable to SPIR-V'>
-  <xmp>
-    var<workgroup> x : atomic<u32>;
-    
-    // Maps to the following SPIR-V:
-    // - When atomic types are directly instantiated by a variable,  the Volatile
-    //   decoration is annotated on the OpVariable.
-    // OpDecorate %x Volatile
-    // ...
-    // %u32 = OpTypeInt 32 0
-    // %ptr_workgroup_u32 = OpTypePointer Workgroup %S
-    // %x = OpVariable %ptr_workgroup_u32 Workgroup
-  </xmp>
-</div>
 
 ## Type Aliases TODO ## {#type-aliases}
 
@@ -2653,7 +2710,7 @@ The loop body will execute five times.
 Variable `i` will take on values 0, 1, 2, 3, 4, 5, and variable `twice` will take on values 0, 2, 4, 6, 8.
 
 Consider the following snippet of WGSL:
-<div class='example wsgl function-scope'>
+<div class='example wsgl function-scope' heading='Reading a variable multiple times'>
   <xmp highlight='rust'>
     var x : f32 = 1.0;
     let y = x * x + x + 1;
@@ -2661,7 +2718,7 @@ Consider the following snippet of WGSL:
 </div>
 Because `x` is a variable, all accesses to it turn into load and store operations.
 If this snippet was compiled to SPIR-V, it would be represented as
-<div class='example spirv'>
+<div class='example spirv' heading='Sample translation for reading a variable multiple times'>
   <xmp highlight='asm'>
     %temp_1 = OpLoad %float %x
     %temp_2 = OpLoad %float %x
@@ -2711,7 +2768,7 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
       specular: f32;
       count: i32;
     };
-    [[group(0)]], binding(2)]]
+    [[group(0), binding(2)]]
     var<uniform> param: Params;          // A uniform buffer
 
     [[block]] struct PositionsBuffer {
@@ -2752,7 +2809,7 @@ A `let`-declaration appearing outside all functions declares a
 The name is available for use after the end of the declaration,
 until the end of the [SHORTNAME] program.
 
-A module-scope let-declared constant must be of [=plain type=].
+A module-scope let-declared constant must be of [=atomic-free=] [=plain type=].
 
 When the declaration has no attributes, an initializer expression must be present,
 and the name denotes the value of that expression.
@@ -2854,11 +2911,11 @@ A variable or constant declared in a declaration statement in a function body is
 The name is available for use immediately after its declaration statement,
 and until the end of the brace-delimited list of statements immediately enclosing the declaration.
 
-A function-scope let-declared constant must be of [=plain type=] or [=pointer type=].
+A function-scope let-declared constant must be of [=atomic-free=] [=plain type=], or of [=pointer type=].
 
 A variable declared in function scope is always in the [=storage classes/function=] storage class.
 The variable storage decoration is optional.
-The variable's [=store type=] must be [=storable=].
+The variable's [=store type=] must be a [=atomic-free=] [=plain type=].
 
 <div class='example wgsl global-scope' heading="Function scope variables and constants">
   <xmp highlight='rust'>
@@ -5037,7 +5094,7 @@ The identifier is [=in scope=] until the end of the function.
 Two formal parameters for a given function must not have the same name.
 
 If the return type is specified, then:
-* The return type must be a [=plain type=].
+* The return type must be an [=atomic-free=] [=plain type=].
 * The last statement in the function body must be a [=return=] statement.
 
 <pre class='def'>
@@ -5126,15 +5183,40 @@ Note: The current function will not resume execution if the called function or
 any descendent called function executes a `discard` statement.
 See [[#discard-statement]].
 
-## Restrictions TODO ## {#function-restriction}
-TODO: *This is a stub*
+## Restrictions ## {#function-restriction}
 
-* Recursion is not permitted. (No cycle in the call graph.)
-* Function call parameters
- * Match type and number
- * Restrictions on pointers
- * Aliasing (?)
+* Recursion is not permitted.
+    That is, there must be no cycles in the call graph.
+* A [=vertex=] shader must return the `position` [=built-in output variable|built-in variable=].
+    See [[#builtin-variables]].
+* An entry point must never be the target of a [=function call=].
+* If a function has a return type, it must be an [=atomic-free=] [=plain types|plain type=]
+* A [=formal parameter|function parameter=] must one the following types:
+    * atomic-free plain type
+    * a pointer type
+    * a texture type
+    * a sampler type
+* A function parameter of pointer type must be in one of
+    the following storage classes:
+    * [=storage classes/function=]
+    * [=storage classes/private=]
+    * [=storage classes/workgroup=]
+* Each argument of a function call of pointer type must be one of:
+    * An [[#address-of-expr|address-of expression]] of a
+        [[#var-identifier-expr|variable identifier expression]]
+    * A function parameter
+* [SHORTNAME] assumes no aliasing is present between any combination of
+    function parameters and variables.
+    As such, a function parameter of pointer type must not be used to read or
+    write to any [=memory locations=] of its [=originating variable=] that are
+    also written via:
+    * Another function parameter in the same function
+    * A statement or expression in the function using the originating variable directly
 
+Note: the aliasing restriction applies to memory location written by function
+calls in the function.
+
+Issue: Revisit aliasing rules for clarity.
 
 # Entry Points TODO # {#entry-points}
 
@@ -6306,18 +6388,31 @@ That's not a full user-defined function declaration.
 
 <table class='data'>
   <thead>
-    <tr><th>Logical built-in functions<td>SPIR-V
+    <tr><th>Precondition<td>Conclusion<td>Notes
   </thead>
-  <tr><td>all(*vecN*&lt;bool&gt;) -&gt; bool<td>OpAll
-  <tr><td>any(*vecN*&lt;bool&gt;) -&gt; bool<td>OpAny
-  <tr><td>select(*T*,*T*,bool) -&gt; *T*<td>
-       For scalar or vector type *T*.
-       `select(a,b,c)` evaluates to *a* when *c* is true, and *b* otherwise.<br>
-       OpSelect
-  <tr><td>select(vec*N*&lt;*T*&gt;,vec*N*&lt;*T*&gt;,vec*N*&lt;bool&gt;) -&gt; vec*N*&lt;*T*&gt;<td>
-       For scalar type *T*.
-       `select(a,b,c)` evaluates to a vector with component *i* being `select(a[i], b[i], c[i])`.<br>
-       OpSelect
+  <tr algorithm="vector all">
+    <td>|e| : vecN&lt;bool&gt;
+    <td>`all(`|e|`)` : bool
+    <td>Returns true if each component of |e| is true.
+    (OpAll)
+
+  <tr algorithm="vector any">
+    <td>|e| : vecN&lt;bool&gt;
+    <td>`any(`|e|`)` : bool
+    <td>Returns true if any component of |e| is true.
+    (OpAny)
+
+  <tr algorithm="scalar select">
+    <td>|T| is a scalar or vector
+    <td>`select(`|T|`,`|T|`,bool)` : |T|
+    <td>`select(a,b,c)` evaluates to `a` when `c` is true, and `b` otherwise.
+    (OpSelect)
+
+  <tr algorithm="vector select">
+    <td>|T| is a scalar
+    <td>`select(vecN<`|T|`>,vecN<`|T|`>,vecN<bool>` : `vecN<`|T|`>`
+    <td>Component-wise selection. Result component |i| is evaluated as `select(a[`|i|`],b[`|i|`],c[`|i|`])`.
+    (OpSelect)
 </table>
 
 ## Value-testing built-in functions ## {#value-testing-builtin-functions}
@@ -6360,244 +6455,340 @@ That's not a full user-defined function declaration.
 
 <table class='data'>
   <thead>
-    <tr><th>Precondition<th>Built-in<th>Description
+    <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
   <tr algorithm="scalar case, float abs">
     <td>|T| is f32
     <td class="nowrap">`abs(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450FAbs)
+    <td>Returns the absolute value of |e| (e.g. |e| with a positive sign bit).
+    (GLSLstd450FAbs)
   <tr algorithm="vector case, float abs">
     <td>|T| is f32
     <td class="nowrap">`abs(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450FAbs)
+    <td>Component-wise absolute value.
+    Component |i| of the result is `abs(`|e|`[i])`.
+    (GLSLstd450FAbs)
+
   <tr algorithm="scalar case, acos">
     <td>|T| is f32
     <td class="nowrap">`acos(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Acos)
+    <td>Returns the arc cosine of |e|. (GLSLstd450Acos)
   <tr algorithm="vector case, acos">
     <td>|T| is f32
     <td class="nowrap">`acos(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Acos)
+    <td>Component-wise arc cosine.
+    Component |i| of the result is `acos(`|e|`[i])`.
+    (GLSLstd450Acos)
+
   <tr algorithm="scalar case, asin">
     <td>|T| is f32
     <td class="nowrap">`asin(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Asin)
+    <td>Returns the arc sine of |e|. (GLSLstd450Asin)
   <tr algorithm="vector case, asin">
     <td>|T| is f32
     <td class="nowrap">`asin(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Asin)
+    <td>Component-wise arc sine.
+    Component |i| of the result is `asin(`|e|`[i])`.
+    (GLSLstd450ASin)
+
   <tr algorithm="scalar case, atan">
     <td>|T| is f32
     <td class="nowrap">`atan(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Atan)
+    <td>Returns the arc tangent of |e|. (GLSLstd450Atan)
   <tr algorithm="vector case, atan">
     <td>|T| is f32
     <td class="nowrap">`atan(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Atan)
+    <td>Component-wise arc tanget.
+    Component |i| of the result is `atan(`|e|`[i])`.
+    (GLSLstd450Atan)
+
   <tr algorithm="scalar case, atan2">
     <td>|T| is f32
     <td class="nowrap">`atan2(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Atan2)
+    <td>Returns the arc tangent of |e1| over |e2|. (GLSLstd450Atan2)
   <tr algorithm="vector case, atan2">
     <td>|T| is f32
     <td class="nowrap">`atan2(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Atan2)
+    <td>Component-wise arc tangent of two inputs.
+    Component |i| of the result is `atan2(`|e|`[i])`.
+    (GLSLstd450Atan2)
+
   <tr algorithm="scalar case, ceil">
     <td>|T| is f32
     <td class="nowrap">`ceil(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Ceil)
+    <td>Returns the [=ceiling expression|ceiling=] of |e|. (GLSLstd450Ceil)
   <tr algorithm="vector case, ceil">
     <td>|T| is f32
     <td class="nowrap">`ceil(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Ceil)
+    <td>Component-wise ceiling.
+    Component |i| of the result is `ceil(`|e|`[i])`.
+    (GLSLstd450Ceil)
+
   <tr algorithm="scalar case, clamp">
     <td>|T| is f32
     <td class="nowrap">`clamp(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T|`) -> ` |T|
-    <td>(GLSLstd450NClamp)
+    <td>Returns `min(max(`|e1|`,`|e2|`),`|e3|`)`. (GLSLstd450NClamp)
   <tr algorithm="vector case, clamp">
     <td>|T| is f32
     <td class="nowrap">`clamp(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`, `|e3|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450NClamp)
+    <td>Component-wise clamp.
+    Component |i| of the result is `clamp(`|e1|`[i], `|e2|`[i], `|e3|`[i])`.
+    (GLSLstd450NClamp)
+
   <tr algorithm="scalar case, cos">
     <td>|T| is f32
     <td class="nowrap">`cos(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Cos)
+    <td>Returns the cosine of |e|. (GLSLstd450Cos)
   <tr algorithm="vector case, cos">
     <td>|T| is f32
     <td class="nowrap">`cos(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Cos)
+    <td>Component-wise cosine.
+    Component |i| of the result is `cos(`|e|`)`.
+    (GLSLstd450Cos)
+
   <tr algorithm="scalar case, cosh">
     <td>|T| is f32
     <td class="nowrap">`cosh(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Cosh)
+    <td>Returns the hyperbolic cosine of |e|. (GLSLstd450Cosh)
   <tr algorithm="vector case, cosh">
     <td>|T| is f32
     <td class="nowrap">`cosh(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Cosh)
+    <td>Component-wise hyperbolic cosine.
+    Component |i| of the result is `cosh(`|e|`[i])`.
+    (GLSLstd450Cosh)
+
   <tr algorithm="vector case, cross">
     <td>|T| is f32
     <td class="nowrap">`cross(`|e1|`:` vec3<|T|> `, `|e2|`:` vec3<|T|>`) -> ` vec3<|T|>
-    <td>(GLSLstd450Cross)
+    <td>Returns the cross product of |e1| and |e2|. (GLSLstd450Cross)
+
   <tr algorithm="scalar case, distance">
     <td>|T| is f32
     <td class="nowrap">`distance(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Distance)
+    <td>Returns the distance between |e1| and |e2| (e.g. `length(`|e1|` - `|e2|`)`). (GLSLstd450Distance)
   <tr algorithm="vector case, distance">
     <td>|T| is f32
     <td class="nowrap">`distance(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) -> ` |T|
-    <td>(GLSLstd450Distance)
+    <td>Component-wise distance.
+    Component |i| of the result is `distance(`|e1|`[i], `|e2|`[i])`.
+    (GLSLstd450Distance)
+
   <tr algorithm="scalar case, exp">
     <td>|T| is f32
-    <td class="nowrap">`exp(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Exp)
+    <td class="nowrap">`exp(`|e1|`:` |T| `) -> ` |T|
+    <td>Returns the natural exponentiation of |e1| (e.g. `e`<sup>|e1|</sup>). (GLSLstd450Exp)
   <tr algorithm="vector case, exp">
     <td>|T| is f32
-    <td class="nowrap">`exp(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Exp)
+    <td class="nowrap">`exp(`|e1|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
+    <td>Component-wise natural exponentiation.
+    Component |i| of the result is `exp(`|e1|`[i])`.
+    (GLSLstd450Exp)
+
   <tr algorithm="scalar case, exp2">
     <td>|T| is f32
     <td class="nowrap">`exp2(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Exp2)
+    <td>Returns 2 raised to the power |e| (e.g. `2`<sup>|e|</sup>). (GLSLstd450Exp2)
   <tr algorithm="vector case, exp2">
     <td>|T| is f32
     <td class="nowrap">`exp2(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Exp2)
+    <td>Component-wise base-2 exponentiation.
+    Component |i| of the result is `exp2(`|e|`[i])`.
+    (GLSLstd450Exp2)
+
   <tr algorithm="scalar case, faceForward">
     <td>|T| is f32
     <td class="nowrap">`faceForward(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450FaceForward)
+    <td>Returns |e1| if `dot(`|e2|`,`|e3|`)` is negative, and `-`|e1| otherwise. (GLSLstd450FaceForward)
   <tr algorithm="vector case, faceForward">
     <td>|T| is f32
     <td class="nowrap">`faceForward(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`, `|e3|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450FaceForward)
+    <td>Component-wise face forward.
+    Component |i| of the result is `faceForward(`|e1|`[i], `|e2|`[i], `|e3|`[i])`.
+    (GLSLstd450FaceForward)
+
   <tr algorithm="scalar case, floor">
     <td>|T| is f32
     <td class="nowrap">`floor(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Floor)
+    <td>Returns the [=floor expression|floor=] of |e|. (GLSLstd450Floor)
   <tr algorithm="vector case, floor">
     <td>|T| is f32
     <td class="nowrap">`floor(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Floor)
+    <td>Component-wise floor.
+    Component |i| of the result is `floor(`|e|`[i])`.
+    (GLSLstd450Floor)
+
   <tr algorithm="scalar case, fma">
     <td>|T| is f32
     <td class="nowrap">`fma(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Fma)
+    <td>Returns |e1| `*` |e2| `+` |e3|. (GLSLstd450Fma)
   <tr algorithm="vector case, fma">
     <td>|T| is f32
     <td class="nowrap">`fma(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`, `|e3|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Fma)
+    <td>Component-wise fast multiple add.
+    Component |i| of the result is `fma(`|e1|`[i], `|e2|`[i], `|e3|`[i])`.
+    (GLSLstd450Fma)
+
   <tr algorithm="scalar case, fract">
     <td>|T| is f32
     <td class="nowrap">`fract(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Fract)
+    <td>Returns the fractional bits of |e| (e.g. |e| `- floor(`|e|`)`). (GLSLstd450Fract)
   <tr algorithm="vector case, fract">
     <td>|T| is f32
     <td class="nowrap">`fract(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Fract)
+    <td>Component-wise fractional.
+    Component |i| of the result is `fract(`|e|`[i])`.
+    (GLSLstd450Fract)
+
   <tr algorithm="scalar case, frexp">
     <td>|T| is f32<br>
         |I| is i32 or u32
     <td class="nowrap">`frexp(`|e1|`:` |T| `, `|e2|`:` ptr<|I|> `) -> ` |T|
-    <td>(GLSLstd450Frexp)
+    <td>Splits |e1| into a signficand and exponent of the form `significand * 2`<sup>`exponent`</sup> and returns the significand.
+    The magnitude of the signficand is in the range of [0.5, 1.0) or 0.
+    The exponent is stored through the pointer |e2|. (GLSLstd450Frexp)
   <tr algorithm="vector case, frexp">
     <td>|T| is f32<br>
         |I| is i32 or u32
     <td class="nowrap">`frexp(`|e1|`:` vec|N|<|T|> `, `|e2|`:` ptr&lt;vec|N|&lt;|I|&gt;&gt;`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Frexp)
+    <td>Component-wise fraction and exponent.
+    Component |i| of the result is `frexp(`|e1|`[i], &(*`|e2|`).[i])`.
+    (GLSLstd450Frexp)
+
   <tr algorithm="scalar case, inverseSqrt">
     <td>|T| is f32
     <td class="nowrap">`inverseSqrt(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450InverseSqrt)
+    <td>Returns the reciprocal of `sqrt(`|e|`)`. (GLSLstd450InverseSqrt)
   <tr algorithm="vector case, inverseSqrt">
     <td>|T| is f32
     <td class="nowrap">`inverseSqrt(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450InverseSqrt)
+    <td>Component-wise reciprocal square root.
+    Component |i| of the result is `inverseSqrt(`|e1|`[i])`.
+    (GLSLstd450InverseSqrt)
+
   <tr algorithm="scalar case, ldexp">
     <td>|T| is f32<br>
         |I| is i32 or u32
     <td class="nowrap">`ldexp(`|e1|`:` |T| `, `|e2|`:` |I| `) -> ` |T|
-    <td>(GLSLstd450Ldexp)
+    <td>Returns |e1| `* 2`<sup>|e2|</sup>. (GLSLstd450Ldexp)
   <tr algorithm="vector case, ldexp">
     <td>|T| is f32<br>
         |I| is i32 or u32
     <td class="nowrap">`ldexp(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|&lt;|I|&gt;`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Ldexp)
+    <td>Component-wise floating-point number composition.
+    Component |i| of the result is `ldexp(`|e1|`[i], `|e2|`[i])`.
+    (GLSLstd450Ldexp)
+
   <tr algorithm="scalar case, length">
     <td>|T| is f32
     <td class="nowrap">`length(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Length)
+    <td>Returns `abs(`|e|`)`.
+    (GLSLstd450Length)
   <tr algorithm="vector case, length">
     <td>|T| is f32
     <td class="nowrap">`length(`|e|`:` vec|N|<|T|> `) -> ` |T|
-    <td>(GLSLstd450Length)
+    <td>Returns the length |e| (e.g. `sqrt(`|e|`[0]`<sup>`2`</sup> `+` |e|`[1]`<sup>`2`</sup> `+ ...)`).
+    (GLSLstd450Length)
+
   <tr algorithm="scalar case, log">
     <td>|T| is f32
     <td class="nowrap">`log(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Log)
+    <td>Returns the natural logaritm of |e|. (GLSLstd450Log)
   <tr algorithm="vector case, log">
     <td>|T| is f32
     <td class="nowrap">`log(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Log)
+    <td>Component-wise natural logarithm.
+    Component |i| of the result is `log(`|e|`[i])`.
+    (GLSLstd450Log)
+
   <tr algorithm="scalar case, log2">
     <td>|T| is f32
     <td class="nowrap">`log2(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Log2)
+    <td>Returns the base-2 logarithm of |e|. (GLSLstd450Log2)
   <tr algorithm="vector case, log2">
     <td>|T| is f32
     <td class="nowrap">`log2(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Log2)
+    <td>Component-wise base-2 logarithm.
+    Component |i| of the result is `log2(`|e|`[i])`.
+    (GLSLstd450Log2)
+
   <tr algorithm="scalar case, max">
     <td>|T| is f32
     <td class="nowrap">`max(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450NMax)
+    <td>Returns |e2| if |e1| is less than |e2|, and |e1| otherwise. (GLSLstd450NMax)
   <tr algorithm="vector case, max">
     <td>|T| is f32
     <td class="nowrap">`max(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450NMax)
+    <td>Component-wise maximum.
+    Component |i| of the result is `max(`|e1|`[i], `|e2|`[i])`.
+    (GLSLstd450NMax)
+
   <tr algorithm="scalar case, min">
     <td>|T| is f32
     <td class="nowrap">`min(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450NMin)
+    <td>Returns |e2| if |e2| is less than |e1|, and |e1| otherwise. (GLSLstd450NMin)
   <tr algorithm="vector case, min">
     <td>|T| is f32
     <td class="nowrap">`min(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450NMin)
+    <td>Component-wise minimum.
+    Component |i| of the result is `min(`|e1|`[i], `|e2|`[i])`.
+    (GLSLstd450NMin)
+
   <tr algorithm="scalar case, mix">
     <td>|T| is f32
     <td class="nowrap">`mix(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T|`) -> ` |T|
-    <td>(GLSLstd450FMix)
+    <td>Returns the linear blend of |e1| and |e2| (e.g. |e1|`*(1-`|e3|`)+`|e2|`*`|e3|).
+    (GLSLstd450FMix)
   <tr algorithm="vector case, mix">
     <td>|T| is f32
     <td class="nowrap">`mix(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`, `|e3|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450FMix)
+    <td>Component-wise mix.
+    Component |i| of the result is `mix(`|e1|`[i], `|e2|`[i], `|e3|`[i])`.
+    (GLSLstd450FMix)
+
   <tr algorithm="scalar case, modf">
     <td>|T| is f32<br>
     <td class="nowrap">`modf(`|e1|`:` |T| `, `|e2|`:` ptr<|T|> `) -> ` |T|
-    <td>(GLSLstd450Modf)
+    <td>Splits |e1| into fractional and whole number parts.
+    Returns the fractional part and stores the whole number through the pointer |e2|.
+    (GLSLstd450Modf)
   <tr algorithm="vector case, modf">
     <td>|T| is f32
     <td class="nowrap">`modf(`|e1|`:` vec|N|<|T|> `, `|e2|`:` ptr&lt;vec|N|&lt;|T|&gt;&gt;`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Modf)
+    <td>Component-wise fractional and whole number splitting.
+    Component |i| of the result is `modf(`|e1|`[i], &(*`|e2|`).[i])`.
+    (GLSLstd450Modf)
+
   <tr algorithm="vector case, normalize">
     <td>|T| is f32
     <td class="nowrap">`normalize(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Normalize)
+    <td>Returns a unit vector in the same direction as |e|.
+    (GLSLstd450Normalize)
+
   <tr algorithm="scalar case, pow">
     <td>|T| is f32
     <td class="nowrap">`pow(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Pow)
+    <td>Returns |e1| raised to the power |e2|.
+    (GLSLstd450Pow)
   <tr algorithm="vector case, pow">
     <td>|T| is f32
     <td class="nowrap">`pow(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Pow)
+    <td>Component-wise power.
+    Component |i| of the result is `pow(`|e1|`[i],`|e2|`[i])`.
+    (GLSLstd450Pow)
+
   <tr algorithm="scalar case, reflect">
     <td>|T| is f32
     <td class="nowrap">`reflect(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Reflect)
+    <td>For the incident vector |e1| and surface orientation |e2|, returns the reflection direction
+    |e1|`-2*dot(`|e2|`,`|e1|`)*|e2|`.
+    (GLSLstd450Reflect)
   <tr algorithm="vector case, reflect">
     <td>|T| is f32
     <td class="nowrap">`reflect(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Reflect)
+    <td>Component-wise reflection direction.
+    Component |i| of the result is `reflect(`|e1|`[i],`|e2|`[i])`.
+    (GLSLstd450Reflect)
+
   <tr algorithm="scalar case, round">
     <td>|T| is f32
     <td class="nowrap">`round(`|e|`:` |T| `) -> ` |T|
@@ -6611,85 +6802,121 @@ That's not a full user-defined function declaration.
     <td>Component-wise rounding.<br>
          Component |i| of the result is `round`(|e|[|i|])<br>
         (GLSLstd450RoundEven)
+
   <tr algorithm="scalar case, float sign">
     <td>|T| is f32
     <td class="nowrap">`sign(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450FSign)
+    <td>Returns the sign of |e|.
+    (GLSLstd450FSign)
   <tr algorithm="vector case, float sign">
     <td>|T| is f32
     <td class="nowrap">`sign(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450FSign)
+    <td>Component-wise sign.
+    Component |i| of the result is `sign(`|e|`[i])`.
+    (GLSLstd450FSign)
+
   <tr algorithm="scalar case, sin">
     <td>|T| is f32
     <td class="nowrap">`sin(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Sin)
+    <td>Returns the sine of |e|.
+    (GLSLstd450Sin)
   <tr algorithm="vector case, sin">
     <td>|T| is f32
     <td class="nowrap">`sin(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Sin)
+    <td>Component-wise sine.
+    Component |i| of the result is `sin(`|e|`[i])`.
+    (GLSLstd450Sin)
+
   <tr algorithm="scalar case, sinh">
     <td>|T| is f32
     <td class="nowrap">`sinh(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Sinh)
+    <td>Returns the hyperbolic sine of |e|.
+    (GLSLstd450Sinh)
   <tr algorithm="vector case, sinh">
     <td>|T| is f32
     <td class="nowrap">`sinh(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Sinh)
+    <td>Component-wise hyperbolic sine.
+    Component |i| of the result is `sinh(`|e|`[i])`.
+    (GLSLstd450Sinh)
+
   <tr algorithm="scalar case, smoothStep">
     <td>|T| is f32
     <td class="nowrap">`smoothStep(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450SmoothStep)
+    <td>Returns the smooth Hermite interpolation between 0 and 1.
+    (GLSLstd450SmoothStep)
   <tr algorithm="vector case, smoothStep">
     <td>|T| is f32
     <td class="nowrap">`smoothStep(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`, `|e3|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450SmoothStep)
+    <td>Component-wise smooth Hermite interpolation.
+    Component |i| of the result is `smoothStep(`|e1|`[i],`|e2|`[i],`|e3|`[i])`.
+    (GLSLstd450SmoothStep)
+
   <tr algorithm="scalar case, sqrt">
     <td>|T| is f32
     <td class="nowrap">`sqrt(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Sqrt)
+    <td>Returns the square root of |e|.
+    (GLSLstd450Sqrt)
   <tr algorithm="vector case, sqrt">
     <td>|T| is f32
     <td class="nowrap">`sqrt(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Sqrt)
+    <td>Component-wise square root.
+    Component |i| of the result is `sqrt(`|e|`[i])`.
+    (GLSLstd450Sqrt)
+
   <tr algorithm="scalar case, step">
     <td>|T| is f32
     <td class="nowrap">`step(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Step)
+    <td>Returns 0.0 if |e1| is less than |e2|, and 1.0 otherwise.
+    (GLSLstd450Step)
   <tr algorithm="vector case, step">
     <td>|T| is f32
     <td class="nowrap">`step(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Step)
+    <td>Component-wise step.
+    Component |i| of the result is `step(`|e1|`[i],`|e1|`[i])`.
+    (GLSLstd450Step)
+
   <tr algorithm="scalar case, tan">
     <td>|T| is f32
     <td class="nowrap">`tan(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Tan)
+    <td>Returns the tangent of |e|.
+    (GLSLstd450Tan)
   <tr algorithm="vector case, tan">
     <td>|T| is f32
     <td class="nowrap">`tan(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Tan)
+    <td>Component-wise tangent.
+    Component |i| of the result is `tan(`|e|`[i])`.
+    (GLSLstd450Tan)
+
   <tr algorithm="scalar case, tanh">
     <td>|T| is f32
     <td class="nowrap">`tanh(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Tanh)
+    <td>Returns the hyperbolic tangent of |e|.
+    (GLSLstd450Tanh)
   <tr algorithm="vector case, tanh">
     <td>|T| is f32
     <td class="nowrap">`tanh(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Tanh)
+    <td>Component-wise hyperbolic tangent.
+    Component |i| of the result is `tanh(`|e|`[i])`.
+    (GLSLstd450Tanh)
+
   <tr algorithm="scalar case, trunc">
     <td>|T| is f32
     <td class="nowrap">`trunc(`|e|`:` |T| `) -> ` |T|
-    <td>(GLSLstd450Trunc)
+    <td>Returns the nearest whole number whose absolute value is less than or equal to |e|.
+    (GLSLstd450Trunc)
   <tr algorithm="vector case, trunc">
     <td>|T| is f32
     <td class="nowrap">`trunc(`|e|`:` vec|N|<|T|> `) -> ` vec|N|<|T|>
-    <td>(GLSLstd450Trunc)
+    <td>Component-wise truncate.
+    Component |i| of the result is `trunc(`|e|`[i])`.
+    (GLSLstd450Trunc)
 </table>
 
 ## Integer built-in functions ## {#integer-builtin-functions}
 
 <table class='data'>
   <thead>
-    <tr><th>Precondition<th>Built-in<th>Description
+    <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
   <tr algorithm="scalar case, signed abs">
     <td>
@@ -6702,6 +6929,7 @@ That's not a full user-defined function declaration.
     <td>Component-wise absolute value:
         Component |i| of the result is `abs(`|e|`[`|i|`])`<br>
         (GLSLstd450SAbs)
+
   <tr algorithm="scalar case, unsigned abs">
     <td>
     <td class="nowrap">`abs`(|e| : u32 ) -> u32
@@ -6710,22 +6938,31 @@ That's not a full user-defined function declaration.
     <td>
     <td class="nowrap">`abs(`|e|`:` vec|N|&lt;u32&gt; `) ->` vec|N|&lt;u32&gt;
     <td>Result is |e|.  This is provided for symmetry with `abs` for signed integer vectors.
+
   <tr algorithm="scalar case, unsigned clamp">
     <td>|T| is u32
     <td class="nowrap">`clamp(`|e1|`:` |T| `, `|e2|`:` |T|`, `|e3|`:` |T|`) ->` |T|
-    <td>(GLSLstd450UClamp)
+    <td>Returns `min(max(`|e1|`,`|e2|`),`|e3|`)`.
+    (GLSLstd450UClamp)
   <tr algorithm="vector case, unsigned clamp">
     <td>|T| is u32
     <td class="nowrap">`clamp(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`, `|e3|`:`vec|N|<|T|> `) ->` vec|N|<|T|>
-    <td>(GLSLstd450UClamp)
+    <td>Component-wise clamp.
+    Component |i| of the result is `clamp(`|e1|`[i],`|e2|`[i],`|e3|`[i])`.
+    (GLSLstd450UClamp)
+
   <tr algorithm="scalar case, signed clamp">
     <td>|T| is i32
     <td class="nowrap">`clamp(`|e1|`:` |T| `, `|e2|`:` |T|`, `|e3|`:` |T|`) ->` |T|
-    <td>(GLSLstd450SClamp)
+    <td>Returns `min(max(`|e1|`,`|e2|`),`|e3|`)`.
+    (GLSLstd450SClamp)
   <tr algorithm="vector case, signed clamp">
     <td>|T| is i32
     <td class="nowrap">`clamp(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`, `|e3|`:`vec|N|<|T|> `) ->` vec|N|<|T|>
-    <td>(GLSLstd450SClamp)
+    <td>Component-wise clamp.
+    Component |i| of the result is `clamp(`|e1|`[i],`|e2|`[i],`|e3|`[i])`.
+    (GLSLstd450UClamp)
+
   <tr algorithm="scalar case, count 1 bits">
     <td>|T| is u32 or i32<br>
     <td class="nowrap">`countOneBits(`|e|`:` |T| `) ->` |T|
@@ -6738,38 +6975,55 @@ That's not a full user-defined function declaration.
     <td>Component-wise population count:
         Component |i| of the result is `countOneBits(`|e|`[`|i|`])`<br>
         (SPIR-V OpBitCount)
+
   <tr algorithm="scalar case, unsigned max">
     <td>|T| is u32
     <td class="nowrap">`max(`|e1|`:` |T| `, `|e2|`:` |T|`) ->` |T|
-    <td>(GLSLstd450UMax)
+    <td>Returns |e2| if |e1| is less than |e2|, and |e1| otherwise.
+    (GLSLstd450UMax)
   <tr algorithm="vector case, unsigned max">
     <td>|T| is u32
     <td class="nowrap">`max(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) ->` vec|N|<|T|>
-    <td>(GLSLstd450UMax)
+    <td>Component-wise maximum.
+    Component |i| of the result is `max(`|e1|`[i],`|e2|`[i])`.
+    (GLSLstd450UMax)
+
   <tr algorithm="scalar case, signed max">
     <td>|T| is i32
     <td class="nowrap">`max(`|e1|`:` |T| `, `|e2|`:` |T|`) ->` |T|
-    <td>(GLSLstd450SMax)
+    <td>Returns |e2| if |e1| is less than |e2|, and |e1| otherwise.
+    (GLSLstd450SMax)
   <tr algorithm="vector case, signed max">
     <td>|T| is i32
     <td class="nowrap">`max(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) ->` vec|N|<|T|>
-    <td>(GLSLstd450SMax)
+    <td>Component-wise maximum.
+    Component |i| of the result is `max(`|e1|`[i],`|e2|`[i])`.
+    (GLSLstd45SUMax)
+
   <tr algorithm="scalar case, unsigned min">
     <td>|T| is u32
     <td class="nowrap">`min(`|e1|`:` |T| `, `|e2|`:` |T|`) ->` |T|
-    <td>(GLSLstd450UMin)
+    <td>Returns |e1| if |e1| is less than |e2|, and |e2| otherwise.
+    (GLSLstd450UMin)
   <tr algorithm="vector case, unsigned min">
     <td>|T| is u32
     <td class="nowrap">`min(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) ->` vec|N|<|T|>
-    <td>(GLSLstd450UMin)
+    <td>Component-wise minimum.
+    Component |i| of the result is `min(`|e1|`[i],`|e2|`[i])`.
+    (GLSLstd450UMin)
+
   <tr algorithm="scalar case, signed min">
     <td>|T| is i32
     <td class="nowrap">`min(`|e1|`:` |T| `, `|e2|`:` |T|`) ->` |T|
-    <td>(GLSLstd450SMin)
+    <td>Returns |e1| if |e1| is less than |e2|, and |e2| otherwise.
+    (GLSLstd45SUMin)
   <tr algorithm="vector case, signed min">
     <td>|T| is i32
     <td class="nowrap">`min(`|e1|`:` vec|N|<|T|> `, `|e2|`:` vec|N|<|T|>`) ->` vec|N|<|T|>
-    <td>(GLSLstd450SMin)
+    <td>Component-wise minimum.
+    Component |i| of the result is `min(`|e1|`[i],`|e2|`[i])`.
+    (GLSLstd450SMin)
+
   <tr algorithm="scalar bit reversal">
     <td>|T| is u32 or i32<br>
     <td class="nowrap">`reverseBits(`|e|`:` |T| `) ->`  |T|
@@ -6787,42 +7041,72 @@ That's not a full user-defined function declaration.
 ## Matrix built-in functions ## {#matrix-builtin-functions}
 <table class='data'>
   <thead>
-    <tr><th>Precondition<th>Built-in<th>Description
+    <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
   <tr algorithm="determinant">
     <td>|T| is f32
     <td class="nowrap">`determinant(`|e|`:` mat|N|x|N|<|T|> `) -> ` |T|
-    <td>(GLSLstd450Determinant)
+    <td>Returns the determinant of |e|.
+    (GLSLstd450Determinant)
   <tr algorithm="transpose">
     <td>|T| is f32
     <td class="nowrap">`transpose(`|e|`:` mat|M|x|N|<|T|> `) -> ` mat|N|x|M|<|T|>
-    <td>(OpTranspose)
+    <td>Returns the transpose of |e|.
+    (OpTranspose)
 </table>
 
 ## Vector built-in functions ## {#vector-builtin-functions}
 
 <table class='data'>
   <thead>
-    <tr><th>Vector built-in functions<th>SPIR-V
+    <tr><th>Precondition<td>Conclusion<td>Notes
   </thead>
-  <tr><td>dot(vecN&lt;f32&gt;, vecN&lt;f32&gt;) -&gt; float<td>OpDot
+  <tr algorithm="dot"><td>|T| is f32
+  <td>`dot(`|e1|` : vecN<`|T|`>, `|e2|` : vecN<`|T|`>) ->` |T|
+  <td>Returns the dot product of |e1| and |e2|.
+  (OpDot)
 </table>
 
 ## Derivative built-in functions ## {#derivative-builtin-functions}
 
 <table class='data'>
   <thead>
-    <tr><th>Precondition<th>Derivative built-in functions<th>SPIR-V
+    <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
-  <tr><td rowspan=9>|T| is f32 or vecN&lt;f32&gt;<td>dpdx(T) -&gt; T<td>OpDPdx
-  <tr><td>dpdxCoarse(T) -&gt; T<td>OpDPdxCoarse
-  <tr><td>dpdxFine(T) -&gt; T<td>OpDPdxFine
-  <tr><td>dpdy(T) -&gt; T<td>OpDPdy
-  <tr><td>dpdyCoarse(T) -&gt; T<td>OpDPdyCoarse
-  <tr><td>dpdyFine(T) -&gt; T<td>OpDPdyFine
-  <tr><td>fwidth(T) -&gt; T<td>OpFwidth
-  <tr><td>fwidthCoarse(T) -&gt; T<td>OpFwidthCoarse
-  <tr><td>fwidthFine(T) -&gt; T<td>OpFwidthFine
+  <tr><td rowspan=9>|T| is f32 or vecN&lt;f32&gt;
+  <td>`dpdx(`|e|` : `|T|`) ->` |T|
+  <td>Partial derivative of |e| with respect to window x coordinates.
+  The result is the same as either `dpdxFine(`|e|`)` or `dpdxCoarse(`|e|`)`.
+  (OpDPdx)
+  <tr><td>`dpdxCoarse(`|e|` : `|T|`) -> `|T|
+  <td>Returns the partial derivative of |e| with respect to window x coordinates using local differences.
+  This may result in fewer unique positions that `dpdxFine(`|e|`)`.
+  (OpDPdxCoarse)
+  <tr><td>`dpdxFine(`|e|` : `|T|`) -> `|T|
+  <td>Returns the partial derivative of |e| with respect to window x coordinates.
+  (OpDPdxFine)
+
+  <tr><td>`dpdy(`|e|` : `|T|`) -> `|T|
+  <td>Partial derivative of |e| with respect to window y coordinates.
+  The result is the same as either `dpdyFine(`|e|`)` or `dpdyCoarse(`|e|`)`.
+  (OpDPdy)
+  <tr><td>`dpdyCoarse(`|e|` : `|T|`) -> `|T|
+  <td>Returns the partial derivative of |e| with respect to window y coordinates using local differences.
+  This may result in fewer unique positions that `dpdyFine(`|e|`)`.
+  (OpDPdyCoarse)
+  <tr><td>`dpdyFine(`|e|` : `|T|`) -> `|T|
+  <td>Returns the partial derivative of |e| with respect to window y coordinates.
+  (OpDPdyFine)
+
+  <tr><td>`fwidth(`|e|` : `|T|`) -> `|T|
+  <td>Returns `abs(dpdx(`|e|`)) + abs(dpdy(`|e|`))`.
+  (OpFwidth)
+  <tr><td>`fwidthCoarse(`|e|` : `|T|`) -> `|T|
+  <td>Returns `abs(dpdxCoarse(`|e|`)) + abs(dpdyCoarse(`|e|`))`.
+  (OpFwidthCoarse)
+  <tr><td>`fwidthFine(`|e|` : `|T|`) -> `|T|
+  <td>Returns `abs(dpdxFine(`|e|`)) + abs(dpdyFine(`|e|`))`.
+  (OpFwidthFine)
 </table>
 
 ## Texture built-in functions ## {#texture-builtin-functions}
@@ -7390,7 +7674,7 @@ reduce a shader's memory bandwidth demand.
 
 <table class='data'>
   <thead>
-    <tr><th>Built-in<th>Description
+    <tr><td>Conclusion<td>Notes
   </thead>
   <tr algorithm="packing 4x8snorm">
     <td class="nowrap">`pack4x8snorm`(|e|: vec4&lt;f32&gt;) -> u32
@@ -7448,7 +7732,7 @@ reduce a shader's memory bandwidth demand.
 
 <table class='data'>
   <thead>
-    <tr><th>Built-in<th>Description
+    <tr><td>Conclusion<td>Notes
   </thead>
   <tr algorithm="unpacking 4x8snorm">
     <td class="nowrap">`unpack4x8snorm`(|e|: u32) -> vec4&lt;f32&gt;
@@ -7547,7 +7831,7 @@ TODO: Add links to the eventual memory model.
 
 <table class='data'>
   <thead>
-    <tr><th>Built-in<th>Description
+    <tr><th>Conclusion<td>Notes
   </thead>
   <tr algorithm="compute a value then ignore it">
     <td class="nowrap">
