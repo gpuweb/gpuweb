@@ -7893,12 +7893,9 @@ interface GPUCanvasContext {
             1. Let |canvas| be |this|.{{GPUCanvasContext/[[canvas]]}}.
             1. Set |swapChain|.{{GPUSwapChain/[[context]]}} to |this|.
             1. Set |swapChain|.{{GPUSwapChain/[[descriptor]]}} to |descriptor|.
-            1. If |descriptor|.{{GPUSwapChainDescriptor/width}} is `undefined` set
-                |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/width}} to
-                |canvas|.width.
-            1. If |descriptor|.{{GPUSwapChainDescriptor/height}} is `undefined` set
-                |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/height}} to
-                |canvas|.height.
+            1. If |descriptor|.{{GPUSwapChainDescriptor/size}} is `undefined` set
+                |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/size}} to
+                [|canvas|.width, |canvas|.height, 1]
 
             1. If |this|.{{GPUCanvasContext/[[currentSwapChain]]}} is not `null`, [$destroy the swap chain$].
             1. Set |this|.{{GPUCanvasContext/[[currentSwapChain]]}} to |swapChain|.
@@ -7908,9 +7905,14 @@ interface GPUCanvasContext {
                     1. If any of the following conditions are unsatisfied:
                         <div class=validusage>
                             - |device| is a [=valid=] {{GPUDevice}}.
-                            - [=Supported swap chain formats=] [=set/contains=] |descriptor|.{{GPUSwapChainDescriptor/format}}.
-                            - |descriptor|.{{GPUSwapChainDescriptor/width}} &le; |device|.{{GPUAdapterLimits/maxTextureDimension2D}}.
-                            - |descriptor|.{{GPUSwapChainDescriptor/height}} &le; |device|.{{GPUAdapterLimits/maxTextureDimension2D}}
+                            - [=Supported swap chain formats=] [=set/contains=]
+                                |descriptor|.{{GPUSwapChainDescriptor/format}}.
+                            - |descriptor|.{{GPUSwapChainDescriptor/size}}.[=Extent3D/width=] &le;
+                                |device|.{{GPUAdapterLimits/maxTextureDimension2D}}.
+                            - |descriptor|.{{GPUSwapChainDescriptor/size}}.[=Extent3D/height=] &le;
+                                |device|.{{GPUAdapterLimits/maxTextureDimension2D}}.
+                            - |descriptor|.{{GPUSwapChainDescriptor/size}}.[=Extent3D/depthOrArrayLayers=]
+                                is 1;
                         </div>
 
                         Then:
@@ -7963,8 +7965,7 @@ dictionary GPUSwapChainDescriptor : GPUObjectDescriptorBase {
     required GPUTextureFormat format;
     GPUTextureUsageFlags usage = 0x10;  // GPUTextureUsage.RENDER_ATTACHMENT
     GPUCanvasCompositingAlphaMode compositingAlphaMode = "opaque";
-    GPUIntegerCoordinate width;
-    GPUIntegerCoordinate height;
+    GPUExtent3D size;
 };
 </script>
 
@@ -7976,19 +7977,19 @@ and clamped-srgb: they're the same for SDR, but different for HDR).
 
 ### GPUSwapChain sizing ### {#swapchain-sizing}
 
-A {{GPUSwapChain}}'s {{GPUSwapChainDescriptor/width}} and {{GPUSwapChainDescriptor/height}} are
-immutable, set by the {{GPUSwapChainDescriptor}} passed to {{GPUCanvasContext/configureSwapChain()}}.
-If a {{GPUSwapChainDescriptor/width}} or {{GPUSwapChainDescriptor/height}} is not provided then
-the width or height attributes of the {{GPUCanvasContext}}.{{GPUCanvasContext/[[canvas]]}} at the
-time {{GPUCanvasContext/configureSwapChain()}} is called will be used. If the {{GPUSwapChain}}'s
-dimensions do not match the dimensions of the canvas the textures produced by the {{GPUSwapChain}}
+A {{GPUSwapChain}}'s {{GPUSwapChainDescriptor/size}} is immutable, set by the {{GPUSwapChainDescriptor}}
+passed to {{GPUCanvasContext/configureSwapChain()}}. If a {{GPUSwapChainDescriptor/size}} is not
+specified then the width and height attributes of the {{GPUCanvasContext}}.{{GPUCanvasContext/[[canvas]]}}
+at the time {{GPUCanvasContext/configureSwapChain()}} is called will be used. If the {{GPUSwapChain}}'s
+size does not match the dimensions of the canvas the textures produced by the {{GPUSwapChain}}
 will be scaled to fit the canvas element.
 
 <div class="note">
     Note: Unlike `'webgl'` or `'2d'` contexts, `width` and `height` attributes of canvases with a
     `'gpupresent'` context only affect:
-    - Default layout size if not overridden by CSS.
-    - Default size in {{GPUCanvasContext/configureSwapChain()}} if not overridden.
+    - Default layout size, if not overridden by CSS.
+    - Default {{GPUSwapChainDescriptor/size}} when calling {{GPUCanvasContext/configureSwapChain()}},
+        if not overridden.
 </div>
 
 In order to match the dimensions of the canvas after it is resized, the {{GPUSwapChain}} must be
@@ -8011,9 +8012,12 @@ Once the {{GPUSwapChain}} is reconfigured the previously returned {{GPUSwapChain
                 if (entry != canvas) { continue; }
                 swapChain = context.configureSwapChain({
                     device: someDevice,
-                    // This reports the size of the canvas element in pixels
-                    width: entry.devicePixelContentBoxSize[0].inlineSize,
-                    height: entry.devicePixelContentBoxSize[0].blockSize,
+                    format: 'bgra8unorm',
+                    size: {
+                        // This reports the size of the canvas element in pixels
+                        width: entry.devicePixelContentBoxSize[0].inlineSize,
+                        height: entry.devicePixelContentBoxSize[0].blockSize,
+                    }
                 });
             }
         });
@@ -8100,10 +8104,8 @@ GPUSwapChain includes GPUObjectBase;
             1. Return a new [=invalid=] {{GPUTexture}}.
         1. Let |device| be |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/device}}.
         1. Let |descriptor| be a new {{GPUTextureDescriptor}}.
-        1. Set |descriptor|.{{GPUTextureDescriptor/size}} to [
-            |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/width}},
-            |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/height}},
-            1].
+        1. Set |descriptor|.{{GPUTextureDescriptor/size}} to
+            |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/size}}.
         1. Set |descriptor|.{{GPUTextureDescriptor/format}} to
             |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/format}}.
         1. Set |descriptor|.{{GPUTextureDescriptor/usage}} to
