@@ -1,12 +1,18 @@
 #!/bin/bash
 set -e # Exit with nonzero exit code if anything fails
 
-echo 'Building spec'
-make -C spec
-echo 'Building wgsl'
-make -C wgsl
-echo 'Building explainer'
-make -C explainer
+# Compile specs by default, unless told to only copy static files
+if [ $1 == 'static' ]; then
+  echo 'Extracting IDL from WebGPU spec'
+  make -C spec webgpu.idl
+else
+  echo 'Building spec'
+  make -C spec
+  echo 'Building wgsl'
+  make -C wgsl
+  echo 'Building explainer'
+  make -C explainer
+fi
 
 if [ -d out ]; then
   mkdir -p out/wgsl out/explainer out/samples
