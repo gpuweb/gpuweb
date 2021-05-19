@@ -2,7 +2,7 @@
 set -e # Exit with nonzero exit code if anything fails
 
 # Compile specs by default, unless told to only copy static files
-if [ $1 == 'static' ]; then
+if [ "$1" == 'static' ]; then
   echo 'Extracting IDL from WebGPU spec'
   make -C spec webgpu.idl
 else
