@@ -390,14 +390,6 @@ literal_or_ident
     <tr><th>Attribute<th>Valid Values<th>Description
   </thead>
 
-   <tr><td><dfn noexport dfn-for="attribute">`access`</dfn>
-    <td>`read`, `write`, or `read_write`
-    <td>Must only be applied to a type used as a store type for a variable in
-    the [=storage classes/storage=] storage class or a variable of [storage
-    texture](#texture-storage) type.
-
-    Specifies the access qualification of a storage [=resource=] variable.
-
   <tr><td><dfn noexport dfn-for="attribute">`align`</dfn>
     <td>positive i32 literal
     <td>Must only be applied to a member of a [=structure=] type.
@@ -882,9 +874,8 @@ An <dfn noexport>atomic type</dfn> encapsulates a [=scalar=] type such that:
 
 An expression must not evaluate to an atomic type.
 
-Atomic types may only be instantiated by variables in the [=storage
-classes/workgroup=] storage class or `read_write` [=attribute/access=] variables in the
-[=storage classes/storage=] storage class.
+Atomic types may only be instantiated by variables in the [=storage classes/workgroup=]
+storage class or by [=storage buffer=] variables with a [=access/read_write=] access mode.
 
 An <dfn noexport>atomic modification</dfn> is any operation on an atomic object which sets the content of the object.
 The operation counts as a modification even if the new value is the same as the object's existing value.
@@ -908,7 +899,7 @@ TODO: Add links the eventual memory model descriptions.
     };
 
     [[group(0), binding(0)]]
-    var<storage> x: [[access(read_write)]] S;
+    var<storage,read_write> x: S;
 
     // Maps to the following SPIR-V:
     // - When atomic types are members of a struct, the Volatile decoration
@@ -1137,6 +1128,32 @@ any other variable declaration. Memory operations on structures and arrays may
 access padding between elements, but must not access padding at the end of the
 structure or array.
 
+### Memory Access Mode ### {#memory-access-mode}
+
+A <dfn noexport>memory access</dfn> is an operation that acts on memory locations.
+
+* A <dfn noexport>read access</dfn> observes the contents of memory locations.
+* A <dfn noexport>write access</dfn> sets the contents of memory locations.
+
+A single operation can read, write, or both read and write.
+
+Particular memory locations may support only certain kinds of accesses, expressed
+as the memory's <dfn noexport>access mode</dfn>:
+
+: <dfn noexport dfn-for="access">read</dfn>
+:: Supports read accesses, but not writes.
+: <dfn noexport dfn-for="access">write</dfn>
+:: Supports write accesses, but not reads.
+: <dfn noexport dfn-for="access">read_write</dfn>
+:: Supports both read and write accesses.
+
+<pre class='def'>
+access_mode
+  : READ
+  | WRITE
+  | READ_WRITE
+</pre>
+
 ### Storable Types ### {#storable-types}
 
 A type is <dfn dfn noexport>storable</dfn> if it is one of:
@@ -1210,58 +1227,61 @@ Each storage class has unique properties determining
 mutability, visibility, the values it may contain,
 and how to use variables with it.
 
-<table class='data'>
+<table class='data' id="storage-class-table">
   <caption>Storage Classes</caption>
   <thead>
     <tr><th>Storage class
-        <th>Readable by shader?<br>Writable by shader?
         <th>Sharing among invocations
+        <th>Supported access modes
         <th>Variable scope
         <th>Restrictions on stored values
         <th>Notes
   </thead>
   <tr><td><dfn noexport dfn-for="storage classes">function</dfn>
-      <td>Read-write
       <td>Same invocation only
+      <td>[=read_write=]
       <td>[=Function scope=]
       <td>[=Atomic-free=] [=plain type=]
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">private</dfn>
-      <td>Read-write
       <td>Same invocation only
+      <td>[=read_write=]
       <td>[=Module scope=]
       <td>[=Atomic-free=] [=plain type=]
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">workgroup</dfn>
-      <td>Read-write
       <td>Invocations in the same [=compute shader stage|compute shader=] [=compute shader stage/workgroup=]
+      <td>[=read_write=]
       <td>[=Module scope=]
       <td>[=Plain type=]
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">uniform</dfn>
-      <td>Read-only
       <td>Invocations in the same [=shader stage=]
+      <td>[=read=]
       <td>[=Module scope=]
       <td>[=Atomic-free=] [=host-shareable=] types
       <td>For [=uniform buffer=] variables
   <tr><td><dfn noexport dfn-for="storage classes">storage</dfn>
-      <td>Readable.<br>
-          Also writable if the variable is not read-only.
       <td>Invocations in the same [=shader stage=]
+      <td> [=read_write=], [=read=] (default)
       <td>[=Module scope=]
       <td>[=Host-shareable=]
       <td>For [=storage buffer=] variables
   <tr><td><dfn noexport dfn-for="storage classes">handle</dfn>
-      <td>Read-only
       <td>Invocations in the same shader stage
+      <td>[=read=]
       <td>[=Module scope=]
       <td>[=Sampler=] types or [=texture=] types
-      <td>Used for sampler and texture variables<br>
-          The token `handle` is reserved: it is never used in a [SHORTNAME] program.
+      <td>For [=sampler=] and texture variables.<br>
 </table>
 
-Issue: The note about read-only [=storage classes/storage=] variables may change depending
-on the outcome of https://github.com/gpuweb/gpuweb/issues/935
+Note: The token `handle` is reserved: it is never used in a [SHORTNAME] program.
+
+Note: A texture variable holds an opaque handle which is used to access the underlying
+grid of texels.
+The handle itself is always read-only.
+In most cases the underlying texels are read-only.
+For a write-only storage texture, the underlying texels are write-only.
 
 <pre class='def'>
 storage_class
@@ -1325,7 +1345,7 @@ defaults if the [=attribute/align=] and / or [=attribute/size=] decorations are 
 Alignment guarantees that a value's address in memory will be a multiple of the
 specified value. This can enable more efficient hardware instructions to be used
 to access the value or satisfy more restrictive hardware requirements on certain
-storage classes (see [storage class constraints](#storage-class-constraints)).
+storage classes. (see [storage class layout constraints](#storage-class-layout-constraints)).
 
 Note: Each alignment value is always a power of two, by construction.
 
@@ -1478,7 +1498,7 @@ rounded to the next multiple of the structure's alignment:
     };
 
     [[group(0), binding(0)]]
-    var<storage> storage_buffer: [[access(read_write)]] B;
+    var<storage,read_write> storage_buffer: B;
   </xmp>
 </div>
 
@@ -1624,7 +1644,7 @@ then:
    * The |i|'<sup>th</sup> member of the structure value is placed at byte offset |k| + [=OffsetOf=](|S|,|i|)
 
 
-#### Storage Class Constraints ####  {#storage-class-constraints}
+#### Storage Class Layout Constraints ####  {#storage-class-layout-constraints}
 
 The [=storage classes/storage=] and [=storage classes/uniform=] storage classes
 have different buffer layout constraints which are described in this section.
@@ -1704,13 +1724,15 @@ Counting such padding as part of the size allows [SHORTNAME] to capture this con
 ## Memory View Types ## {#memory-view-types}
 
 In addition to calculating with [=plain types|plain=] values, a [SHORTNAME] program will
-also often read values from memory or write values to memory.
-Operations that read or write to memory are called <dfn noexport>memory accesses</dfn>.
+also often read values from memory or write values to memory, via [=memory access=] operations.
 Each memory access is performed via a [=memory view=].
 
-A <dfn noexport>memory view</dfn> is a set of [=memory locations=] in a particular [=storage class=],
-together with an interpretation of the contents of those locations as a [SHORTNAME] [=type=].
+A <dfn noexport>memory view</dfn> comprises:
+* a set of [=memory locations=] in a particular [=storage class=],
+* an interpretation of the contents of those locations as a [SHORTNAME] [=type=], and
+* an [=access mode=].
 
+The access mode of a memory view must be supported by the storage class. See [[#storage-class]].
 
 [SHORTNAME] has two kinds of types for representing memory views:
 [=reference types=] and [=pointer types=].
@@ -1720,33 +1742,49 @@ together with an interpretation of the contents of those locations as a [SHORTNA
     <tr><th>Constraint<th>Type<th>Description
   </thead>
   <tr algorithm="memory reference type">
-    <td>|SC| is a [=storage class=],<br>|T| is a [=storable=] type
-    <td>ref&lt;|SC|,|T|&gt;
+    <td style="width:25%">|SC| is a [=storage class=],<br>|T| is a [=storable=] type,<br>|A| is an [=access mode=]
+    <td>ref&lt;|SC|,|T|,|A|&gt;
     <td>The <dfn noexport>reference type</dfn>
-        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|.<br>
+        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|,
+        supporting memory accesses described by mode |A|.<br>
         In this context |T| is known as the <dfn noexport>store type</dfn>.<br>
-        Reference types are not written [SHORTNAME] progam source; instead they are used to analyze a [SHORTNAME] program.
+        Reference types are not written in [SHORTNAME] progam source;
+        instead they are used to analyze a [SHORTNAME] program.
   <tr algorithm="pointer type">
-    <td>|SC| is a [=storage class=],<br>|T| is a [=storable=] type
-    <td>ptr&lt;|SC|,|T|&gt;
+    <td>|SC| is a [=storage class=],<br>|T| is a [=storable=] type,<br>|A| is an [=access mode=]
+    <td>ptr&lt;|SC|,|T|,|A|&gt;
     <td>The <dfn noexport>pointer type</dfn>
-        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|.<br>
+        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|,
+        supporting memory accesses described by mode |A|.<br>
         In this context |T| is known as the <dfn noexport>pointee type</dfn>.<br>
-        Pointer types appear in [SHORTNAME] progam source.
+        Pointer types may appear in [SHORTNAME] progam source.
 </table>
 
-<div class='example wgsl' heading='Pointer type (program fragment)'>
+When *analyzing* a [SHORTNAME] program, reference and pointer types are fully parameterized by a storage class,
+a storable type, and an access mode.
+In code examples in this specification, the comments show this fully parameterized form.
+
+However, in [SHORTNAME] *source* text:
+* Reference types must not appear.
+* Pointer types may appear.  A pointer type is spelled with parameterization by:
+    * storage class,
+    * store type, and
+    * sometimes by access mode, as specified in [[#access-mode-defaults]].
+
+<div class='example wgsl' heading='Pointer type'>
   <xmp highlight='rust'>
     fn my_function(
-      // 'ptr<function,i32>' is the type of a pointer value that references storage
-      // for keeping an 'i32' value, using memory locations in the 'function' storage
-      // class.  Here 'i32' is the pointee type.
+      // 'ptr<function,i32,read_write>' is the type of a pointer value that references
+      // storage for keeping an 'i32' value, using memory locations in the 'function'
+      // storage class.  Here 'i32' is the pointee type.
+      // The implied access mode is 'read_write'. See below for access mode defaults.
       ptr_int: ptr<function,i32>,
 
-      // 'ptr<private,array<f32,50>>' is the type of a pointer value that refers to
-      // storage for keeping an array of 50 elements of type 'f32', using memory
-      // locations in the 'private' storage class.
+      // 'ptr<private,array<f32,50>,read_write>' is the type of a pointer value that
+      // refers to storage for keeping an array of 50 elements of type 'f32', using
+      // memory locations in the 'private' storage class.
       // Here the pointee type is 'array<f32,50>'.
+      // The implied access mode is 'read_write'. See below for access mode defaults.
       ptr_array: ptr<private, array<f32, 50>>
     ) { }
   </xmp>
@@ -1756,14 +1794,28 @@ Reference types and pointer types are both sets of memory views:
 a particular memory view is associated with a unique reference value and also a unique pointer value:
 
 <blockquote algorithm="pointer reference correspondence">
-Each pointer value |p| of type ptr&lt;|SC|,|T|&gt; corresponds to a unique reference value |r| of type ref&lt;|SC|,|T|&gt;,
+Each pointer value |p| of type ptr&lt;|SC|,|T|,|A|&gt; corresponds to a unique reference value |r| of type ref&lt;|SC|,|T|,|A|&gt;,
 and vice versa,
 where |p| and |r| describe the same memory view.
 </blockquote>
 
+### Access Mode Defaults ### {#access-mode-defaults}
+
+The access mode for a memory view is often determined by context:
+
+* The [=storage classes/storage=] storage class supports both [=read=] and [=read_write=] access modes.
+* Each other storage class supports only one access mode, as described in the <a href="#storage-class-table">storage class</a> table.
+
+When writing a [=variable declaration=] or a [=pointer type=] in [SHORTNAME] source:
+* For the [=storage classes/storage=] storage class, the access mode is optional, and defaults to [=access/read=].
+* For other storage classes, the access mode must not be written.
+
+### Originating variable ### {#originating-variable-section}
+
 In [SHORTNAME] a reference value always corresponds to the memory view
 for some or all of the memory locations for some variable.
 This defines the <dfn noexport>originating variable</dfn> for the reference value.
+
 A pointer value always corresponds to a reference value, and so the originating variable
 of a pointer is the same as the originating variable of the corresponding reference.
 
@@ -1772,22 +1824,26 @@ The originating variable for a formal parameter of a function depends on the
 [=call site|call sites=] for the function.
 Different call sites may supply pointers into different originating variables.
 
+### Use cases for references and pointers ### {#ref-ptr-use-cases}
+
 References and pointers are distinguished by how they are used:
 
 * The type of a [=variable=] is a reference type.
 * The [=address-of=] operation (unary `&`) converts a reference value to its corresponding pointer value.
 * The [=indirection=] operation (unary `*`) converts a pointer value to its corresponding reference value.
-* A let declaration can be of pointer type, but not of reference type.
+* A [=let declaration=] can be of pointer type, but not of reference type.
 * A [=formal parameter=] can be of pointer type, but not of reference type.
-* An [=assignment statement=] updates the contents of memory via a reference:
-    * The left-hand side of the assignment statement must be of reference type.
+* An [=assignment statement=] performs a [=write access=] to update the contents of memory via a reference, where:
+    * The left-hand side of the assignment statement must be of reference type, with access mode [=write=] or [=read_write=].
     * The right-hand side of the assignment statement must evaluate to the store type of the left-hand side.
 * The <dfn noexport>Load Rule</dfn>: Inside a function, a reference is automatically dereferenced (read from) to satisfy type rules:
     * In a function, when a reference expression |r| with store type |T| is used in a statement or an expression, where
+    * |r| has an access mode of [=read=] or [=read_write=], and
     * The only potentially matching type rules require |r| to have a value of type |T|, then
     * That type rule requirement is considered to have been met, and
     * The result of evaluating |r| in that context is the value (of type |T|) stored in the memory locations
         referenced by |r| at the time of evaluation.
+        That is, a [=read access=] is performed to produce the result value.
 
 Defining references in this way enables simple idiomatic use of variables:
 
@@ -1795,7 +1851,7 @@ Defining references in this way enables simple idiomatic use of variables:
   <xmp highlight='rust'>
     [[stage(compute)]]
     fn main() {
-      // 'i' has reference type ref<function,i32>
+      // 'i' has reference type ref<function,i32,read_write>
       // The memory locations for 'i' store the i32 value 0.
       var i: i32 = 0;
 
@@ -1821,7 +1877,7 @@ Defining references in this way enables simple idiomatic use of variables:
     fn get_age() -> i32 {
       // The type of the expression in the return statement must be 'i32' since it
       // must match the declared return type of the function.
-      // The 'age' expression is of type ref<private,i32>.
+      // The 'age' expression is of type ref<private,i32,read_write>.
       // Apply the Load Rule, since the store type of the reference matches the
       // required type of the expression, and no other type rule applies.
       // The evaluation of 'age' in this context is the i32 value loaded from the
@@ -1843,7 +1899,7 @@ Defining pointers in this way enables two key use cases:
 * Using a let declaration with pointer type, to form a short name for part of the contents of a variable.
 * Using a formal parameter of a function to refer to the storage of a variable that is accessible to the calling function.
     * The call to such a function must supply a pointer value for that operand.
-        This often requires using the unary `&` operation to get a pointer to the variable's contents.
+        This often requires using an [=address-of=] operation (unary `&`) to get a pointer to the variable's contents.
 
 Note: The following examples use [SHORTNAME] features explained later in this specification.
 
@@ -1858,7 +1914,7 @@ Note: The following examples use [SHORTNAME] features explained later in this sp
       timestep: f32;
       particles: array<Particle,100>;
     };
-    [[group(0), binding(0)]] var<storage> system: [[access(read_write)]] System;
+    [[group(0), binding(0)]] var<storage,read_write> system: System;
 
     [[stage(compute)]]
     fn main() {
@@ -1879,9 +1935,10 @@ Note: The following examples use [SHORTNAME] features explained later in this sp
       // Update the locations for 'x' to contain the next higher integer value,
       // (or to wrap around to the largest negative i32 value).
       // On the left-hand side, unary '*' converts the pointer to a reference that
-      // can then be assigned to.
+      // can then be assigned to. It has a read_write access mode, by default.
       // On the right-hand side:
-      //    - Unary '*' converts the pointer to a reference
+      //    - Unary '*' converts the pointer to a reference, with a read_write
+      //      access mode.
       //    - The only matching type rule is for addition (+) and requires '*x' to
       //      have type i32, which is the store type for '*x'.  So the Load Rule
       //      applies and '*x' evaluates to the value stored in the memory for '*x'
@@ -1932,6 +1989,8 @@ A reference value is formed in one of the following ways:
         results in a reference to the named member of the structure.
         See [[#struct-access-expr]].
 
+In all cases, the access mode of the result is the same as the access mode of the original reference.
+
 <div class='example wgsl' heading='Component reference from a composite reference'>
   <xmp highlight='rust'>
     struct S {
@@ -1939,17 +1998,22 @@ A reference value is formed in one of the following ways:
         weight: f32;
     };
     var<private> person: S;
+    // Uses of 'person' denote the reference to the storage underlying the variable,
+    // and will have type ref<private,S,read_write>.
 
     fn f() {
         var uv: vec2<f32>;
+        // Uses of 'uv' denote the reference to the storage underlying the variable,
+        // and will have type ref<function,vec2<f32>,read_write>.
+
         // Evaluate the left-hand side of the assignment:
         //   Evaluate 'uv.x' to yield a reference:
         //   1. First evaluate 'uv', yielding a reference to the storage for
-        //      the 'uv' variable. The result has type ref<function,vec2<f32>>.
+        //      the 'uv' variable. The result has type ref<function,vec2<f32>,read_write>.
         //   2. Then apply the '.x' vector access phrase, yielding a reference to
         //      the storage for the first component of the vector pointed at by the
         //      reference value from the previous step.
-        //      The result has type ref<function,f32>.
+        //      The result has type ref<function,f32,read_write>.
         // Evaluating the right-hand side of the assignment yields the f32 value 1.0.
         // Store the f32 value 1.0 into the storage memory locations referenced by uv.x.
         uv.x = 1.0;
@@ -1957,10 +2021,10 @@ A reference value is formed in one of the following ways:
         // Evaluate the left-hand side of the assignment:
         //   Evaluate 'uv[1]' to yield a reference:
         //   1. First evaluate 'uv', yielding a reference to the storage for
-        //      the 'uv' variable. The result has type ref<function,vec2<f32>>.
+        //      the 'uv' variable. The result has type ref<function,vec2<f32>,read_write>.
         //   2. Then apply the '[1]' array index phrase, yielding a reference to
         //      the storage for second component of the vector referenced from
-        //      the previous step.  The result has type ref<function,f32>.
+        //      the previous step.  The result has type ref<function,f32,read_write>.
         // Evaluating the right-hand side of the assignment yields the f32 value 2.0.
         // Store the f32 value 2.0 into the storage memory locations referenced by uv[1].
         uv[1] = 2.0;
@@ -1968,11 +2032,11 @@ A reference value is formed in one of the following ways:
         var m: mat3x2<f32>;
         // When evaluating 'm[2]':
         // 1. First evaluate 'm', yielding a reference to the storage for
-        //    the 'm' variable. The result has type ref<function,mat3x2<f32>>.
+        //    the 'm' variable. The result has type ref<function,mat3x2<f32>,read_write>.
         // 2. Then apply the '[2]' array index phrase, yielding a reference to
         //    the storage for the third column vector pointed at by the reference
         //    value from the previous step.
-        //    Therefore the 'm[2]' expression has type ref<function,vec2<f32>>.
+        //    Therefore the 'm[2]' expression has type ref<function,vec2<f32>,read_write>.
         // The 'let' declaration is for type vec2<f32>, so the declaration
         // statement requires the initializer to be of type vec2<f32>.
         // The Load Rule applies (because no other type rule can apply), and
@@ -1984,11 +2048,11 @@ A reference value is formed in one of the following ways:
         var A: array<i32,5>;
         // When evaluating 'A[4]'
         // 1. First evaluate 'A', yielding a reference to the storage for
-        //    the 'A' variable. The result has type ptr<function,array<i32,5>>.
+        //    the 'A' variable. The result has type ref<function,array<i32,5>,read_write>.
         // 2. Then apply the '[4]' array index phrase, yielding a reference to
         //    the storage for the fifth element of the array referenced by
         //    the reference value from the previous step.
-        //    The result value has type ref<function,i32>.
+        //    The result value has type ref<function,i32,read_write>.
         // The let declaration requires the right-hand-side to be of type i32.
         // The Load Rule applies (because no other type rule can apply), and
         // the evaluation of the initializer yields the i32 value loaded from
@@ -1999,11 +2063,11 @@ A reference value is formed in one of the following ways:
         // When evaluating 'person.weight'
         // 1. First evaluate 'person', yielding a reference to the storage for
         //    the 'person' variable declared at module scope.
-        //    The result has type ref<private,S>.
+        //    The result has type ref<private,S,read_write>.
         // 2. Then apply the '.weight' member access phrase, yielding a reference to
         //    the storage for the second member of the memory referenced by
         //    the reference value from the previous step.
-        //    The result has type ref<private,f32>.
+        //    The result has type ref<private,f32,read_write>.
         // The let declaration requires the right-hand-side to be of type f32.
         // The Load Rule applies (because no other type rule can apply), and
         // the evaluation of the initializer yields the f32 value loaded from
@@ -2024,6 +2088,8 @@ A pointer value is formed in one of the following ways:
     * The originating variable of the formal parameter (at runtime) is defined as
         the originating variable of the pointer operand at the call site.
 
+In all cases, the access mode of the result is the same as the access mode of the original pointer.
+
 <div class='example wgsl' heading='Pointer from a variable'>
   <xmp highlight='rust'>
     // Declare a variable in the private storage class, for storing an f32 value.
@@ -2034,26 +2100,31 @@ A pointer value is formed in one of the following ways:
         var y: i32;
 
         // The name 'x' resolves to the module-scope variable 'x',
-        // and has reference type ref<private,f32>.
+        // and has reference type ref<private,f32,read_write>.
         // Applying the unary '&' operator converts the reference to a pointer.
+        // The access mode is the same as the access mode of the original variable, so
+        // the fully specified type is ptr<private,f32,read_write>.  But read_write
+        // is the default access mode for function storage class, so read_write does not
+        // have to be spelled in this case
         let x_ptr: ptr<private,f32> = &x;
 
         // The name 'y' resolves to the function-scope variable 'y',
-        // and has reference type ref<private,i32>.
+        // and has reference type ref<private,i32,read_write>.
         // Applying the unary '&' operator converts the reference to a pointer.
+        // The access mode defaults to 'read_write'.
         let y_ptr: ptr<function,i32> = &y;
 
         // A new variable, distinct from the variable declared at module scope.
         var x: u32;
 
         // Here, the name 'x' resolves to the function-scope variable 'x' declared in
-        // the previous statement, and has type ref<function,u32>.
+        // the previous statement, and has type ref<function,u32,read_write>.
         // Applying the unary '&' operator converts the reference to a pointer.
+        // The acces mode defaults to 'read_write'.
         let inner_x_ptr: ptr<function,u32> = &x;
     }
   </xmp>
 </div>
-
 
 ### Comparison with references and pointers in other languages ### {#pointers-other-languages}
 
@@ -2075,6 +2146,9 @@ In particular:
         These are considered different references in [SHORTNAME], even though they may
         have the same machine address at a lower level of implementation abstraction.
 * In [SHORTNAME] there is no way to forcibly change the type of a reference value into another reference type.
+* In [SHORTNAME] there is no way to change the access mode of a pointer or reference.
+    * By comparison, C++ automatically converts a non-const pointer to a const pointer,
+        and has a `const_cast` to convert a const value to a non-const value.
 * In [SHORTNAME] there is no way to allocate new storage from a "heap".
 * In [SHORTNAME] there is no way to explicitly destroy a variable.
     The storage for a [SHORTNAME] variable becomes inaccessible only when the variable goes out of scope.
@@ -2131,19 +2205,29 @@ To achieve this, many details are hidden from the programmer, including data lay
 internal operations that cannot be expressed directly in the shader language.
 
 As a consequence, a shader does not have direct access to the texel storage within a texture variable.
-Instead, use texture builtin functions as follows:
+Instead, access is mediated through an opaque handle:
 
 * Within the shader:
-    * Declare a module-scope variable in the [=storage classes/handle=] storage class,
+    * Declare a module-scope variable
         where the [=store type=] is one of the texture types described in later sections.
+        The variable stores an opaque handle to the underlying texture memory, and is
+        automatically placed in the [=storage classes/handle=] storage class.
     * Inside a function, call one of the texture builtin functions, and provide
         the texture variable as the first parameter.
 * When constructing the WebGPU pipeline, the texture variable's store type and binding
     must be compatible with the corresponding bind group layout entry.
 
+TODO: update this wording to handle function parameters that are textures or samplers.
+
 In this way, the set of supported operations for a texture type
 is determined by the availability of texture builtin functions accepting that texture type
 as the first parameter.
+
+Note: The handle stored by a texture variable cannot be changed by the shader.
+That is, the variable is read-only, even if the underlying texture to which it provides
+access may be mutable (e.g. a write-only storage texture).
+
+TODO: Describe the use of samplers, in the same broad framework.
 
 ### Texel formats ### {#texel-formats}
 
@@ -2309,11 +2393,14 @@ See [`GPUExternalTexture`](https://gpuweb.github.io/gpuweb/#gpu-external-texture
 
 ### Storage Texture Types ### {#texture-storage}
 
-A <dfn noexport>read-only storage texture</dfn> supports reading a single texel without the use of a sampler,
-with automatic conversion of the stored texel value to a usable shader value. A <dfn noexport>write-only storage
-texture</dfn> supports writing a single texel, with automatic conversion
-of the shader value to a stored texel value.
-See [[#texture-builtin-functions]].
+A <dfn noexport>storage texture</dfn> supports accessing a single texel without the use of a sampler.
+
+* A <dfn noexport>read-only storage texture</dfn>
+     supports reading a single texel without the use of a sampler,
+     with automatic conversion of the stored texel value to a usable shader value.
+* A <dfn noexport>write-only storage texture</dfn>
+     supports writing a single texel, with automatic conversion of the shader value to a
+     stored texel value.
 
 A storage texture type must be parameterized by one of the
 [=storage-texel-format|texel formats for storage textures=].
@@ -2322,21 +2409,27 @@ The texel format determines the conversion function as specified in [[#texel-for
 For a write-only storage texture the *inverse* of the conversion function is used to convert the shader value to
 the stored texel.
 
+See [[#texture-builtin-functions]].
+
 TODO(dneto): Move description of the conversion to the builtin function that actually does the reading.
 
 <pre class='def'>
-`texture_storage_1d<texel_format>`
+`texture_storage_1d<texel_format,access>`
   // %1 = OpTypeImage sampled_type 1D 0 0 0 2 image_format
 
-`texture_storage_2d<texel_format>`
+`texture_storage_2d<texel_format,access>`
   // %1 = OpTypeImage sampled_type 2D 0 0 0 2 image_format
 
-`texture_storage_2d_array<texel_format>`
+`texture_storage_2d_array<texel_format,access>`
   // %1 = OpTypeImage sampled_type 2D 0 1 0 2 image_format
 
-`texture_storage_3d<texel_format>`
-  // %1 = OpTypeImage sampled_type 3D 0 0 0 2 texel_format
+`texture_storage_3d<texel_format,access>`
+  // %1 = OpTypeImage sampled_type 3D 0 0 0 2 image_format
 </pre>
+
+* `texel_format` must be one of the texel types specified in [=storage-texel-formats=]
+* `access` must be [=access/read=] for a read-only storage texture,
+    and [=access/write=] for a write-only storage texture.
 
 In the SPIR-V mapping:
 * The *Image Format* parameter of the image type declaration is
@@ -2351,7 +2444,7 @@ For example:
 
 <div class='example wgsl global-scope' heading='Mapping a readable texture_storage_1d variable to SPIR-V'>
   <xmp>
-      var tbuf: [[access(read)]] texture_storage_1d<rgba8unorm>;
+      var tbuf: texture_storage_1d<rgba8unorm,read>;
 
       // Maps to the following SPIR-V:
       //  OpDecorate %tbuf NonWritable
@@ -2365,7 +2458,7 @@ For example:
 
 <div class='example wgsl global-scope' heading='Mapping a writable texture_storage_1d variable to SPIR-V'>
   <xmp>
-      var tbuf: [[access(write)]] texture_storage_1d<rgba8unorm>;
+      var tbuf: texture_storage_1d<rgba8unorm,write>;
 
       // Maps to the following SPIR-V:
       //  OpDecorate %tbuf NonReadable
@@ -2398,7 +2491,7 @@ A <dfn>sampler</dfn> mediates access to a sampled texture or a depth texture, by
 * coordinate transformation.
 * optionally modifying mip-level selection.
 * for a sampled texture, optionally filtering retrieved texel values.
-* for a depth texture, determinining the comparison function applied to the retrieved texel.
+* for a depth texture, determining the comparison function applied to the retrieved texel.
 
 <table class='data'>
   <thead>
@@ -2435,7 +2528,7 @@ texture_sampler_types
   | depth_texture_type
   | sampled_texture_type LESS_THAN type_decl GREATER_THAN
   | multisampled_texture_type LESS_THAN type_decl GREATER_THAN
-  | storage_texture_type LESS_THAN texel_format GREATER_THAN
+  | storage_texture_type LESS_THAN texel_format COMMA access_mode GREATER_THAN
 
 sampler_type
   : SAMPLER
@@ -2565,7 +2658,7 @@ type_decl
   | VEC2 LESS_THAN type_decl GREATER_THAN
   | VEC3 LESS_THAN type_decl GREATER_THAN
   | VEC4 LESS_THAN type_decl GREATER_THAN
-  | POINTER LESS_THAN storage_class COMMA type_decl GREATER_THAN
+  | POINTER LESS_THAN storage_class COMMA type_decl (COMMA access_mode)? GREATER_THAN
   | attribute_list* ARRAY LESS_THAN type_decl (COMMA INT_LITERAL)? GREATER_THAN
   | MAT2x2 LESS_THAN type_decl GREATER_THAN
   | MAT2x3 LESS_THAN type_decl GREATER_THAN
@@ -2620,18 +2713,20 @@ declaration of the identifier as a type alias or structure type.
   </xmp>
 </div>
 
-<div class='example wgsl global-scope' heading='Access qualifier'>
+<div class='example wgsl global-scope' heading='Access modes for buffers'>
   <xmp>
     // Storage buffers
     [[group(0), binding(0)]]
-    var<storage> buf1: [[access(read)]] Buffer;       // Can read, cannot write.
+    var<storage,read> buf1: Buffer;       // Can read, cannot write.
+    [[group(0), binding(0)]]
+    var<storage> buf2: Buffer;            // Can read, cannot write.
     [[group(0), binding(1)]
-    var<storage> buf2: [[access(read_write)]] Buffer; // Can both read and write
+    var<storage,read_write> buf3: Buffer; // Can both read and write.
 
     // Uniform buffer. Always read-only, and has more restrictive layout rules.
     struct ParamsTable {};
     [[group(0), binding(2)]]
-    var<uniform> params: ParamsTable;
+    var<uniform> params: ParamsTable;     // Can read, cannot write.
   </xmp>
 </div>
 
@@ -2669,9 +2764,12 @@ then its reference type is ref&lt;*S*,*T*&gt;.
 
 A <dfn dfn noexport>variable declaration</dfn>:
 
-* Determines the variable’s name, storage class, and store type (and hence its [=reference type=]).
-* Ensures the execution environment allocates storage for a value of the store type, for the [=lifetime=] of the variable.
-* Optionally have an *initializer* expression, if the variable is in the [=storage classes/private=] or [=storage classes/function=] storage classes.
+* Specifies the variable’s name.
+* Specifies the [=storage class=], [=store type=], and [=access mode=].
+    Together these comprise the variable's [=reference type=].
+* Ensures the execution environment allocates storage for a value of the store type,
+    supporting the given access mode, for the [=lifetime=] of the variable.
+* Optionally has an *initializer* expression, if the variable is in the [=storage classes/private=] or [=storage classes/function=] storage classes.
     If present, the initializer expression must evaluate to the variable's store type.
 
 When an identifier use [=resolves=] to a variable declaration,
@@ -2683,6 +2781,9 @@ See [[#module-scope-variables]] and [[#function-scope-variables]] for rules abou
 a variable in a particular storage class can be declared,
 and when the storage class decoration is required, optional, or forbidden.
 
+The access mode always has a default, and except for variables in the [=storage classes/storage=] storage class,
+must not be written. See [[#access-mode-defaults]].
+
 <pre class='def'>
 variable_statement
   : variable_decl
@@ -2690,19 +2791,14 @@ variable_statement
   | LET (IDENT | variable_ident_decl) EQUAL short_circuit_or_expression
 
 variable_decl
-  : VAR variable_storage_decoration? variable_ident_decl
+  : VAR variable_qualifier? variable_ident_decl
 
 variable_ident_decl
   : IDENT COLON attribute_list* type_decl
 
-variable_storage_decoration
-  : LESS_THAN storage_class GREATER_THAN
-
+variable_qualifier
+  : LESS_THAN storage_class ( COMMA access_mode ) GREATER_THAN
 </pre>
-
-Variables in the [=storage classes/storage=] storage class and variables with a
-[storage texture](#texture-storage) type must have an [=access=] attribute
-applied to the store type.
 
 The <dfn noexport>lifetime</dfn> of a variable is the period during shader
 execution for which the variable exists.
@@ -2733,7 +2829,7 @@ Consider the following snippet of WGSL:
     loop {
       var twice: i32 = 2 * i;   // Re-evaluated each iteration.
       i = i + 1;
-      break if (i == 5);
+      if (i == 5) { break; }
     }
   </xmp>
 </div>
@@ -2779,11 +2875,12 @@ Variables at [=module scope=] are restricted as follows:
 
 A variable in the [=storage classes/uniform=] storage class is a <dfn noexport>uniform buffer</dfn> variable.
 Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
-satisfying the [storage class constraints](#storage-class-constraints).
+satisfying the [storage class layout constraints](#storage-class-layout-constraints).
 
 A variable in the [=storage classes/storage=] storage class is a <dfn noexport>storage buffer</dfn> variable.
 Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
-satisfying the [storage class constraints](#storage-class-constraints).
+satisfying the [storage class layout constraints](#storage-class-layout-constraints).
+It may be declared with a [=access/read=] or [=access/write=] access mode; the default is [=access/read=].
 
 As described in [[#resource-interface]],
 uniform buffers, storage buffers, textures, and samplers form the
@@ -2800,16 +2897,18 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
       count: i32;
     };
     [[group(0), binding(2)]]
-    var<uniform> param: Params;          // A uniform buffer
+    var<uniform> param: Params;    // A uniform buffer
 
     [[block]] struct PositionsBuffer {
       pos: array<vec2<f32>>;
     };
+    // A storage buffer, for reading and writing
     [[group(0), binding(0)]]
-    var<storage> pbuf: [[access(read_write)]] PositionsBuffer;  // A storage buffer
+    var<storage,read_write> pbuf: PositionsBuffer;  
 
+    // Textures and samplers are always in "handle" storage.
     [[group(0), binding(1)]]
-    var filter_params: sampler;   // Textures and samplers are always in "handle" storage.
+    var filter_params: sampler;   
   </xmp>
 </div>
 
@@ -2878,10 +2977,10 @@ Proposal: pipeline creation fails with an error.
     [[override(1200)]] let specular_param: f32 = 2.3;     // Numeric control
     [[override(1300)]] let gain: f32;                     // Must be overridden
     [[override]]       let width: f32 = 0.0;              // Specifed at the API level using
-                                                           // the name "width".
+                                                          // the name "width".
     [[override]]       let depth: f32;                    // Specifed at the API level using
-                                                           // the name "depth".
-                                                           // Must be overridden.
+                                                          // the name "depth".
+                                                          // Must be overridden.
   </xmp>
 </div>
 
@@ -4221,9 +4320,9 @@ The <dfn noexport>address-of</dfn> operator converts a reference to its correspo
   </thead>
   <tr algorithm="address-of expression">
        <td>
-          |r|: ref&lt;|SC|,|T|&gt;
+          |r|: ref&lt;|SC|,|T|,|A|&gt;
        <td class="nowrap">
-          `&`|r|: ptr&lt;|SC|,|T|&gt;
+          `&`|r|: ptr&lt;|SC|,|T|,|A|&gt;
        <td>Result is the pointer value corresponding to the
            same [=memory view=] as the reference value |r|.
 </table>
@@ -4239,9 +4338,9 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
   </thead>
   <tr algorithm="indirection expression">
        <td>
-          |p|: ptr&lt;|SC|,|T|&gt;
+          |p|: ptr&lt;|SC|,|T|,|A|&gt;
        <td class="nowrap">
-          `*`|p|: ref&lt;|SC|,|T|&gt;
+          `*`|p|: ref&lt;|SC|,|T|,|A|&gt;
        <td>Result is the reference value corresponding to the
            same [=memory view=] as the pointer value |p|.
 </table>
@@ -4424,7 +4523,8 @@ expression to the right of the equals token is the <dfn noexport>right-hand side
     <tr><th>Precondition<th>Statement<th>Description
   </thead>
   <tr algorithm="assignment">
-    <td>|r|: ref<|SC|,|T|>,<br>
+    <td>|r|: ref<|SC|,|T|,|A|>,<br>
+        |A| is [=access/write=] or [=access/read_write=]
         |e|: |T|,<br>
         |T| is [=storable=],<br>
         |SC| is a writable [=storage class=]
@@ -4433,8 +4533,6 @@ expression to the right of the equals token is the <dfn noexport>right-hand side
         the [=memory locations=] referenced by |r|.<br>
         (OpStore)
 </table>
-
-The [=originating variable=] of the left-hand side must not have an `access(read)` access attribute.
 
 In the simplest case, the left hand side of the assignment statement is the
 name of a variable.  See [[#forming-references-and-pointers]] for other cases.
@@ -4537,7 +4635,7 @@ transferred to the `default` clause.
 
 Each switch statement must have exactly one default clause.
 
-The case selector values must have the same type as the selector expression.
+The case selector values must have the same type as the result of evaluating the selector expression.
 
 A literal value must not appear more than once in the case selectors for a switch statement.
 
@@ -5063,10 +5161,12 @@ A <dfn noexport>function call</dfn> is a statement or expression which invokes a
 
 The function call must supply the same number of argument values as there are
 [=formal parameter|formal parameters=] in the called function.
-Each argument value must have the same type as the corresponding formal
+Each argument value must evaluate to the the same type as the corresponding formal
 parameter, by position.
 
 When a function call is executed the following steps occur:
+* Function call argument values are evaluated.
+    The relative order of evaluation is not specified.
 * Execution of the current function is suspended.
     All [=function scope=] variables and constants maintain their current values.
 * Storage is allocated for each function scope variable in the called function.
@@ -5095,7 +5195,7 @@ Note: The current function will not resume execution if the called function or
 any descendent called function executes a `discard` statement.
 See [[#discard-statement]].
 
-## Restrictions ## {#function-restriction}
+## Restrictions on functions ## {#function-restriction}
 
 * Recursion is not permitted.
     That is, there must be no cycles in the call graph.
@@ -5108,6 +5208,10 @@ See [[#discard-statement]].
     * a pointer type
     * a texture type
     * a sampler type
+* Each function call argument must evaluate to the type of the corresponding
+    function parameter.
+    * In particular, an argument that is a pointer must agree with the formal parameter
+        on storage class, pointee type, and access mode.
 * A function parameter of pointer type must be in one of
     the following storage classes:
     * [=storage classes/function=]
@@ -5125,7 +5229,7 @@ See [[#discard-statement]].
     * Another function parameter in the same function
     * A statement or expression in the function using the originating variable directly
 
-Note: the aliasing restriction applies to memory location written by function
+Note: The aliasing restriction applies to memory location written by function
 calls in the function.
 
 Issue: Revisit aliasing rules for clarity.
@@ -5526,9 +5630,9 @@ where compatibility is defined by the following table.
       <td rowspan=3>[[WebGPU#dictdef-gpubufferbinding|GPUBufferBinding]]
       <td rowspan=3>GPUBufferBindingType
       <td>[[WebGPU#dom-gpubufferbindingtype-uniform|uniform]]
-  <tr><td>read-write [=storage buffer=]
+  <tr><td>[=storage buffer=] with [=access/read_write=] access
       <td>[[WebGPU#dom-gpubufferbindingtype-storage|storage]]
-  <tr><td>read-only [=storage buffer=]
+  <tr><td>[=storage buffer=] with [=access/read=] access
       <td>[[WebGPU#dom-gpubufferbindingtype-read-only-storage|read-only-storage]]
   <tr><td rowspan=2>sampler
       <td rowspan=3>[[WebGPU#gpusampler|GPUSampler]]
@@ -5561,10 +5665,6 @@ where compatibility is defined by the following table.
 TODO: Describe when filtering or non-filtering samplers are valid.
 
 TODO: Describe when float vs. unfilterable float sampled textures are valid.
-
-TODO: Rewrite the phrases 'read-only storage buffer' and 'read-write storage buffer' after
-we settle on how to express those concepts.
-See https://github.com/gpuweb/gpuweb/pull/1183
 
 If |B| is a [=uniform buffer=] variable in a resource interface,
 and |WB| is the [[WebGPU#buffer-interface|WebGPU GPUBuffer]] bound to |B|, then:
@@ -5965,6 +6065,8 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`LET`<td>let
   <tr><td>`LOOP`<td>loop
   <tr><td>`PRIVATE`<td>private
+  <tr><td>`READ`<td>read
+  <tr><td>`READ_WRITE`<td>read_write
   <tr><td>`RETURN`<td>return
   <tr><td>`STORAGE`<td>storage
   <tr><td>`SWITCH`<td>switch
@@ -5973,7 +6075,9 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`UNIFORM`<td>uniform
   <tr><td>`VAR`<td>var
   <tr><td>`WORKGROUP`<td>workgroup
+  <tr><td>`WRITE`<td>write
 </table>
+Issue: Should read, write, and read_write be not completely reserved?  They are only used in specific contexts.
 <table class='data'>
   <caption>Image format keywords</caption>
   <thead>
@@ -6500,8 +6604,10 @@ That's not a full user-defined function declaration.
     <td>|T| is [FLOATING]<br>
         |I| is [INTEGRAL], where<br>
         |I| is a scalar if |T| is a scalar, or<br>
-        a vector when |T| is a vector
-    <td class="nowrap">`frexp(`|e1|`:` |T| `, `|e2|`:` ptr<|I|> `) -> ` |T|
+        a vector when |T| is a vector<br>
+        |SC| is a storage class<br>
+        |A| is [=access/write=] or [=access/read_write=]
+    <td class="nowrap">`frexp(`|e1|`:` |T| `, `|e2|`:` ptr&lt;|SC|,|I|,|A|&gt; `) -> ` |T|
     <td>Splits |e1| into a signficand and exponent of the form `significand * 2`<sup>`exponent`</sup> and returns the significand.
     The magnitude of the signficand is in the range of [0.5, 1.0) or 0.
     The exponent is stored through the pointer |e2|.
@@ -6569,7 +6675,9 @@ That's not a full user-defined function declaration.
 
   <tr algorithm="scalar case, modf">
     <td>|T| is [FLOATING]
-    <td class="nowrap">`modf(`|e1|`:` |T| `, `|e2|`:` ptr<|T|> `) -> ` |T|
+        |SC| is a storage class<br>
+        |A| is [=access/write=] or [=access/read_write=]
+    <td class="nowrap">`modf(`|e1|`:` |T| `, `|e2|`:` ptr&gt;|SC|,|T|,|A|&gt; `) -> ` |T|
     <td>Splits |e1| into fractional and whole number parts.
     Returns the fractional part and stores the whole number through the pointer |e2|.
     [=Component-wise=] when |T| is a vector.
@@ -6883,16 +6991,16 @@ textureLoad(t: texture_3d<T>, coords: vec3<i32>, level: i32) -> vec4<T>
 textureLoad(t: texture_multisampled_2d<T>, coords: vec2<i32>, sample_index: i32)-> vec4<T>
 textureLoad(t: texture_depth_2d, coords: vec2<i32>, level: i32) -> f32
 textureLoad(t: texture_depth_2d_array, coords: vec2<i32>, array_index: i32, level: i32) -> f32
-textureLoad(t: [[access(read)]] texture_storage_1d<F>, coords: i32) -> vec4<T>
-textureLoad(t: [[access(read)]] texture_storage_2d<F>, coords: vec2<i32>) -> vec4<T>
-textureLoad(t: [[access(read)]] texture_storage_2d_array<F>, coords: vec2<i32>, array_index: i32) -> vec4<T>
-textureLoad(t: [[access(read)]] texture_storage_3d<F>, coords: vec3<i32>) -> vec4<T>
+textureLoad(t: texture_storage_1d<F,read>, coords: i32) -> vec4<T>
+textureLoad(t: texture_storage_2d<F,read>, coords: vec2<i32>) -> vec4<T>
+textureLoad(t: texture_storage_2d_array<F,read>, coords: vec2<i32>, array_index: i32) -> vec4<T>
+textureLoad(t: texture_storage_3d<F,read>, coords: vec3<i32>) -> vec4<T>
 textureLoad(t: texture_external, coords: vec2<i32>) -> vec4<f32>
 ```
 
 For [read-only storage textures](#texture-storage) the returned channel format `T`
 depends on the texel format `F`.
-[See the texel format table](#storage-texel-formats) for the mapping of texel
+See the See the [texel format table](#storage-texel-formats) for the mapping of texel
 format to channel format.
 
 **Parameters:**
@@ -7266,10 +7374,10 @@ The sampled value.
 Writes a single texel to a texture.
 
 ```rust
-textureStore(t: [[access(write)]] texture_storage_1d<F>, coords: i32, value: vec4<T>)
-textureStore(t: [[access(write)]] texture_storage_2d<F>, coords: vec2<i32>, value: vec4<T>)
-textureStore(t: [[access(write)]] texture_storage_2d_array<F>, coords: vec2<i32>, array_index: i32, value: vec4<T>)
-textureStore(t: [[access(write)]] texture_storage_3d<F>, coords: vec3<i32>, value: vec4<T>)
+textureStore(t: texture_storage_1d<F,write>, coords: i32, value: vec4<T>)
+textureStore(t: texture_storage_2d<F,write>, coords: vec2<i32>, value: vec4<T>)
+textureStore(t: texture_storage_2d_array<F,write>, coords: vec2<i32>, array_index: i32, value: vec4<T>)
+textureStore(t: texture_storage_3d<F,write>, coords: vec3<i32>, value: vec4<T>)
 ```
 
 The channel format `T` depends on the storage texel format `F`.
@@ -7322,12 +7430,14 @@ classes/workgroup=]. [=storage classes/workgroup=] atomics have a **Workgroup**
 memory scope in SPIR-V, while [=storage classes/storage=] atomics have a
 **Device** memory scope in SPIR-V.
 
+The access mode `A` in all atomic built-in functions must be [=access/read_write=].
+
 TODO: Add links to the eventual memory model descriptions.
 
 ### Atomic Load ### {#atomic-load}
 
 ```rust
-atomicLoad(atomic_ptr: ptr<SC, atomic<T>>) -> T
+atomicLoad(atomic_ptr: ptr<SC, atomic<T>, A>) -> T
 
 // Maps to the SPIR-V instruction OpAtomicLoad.
 ```
@@ -7338,7 +7448,7 @@ It does not [=atomic modification|modify=] the object.
 ### Atomic Store ### {#atomic-store}
 
 ```rust
-atomicStore(atomic_ptr: ptr<SC, atomic<T>>, v: T)
+atomicStore(atomic_ptr: ptr<SC, atomic<T>, A>, v: T)
 
 // Maps to the SPIR-V instruction OpAtomicStore.
 ```
@@ -7348,12 +7458,12 @@ Atomically stores the value `v` in the atomic object pointed to by `atomic_ptr`.
 ### Atomic Read-Modify-Write ### {#atomic-rmw}
 
 ```rust
-atomicAdd(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicMax(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicMin(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicAnd(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicOr(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicXor(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
+atomicAdd(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicMax(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicMin(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicAnd(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicOr(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicXor(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
 
 // Mappings to SPIR-V instructions:
 // atomicAdd -> OpAtomicIAdd
@@ -7373,7 +7483,7 @@ Each function performs the following steps atomically:
 Each function returns the original value stored in the atomic object.
 
 ```rust
-atomicExchange(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
+atomicExchange(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
 
 // Maps to the SPIR-V instruction OpAtomicExchange.
 ```
@@ -7382,7 +7492,7 @@ Atomically stores the value `v` in the atomic object pointed to
 `atomic_ptr` and returns the original value stored in the atomic object.
 
 ```rust
-atomicCompareExchangeWeak(atomic_ptr: ptr<SC, atomic<T>>, cmp: T, v: T) -> vec2<T>
+atomicCompareExchangeWeak(atomic_ptr: ptr<SC, atomic<T>, A>, cmp: T, v: T) -> vec2<T>
 
 // Maps to the SPIR-V instruction OpAtomicCompareExchange.
 ```
