@@ -7854,6 +7854,10 @@ interface GPUCanvasContext {
     : <dfn>\[[canvas]]</dfn> of type {{HTMLCanvasElement}}.
     ::
         The canvas this context was created from.
+
+    : <dfn>\[[currentSwapChain]]</dfn> of type {{GPUSwapChain}}, initially `null`.
+    ::
+        The currently configured {{GPUSwapChain}} for this context.
 </dl>
 
 {{GPUCanvasContext}} has the following methods:
@@ -7876,16 +7880,39 @@ interface GPUCanvasContext {
 
             **Returns:** {{GPUSwapChain}}
 
-            1. Issue the following steps on the [=Device timeline=] of |this|:
+            1. Let |swapChain| be a new valid {{GPUSwapChain}}.
+            1. Let |device| be |descriptor|.{{GPUSwapChainDescriptor/device}}.
+            1. Let |canvas| be |this|.{{GPUCanvasContext/[[canvas]]}}.
+            1. Set |swapChain|.{{GPUSwapChain/[[context]]}} to |this|.
+            1. Set |swapChain|.{{GPUSwapChain/[[descriptor]]}} to |descriptor|.
+            1. If |descriptor|.{{GPUSwapChainDescriptor/size}} is `undefined` set
+                |swapChain|.{{GPUSwapChain/[[size]]}} to [|canvas|.width, |canvas|.height, 1],
+                otherwise set |swapChain|.{{GPUSwapChain/[[size]]}} to |descriptor|.{{GPUSwapChainDescriptor/size}}.
+
+            1. If |this|.{{GPUCanvasContext/[[currentSwapChain]]}} is not `null`, [$destroy the swap chain$].
+            1. Set |this|.{{GPUCanvasContext/[[currentSwapChain]]}} to |swapChain|.
+
+            1. Issue the following steps on the [=Device timeline=] of |device|:
                 <div class=device-timeline>
-                    1. If any of the following conditions are unsatisfied, generate a validation error and stop.
+                    1. If any of the following conditions are unsatisfied:
                         <div class=validusage>
-                            - |descriptor|.{{GPUSwapChainDescriptor/device}} is a [=valid=] {{GPUDevice}}.
-                            - [=Supported swap chain formats=] [=set/contains=] |descriptor|.{{GPUSwapChainDescriptor/format}}.
+                            - |device| is a [=valid=] {{GPUDevice}}.
+                            - [=Supported swap chain formats=] [=set/contains=]
+                                |descriptor|.{{GPUSwapChainDescriptor/format}}.
+                            - |swapChain|.{{GPUSwapChain/[[size]]}}.[=Extent3D/width=] &le;
+                                |device|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension2D}}.
+                            - |swapChain|.{{GPUSwapChain/[[size]]}}.[=Extent3D/height=] &le;
+                                |device|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension2D}}.
+                            - |swapChain|.{{GPUSwapChain/[[size]]}}.[=Extent3D/depthOrArrayLayers=]
+                                is 1;
                         </div>
 
-                    Issue: Describe remaining {{GPUCanvasContext/configureSwapChain()}} algorithm steps.
+                        Then:
+                            1. Generate a {{GPUValidationError}} in the current scope with appropriate
+                                error message.
+                            1. Make |swapChain| [=invalid=] and return |swapChain|.
                 </div>
+            1. Return |swapChain|.
         </div>
 
     : <dfn>getSwapChainPreferredFormat(adapter)</dfn>
@@ -7930,6 +7957,7 @@ dictionary GPUSwapChainDescriptor : GPUObjectDescriptorBase {
     required GPUTextureFormat format;
     GPUTextureUsageFlags usage = 0x10;  // GPUTextureUsage.RENDER_ATTACHMENT
     GPUCanvasCompositingAlphaMode compositingAlphaMode = "opaque";
+    GPUExtent3D size;
 };
 </script>
 
@@ -7938,6 +7966,56 @@ Initially, for SDR, it can default to simply "srgb".
 When we add HDR canvas output (pixel values > 1), some clarification may be needed depending on
 upstream changes to canvas for color and HDR (e.g. to make sure we choose between extended-srgb
 and clamped-srgb: they're the same for SDR, but different for HDR).
+
+### GPUSwapChain sizing ### {#swapchain-sizing}
+
+A {{GPUSwapChain}}'s {{GPUSwapChain/[[size]]}} is immutable, set by the {{GPUSwapChainDescriptor}}
+passed to {{GPUCanvasContext/configureSwapChain()}}. If a {{GPUSwapChainDescriptor/size}} is not
+specified then the width and height attributes of the {{GPUCanvasContext}}.{{GPUCanvasContext/[[canvas]]}}
+at the time {{GPUCanvasContext/configureSwapChain()}} is called will be used. If
+{{GPUSwapChain}}.{{GPUSwapChain/[[size]]}} does not match the dimensions of the canvas the textures
+produced by the {{GPUSwapChain}} will be scaled to fit the canvas element.
+
+<div class="note">
+    Note: Unlike `'webgl'` or `'2d'` contexts, `width` and `height` attributes of canvases with a
+    `'gpupresent'` context only affect:
+    - Default layout size, if not overridden by CSS.
+    - Default {{GPUSwapChainDescriptor}}.{{GPUSwapChainDescriptor/size}} when calling
+        {{GPUCanvasContext/configureSwapChain()}}, if not overridden.
+</div>
+
+If it is desired to match the dimensions of the canvas after it is resized, the {{GPUSwapChain}}
+must be reconfigured by calling {{GPUCanvasContext/configureSwapChain()}} again with the new
+dimensions. Once the {{GPUSwapChain}} is reconfigured the previously returned {{GPUSwapChain}} will
+become [=invalid=] and only the newly returned {{GPUSwapChain}} may be used.
+
+<div class="example">
+    Reconfigure a {{GPUSwapChain}} in response to canvas resize, monitored using
+    [ResizeObserver](https://www.w3.org/TR/resize-observer/) to get the exact pixel dimensions of
+    the canvas:
+
+    <pre highlight="js">
+        const canvas = document.createElement('canvas');
+        const context =  canvas.getContext('gpupresent');
+        let swapChain = null;
+
+        const resizeObserver = new ResizeObserver(entries => {
+            for (const entry of entries) {
+                if (entry != canvas) { continue; }
+                swapChain = context.configureSwapChain({
+                    device: someDevice,
+                    format: 'bgra8unorm',
+                    size: {
+                        // This reports the size of the canvas element in pixels
+                        width: entry.devicePixelContentBoxSize[0].inlineSize,
+                        height: entry.devicePixelContentBoxSize[0].blockSize,
+                    }
+                });
+            }
+        });
+        resizeObserver.observe(canvas);
+    </pre>
+</div>
 
 ## GPUSwapChain ## {#swapchain}
 
@@ -7959,6 +8037,11 @@ GPUSwapChain includes GPUObjectBase;
     : <dfn>\[[descriptor]]</dfn> of type {{GPUSwapChainDescriptor}}
     ::
         The descriptor this swap chain was created with.
+
+    : <dfn>\[[size]]</dfn> of type {{GPUExtent3D}}
+    ::
+        The size of {{GPUTexture}}s returned from this swap chain.
+        [=Extent3D/depthOrArrayLayers=] must be `0`.
 
     : <dfn>\[[currentTexture]]</dfn> of type {{GPUTexture}}, nullable
     ::
@@ -8013,10 +8096,12 @@ GPUSwapChain includes GPUObjectBase;
     To <dfn abstract-op lt='allocating a new swap chain texture'>Allocate a new swap chain texture</dfn>
     for {{GPUSwapChain}} |swapChain| run the following steps:
 
-        1. Let |canvas| be |swapChain|.{{GPUSwapChain/[[context]]}}.{{GPUCanvasContext/[[canvas]]}}.
+        1. If |swapChain| is [=invalid=]:
+            1. Generate a {{GPUValidationError}} in the current scope with an appropriate error message.
+            1. Return a new [=invalid=] {{GPUTexture}}.
         1. Let |device| be |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/device}}.
         1. Let |descriptor| be a new {{GPUTextureDescriptor}}.
-        1. Set |descriptor|.{{GPUTextureDescriptor/size}} to [|canvas|.width, |canvas|.height, 1].
+        1. Set |descriptor|.{{GPUTextureDescriptor/size}} to |swapChain|.{{GPUSwapChain/[[size]]}}.
         1. Set |descriptor|.{{GPUTextureDescriptor/format}} to
             |swapChain|.{{GPUSwapChain/[[descriptor]]}}.{{GPUSwapChainDescriptor/format}}.
         1. Set |descriptor|.{{GPUTextureDescriptor/usage}} to
@@ -8027,6 +8112,16 @@ GPUSwapChain includes GPUObjectBase;
             its GPU memory may be re-used.</div>
         1. Ensure |texture| is cleared to `(0, 0, 0, 0)`.
         1. Return |texture|.
+</div>
+
+<div algorithm>
+    To <dfn abstract-op lt='destroy the swap chain'>Destroy a swap chain</dfn>
+    for {{GPUSwapChain}} |swapChain| run the following steps:
+
+        1. If |swapChain|.{{GPUSwapChain/[[currentTexture]]}} is not `null` call
+            {{GPUTexture/destroy()}} on |swapChain|.{{GPUSwapChain/[[currentTexture]]}}.
+        1. Set |swapChain|.{{GPUSwapChain/[[currentTexture]]}} to `null`.
+        1. Make |swapChain| [=invalid=].
 </div>
 
 
