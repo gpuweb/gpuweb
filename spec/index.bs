@@ -72,6 +72,12 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
         text: location; url: input-output-locations
         text: interpolation; url: interpolation
+        text: pipeline-overridable; url: pipeline-overridable
+        text: pipeline-overridable constant identifier string; url: pipeline-overridable-constant-identifier-string
+        text: pipeline-overridable constant has a default value; url: pipeline-overridable-constant-has-a-default-value
+        text: statically accessed; url: statically-accessed
+        text: wgsl-declaration; url: declaration
+        text: wgsl-type; url: type
 </pre>
 
 <style>
@@ -4202,41 +4208,118 @@ has a default layout created and used instead.
 
 ### <dfn dictionary>GPUProgrammableStage</dfn> ### {#GPUProgrammableStage}
 
+A {{GPUProgrammableStage}} describes the entry point in the user-provided
+{{GPUShaderModule}} that controls one of the programmable stages of a [=pipeline=].
+
 <script type=idl>
 dictionary GPUProgrammableStage {
     required GPUShaderModule module;
     required USVString entryPoint;
+    record<USVString, GPUPipelineConstantValue> constants;
 };
+
+typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32, u32.
 </script>
 
-A {{GPUProgrammableStage}} describes the entry point in the user-provided
-{{GPUShaderModule}} that controls one of the programmable stages of a [=pipeline=].
+<dl dfn-for=GPUProgrammableStage dfn-type=dict-member>
+    : <dfn>constants</dfn>
+    ::
+        Specifies the values of [=pipeline-overridable=] constants in the shader module
+        {{GPUProgrammableStage/module}}.
+
+        Each such [=pipeline-overridable=] constant is uniquely identified by a single
+        [=pipeline-overridable constant identifier string=] (representing the numeric ID of the
+        constant, if one is specified, and otherwise the constant's identifier name).
+
+        The key of each key-value pair must equal the identifier string of one such constant.
+        When the pipeline is executed, that constant will have the specified value.
+
+        Values are specified as <dfn typedef for=>GPUPipelineConstantValue</dfn>, which is a
+        `double` which is converted to the WGSL data type of the corresponding pipeline-overridable
+        constant (`bool`, `i32`, `u32`, or `f32`) via [=converted to an IDL value|an IDL value=]
+        ({{boolean}}, {{long}}, {{unsigned long}}, or {{float}}).
+
+        <div class=example>
+            Pipeline-overridable constants defined in WGSL:
+
+            <pre highlight=rust>
+                [[override(0)]]    let has_point_light: bool = true; // Algorithmic control.
+                [[override(1200)]] let specular_param: f32 = 2.3;    // Numeric control.
+                [[override(1300)]] let gain: f32;                    // Must be overridden.
+                [[override]]       let width: f32 = 0.0;             // Specifed at the API level
+                                                                     //   using the name "width".
+                [[override]]       let depth: f32;                   // Specifed at the API level
+                                                                     //   using the name "depth".
+                                                                     //   Must be overridden.
+            </pre>
+
+            Corresponding JavaScript code, providing only the overrides which are required
+            (have no defaults):
+
+            <pre highlight=js>
+                {
+                    // ...
+                    constants: {
+                        1300: 2.0,  // "gain"
+                        depth: -1,  // "depth"
+                    }
+                }
+            </pre>
+
+            Corresponding JavaScript code, overriding all constants:
+
+            <pre highlight=js>
+                {
+                    // ...
+                    constants: {
+                        0: false,   // "has_point_light"
+                        1200: 3.0,  // "specular_param"
+                        1300: 2.0,  // "gain"
+                        width: 20,  // "width"
+                        depth: -1,  // "depth"
+                    }
+                }
+            </pre>
+        </div>
+</dl>
 
 <div algorithm>
     <dfn abstract-op>validating GPUProgrammableStage</dfn>(stage, descriptor, layout)
-        **Arguments:**
-            - {{GPUShaderStage}} |stage|
-            - {{GPUProgrammableStage}} |descriptor|
-            - {{GPUPipelineLayout}} |layout|
 
-        Return `true` if all of the following conditions are satisfied:
+    **Arguments:**
+    - {{GPUShaderStage}} |stage|
+    - {{GPUProgrammableStage}} |descriptor|
+    - {{GPUPipelineLayout}} |layout|
 
-            - The |descriptor|.{{GPUProgrammableStage/module}} is [=valid=] {{GPUShaderModule}}.
-            - The |descriptor|.{{GPUProgrammableStage/module}} contains
-                an entry point at |stage| named |descriptor|.{{GPUProgrammableStage/entryPoint}}.
-            - For each |binding| that is [=statically used=] by the shader entry point,
-                the [$validating shader binding$](|binding|, |layout|) returns `true`.
-            - For each texture sampling shader call that is [=statically used=] by the entry point:
-                1. Let |texture| be the {{GPUBindGroupLayoutEntry}} corresponding to the sampled texture in the call.
-                1. Let |sampler| be the {{GPUBindGroupLayoutEntry}} corresponding to the used sampler in the call.
-                1. One of the following conditions is `false`:
-                    - |texture|.{{GPUTextureBindingLayout/sampleType}} is {{GPUTextureSampleType/"unfilterable-float"}}:
-                    - |sampler|.{{GPUSamplerBindingLayout/type}} is {{GPUSamplerBindingType/"filtering"}}.
+    Return `true` if all of the following conditions are met:
 
+    - |descriptor|.{{GPUProgrammableStage/module}} must be a [=valid=] {{GPUShaderModule}}.
+    - |descriptor|.{{GPUProgrammableStage/module}} must contain
+        an entry point, for shader stage |stage|,
+        named |descriptor|.{{GPUProgrammableStage/entryPoint}}.
+    - For each |binding| that is [=statically used=] by the shader entry point:
+        - [$validating shader binding$](|binding|, |layout|) must return `true`.
+    - For each texture sampling shader call that is [=statically used=] by the entry point:
+        1. Let |texture| be the {{GPUBindGroupLayoutEntry}} corresponding to the sampled texture in the call.
+        1. Let |sampler| be the {{GPUBindGroupLayoutEntry}} corresponding to the used sampler in the call.
+        1. If |sampler|.{{GPUSamplerBindingLayout/type}} is {{GPUSamplerBindingType/"filtering"}},
+            then |texture|.{{GPUTextureBindingLayout/sampleType}} must not be
+            {{GPUTextureSampleType/"unfilterable-float"}}.
+    - For each |key| in [=map/get the keys|the keys=] of
+        |descriptor|.{{GPUProgrammableStage/constants}}:
+        - |key| must equal the [=pipeline-overridable constant identifier string=] of
+            some [=pipeline-overridable=] constant defined in the shader module
+            |descriptor|.{{GPUProgrammableStage/module}}.
+    - For each [=pipeline-overridable constant identifier string=] |key| which is
+        [=statically accessed=] by the shader entry point:
+        - If the pipeline-overridable constant identified by |key|
+            [=pipeline-overridable constant has a default value|does not have a default value=],
+            |descriptor|.{{GPUProgrammableStage/constants}} must [=map/contain=] |key|.
 </div>
 
 <div algorithm>
     <dfn abstract-op>validating shader binding</dfn>(binding, layout)
+
     **Arguments:**
         - shader |binding|, reflected from the shader module
         - {{GPUPipelineLayout}} |layout|
