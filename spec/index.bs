@@ -68,6 +68,7 @@ spec: web-apis; urlPrefix: https://html.spec.whatwg.org/multipage/webappapis.htm
 spec: canvas; urlPrefix: https://html.spec.whatwg.org/multipage/canvas.html#
     type: dfn
         text: origin-clean; url: concept-canvas-origin-clean
+        text: placeholder canvas element; url: offscreencanvas-placeholder
 spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
         text: location; url: input-output-locations
@@ -8129,7 +8130,8 @@ interface GPUPresentationContext {
 
             1. If |this|.{{GPUPresentationContext/[[configuration]]}} is `null`:
                 1. Throw an {{OperationError}} and stop.
-            1. If |this|.{{GPUPresentationContext/[[currentTexture]]}} is `null`:
+            1. If |this|.{{GPUPresentationContext/[[currentTexture]]}} is `null` or
+                |this|.{{GPUPresentationContext/[[currentTexture]]}}.{{GPUTexture/[[destroyed]]}} is true:
                 1. Set |this|.{{GPUPresentationContext/[[currentTexture]]}} to the result of [$allocating a
                     new presentation context texture$] for |this|.
             1. Return |this|.{{GPUPresentationContext/[[currentTexture]]}}.
@@ -8145,21 +8147,61 @@ interface GPUPresentationContext {
     HTML processing model, each {{GPUPresentationContext}} |context| must <dfn abstract-op>present the
     presentation context content to the canvas</dfn> by running the following steps:
 
-        1. Let |texture| be |context|.{{GPUPresentationContext/[[currentTexture]]}}.
-        1. If |texture| is `null`, stop.
-        1. Set |context|.{{GPUPresentationContext/[[currentTexture]]}} to `null`.
-        1. Ensure that all submitted work items (e.g. queue submissions) has
-            completed writing to |texture|.
-        1. Update |context|.{{GPUPresentationContext/[[canvas]]}} with the
-            contents of |texture|.
-        1. Call {{GPUTexture/destroy()}} on |texture|.
+    1. If |context|.{{GPUPresentationContext/[[currentTexture]]}} is not `null` and
+        |context|.{{GPUPresentationContext/[[currentTexture]]}}.{{GPUTexture/[[destroyed]]}} is `false`:
+        1. Let |imageContents| be
+            [$get a copy of the image contents of a presentation context|a copy of the image contents$]
+            of |context|.
+        1. Update |context|.{{GPUPresentationContext/[[canvas]]}} with |imageContents|.
+        1. Call |context|.{{GPUPresentationContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}.
+    1. Set |context|.{{GPUPresentationContext/[[currentTexture]]}} to `null`.
+</div>
 
-    Issue: The texture should mark its `[[destroyed]]` field as true rather than calling the
-    {{GPUTexture/destroy()}} method if we separate object invalid and destroyed states.
+<div algorithm="transferToImageBitmap from WebGPU">
+    When {{OffscreenCanvas/transferToImageBitmap()}} is called on a canvas with
+    {{GPUPresentationContext}} |context|:
+
+    1. Let |imageContents| be
+        [$get a copy of the image contents of a presentation context|a copy of the image contents$]
+        of |context|.
+    1. If |context|.{{GPUPresentationContext/[[currentTexture]]}} is not `null`:
+        1. Call |context|.{{GPUPresentationContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}.
+    1. Set |context|.{{GPUPresentationContext/[[currentTexture]]}} to `null`.
+    1. Return a new {{ImageBitmap}} containing the |imageContents|.
 </div>
 
 <div algorithm>
-    To <dfn abstract-op lt='allocating a new presentation context texture'>Allocate a new
+    When WebGPU canvas contents are read using other Web APIs, like
+    {{CanvasDrawImage/drawImage()}}, `texImage2D()`, `texSubImage2D()`,
+    {{HTMLCanvasElement/toDataURL()}}, {{HTMLCanvasElement/toBlob()}}, and so on,
+    they <dfn abstract-op>get a copy of the image contents of a presentation context</dfn>:
+
+    **Arguments:**
+    |context|: the {{GPUPresentationContext}}
+
+    **Returns:** image contents
+
+    1. Let |texture| be |context|.{{GPUPresentationContext/[[currentTexture]]}}.
+    1. If any of the following requirements is unmet, return a transparent black image of size
+        |context|.{{GPUPresentationContext/[[size]]}} and stop.
+        <div class=validusage>
+            - |texture| must not be `null`.
+            - |texture|.{{GPUTexture/[[destroyed]]}} must be false.
+            - If |context|.{{GPUPresentationContext/[[canvas]]}} is an {{OffscreenCanvas}},
+                it must not be linked to a [=placeholder canvas element=].
+
+                Issue: If added, canvas must also not be `desynchronized`.
+        </div>
+    1. Ensure that all submitted work items (e.g. queue submissions) have
+        completed writing to |texture|.
+    1. Return the contents of |texture|.
+
+        Issue: These contents need to be tagged with the currently-configured
+        colorSpace and premultipliedAlpha mode.
+</div>
+
+<div algorithm>
+    To <dfn abstract-op lt='allocating a new presentation context texture'>allocate a new
     presentation context texture</dfn>
     for {{GPUPresentationContext}} |context| run the following steps:
 
