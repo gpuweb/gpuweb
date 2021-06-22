@@ -1190,16 +1190,18 @@ The default is used if a value is not explicitly specified in {{GPUDeviceDescrip
     <tr><td><dfn>minUniformBufferOffsetAlignment</dfn>
         <td>{{GPUSize32}} <td>Lower <td>256
     <tr class=row-continuation><td colspan=4>
-        The required alignment for {{GPUBufferBinding/offset}} for bindings with a
-        {{GPUBindGroupLayoutEntry}} |entry| for which
+        The required alignment for {{GPUBufferBinding}}.{{GPUBufferBinding/offset}} and
+        {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup}}
+        |dynamicOffsets| arguments for binding with a {{GPUBindGroupLayoutEntry}} |entry| for which
         |entry|.{{GPUBindGroupLayoutEntry/buffer}}?.{{GPUBufferBindingLayout/type}}
         is {{GPUBufferBindingType/"uniform"}}.
 
     <tr><td><dfn>minStorageBufferOffsetAlignment</dfn>
         <td>{{GPUSize32}} <td>Lower <td>256
     <tr class=row-continuation><td colspan=4>
-        The required alignment for {{GPUBufferBinding/offset}} for bindings with a
-        {{GPUBindGroupLayoutEntry}} |entry| for which
+        The required alignment for {{GPUBufferBinding}}.{{GPUBufferBinding/offset}} and
+        {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup}}
+        |dynamicOffsets| arguments for binding with a {{GPUBindGroupLayoutEntry}} |entry| for which
         |entry|.{{GPUBindGroupLayoutEntry/buffer}}?.{{GPUBufferBindingLayout/type}}
         is {{GPUBufferBindingType/"storage"}}
         or {{GPUBufferBindingType/"read-only-storage"}}.
@@ -1235,14 +1237,6 @@ The default is used if a value is not explicitly specified in {{GPUDeviceDescrip
         The maximum allowed number of components of input variables for a
         fragment stage {{GPUShaderModule}} entry-point.
 
-    <tr><td><dfn>maxColorAttachments</dfn>
-        <td>{{GPUSize32}} <td>Higher <td>4
-    <tr class=row-continuation><td colspan=4>
-        The maximum size of {{GPURenderPassDescriptor/colorAttachments}} and
-        {{GPUFragmentState/targets}}.
-
-        Issue: Do we need to have a max per-pixel render target size?
-
     <tr><td><dfn>maxComputeWorkgroupStorageSize</dfn>
         <td>{{GPUSize32}} <td>Higher <td>16352
     <tr class=row-continuation><td colspan=4>
@@ -1261,6 +1255,8 @@ The default is used if a value is not explicitly specified in {{GPUDeviceDescrip
         The maximum value for the arguments of {{GPUComputePassEncoder/dispatch(x, y, z)}}.
 
 </table>
+
+Issue: Do we need to have a max per-pixel render target size?
 
 #### <dfn interface>GPUSupportedLimits</dfn> #### {#gpu-supportedlimits}
 
@@ -1291,7 +1287,6 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxVertexBufferArrayStride;
     readonly attribute unsigned long maxVertexOuputComponents;
     readonly attribute unsigned long maxFragmentInputComponents;
-    readonly attribute unsigned long maxColorAttachments;
     readonly attribute unsigned long maxComputeWorkgroupStorageSize;
     readonly attribute unsigned long maxComputeWorkgroupInvocations;
     readonly attribute unsigned long maxComputePerDimensionDispatchSize;
@@ -3703,6 +3698,7 @@ A {{GPUBindGroup}} object has the following internal slots:
             **Returns:** {{GPUBindGroup}}
 
             1. Let |bindGroup| be a new valid {{GPUBindGroup}} object.
+            1. Let |limits| be |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
                     1. If any of the following conditions are unsatisfied:
@@ -4738,7 +4734,7 @@ details.
                 - [$validating GPUProgrammableStage$]({{GPUShaderStage/FRAGMENT}},
                     |descriptor|.{{GPURenderPipelineDescriptor/fragment}},
                     |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
-                - [$validating GPUFragmentState$](|descriptor|.{{GPURenderPipelineDescriptor/fragment}}, |device|) succeeds.
+                - [$validating GPUFragmentState$](|descriptor|.{{GPURenderPipelineDescriptor/fragment}}) succeeds.
                 - If the output SV_Coverage semantics is [=statically used=] by
                     |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
                     - |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}} is `false`.
@@ -4862,11 +4858,10 @@ dictionary GPUFragmentState: GPUProgrammableStage {
 </script>
 
 <div algorithm>
-    <dfn abstract-op>validating GPUFragmentState</dfn>(|descriptor|, |device|)
+    <dfn abstract-op>validating GPUFragmentState</dfn>(|descriptor|)
         Return `true` if all of the following requirements are met:
 
-        - |descriptor|.{{GPUFragmentState/targets}}.length must be &le;
-            |device|.limits.{{supported limits/maxColorAttachments}}.
+        - |descriptor|.{{GPUFragmentState/targets}}.length must be &le; 8.
         - For each |colorState| layout descriptor in the list |descriptor|.{{GPUFragmentState/targets}}:
             - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
                 with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
@@ -6255,13 +6250,22 @@ interface mixin GPUProgrammablePassEncoder {
                             |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}}.
 
                         - [$Iterate over each dynamic binding offset$] in |bindGroup| and
-                            run the following steps for each |bufferBinding|, |minBindingSize|,
+                            run the following steps for each |bufferBinding|, |bufferLayout|,
                             and |dynamicOffsetIndex|:
 
                             - Let |bufferDynamicOffset| be |dynamicOffsets|[|dynamicOffsetIndex|].
                             - |bufferBinding|.{{GPUBufferBinding/offset}} + |bufferDynamicOffset| +
-                                |minBindingSize| &le;
+                                |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} &le;
                                 |bufferBinding|.{{GPUBufferBinding/buffer}}.{{GPUBuffer/[[size]]}}.
+                            - if |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"uniform"}}:
+
+                                - |dynamicOffset| is a multiple of {{supported limits/minUniformBufferOffsetAlignment}}.
+
+                            - if |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"storage"}}
+                                or {{GPUBufferBindingType/"read-only-storage"}}:
+
+                                - |dynamicOffset| is a multiple of {{supported limits/minStorageBufferOffsetAlignment}}.
+
                     </div>
                 1. Set |this|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}[|index|] to be |bindGroup|.
             </div>
@@ -6313,8 +6317,8 @@ interface mixin GPUProgrammablePassEncoder {
         1. If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}} is not `undefined` and
             |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/hasDynamicOffset}} is `true`:
             1. Let |bufferBinding| be |entry|.{{GPUBindGroupEntry/resource}}.
-            1. Let |minBindingSize| be |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}}.
-            1. Call |steps| with |bufferBinding|, |minBindingSize|, and |dynamicOffsetIndex|.
+            1. Let |bufferLayout| be |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}}.
+            1. Call |steps| with |bufferBinding|, |bufferLayout|, and |dynamicOffsetIndex|.
             1. Let |dynamicOffsetIndex| be |dynamicOffsetIndex| + `1`
 </div>
 
@@ -6783,8 +6787,7 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 
     Given a {{GPURenderPassDescriptor}} |this| the following validation rules apply:
 
-    1. |this|.{{GPURenderPassDescriptor/colorAttachments}}.length must be less than or equal to the
-        {{supported limits/maxColorAttachments}}.
+    1. |this|.{{GPURenderPassDescriptor/colorAttachments}}.length must be less than or equal to 8.
     1. |this|.{{GPURenderPassDescriptor/colorAttachments}}.length must greater than `0` or
         |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} must not be `null`.
     1. For each |colorAttachment| in |this|.{{GPURenderPassDescriptor/colorAttachments}}:
