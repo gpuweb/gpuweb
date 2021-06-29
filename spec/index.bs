@@ -1334,7 +1334,7 @@ For more information on issuing CORS requests for image and video elements, cons
 - [[html#the-img-element]] <{img}>
 - [[html#media-elements]] {{HTMLMediaElement}}
 
-## Color Spaces ## {#color-spaces}
+## Color Spaces and Encoding ## {#color-spaces}
 
 WebGPU does not provide color management. All values within WebGPU (such as texture elements)
 are raw numeric values, not color-managed color values.
@@ -1342,8 +1342,8 @@ are raw numeric values, not color-managed color values.
 WebGPU *does* interface with color-managed outputs (via {{GPUPresentationConfiguration}}) and inputs
 (via {{GPUQueue/copyExternalImageToTexture()}} and {{GPUDevice/importExternalTexture()}}).
 Color conversion must be performed between the WebGPU numeric values and the external color values.
-These interface points locally define a color space, in which the WebGPU numeric values are to be
-interpreted, from options defined in [[css-color-4#predefined]].
+Each such interface point locally defines an encoding (color space, transfer function, and alpha
+premultiplication) in which the WebGPU numeric values are to be interpreted.
 
 <script type=idl>
 enum GPUPredefinedColorSpace {
@@ -2907,7 +2907,8 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
                 throw a {{SecurityError}} and stop.
 
             1. Let |data| be the result of converting the current image contents of |source| into
-                the color space |descriptor|.{{GPUExternalTextureDescriptor/colorSpace}}.
+                the color space |descriptor|.{{GPUExternalTextureDescriptor/colorSpace}}
+                with unpremultiplied alpha.
 
                 Note: This is described like a copy, but may be implemented as a reference to
                 read-only underlying data plus appropriate metadata to perform conversion later.
@@ -5637,6 +5638,9 @@ dictionary GPUImageCopyTextureTagged : GPUImageCopyTexture {
         {{ImageBitmap}} premultiplication can be controlled via {{ImageBitmapOptions}}.
 </dl>
 
+Issue: Define (and test) the encoding of color values into the
+various encodings allowed by {{GPUQueue/copyExternalImageToTexture()}}.
+
 ### <dfn dictionary>GPUImageCopyExternalImage</dfn> ### {#gpu-image-copy-external-image}
 
 <script type=idl>
@@ -5659,15 +5663,6 @@ dictionary GPUImageCopyExternalImage {
         Defines the origin of the copy - the minimum corner of the source sub-region to copy from.
         Together with `copySize`, defines the full copy sub-region.
 </dl>
-
-Issue(gpuweb/gpuweb#1483): Needs optional information about the target color encoding.
-ImageBitmap and canvas (and VideoElement) are color-managed: they encode colors.
-GPUTexture is not color-managed: it encodes raw numbers. Producing raw numbers requires knowing
-the target encoding. Probably there should be a particular default value (e.g. the default profile
-used by the browser for unmanaged content?), but eventually we'll want to add knobs.
-
-Issue: Once that's figured out, generally define (and test) the encoding of color values into the
-various formats allowed by {{GPUQueue/copyExternalImageToTexture()}}.
 
 ### Buffer Copies ### {#buffer-copies}
 
@@ -8309,10 +8304,10 @@ interface GPUPresentationContext {
         </div>
     1. Ensure that all submitted work items (e.g. queue submissions) have
         completed writing to |texture|.
-    1. Return the contents of |texture|.
+    1. Return the contents of |texture|, tagged as having alpha premultiplied, and with the color space
+        |context|.{{GPUPresentationContext/[[configuration]]}}.{{GPUPresentationConfiguration/colorSpace}}.
 
-        Issue: These contents need to be tagged with the currently-configured
-        colorSpace and premultipliedAlpha mode.
+        Issue(gpuweb/gpuweb#1847): Does compositingAlphaMode=opaque make this return opaque contents?
 </div>
 
 <div algorithm>
@@ -8353,20 +8348,20 @@ enum GPUCanvasCompositingAlphaMode {
     "premultiplied",
 };
 
-dictionary GPUPresentationConfiguration : GPUObjectDescriptorBase {
+dictionary GPUPresentationConfiguration {
     required GPUDevice device;
     required GPUTextureFormat format;
     GPUTextureUsageFlags usage = 0x10;  // GPUTextureUsage.RENDER_ATTACHMENT
+    GPUPredefinedColorSpace colorSpace = "srgb";
     GPUCanvasCompositingAlphaMode compositingAlphaMode = "opaque";
     GPUExtent3D size;
 };
 </script>
 
-Issue: A {{GPUPredefinedColorSpace}} is necessary here.
-Initially, for SDR, it can default to simply "srgb".
-When we add HDR canvas output (pixel values > 1), some clarification may be needed depending on
-upstream changes to canvas for color and HDR (e.g. to make sure we choose between extended-srgb
-and clamped-srgb: they're the same for SDR, but different for HDR).
+Issue: For SDR, it doesn't matter whether the default colorSpace of "srgb" means extended-srgb
+or clamped-srgb. However, when we add HDR canvas output (representing pixel values > 1),
+we need to choose which of those two is the default. Currently the upstream specs haven't worked
+out this question just yet.
 
 ### Presentation Context sizing ### {#presentation-context-sizing}
 
