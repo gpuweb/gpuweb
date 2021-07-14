@@ -799,6 +799,8 @@ The <dfn dfn noexport>scalar</dfn> types are [=bool=], [=i32=], [=u32=], and [=f
 
 The <dfn dfn noexport>numeric scalar</dfn> types are [=i32=], [=u32=], and [=f32=].
 
+The <dfn dfn noexport>integer scalar</dfn> types are [=i32=] and [=u32=].
+
 ### Vector Types ### {#vector-types}
 
 A <dfn noexport>vector</dfn> is a grouped sequence of 2, 3, or 4 [=scalar=] components.
@@ -957,30 +959,32 @@ An <dfn noexport>array</dfn> is an indexable grouping of element values.
   </thead>
   <tr><td algorithm="fixed-size array type">array&lt;|E|,|N|&gt;
       <td>A <dfn>fixed-size array</dfn> with |N| elements of type |E|.<br>
+          |N| is called the <dfn>element count</dfn> of the array.
   <tr><td algorithm="runtime-sized array type">array&lt;|E|&gt;
       <td>A <dfn noexport>runtime-sized</dfn> array of elements of type |E|.
           These may only appear in specific contexts.<br>
 </table>
 
-When specified, an array size |N|
-must be an integer literal or the name of a [[#module-constants|module-scope constant]],
-and it must evaluate to an [=i32=] value greater than zero.
+When specified, an element count expression |N| must:
+* be a literal or the name of a [[#module-constants|module-scope constant]], and
+* evaluate to an [=integer scalar=] value greater than zero.
 
 Note: A module-scope constant may be [=pipeline-overridable=].
 
-If the element count of a fixed-size array is a pipeline-overridable constant,
-then the element count is fully determined  at [=pipeline creation=] time.
-Otherwise the element count is fully determined at [=shader module creation=] time.
+If the element count expression is a [=pipeline-overridable=] constant,
+then the element count value is fully determined at [=pipeline creation=] time.
+Otherwise the element count value is fully determined at [=shader module creation=] time.
 
-Array types are different if any of the following are true:
-* They have different element type.
-* One is fixed-size and the other is runtime-sized.
-    That is, `array`&lt;|E|,|N|&gt; and `array`&lt;|E|&gt; are different.
-* They are fixed-size with size expressions |N1| and |N2| and:
-    * |N1| and |N2| are literals with different value, or
-    * One size is specified by a literal and the other is not, or
-    * |N1| and |N2| are specified by different module-scope constants, even if those
-        constants have the same value.
+Two array types are the same if and only if all of the following are true:
+* They have the same element type.
+* Their element count specifications match, i.e. any of the following are true:
+    * They are both runtime-sized.
+    * They are both fixed-sized with element counts |N1| and |N2| such that one of the following is true:
+        * |N1| and |N2| are both literals with the same value (even if one is signed and the other is unsigned).
+        * |N1| and |N2| are both the name of the same module-scope constant.
+
+Issue: Array types should differ if they have different element strides.
+See https://github.com/gpuweb/gpuweb/issues/1534
 
 <div class='example fixed-size array types' heading='Example fixed-size array types'>
   <xmp>
@@ -988,18 +992,19 @@ Array types are different if any of the following are true:
     // different element types
     var<private> a: array<f32,8>;
     var<private> b: array<i32,8>;
+    var<private> c: array<i32,8u>;  // array<i32,8> and array<i32,8u> are the same type
 
     let width = 8;
     let height = 8;
 
     // array<i32,8> and array<i32,width> are different types:
     // literal size vs. size specified by a module-scope constant.
-    var<private> c: array<i32,width>;
+    var<private> d: array<i32,width>;
 
     // array<i32,height> and array<i32,width> are different types:
     // size specified by a different module-scope constants.
-    var<private> d: array<i32,width>;
-    var<private> e: array<i32,height>;
+    var<private> e: array<i32,width>;
+    var<private> f: array<i32,height>;
   </xmp>
 </div>
 
@@ -1028,10 +1033,11 @@ Restrictions on runtime-sized arrays:
 
 <pre class='def'>
 array_type_decl
-  | attribute_list* ARRAY LESS_THAN type_decl (COMMA array_size_expr)? GREATER_THAN
+  | attribute_list* ARRAY LESS_THAN type_decl (COMMA element_count_expression)? GREATER_THAN
 
-array_size_expr
+element_count_expression
   : INT_LITERAL
+  | UINT_LITERAL
   | IDENT
 </pre>
 
@@ -1416,7 +1422,7 @@ We will use the following notation:
 * <dfn noexport>AlignOfMember</dfn>(|S|, |M|) is the alignment of member |M| of the host-shareable structure |S|.
 * <dfn noexport>SizeOf</dfn>(|T|) is the size of host-shareable type |T|.
 * <dfn noexport>SizeOfMember</dfn>(|S|, |M|) is the size of member |M| of the host-shareable structure |S|.
-* <dfn noexport>StrideOf</dfn>(|A|) is the element stride of host-shareable array type |A|.
+* <dfn noexport>StrideOf</dfn>(|A|) is the [=element stride=] of host-shareable array type |A|.
 * <dfn noexport>OffsetOfMember</dfn>(|S|, |M|) is the offset of member |M| from the start of the host-shareable structure |S|.
 
 
@@ -1439,9 +1445,7 @@ The size may include non-addressable padding at the end of the type.
 Consequently, loads and stores of a value might access fewer memory locations
 than the value's size.
 
-Note: Recall that a host-shareable [=fixed-size array=] must have its element count specified as a literal.
-(In this context a "sized" array means its _element count_ is a distinguishing property of the array type,
-and that the byte-size is a multiple of the element count.)
+Note: Recall that a host-shareable [=fixed-size array=] must have its [=element count=] specified as a literal.
 
 Alignment and size for host-shareable types are defined recursively in the
 following table:
@@ -1631,24 +1635,24 @@ rounded to the next multiple of the structure's alignment:
 
 #### Array Layout Rules ####  {#array-layout-rules}
 
-An array element stride is the number of bytes from the start of one array
-element to the start of the next element.
-
 The first array element always has a zero byte offset from the start of the
 array.
 
-If the array type is annotated with an explicit [=stride=] decoration then this
-will be used as the array stride, otherwise the array uses an implicit stride
-equal to the size of the array's element type, rounded up to the alignment of
-the element type:
+The <dfn noexport>element stride</dfn> of an array is the number of bytes from the
+start of one array element to the start of the next element.
+It is determined as follows:
+* It is the value of an explicit [=stride=] attribute on the type, if specified.
+* Otherwise, it is the <dfn noexport>implicit stride</dfn>,
+    equal to the size of the array's element type, rounded up to the alignment of
+    the element type:
 
 <p algorithm="array implicit element stride">
   [=StrideOf=](array<|T|[, |N|]>) = [=roundUp=]([=AlignOf=](T), [=SizeOf=](T))
 </p>
 
-In all cases, the array stride must be a multiple of the element alignment.
+In all cases, the array element stride must be a multiple of the element alignment.
 
-<div class='example wgsl' heading='Implicit / explicit array strides'>
+<div class='example wgsl' heading='Implicit / explicit array element strides'>
   <xmp highlight='rust'>
     // Array with an implicit element stride of 16 bytes
     var implicit_stride: array<vec3<f32>, 8>;
@@ -1662,9 +1666,9 @@ Arrays decorated with the [=stride=] attribute must have a stride that is at
 least the size of the element type, and be a multiple of the element type's
 alignment value.
 
-The array size is equal to the element stride multiplied by the number of
+The array size (in bytes) is equal to the array's element stride multiplied by the number of
 elements:
-<p algorithm="array stride">
+<p algorithm="array element stride">
   [=SizeOf=](array<|T|, |N|>) = [=StrideOf=](array<|T|, |N|>) &times; |N|<br>
   [=SizeOf=](array<|T|>) = [=StrideOf=](array<|T|>) &times; N<sub>runtime</sub>
 </p>
@@ -1738,7 +1742,7 @@ When a matrix value |M| is placed at byte offset |k| of a host-shared memory buf
 
 When a value of array type |A| is placed at byte offset |k| of a host-shared memory buffer,
 then:
-   * Element |i| of the array is placed at byte offset |k| + |i| &times; |Stride|(|A|)
+   * Element |i| of the array is placed at byte offset |k| + |i| &times; [=StrideOf=](|A|)
 
 When a value of structure type |S| is placed at byte offset |k| of a host-shared memory buffer,
 then:
@@ -1804,7 +1808,7 @@ for the storage class |C|:
     Where |k| is a positive integer and |M| is a member of structure |S| with type |T|
 </p>
 
-Arrays of element type |T| must have an element [=stride=] that is a
+Arrays of element type |T| must have an [=element stride=] that is a
 multiple of the [=RequiredAlignOf=](|T|, |C|) for the storage class |C|:
 
 <p algorithm="array element minimum alignment">
