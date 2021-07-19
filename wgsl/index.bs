@@ -7,6 +7,11 @@ Group: webgpu
 ED: https://gpuweb.github.io/gpuweb/wgsl/
 TR: https://www.w3.org/TR/WGSL/
 Repository: gpuweb/gpuweb
+Text Macro: INT i32 or u32
+Text Macro: UNSIGNEDINTEGRAL u32 or vec|N|&lt;u32&gt;
+Text Macro: SIGNEDINTEGRAL i32 or vec|N|&lt;i32&gt;
+Text Macro: INTEGRAL i32, u32, vec|N|&lt;i32&gt;, or vec|N|&lt;u32&gt;
+Text Macro: FLOATING f32 or vec|N|&lt;f32&gt;
 Ignored Vars: i, e, e1, e2, e3, N, M, v, Stride, Offset, Align, Extent, S, T, T1
 
 !Participate: <a href="https://github.com/gpuweb/gpuweb/issues/new?labels=wgsl">File an issue</a> (<a href="https://github.com/gpuweb/gpuweb/issues?q=is%3Aissue+is%3Aopen+label%3Awgsl">open issues</a>)
@@ -52,6 +57,15 @@ thead {
       "https://github.com/gpuweb/gpuweb"
     ]
   },
+  "IEEE-754":{
+    "href":"http://ieeexplore.ieee.org/servlet/opac?punumber=4610933",
+    "title":"IEEE Standard for Floating-Point Arithmetic",
+    "publisher":"Institute of Electrical and Electronics Engineers",
+    "isbn":"978-0-7381-5752-8",
+    "versions":["IEEE-754-2008","IEEE-754-1985"],
+    "id":"IEEE-754",
+    "date":"29 August 2008"
+  },
   "SPIR-V": {
     "authors": [
       "John Kessenich",
@@ -86,7 +100,7 @@ spec: SPIR-V; urlPrefix: https://www.khronos.org/registry/spir-v/specs/unified1/
 
 # Introduction # {#intro}
 
-WebGPU Shader Language ([SHORTNAME]) is the shader language for [[!WebGPU]].
+WebGPU Shading Language ([SHORTNAME]) is the shader language for [[!WebGPU]].
 That is, an application using the WebGPU API uses [SHORTNAME] to express the programs, known as shaders,
 that run on the GPU.
 
@@ -167,6 +181,12 @@ determined only by examining the program source.
 [SHORTNAME] has types to describe booleans, numbers, vectors, matrices, and aggregations
 of these in the form of arrays and structures.
 Additional types describe memory.
+
+[SHORTNAME] does not have implicit conversions or promotions between numeric or boolean types.
+Converting a value from one numeric or boolean type to another requires
+an explicit [[#conversion-expr|conversion]],
+[[#type-constructor-expr|construction]], or [[#bitcast-expr|reinterpretation of bits]].
+This also applies to vector types.
 
 [SHORTNAME] has texture and sampler types.
 Together with their associated built-in functions, these support functionality
@@ -385,14 +405,6 @@ literal_or_ident
     <tr><th>Attribute<th>Valid Values<th>Description
   </thead>
 
-   <tr><td><dfn noexport dfn-for="attribute">`access`</dfn>
-    <td>`read`, `write`, or `read_write`
-    <td>Must only be applied to a type used as a store type for a variable in
-    the [=storage classes/storage=] storage class or a variable of [storage
-    texture](#texture-storage) type.
-
-    Specifies the access qualification of a storage [=resource=] variable.
-
   <tr><td><dfn noexport dfn-for="attribute">`align`</dfn>
     <td>positive i32 literal
     <td>Must only be applied to a member of a [=structure=] type.
@@ -447,7 +459,6 @@ literal_or_ident
     return type, or member of a [=structure=] type.
     Must only be applied to declarations of scalars or vectors of floating-point type.
     Must not be used with the [=compute=] shader stage.
-    If the first parameter is `flat`, the second parameter must not be specified.
 
     Specifies how the user-defined IO must be interpolated.
     The attribute is only significant on user-defined [=vertex=] outputs
@@ -513,9 +524,10 @@ literal_or_ident
   <tr><td><dfn noexport dfn-for="attribute">`workgroup_size`</dfn>
     <td>One, two or three parameters.
 
-    Each parameter is either a positive i32 literal or the name of a
-    [=pipeline-overridable=] constant of i32 type.
-    <td>Must only be applied to a [=compute shader stage=] function declaration.
+    Each parameter is either a literal or [[#module-constants|module-scope constant]].
+    All parameters must be of the same type, either i32 or u32.
+    <td>Must be applied to a [=compute shader stage|compute shader=] entry point function.
+    Must not be applied to any other object.
 
     Specifies the x, y, and z dimensions of the [=workgroup grid=] for the compute shader.
 
@@ -756,19 +768,6 @@ a result value, such as the non-result-value effects of its subexpressions.
 
 TODO: example: non-result-value effect is any side effect of a function call subexpression.
 
-For convenience, the type tables use the following shorthands:
-
-<table class='data'>
-  <tr><td>*Scalar*<td>[=scalar=] types: one of bool, i32, u32, f32
-  <tr><td>*Int*<td>i32 or u32
-  <tr><td>*Integral*<td>*Int* or [[#vector-types]] with an *Int* component
-  <tr><td>*SignedIntegral*<td>i32 or [[#vector-types]] with an i32 component
-  <tr><td>*Floating*<td>f32 or [[#vector-types]] with an f32 component
-  <tr><td>*Arity(T)*<td>number of components in [[#vector-types]] *T*
-</table>
-
-TODO(dneto): Do we still need all these shorthands?
-
 ## Plain Types ## {#plain-types-section}
 
 [=Plain types=] are the types for representing boolean values, numbers, vectors,
@@ -791,7 +790,7 @@ It uses a two's complementation representation, with the sign bit in the most si
 
 ### Floating Point Type ### {#floating-point-types}
 
-The <dfn noexport>f32</dfn> type is the set of 32-bit floating point values of the IEEE 754 binary32 (single precision) format.
+The <dfn noexport>f32</dfn> type is the set of 32-bit floating point values of the [[!IEEE-754|IEEE-754]] binary32 (single precision) format.
 See [[#floating-point-evaluation]] for details.
 
 ### Scalar Types ### {#scalar-types}
@@ -890,9 +889,8 @@ An <dfn noexport>atomic type</dfn> encapsulates a [=scalar=] type such that:
 
 An expression must not evaluate to an atomic type.
 
-Atomic types may only be instantiated by variables in the [=storage
-classes/workgroup=] storage class or `read_write` [=attribute/access=] variables in the
-[=storage classes/storage=] storage class.
+Atomic types may only be instantiated by variables in the [=storage classes/workgroup=]
+storage class or by [=storage buffer=] variables with a [=access/read_write=] access mode.
 
 An <dfn noexport>atomic modification</dfn> is any operation on an atomic object which sets the content of the object.
 The operation counts as a modification even if the new value is the same as the object's existing value.
@@ -916,7 +914,7 @@ TODO: Add links the eventual memory model descriptions.
     };
 
     [[group(0), binding(0)]]
-    var<storage> x: [[access(read_write)]] S;
+    var<storage,read_write> x: S;
 
     // Maps to the following SPIR-V:
     // - When atomic types are members of a struct, the Volatile decoration
@@ -957,13 +955,15 @@ An <dfn noexport>array</dfn> is an indexable grouping of element values.
   <thead>
     <tr><th>Type<th>Description
   </thead>
-  <tr><td algorithm="sized array type">array<|E|,|N|><td>An |N|-element array of elements of type |E|.<br>
-                    |N| must be 1 or larger.
-  <tr><td algorithm="runtime-sized array type">array<|E|><td>A <dfn noexport>runtime-sized</dfn> array of elements of type |E|,
-                       also known as a runtime array.
+  <tr><td algorithm="sized array type">array&lt;|E|,|N|&gt;
+      <td>A <dfn>sized array</dfn> with |N| elements of type |E|.<br>
+                |N| must be 1 or larger.
+  <tr><td algorithm="runtime-sized array type">array&lt;|E|&gt;<td>A <dfn noexport>runtime-sized</dfn> array of elements of type |E|.
                        These may only appear in specific contexts.<br>
 </table>
 
+Note: Sized arrays and runtime-sized arrays are always distinct types.
+That is, `array`&lt;|E|,|N|&gt; and `array`&lt;|E|&gt; are different.
 
 The first element in an array is at index 0, and each successive element is at the next integer index.
 See [[#array-access-expr]].
@@ -976,6 +976,8 @@ An array element type must be one of:
 * an array type
 * a [=structure=] type
 
+Note: That is, the element type must be a [=plain type=].
+
 [SHORTNAME] defines the following attributes that can be applied to array types:
 * [=attribute/stride=]
 
@@ -985,8 +987,6 @@ Restrictions on runtime-sized arrays:
 * A runtime-sized array must not be used as the store type or contained within
     a store type in any other cases.
 * An expression must not evaluate to a runtime-sized array type.
-
-Issue: (dneto): Complete description of `Array<E,N>`
 
 ### Structure Types ### {#struct-types}
 
@@ -999,7 +999,7 @@ A <dfn noexport>structure</dfn> is a grouping of named member values.
   <tr algorithm="structure type">
       <td>struct&lt;|T|<sub>1</sub>,...,|T|<sub>N</sub>&gt;
       <td>An ordered tuple of *N* members of types
-          |T|<sub>n</sub> through |T|<sub>N</sub>, with |N| being an integer greater than 0.
+          |T|<sub>1</sub> through |T|<sub>N</sub>, with |N| being an integer greater than 0.
           A structure type declaration specifies an identifier name for each member.
           Two members of the same structure type must not have the same name.
 </table>
@@ -1011,6 +1011,8 @@ A structure member type must be one of:
 * an [=atomic type|atomic=] type
 * an array type
 * a [=structure=] type
+
+Note: That is, each member type must be a [=plain type=].
 
 Note: The structure member type restriction and the array element type restriction are
 mutually reinforcing.
@@ -1114,14 +1116,24 @@ The composite types are:
 * [=array=] type
 * [=structure=] type
 
-### Atomic-Free Types ### {#atomic-free-types}
+### Constructible Types ### {#constructible-types}
 
-A [=plain type=] is <dfn>atomic-free</dfn> if it is one of:
+Many kinds of values can be created, loaded, stored, passed into functions,
+and returned from functions.
+We call these [=constructible=].
+
+A type is <dfn>constructible</dfn> if it is one of:
+
 * a [=scalar=] type
 * a [=vector=] type
 * a [=matrix=] type
-* an [=array=] type, if its element type is atomic-free
-* a [=structure=] type, if all its members are atomic-free.
+* a [=sized array=] type, if its element type is constructible.
+* a [=structure=] type, if all its members are constructible.
+
+Note: All constructible types are [=plain types|plain=].
+
+Note: Atomic types and runtime-sized array types are not constructible.
+Composite types containing atomics and runtime-sized arrays are not constructible.
 
 ## Memory ## {#memory}
 
@@ -1145,7 +1157,38 @@ any other variable declaration. Memory operations on structures and arrays may
 access padding between elements, but must not access padding at the end of the
 structure or array.
 
+### Memory Access Mode ### {#memory-access-mode}
+
+A <dfn noexport>memory access</dfn> is an operation that acts on memory locations.
+
+* A <dfn noexport>read access</dfn> observes the contents of memory locations.
+* A <dfn noexport>write access</dfn> sets the contents of memory locations.
+
+A single operation can read, write, or both read and write.
+
+Particular memory locations may support only certain kinds of accesses, expressed
+as the memory's <dfn noexport>access mode</dfn>:
+
+: <dfn noexport dfn-for="access">read</dfn>
+:: Supports read accesses, but not writes.
+: <dfn noexport dfn-for="access">write</dfn>
+:: Supports write accesses, but not reads.
+: <dfn noexport dfn-for="access">read_write</dfn>
+:: Supports both read and write accesses.
+
+<pre class='def'>
+access_mode
+  : READ
+  | WRITE
+  | READ_WRITE
+</pre>
+
 ### Storable Types ### {#storable-types}
+
+The value contained in a [=variable=] must be of a [=storable=] type.
+A storable type may have an explicit representation defined by WGSL,
+as described in [[#internal-value-layout]],
+or it may be opaque, such as for textures and samplers.
 
 A type is <dfn dfn noexport>storable</dfn> if it is one of:
 
@@ -1153,22 +1196,22 @@ A type is <dfn dfn noexport>storable</dfn> if it is one of:
 * a [=vector=] type
 * a [=matrix=] type
 * an [=atomic type|atomic=] type
-* an [=array=] type, if its element type is storable
-* a [=structure=] type, if all its members are storable
+* an [=array=] type
+* a [=structure=] type
 * a [=texture=] type
 * a [=sampler=] type
 
-Note: [=Atomic-free=] [=plain types=] are storable.
+Note: That is, the storable types are the [=plain types=], texture types, and sampler types.
 
 ### IO-shareable Types ### {#io-shareable-types}
+
+Pipeline input and output values must be of IO-shareable type.
 
 A type is <dfn dfn noexport>IO-shareable</dfn> if it is one of:
 
 * a [=scalar=] type
 * a [=numeric vector=] type
-* a [=matrix=] type
-* an [=array=] type, if its element type is IO-shareable, and the array is not [=runtime-sized=]
-* a [=structure=] type, if all its members are IO-shareable
+* a [=structure=] type, if all its members are [=scalars=] or [=numeric vectors=]
 
 The following kinds of values must be of IO-shareable type:
 
@@ -1218,58 +1261,63 @@ Each storage class has unique properties determining
 mutability, visibility, the values it may contain,
 and how to use variables with it.
 
-<table class='data'>
+<table class='data' id="storage-class-table">
   <caption>Storage Classes</caption>
   <thead>
     <tr><th>Storage class
-        <th>Readable by shader?<br>Writable by shader?
         <th>Sharing among invocations
+        <th>Supported access modes
         <th>Variable scope
         <th>Restrictions on stored values
         <th>Notes
   </thead>
   <tr><td><dfn noexport dfn-for="storage classes">function</dfn>
-      <td>Read-write
       <td>Same invocation only
+      <td>[=read_write=]
       <td>[=Function scope=]
-      <td>[=Atomic-free=] [=plain type=]
+      <td>[=Constructible=] type
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">private</dfn>
-      <td>Read-write
       <td>Same invocation only
+      <td>[=read_write=]
       <td>[=Module scope=]
-      <td>[=Atomic-free=] [=plain type=]
+      <td>[=Constructible=] type
+      <td>
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">workgroup</dfn>
-      <td>Read-write
       <td>Invocations in the same [=compute shader stage|compute shader=] [=compute shader stage/workgroup=]
+      <td>[=read_write=]
       <td>[=Module scope=]
-      <td>[=Plain type=]
+      <td>[=Plain type=],
+          excluding [=runtime-sized=] arrays, or [=composite=] types containing runtime-sized arrays
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">uniform</dfn>
-      <td>Read-only
       <td>Invocations in the same [=shader stage=]
+      <td>[=read=]
       <td>[=Module scope=]
-      <td>[=Atomic-free=] [=host-shareable=] types
+      <td>[=Constructible=] [=host-shareable=] types
       <td>For [=uniform buffer=] variables
   <tr><td><dfn noexport dfn-for="storage classes">storage</dfn>
-      <td>Readable.<br>
-          Also writable if the variable is not read-only.
       <td>Invocations in the same [=shader stage=]
+      <td> [=read_write=], [=read=] (default)
       <td>[=Module scope=]
       <td>[=Host-shareable=]
       <td>For [=storage buffer=] variables
   <tr><td><dfn noexport dfn-for="storage classes">handle</dfn>
-      <td>Read-only
       <td>Invocations in the same shader stage
+      <td>[=read=]
       <td>[=Module scope=]
       <td>[=Sampler=] types or [=texture=] types
-      <td>Used for sampler and texture variables<br>
-          The token `handle` is reserved: it is never used in a [SHORTNAME] program.
+      <td>For [=sampler=] and texture variables.<br>
 </table>
 
-Issue: The note about read-only [=storage classes/storage=] variables may change depending
-on the outcome of https://github.com/gpuweb/gpuweb/issues/935
+Note: The token `handle` is reserved: it is never used in a [SHORTNAME] program.
+
+Note: A texture variable holds an opaque handle which is used to access the underlying
+grid of texels.
+The handle itself is always read-only.
+In most cases the underlying texels are read-only.
+For a write-only storage texture, the underlying texels are write-only.
 
 <pre class='def'>
 storage_class
@@ -1317,23 +1365,22 @@ The terms defined in this section express counts of 8-bit bytes.
 
 We will use the following notation:
 * <dfn noexport>AlignOf</dfn>(|T|) is the alignment of host-shareable type |T|.
-* AlignOf(|S|, |M|) is the alignment of member |M| of the host-shareable structure |S|.
+* <dfn noexport>AlignOfMember</dfn>(|S|, |M|) is the alignment of member |M| of the host-shareable structure |S|.
 * <dfn noexport>SizeOf</dfn>(|T|) is the size of host-shareable type |T|.
-* SizeOf(|S|, |M|) is the size of member |M| of the host-shareable structure |S|.
+* <dfn noexport>SizeOfMember</dfn>(|S|, |M|) is the size of member |M| of the host-shareable structure |S|.
 * <dfn noexport>StrideOf</dfn>(|A|) is the element stride of host-shareable array type |A|.
-* <dfn noexport>OffsetOf</dfn>(|S|, |M|) is the offset of member |M| from the start of the host-shareable structure |S|.
+* <dfn noexport>OffsetOfMember</dfn>(|S|, |M|) is the offset of member |M| from the start of the host-shareable structure |S|.
 
 
 #### Alignment and Size ####  {#alignment-and-size}
 
-Each [=host-shareable=] data type has a default alignment and size value.
-The alignment and size values for a given structure member can differ from the
-defaults if the [=attribute/align=] and / or [=attribute/size=] decorations are used.
+Each [=host-shareable=] data type |T| has an alignment and size value, denoted
+by [=AlignOf=](|T|) and [=SizeOf=](|T|), respectively.
 
 Alignment guarantees that a value's address in memory will be a multiple of the
 specified value. This can enable more efficient hardware instructions to be used
 to access the value or satisfy more restrictive hardware requirements on certain
-storage classes (see [storage class constraints](#storage-class-constraints)).
+storage classes. (see [storage class layout constraints](#storage-class-layout-constraints)).
 
 Note: Each alignment value is always a power of two, by construction.
 
@@ -1349,7 +1396,7 @@ following table:
 
 <table class='data'>
   <caption>
-    Default alignment and size for host-shareable types<br>
+    Alignment and size for host-shareable types<br>
   </caption>
   <thead>
     <tr><th>Host-shareable type |T|
@@ -1357,6 +1404,9 @@ following table:
         <th>[=SizeOf=](|T|)
   </thead>
   <tr><td>[=i32=], [=u32=], or [=f32=]
+      <td>4
+      <td>4
+  <tr><td>atomic&lt;|T|&gt;
       <td>4
       <td>4
   <tr><td>vec2&lt;|T|&gt;
@@ -1400,8 +1450,8 @@ following table:
       <td>16
       <td>64
   <tr><td>struct |S|
-      <td>max([=AlignOf=](S, M<sub>1</sub>), ... , [=AlignOf=](S, M<sub>n</sub>))<br>
-      <td>[=roundUp=]([=AlignOf=](|S|), [=OffsetOf=](|S|, |L|) + [=SizeOf=](|S|, |L|))<br><br>
+      <td>max([=AlignOfMember=](S, M<sub>1</sub>), ... , [=AlignOfMember=](S, M<sub>N</sub>))<br>
+      <td>[=roundUp=]([=AlignOf=](|S|), [=OffsetOfMember=](|S|, |L|) + [=SizeOfMember=](|S|, |L|))<br><br>
           Where |L| is the last member of the structure
   <tr><td>array<|E|, |N|><br>
       <p class="small">(Implicit stride)</p>
@@ -1418,45 +1468,53 @@ following table:
   <tr><td>[[[=stride=](|Q|)]]<br> array<|E|>
       <td>[=AlignOf=](|E|)
       <td>N<sub>runtime</sub> * |Q|
-  <tr><td>atomic<|T|>
-      <td>[=AlignOf=](|T|)
-      <td>[=SizeOf=](|T|)
 </table>
 
 
 #### Structure Layout Rules ####  {#structure-layout-rules}
 
-Each structure member has a default size and alignment value. These values are
-used to calculate each member's byte offset from the start of the structure.
+Each structure |S| member M<sub>N</sub> has a size and alignment value, denoted
+by [=SizeOfMember=](|S|, M<sub>N</sub>) and [=AlignOfMember=](|S|, M<sub>N</sub>), respectively.
+The member sizes and alignments are used to calculate each member's byte offset from the start of the structure.
 
-Structure members will use their type's size and alignment, unless the
-structure member is explicitly annotated with [=attribute/size=] and / or
-[=attribute/align=].  decorations, in which case those member decorations take
-precedence.
+Structures member size and alignment values default to the member type `T`'s
+[=SizeOf=](T) and [=AlignOf=](T) values.
+
+If a structure member is decorated with the [=attribute/size=] decoration, then the structure
+member will use the value of the decoration for its size instead of its type's size.
+
+If a structure member is decorated with the [=attribute/align=] decoration, then the structure
+member will use the value of the decoration for its alignment instead of its type's alignment.
 
 The first structure member always has a zero byte offset from the start of the
 structure.
 
 Subsequent members have the following byte offset from the start of the structure:
 <p algorithm="structure member offset">
-  [=OffsetOf=](|S|, M<sub>N</sub>) = [=roundUp=]([=AlignOf=](|S|, M<sub>N</sub>), [=OffsetOf=](|S|, M<sub>N-1</sub>) + [=SizeOf=](|S|, M<sub>N-1</sub>)<br>
+  [=OffsetOfMember=](|S|, M<sub>N</sub>) = [=roundUp=]([=AlignOfMember=](|S|, M<sub>N</sub>), [=OffsetOfMember=](|S|, M<sub>N-1</sub>) + [=SizeOfMember=](|S|, M<sub>N-1</sub>)<br>
   Where M<sub>N</sub> is the current member and M<sub>N-1</sub> is the previous member
 </p>
 
 Structure members must not overlap. If a structure member is decorated with the
 [=attribute/size=] attribute, the value must be at least as large as the
-default size of the member's type.
+size of the member's type:
+
+<p algorithm="member size constraint">
+  [=SizeOfMember=](|S|, M<sub>N</sub>) &ge; [=SizeOf=](T)<br>
+  Where |T| is the type of member M<sub>N</sub>.
+</p>
+
 
 The alignment of a structure is equal to the largest alignment of all of its
 members:
 <p algorithm="structure alignment">
-  [=AlignOf=](|S|) = max([=AlignOf=](|S|, M<sub>1</sub>), ... , [=AlignOf=](|S|, M<sub>N</sub>))
+  [=AlignOf=](|S|) = max([=AlignOfMember=](|S|, M<sub>1</sub>), ... , [=AlignOfMember=](|S|, M<sub>N</sub>))
 </p>
 
 The size of a structure is equal to the offset plus the size of its last member,
 rounded to the next multiple of the structure's alignment:
 <p algorithm="structure size">
-  [=SizeOf=](|S|) = [=roundUp=]([=AlignOf=](|S|), [=OffsetOf=](|S|, |L|) + [=SizeOf=](|S|, |L|))<br>
+  [=SizeOf=](|S|) = [=roundUp=]([=AlignOf=](|S|), [=OffsetOfMember=](|S|, |L|) + [=SizeOfMember=](|S|, |L|))<br>
   Where |L| is the last member of the structure
 </p>
 
@@ -1486,7 +1544,7 @@ rounded to the next multiple of the structure's alignment:
     };
 
     [[group(0), binding(0)]]
-    var<storage> storage_buffer: [[access(read_write)]] B;
+    var<storage,read_write> storage_buffer: B;
   </xmp>
 </div>
 
@@ -1597,7 +1655,7 @@ host-shared buffer, then:
 Note: Recall that [=i32=] uses twos-complement representation, so the sign bit
 is in bit position 31.
 
-A value |V| of type [=f32=] is represented in IEEE 754 binary32 format.
+A value |V| of type [=f32=] is represented in [[!IEEE-754|IEEE-754]] binary32 format.
 It has one sign bit, 8 exponent bits, and 23 fraction bits.
 When |V| is placed at byte offset |k| of host-shared buffer, then:
    * Byte |k| contains bits 0 through 7 of the fraction.
@@ -1609,6 +1667,9 @@ When |V| is placed at byte offset |k| of host-shared buffer, then:
 
 Note: The above rules imply that numeric values in host-shared buffers
 are stored in little-endian format.
+
+When a value |V| of [=atomic type=] `atomic`&lt;|T|&gt; is placed in a host-shared buffer,
+it has the same internal layout as a value of the underlying type |T|.
 
 When a value |V| of vector type vec|N|&lt;|T|&gt; is placed at
 byte offset |k| of a host-shared buffer, then:
@@ -1629,10 +1690,10 @@ then:
 
 When a value of structure type |S| is placed at byte offset |k| of a host-shared memory buffer,
 then:
-   * The |i|'<sup>th</sup> member of the structure value is placed at byte offset |k| + [=OffsetOf=](|S|,|i|)
+   * The |i|'<sup>th</sup> member of the structure value is placed at byte offset |k| + [=OffsetOfMember=](|S|,|i|)
 
 
-#### Storage Class Constraints ####  {#storage-class-constraints}
+#### Storage Class Layout Constraints ####  {#storage-class-layout-constraints}
 
 The [=storage classes/storage=] and [=storage classes/uniform=] storage classes
 have different buffer layout constraints which are described in this section.
@@ -1642,7 +1703,8 @@ must obey the constraints of the variable's storage class.
 Violations of a storage class constraint result in a compile-time error.
 
 In this section we define <dfn noexport>RequiredAlignOf</dfn>(|S|, |C|) as the
-required alignment of host-shareable type |S| when used by storage class |C|.
+required byte offset alignment of values of host-shareable type |S| when
+used by storage class |C|.
 
 <table class='data'>
   <caption>
@@ -1657,68 +1719,89 @@ required alignment of host-shareable type |S| when used by storage class |C|.
   <tr><td>[=i32=], [=u32=], or [=f32=]
       <td>[=AlignOf=](|S|)
       <td>[=AlignOf=](|S|)
-  <tr><td>vec|N|&lt;`T`&gt;
+  <tr><td>atomic&lt;T&gt;
+      <td>[=AlignOf=](|S|)
+      <td>[=AlignOf=](|S|)
+  <tr><td>vecN&lt;T&gt;
       <td>[=AlignOf=](|S|)
       <td>[=AlignOf=](|S|)
   <tr algorithm="alignment of a matrix with N columns and M rows">
-      <td>mat|N|x|M|&lt;f32&gt;
+      <td>matNxM&lt;f32&gt;
       <td>[=AlignOf=](|S|)
       <td>[=AlignOf=](|S|)
   <tr algorithm="alignment of an array">
-      <td>array<|T|,|N|>
-      <td>[=AlignOf=](|T|)
-      <td>[=roundUp=](16, [=AlignOf=](|T|))
+      <td>array&lt;T, N&gt;
+      <td>[=AlignOf=](|S|)
+      <td>[=roundUp=](16, [=AlignOf=](|S|))
   <tr algorithm="alignment of an runtime-sized array">
-      <td>array<|T|>
-      <td>[=AlignOf=](|T|)
-      <td>[=roundUp=](16, [=AlignOf=](|T|))
+      <td>array&lt;T&gt;
+      <td>[=AlignOf=](|S|)
+      <td>[=roundUp=](16, [=AlignOf=](|S|))
   <tr algorithm="alignment of a structure">
-      <td>struct&lt;T<sub>0</sub>, ..., T<sub>N</sub>&gt;
-      <td>max([=AlignOf=](T<sub>0</sub>), ..., [=AlignOf=](T<sub>N</sub>))
-      <td>[=roundUp=](16, max([=AlignOf=](T<sub>0</sub>), ..., [=AlignOf=](T<sub>N</sub>)))<br>
-  <tr><td>atomic<|T|>
-      <td>[=AlignOf=](|T|)
-      <td>[=AlignOf=](|T|)
+      <td>struct |S|
+      <td>[=AlignOf=](|S|)
+      <td>[=roundUp=](16, [=AlignOf=](|S|))<br>
 </table>
 
-All structure members of type |T| must have a byte offset from the start of the
-structure that is a multiple of the [=RequiredAlignOf=](|T|, |C|) for the storage
-class |C|:
+Structure members of type |T| must have a byte offset
+from the start of the structure that is a multiple of the [=RequiredAlignOf=](|T|, |C|)
+for the storage class |C|:
 
 <p algorithm="structure member minimum alignment">
-    [=OffsetOf=](|S|, |M|) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
+    [=OffsetOfMember=](|S|, |M|) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
     Where |k| is a non-negative integer and |M| is a member of structure |S| with type |T|
 </p>
 
-All arrays of element type |T| must have an element [=stride=] that is a
-multiple of [=RequiredAlignOf=](|T|, |C|) for the storage class |C|:
+Arrays of element type |T| must have an element [=stride=] that is a
+multiple of the [=RequiredAlignOf=](|T|, |C|) for the storage class |C|:
 
 <p algorithm="array element minimum alignment">
     [=StrideOf=](array<|T|[, |N|]>) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
     Where |k| is a non-negative integer
 </p>
 
+Note: [=RequiredAlignOf=](|T|, |C|) does not impose any additional restrictions
+on the values permitted for an [=align=] decoration, nor does it affect the rules
+of [=AlignOf=](|T|). Data is laid out with the rules defined in previous
+sections and then the resulting layout is validated against the
+[=RequiredAlignOf=](|T|, |C|) rules.
 
 The [=storage classes/uniform=] storage class also requires that:
-
 * Array elements are aligned to 16 byte boundaries.
+* If a structure member itself has a structure type `S`, then the number of
+    bytes between the start of that member and the start of any following member
+    must be at least [=roundUp=](16, [=SizeOf=](S)).
 
-Note: When underlying the target is a Vulkan device, we assume the device does
-not support the `scalarBlockLayout` feature.
-Therefore, a data value must not be placed in the padding at the end of a structure or matrix,
-nor in the padding at the last element of an array.
-Counting such padding as part of the size allows [SHORTNAME] to capture this constraint.
+<div class='example wgsl global-scope' heading='invalid structure layout for uniform storage class'>
+  <xmp highlight='rust'>
+    struct S {
+      x: f32;
+    };
+    struct Invalid {
+      a: S;
+      b: f32; // invalid: offset between a and b is 4 bytes, but must be at least 16
+    };
+    struct Valid {
+      a: S;
+      [[align(16)]] b: f32; // valid: offset between a and b is 16 bytes
+    };
+    [[group(0), binding(0)]] var<uniform> invalid: Invalid;
+    [[group(0), binding(1)]] var<uniform> valid: Valid;
+  </xmp>
+</div>
 
 ## Memory View Types ## {#memory-view-types}
 
 In addition to calculating with [=plain types|plain=] values, a [SHORTNAME] program will
-also often read values from memory or write values to memory.
-Operations that read or write to memory are called <dfn noexport>memory accesses</dfn>.
+also often read values from memory or write values to memory, via [=memory access=] operations.
 Each memory access is performed via a [=memory view=].
 
-A <dfn noexport>memory view</dfn> is a set of [=memory locations=] in a particular [=storage class=],
-together with an interpretation of the contents of those locations as a [SHORTNAME] [=type=].
+A <dfn noexport>memory view</dfn> comprises:
+* a set of [=memory locations=] in a particular [=storage class=],
+* an interpretation of the contents of those locations as a [SHORTNAME] [=type=], and
+* an [=access mode=].
 
+The access mode of a memory view must be supported by the storage class. See [[#storage-class]].
 
 [SHORTNAME] has two kinds of types for representing memory views:
 [=reference types=] and [=pointer types=].
@@ -1728,33 +1811,49 @@ together with an interpretation of the contents of those locations as a [SHORTNA
     <tr><th>Constraint<th>Type<th>Description
   </thead>
   <tr algorithm="memory reference type">
-    <td>|SC| is a [=storage class=],<br>|T| is a [=storable=] type
-    <td>ref&lt;|SC|,|T|&gt;
+    <td style="width:25%">|SC| is a [=storage class=],<br>|T| is a [=storable=] type,<br>|A| is an [=access mode=]
+    <td>ref&lt;|SC|,|T|,|A|&gt;
     <td>The <dfn noexport>reference type</dfn>
-        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|.<br>
+        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|,
+        supporting memory accesses described by mode |A|.<br>
         In this context |T| is known as the <dfn noexport>store type</dfn>.<br>
-        Reference types are not written [SHORTNAME] progam source; instead they are used to analyze a [SHORTNAME] program.
+        Reference types are not written in [SHORTNAME] progam source;
+        instead they are used to analyze a [SHORTNAME] program.
   <tr algorithm="pointer type">
-    <td>|SC| is a [=storage class=],<br>|T| is a [=storable=] type
-    <td>ptr&lt;|SC|,|T|&gt;
+    <td>|SC| is a [=storage class=],<br>|T| is a [=storable=] type,<br>|A| is an [=access mode=]
+    <td>ptr&lt;|SC|,|T|,|A|&gt;
     <td>The <dfn noexport>pointer type</dfn>
-        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|.<br>
+        identified with the set of [=memory views=] for memory locations in |SC| holding values of type |T|,
+        supporting memory accesses described by mode |A|.<br>
         In this context |T| is known as the <dfn noexport>pointee type</dfn>.<br>
-        Pointer types appear in [SHORTNAME] progam source.
+        Pointer types may appear in [SHORTNAME] progam source.
 </table>
 
-<div class='example wgsl' heading='Pointer type (program fragment)'>
+When *analyzing* a [SHORTNAME] program, reference and pointer types are fully parameterized by a storage class,
+a storable type, and an access mode.
+In code examples in this specification, the comments show this fully parameterized form.
+
+However, in [SHORTNAME] *source* text:
+* Reference types must not appear.
+* Pointer types may appear.  A pointer type is spelled with parameterization by:
+    * storage class,
+    * store type, and
+    * sometimes by access mode, as specified in [[#access-mode-defaults]].
+
+<div class='example wgsl' heading='Pointer type'>
   <xmp highlight='rust'>
     fn my_function(
-      // 'ptr<function,i32>' is the type of a pointer value that references storage
-      // for keeping an 'i32' value, using memory locations in the 'function' storage
-      // class.  Here 'i32' is the pointee type.
+      // 'ptr<function,i32,read_write>' is the type of a pointer value that references
+      // storage for keeping an 'i32' value, using memory locations in the 'function'
+      // storage class.  Here 'i32' is the pointee type.
+      // The implied access mode is 'read_write'. See below for access mode defaults.
       ptr_int: ptr<function,i32>,
 
-      // 'ptr<private,array<f32,50>>' is the type of a pointer value that refers to
-      // storage for keeping an array of 50 elements of type 'f32', using memory
-      // locations in the 'private' storage class.
+      // 'ptr<private,array<f32,50>,read_write>' is the type of a pointer value that
+      // refers to storage for keeping an array of 50 elements of type 'f32', using
+      // memory locations in the 'private' storage class.
       // Here the pointee type is 'array<f32,50>'.
+      // The implied access mode is 'read_write'. See below for access mode defaults.
       ptr_array: ptr<private, array<f32, 50>>
     ) { }
   </xmp>
@@ -1764,14 +1863,28 @@ Reference types and pointer types are both sets of memory views:
 a particular memory view is associated with a unique reference value and also a unique pointer value:
 
 <blockquote algorithm="pointer reference correspondence">
-Each pointer value |p| of type ptr&lt;|SC|,|T|&gt; corresponds to a unique reference value |r| of type ref&lt;|SC|,|T|&gt;,
+Each pointer value |p| of type ptr&lt;|SC|,|T|,|A|&gt; corresponds to a unique reference value |r| of type ref&lt;|SC|,|T|,|A|&gt;,
 and vice versa,
 where |p| and |r| describe the same memory view.
 </blockquote>
 
+### Access Mode Defaults ### {#access-mode-defaults}
+
+The access mode for a memory view is often determined by context:
+
+* The [=storage classes/storage=] storage class supports both [=read=] and [=read_write=] access modes.
+* Each other storage class supports only one access mode, as described in the <a href="#storage-class-table">storage class</a> table.
+
+When writing a [=variable declaration=] or a [=pointer type=] in [SHORTNAME] source:
+* For the [=storage classes/storage=] storage class, the access mode is optional, and defaults to [=access/read=].
+* For other storage classes, the access mode must not be written.
+
+### Originating variable ### {#originating-variable-section}
+
 In [SHORTNAME] a reference value always corresponds to the memory view
 for some or all of the memory locations for some variable.
 This defines the <dfn noexport>originating variable</dfn> for the reference value.
+
 A pointer value always corresponds to a reference value, and so the originating variable
 of a pointer is the same as the originating variable of the corresponding reference.
 
@@ -1780,22 +1893,40 @@ The originating variable for a formal parameter of a function depends on the
 [=call site|call sites=] for the function.
 Different call sites may supply pointers into different originating variables.
 
+If a reference or pointer access is out of bounds, an <dfn noexport>invalid
+memory reference</dfn> is produced.
+[=Load Rule|Loads=] from an invalid reference return one of:
+    * a value from any [=memory locations|memory location(s)=] of the [[WebGPU#buffers|WebGPU buffer]]
+        bound to the [=originating variable=]
+    * the [=zero value=] for store type of the reference
+    * if the loaded value is a vector, the value (0, 0, 0, x), where x is:
+        * 0, 1, or the maximum positive value for integer components
+        * 0.0 or 1.0 for floating-point components
+[=assignment statement|Stores=] to an invalid reference may either:
+    * store the value to any [=memory locations|memory location(s)=] of the
+        [[WebGPU#buffers|WebGPU buffer]] bound to the [=originating variable=]
+    * not be executed
+
+### Use cases for references and pointers ### {#ref-ptr-use-cases}
+
 References and pointers are distinguished by how they are used:
 
 * The type of a [=variable=] is a reference type.
 * The [=address-of=] operation (unary `&`) converts a reference value to its corresponding pointer value.
 * The [=indirection=] operation (unary `*`) converts a pointer value to its corresponding reference value.
-* A let declaration can be of pointer type, but not of reference type.
+* A [=let declaration=] can be of pointer type, but not of reference type.
 * A [=formal parameter=] can be of pointer type, but not of reference type.
-* An [=assignment statement=] updates the contents of memory via a reference:
-    * The left-hand side of the assignment statement must be of reference type.
+* An [=assignment statement=] performs a [=write access=] to update the contents of memory via a reference, where:
+    * The left-hand side of the assignment statement must be of reference type, with access mode [=write=] or [=read_write=].
     * The right-hand side of the assignment statement must evaluate to the store type of the left-hand side.
 * The <dfn noexport>Load Rule</dfn>: Inside a function, a reference is automatically dereferenced (read from) to satisfy type rules:
     * In a function, when a reference expression |r| with store type |T| is used in a statement or an expression, where
+    * |r| has an access mode of [=read=] or [=read_write=], and
     * The only potentially matching type rules require |r| to have a value of type |T|, then
     * That type rule requirement is considered to have been met, and
     * The result of evaluating |r| in that context is the value (of type |T|) stored in the memory locations
         referenced by |r| at the time of evaluation.
+        That is, a [=read access=] is performed to produce the result value.
 
 Defining references in this way enables simple idiomatic use of variables:
 
@@ -1803,7 +1934,7 @@ Defining references in this way enables simple idiomatic use of variables:
   <xmp highlight='rust'>
     [[stage(compute)]]
     fn main() {
-      // 'i' has reference type ref<function,i32>
+      // 'i' has reference type ref<function,i32,read_write>
       // The memory locations for 'i' store the i32 value 0.
       var i: i32 = 0;
 
@@ -1829,7 +1960,7 @@ Defining references in this way enables simple idiomatic use of variables:
     fn get_age() -> i32 {
       // The type of the expression in the return statement must be 'i32' since it
       // must match the declared return type of the function.
-      // The 'age' expression is of type ref<private,i32>.
+      // The 'age' expression is of type ref<private,i32,read_write>.
       // Apply the Load Rule, since the store type of the reference matches the
       // required type of the expression, and no other type rule applies.
       // The evaluation of 'age' in this context is the i32 value loaded from the
@@ -1851,7 +1982,7 @@ Defining pointers in this way enables two key use cases:
 * Using a let declaration with pointer type, to form a short name for part of the contents of a variable.
 * Using a formal parameter of a function to refer to the storage of a variable that is accessible to the calling function.
     * The call to such a function must supply a pointer value for that operand.
-        This often requires using the unary `&` operation to get a pointer to the variable's contents.
+        This often requires using an [=address-of=] operation (unary `&`) to get a pointer to the variable's contents.
 
 Note: The following examples use [SHORTNAME] features explained later in this specification.
 
@@ -1866,7 +1997,7 @@ Note: The following examples use [SHORTNAME] features explained later in this sp
       timestep: f32;
       particles: array<Particle,100>;
     };
-    [[group(0), binding(0)]] var<storage> system: [[access(read_write)]] System;
+    [[group(0), binding(0)]] var<storage,read_write> system: System;
 
     [[stage(compute)]]
     fn main() {
@@ -1887,9 +2018,10 @@ Note: The following examples use [SHORTNAME] features explained later in this sp
       // Update the locations for 'x' to contain the next higher integer value,
       // (or to wrap around to the largest negative i32 value).
       // On the left-hand side, unary '*' converts the pointer to a reference that
-      // can then be assigned to.
+      // can then be assigned to. It has a read_write access mode, by default.
       // On the right-hand side:
-      //    - Unary '*' converts the pointer to a reference
+      //    - Unary '*' converts the pointer to a reference, with a read_write
+      //      access mode.
       //    - The only matching type rule is for addition (+) and requires '*x' to
       //      have type i32, which is the store type for '*x'.  So the Load Rule
       //      applies and '*x' evaluates to the value stored in the memory for '*x'
@@ -1940,6 +2072,8 @@ A reference value is formed in one of the following ways:
         results in a reference to the named member of the structure.
         See [[#struct-access-expr]].
 
+In all cases, the access mode of the result is the same as the access mode of the original reference.
+
 <div class='example wgsl' heading='Component reference from a composite reference'>
   <xmp highlight='rust'>
     struct S {
@@ -1947,17 +2081,22 @@ A reference value is formed in one of the following ways:
         weight: f32;
     };
     var<private> person: S;
+    // Uses of 'person' denote the reference to the storage underlying the variable,
+    // and will have type ref<private,S,read_write>.
 
     fn f() {
         var uv: vec2<f32>;
+        // Uses of 'uv' denote the reference to the storage underlying the variable,
+        // and will have type ref<function,vec2<f32>,read_write>.
+
         // Evaluate the left-hand side of the assignment:
         //   Evaluate 'uv.x' to yield a reference:
         //   1. First evaluate 'uv', yielding a reference to the storage for
-        //      the 'uv' variable. The result has type ref<function,vec2<f32>>.
+        //      the 'uv' variable. The result has type ref<function,vec2<f32>,read_write>.
         //   2. Then apply the '.x' vector access phrase, yielding a reference to
         //      the storage for the first component of the vector pointed at by the
         //      reference value from the previous step.
-        //      The result has type ref<function,f32>.
+        //      The result has type ref<function,f32,read_write>.
         // Evaluating the right-hand side of the assignment yields the f32 value 1.0.
         // Store the f32 value 1.0 into the storage memory locations referenced by uv.x.
         uv.x = 1.0;
@@ -1965,10 +2104,10 @@ A reference value is formed in one of the following ways:
         // Evaluate the left-hand side of the assignment:
         //   Evaluate 'uv[1]' to yield a reference:
         //   1. First evaluate 'uv', yielding a reference to the storage for
-        //      the 'uv' variable. The result has type ref<function,vec2<f32>>.
+        //      the 'uv' variable. The result has type ref<function,vec2<f32>,read_write>.
         //   2. Then apply the '[1]' array index phrase, yielding a reference to
         //      the storage for second component of the vector referenced from
-        //      the previous step.  The result has type ref<function,f32>.
+        //      the previous step.  The result has type ref<function,f32,read_write>.
         // Evaluating the right-hand side of the assignment yields the f32 value 2.0.
         // Store the f32 value 2.0 into the storage memory locations referenced by uv[1].
         uv[1] = 2.0;
@@ -1976,11 +2115,11 @@ A reference value is formed in one of the following ways:
         var m: mat3x2<f32>;
         // When evaluating 'm[2]':
         // 1. First evaluate 'm', yielding a reference to the storage for
-        //    the 'm' variable. The result has type ref<function,mat3x2<f32>>.
+        //    the 'm' variable. The result has type ref<function,mat3x2<f32>,read_write>.
         // 2. Then apply the '[2]' array index phrase, yielding a reference to
         //    the storage for the third column vector pointed at by the reference
         //    value from the previous step.
-        //    Therefore the 'm[2]' expression has type ref<function,vec2<f32>>.
+        //    Therefore the 'm[2]' expression has type ref<function,vec2<f32>,read_write>.
         // The 'let' declaration is for type vec2<f32>, so the declaration
         // statement requires the initializer to be of type vec2<f32>.
         // The Load Rule applies (because no other type rule can apply), and
@@ -1992,11 +2131,11 @@ A reference value is formed in one of the following ways:
         var A: array<i32,5>;
         // When evaluating 'A[4]'
         // 1. First evaluate 'A', yielding a reference to the storage for
-        //    the 'A' variable. The result has type ptr<function,array<i32,5>>.
+        //    the 'A' variable. The result has type ref<function,array<i32,5>,read_write>.
         // 2. Then apply the '[4]' array index phrase, yielding a reference to
         //    the storage for the fifth element of the array referenced by
         //    the reference value from the previous step.
-        //    The result value has type ref<function,i32>.
+        //    The result value has type ref<function,i32,read_write>.
         // The let declaration requires the right-hand-side to be of type i32.
         // The Load Rule applies (because no other type rule can apply), and
         // the evaluation of the initializer yields the i32 value loaded from
@@ -2007,11 +2146,11 @@ A reference value is formed in one of the following ways:
         // When evaluating 'person.weight'
         // 1. First evaluate 'person', yielding a reference to the storage for
         //    the 'person' variable declared at module scope.
-        //    The result has type ref<private,S>.
+        //    The result has type ref<private,S,read_write>.
         // 2. Then apply the '.weight' member access phrase, yielding a reference to
         //    the storage for the second member of the memory referenced by
         //    the reference value from the previous step.
-        //    The result has type ref<private,f32>.
+        //    The result has type ref<private,f32,read_write>.
         // The let declaration requires the right-hand-side to be of type f32.
         // The Load Rule applies (because no other type rule can apply), and
         // the evaluation of the initializer yields the f32 value loaded from
@@ -2032,6 +2171,8 @@ A pointer value is formed in one of the following ways:
     * The originating variable of the formal parameter (at runtime) is defined as
         the originating variable of the pointer operand at the call site.
 
+In all cases, the access mode of the result is the same as the access mode of the original pointer.
+
 <div class='example wgsl' heading='Pointer from a variable'>
   <xmp highlight='rust'>
     // Declare a variable in the private storage class, for storing an f32 value.
@@ -2042,26 +2183,31 @@ A pointer value is formed in one of the following ways:
         var y: i32;
 
         // The name 'x' resolves to the module-scope variable 'x',
-        // and has reference type ref<private,f32>.
+        // and has reference type ref<private,f32,read_write>.
         // Applying the unary '&' operator converts the reference to a pointer.
+        // The access mode is the same as the access mode of the original variable, so
+        // the fully specified type is ptr<private,f32,read_write>.  But read_write
+        // is the default access mode for function storage class, so read_write does not
+        // have to be spelled in this case
         let x_ptr: ptr<private,f32> = &x;
 
         // The name 'y' resolves to the function-scope variable 'y',
-        // and has reference type ref<private,i32>.
+        // and has reference type ref<private,i32,read_write>.
         // Applying the unary '&' operator converts the reference to a pointer.
+        // The access mode defaults to 'read_write'.
         let y_ptr: ptr<function,i32> = &y;
 
         // A new variable, distinct from the variable declared at module scope.
         var x: u32;
 
         // Here, the name 'x' resolves to the function-scope variable 'x' declared in
-        // the previous statement, and has type ref<function,u32>.
+        // the previous statement, and has type ref<function,u32,read_write>.
         // Applying the unary '&' operator converts the reference to a pointer.
+        // The acces mode defaults to 'read_write'.
         let inner_x_ptr: ptr<function,u32> = &x;
     }
   </xmp>
 </div>
-
 
 ### Comparison with references and pointers in other languages ### {#pointers-other-languages}
 
@@ -2083,6 +2229,9 @@ In particular:
         These are considered different references in [SHORTNAME], even though they may
         have the same machine address at a lower level of implementation abstraction.
 * In [SHORTNAME] there is no way to forcibly change the type of a reference value into another reference type.
+* In [SHORTNAME] there is no way to change the access mode of a pointer or reference.
+    * By comparison, C++ automatically converts a non-const pointer to a const pointer,
+        and has a `const_cast` to convert a const value to a non-const value.
 * In [SHORTNAME] there is no way to allocate new storage from a "heap".
 * In [SHORTNAME] there is no way to explicitly destroy a variable.
     The storage for a [SHORTNAME] variable becomes inaccessible only when the variable goes out of scope.
@@ -2115,11 +2264,14 @@ A texture has the following features:
 :  dimensionality
 :: The number of dimensions in the grid coordinates, and how the coordinates are interpreted.
     The number of dimensions is 1, 2, or 3.
-    In some cases the third coordinate is decomposed so as to specify a cube face and a layer index.
+    Most textures use cartesian coordinates.
+    Cube textures have six square faces, and are sampled with
+    a three dimensional coordinate interpreted as a direction vector from the origin toward
+    the cube centered on the orgin.
 : size
 :: The extent of grid coordinates along each dimension
-: mipmap levels
-:: The mipmap level count is at least 1 for sampled textures, and equal to 1 for storage textures.<br>
+: mip level count
+:: The mip level count is at least 1 for sampled textures, and equal to 1 for storage textures.<br>
     Mip level 0 contains a full size version of the texture.
     Each successive mip level contains a filtered version of the previous mip level
     at half the size (within rounding) of the previous mip level.<br>
@@ -2136,19 +2288,29 @@ To achieve this, many details are hidden from the programmer, including data lay
 internal operations that cannot be expressed directly in the shader language.
 
 As a consequence, a shader does not have direct access to the texel storage within a texture variable.
-Instead, use texture builtin functions as follows:
+Instead, access is mediated through an opaque handle:
 
 * Within the shader:
-    * Declare a module-scope variable in the [=storage classes/handle=] storage class,
+    * Declare a module-scope variable
         where the [=store type=] is one of the texture types described in later sections.
+        The variable stores an opaque handle to the underlying texture memory, and is
+        automatically placed in the [=storage classes/handle=] storage class.
     * Inside a function, call one of the texture builtin functions, and provide
         the texture variable as the first parameter.
 * When constructing the WebGPU pipeline, the texture variable's store type and binding
     must be compatible with the corresponding bind group layout entry.
 
+TODO: update this wording to handle function parameters that are textures or samplers.
+
 In this way, the set of supported operations for a texture type
 is determined by the availability of texture builtin functions accepting that texture type
 as the first parameter.
+
+Note: The handle stored by a texture variable cannot be changed by the shader.
+That is, the variable is read-only, even if the underlying texture to which it provides
+access may be mutable (e.g. a write-only storage texture).
+
+TODO: Describe the use of samplers, in the same broad framework.
 
 ### Texel formats ### {#texel-formats}
 
@@ -2183,14 +2345,14 @@ This is also known as the <dfn noexport>channel transfer function</dfn>, or CTF.
   </thead>
   <tr><td>8unorm<td>8<td>unsigned integer |v| &isinv; {0,...,255}<td>f32<td> |v| &div; 255
   <tr><td>8snorm<td>8<td>signed integer |v| &isinv; {-128,...,127}<td>f32<td> max(-1, |v| &div; 127)
-  <tr><td>8uint<td>8<td>unsigned integer |v| &isinv; {0,...,255}<td>u32<td> |v| &div; 255
-  <tr><td>8sint<td>8<td>signed integer |v| &isinv; {-128,...,127}<td>i32<td> max(-1, |v| &div; 127)
+  <tr><td>8uint<td>8<td>unsigned integer |v| &isinv; {0,...,255}<td>u32<td> |v|
+  <tr><td>8sint<td>8<td>signed integer |v| &isinv; {-128,...,127}<td>i32<td> |v|
   <tr><td>16uint<td>16<td>unsigned integer |v| &isinv; {0,...,65535}<td>u32<td> |v|
   <tr><td>16sint<td>16<td>signed integer |v| &isinv; {-32768,...,32767}<td>i32<td> |v|
-  <tr><td>16float<td>16<td>IEEE 754 16-bit floating point value |v|, with 1 sign bit, 5 exponent bits, 10 mantissa bits<td>f32<td>|v|
+  <tr><td>16float<td>16<td>[[!IEEE-754|IEEE-754]] binary16 16-bit floating point value |v|, with 1 sign bit, 5 exponent bits, 10 mantissa bits<td>f32<td>|v|
   <tr><td>32uint<td>32<td>32-bit unsigned integer value |v|<td>u32<td>|v|
   <tr><td>32sint<td>32<td>32-bit signed integer value |v|<td>i32<td>|v|
-  <tr><td>32float<td>32<td>IEEE 754 32-bit floating point value |v|<td>f32<td>|v|
+  <tr><td>32float<td>32<td>[[!IEEE-754|IEEE-754]] binary32 32-bit floating point value |v|<td>f32<td>|v|
 </table>
 
 The texel formats listed in the
@@ -2314,11 +2476,11 @@ See [`GPUExternalTexture`](https://gpuweb.github.io/gpuweb/#gpu-external-texture
 
 ### Storage Texture Types ### {#texture-storage}
 
-A <dfn noexport>read-only storage texture</dfn> supports reading a single texel without the use of a sampler,
-with automatic conversion of the stored texel value to a usable shader value. A <dfn noexport>write-only storage
-texture</dfn> supports writing a single texel, with automatic conversion
-of the shader value to a stored texel value.
-See [[#texture-builtin-functions]].
+A <dfn noexport>storage texture</dfn> supports accessing a single texel without the use of a sampler.
+
+* A <dfn noexport>write-only storage texture</dfn>
+     supports writing a single texel, with automatic conversion of the shader value to a
+     stored texel value.
 
 A storage texture type must be parameterized by one of the
 [=storage-texel-format|texel formats for storage textures=].
@@ -2327,21 +2489,26 @@ The texel format determines the conversion function as specified in [[#texel-for
 For a write-only storage texture the *inverse* of the conversion function is used to convert the shader value to
 the stored texel.
 
+See [[#texture-builtin-functions]].
+
 TODO(dneto): Move description of the conversion to the builtin function that actually does the reading.
 
 <pre class='def'>
-`texture_storage_1d<texel_format>`
+`texture_storage_1d<texel_format,access>`
   // %1 = OpTypeImage sampled_type 1D 0 0 0 2 image_format
 
-`texture_storage_2d<texel_format>`
+`texture_storage_2d<texel_format,access>`
   // %1 = OpTypeImage sampled_type 2D 0 0 0 2 image_format
 
-`texture_storage_2d_array<texel_format>`
+`texture_storage_2d_array<texel_format,access>`
   // %1 = OpTypeImage sampled_type 2D 0 1 0 2 image_format
 
-`texture_storage_3d<texel_format>`
-  // %1 = OpTypeImage sampled_type 3D 0 0 0 2 texel_format
+`texture_storage_3d<texel_format,access>`
+  // %1 = OpTypeImage sampled_type 3D 0 0 0 2 image_format
 </pre>
+
+* `texel_format` must be one of the texel types specified in [=storage-texel-formats=]
+* `access` must be [=access/write=], if specified.
 
 In the SPIR-V mapping:
 * The *Image Format* parameter of the image type declaration is
@@ -2349,14 +2516,13 @@ In the SPIR-V mapping:
 * The *Sampled Type* parameter of the image type declaration is
     the SPIR-V scalar type corresponding to the channel format for the texel format.
 
-When mapping to SPIR-V, a read-only storage texture variable must have a `NonWritable` decoration and
-a write-only storage texture variable must have a `NonReadable` decoration.
+When mapping to SPIR-V, a write-only storage texture variable must have a `NonReadable` decoration.
 
 For example:
 
 <div class='example wgsl global-scope' heading='Mapping a readable texture_storage_1d variable to SPIR-V'>
   <xmp>
-      var tbuf: [[access(read)]] texture_storage_1d<rgba8unorm>;
+      var tbuf: texture_storage_1d<rgba8unorm,read>;
 
       // Maps to the following SPIR-V:
       //  OpDecorate %tbuf NonWritable
@@ -2370,7 +2536,7 @@ For example:
 
 <div class='example wgsl global-scope' heading='Mapping a writable texture_storage_1d variable to SPIR-V'>
   <xmp>
-      var tbuf: [[access(write)]] texture_storage_1d<rgba8unorm>;
+      var tbuf: texture_storage_1d<rgba8unorm,write>;
 
       // Maps to the following SPIR-V:
       //  OpDecorate %tbuf NonReadable
@@ -2403,7 +2569,7 @@ A <dfn>sampler</dfn> mediates access to a sampled texture or a depth texture, by
 * coordinate transformation.
 * optionally modifying mip-level selection.
 * for a sampled texture, optionally filtering retrieved texel values.
-* for a depth texture, determinining the comparison function applied to the retrieved texel.
+* for a depth texture, determining the comparison function applied to the retrieved texel.
 
 <table class='data'>
   <thead>
@@ -2440,7 +2606,7 @@ texture_sampler_types
   | depth_texture_type
   | sampled_texture_type LESS_THAN type_decl GREATER_THAN
   | multisampled_texture_type LESS_THAN type_decl GREATER_THAN
-  | storage_texture_type LESS_THAN texel_format GREATER_THAN
+  | storage_texture_type LESS_THAN texel_format COMMA access_mode GREATER_THAN
 
 sampler_type
   : SAMPLER
@@ -2570,7 +2736,7 @@ type_decl
   | VEC2 LESS_THAN type_decl GREATER_THAN
   | VEC3 LESS_THAN type_decl GREATER_THAN
   | VEC4 LESS_THAN type_decl GREATER_THAN
-  | POINTER LESS_THAN storage_class COMMA type_decl GREATER_THAN
+  | POINTER LESS_THAN storage_class COMMA type_decl (COMMA access_mode)? GREATER_THAN
   | attribute_list* ARRAY LESS_THAN type_decl (COMMA INT_LITERAL)? GREATER_THAN
   | MAT2x2 LESS_THAN type_decl GREATER_THAN
   | MAT2x3 LESS_THAN type_decl GREATER_THAN
@@ -2581,6 +2747,7 @@ type_decl
   | MAT4x2 LESS_THAN type_decl GREATER_THAN
   | MAT4x3 LESS_THAN type_decl GREATER_THAN
   | MAT4x4 LESS_THAN type_decl GREATER_THAN
+  | ATOMIC LESS_THAN type_decl GREATER_THAN
   | texture_sampler_types
 </pre>
 
@@ -2625,18 +2792,20 @@ declaration of the identifier as a type alias or structure type.
   </xmp>
 </div>
 
-<div class='example wgsl global-scope' heading='Access qualifier'>
+<div class='example wgsl global-scope' heading='Access modes for buffers'>
   <xmp>
     // Storage buffers
     [[group(0), binding(0)]]
-    var<storage> buf1: [[access(read)]] Buffer;       // Can read, cannot write.
+    var<storage,read> buf1: Buffer;       // Can read, cannot write.
+    [[group(0), binding(0)]]
+    var<storage> buf2: Buffer;            // Can read, cannot write.
     [[group(0), binding(1)]
-    var<storage> buf2: [[access(read_write)]] Buffer; // Can both read and write
+    var<storage,read_write> buf3: Buffer; // Can both read and write.
 
     // Uniform buffer. Always read-only, and has more restrictive layout rules.
     struct ParamsTable {};
     [[group(0), binding(2)]]
-    var<uniform> params: ParamsTable;
+    var<uniform> params: ParamsTable;     // Can read, cannot write.
   </xmp>
 </div>
 
@@ -2674,9 +2843,12 @@ then its reference type is ref&lt;*S*,*T*&gt;.
 
 A <dfn dfn noexport>variable declaration</dfn>:
 
-* Determines the variable’s name, storage class, and store type (and hence its [=reference type=]).
-* Ensures the execution environment allocates storage for a value of the store type, for the lifetime of the variable.
-* Optionally have an *initializer* expression, if the variable is in the [=storage classes/private=] or [=storage classes/function=] storage classes.
+* Specifies the variable’s name.
+* Specifies the [=storage class=], [=store type=], and [=access mode=].
+    Together these comprise the variable's [=reference type=].
+* Ensures the execution environment allocates storage for a value of the store type,
+    supporting the given access mode, for the [=lifetime=] of the variable.
+* Optionally has an *initializer* expression, if the variable is in the [=storage classes/private=] or [=storage classes/function=] storage classes.
     If present, the initializer expression must evaluate to the variable's store type.
 
 When an identifier use [=resolves=] to a variable declaration,
@@ -2688,6 +2860,9 @@ See [[#module-scope-variables]] and [[#function-scope-variables]] for rules abou
 a variable in a particular storage class can be declared,
 and when the storage class decoration is required, optional, or forbidden.
 
+The access mode always has a default, and except for variables in the [=storage classes/storage=] storage class,
+must not be written. See [[#access-mode-defaults]].
+
 <pre class='def'>
 variable_statement
   : variable_decl
@@ -2695,26 +2870,34 @@ variable_statement
   | LET (IDENT | variable_ident_decl) EQUAL short_circuit_or_expression
 
 variable_decl
-  : VAR variable_storage_decoration? variable_ident_decl
+  : VAR variable_qualifier? variable_ident_decl
 
 variable_ident_decl
   : IDENT COLON attribute_list* type_decl
 
-variable_storage_decoration
-  : LESS_THAN storage_class GREATER_THAN
-
+variable_qualifier
+  : LESS_THAN storage_class ( COMMA access_mode )? GREATER_THAN
 </pre>
 
-Variables in the [=storage classes/storage=] storage class and variables with a
-[storage texture](#texture-storage) type must have an [=access=] attribute
-applied to the store type.
+The <dfn noexport>lifetime</dfn> of a variable is the period during shader
+execution for which the variable exists.
+The lifetime of a [=module scope=] variable is the entire execution of the shader stage.
+
+For a [=function scope=] variable, each invocation has its own indepdendent
+version of the variable.
+The lifetime of the variable is determined by its scope:
+* It begins when control enters the variable's decalaration.
+* It includes the entire execution of any function called from within the variable's scope.
+* It ends when control leaves the variable's scope, other than calling a function from
+    within the variable's scope.
 
 Two variables with overlapping lifetimes will not have overlapping storage.
+When a variable's lifetime ends, its storage may be used for another variable.
 
 When a variable is created, its storage contains an initial value as follows:
 
 * For variables in the [=storage classes/private=] or [=storage classes/function=] storage classes:
-    * The zero value for the store type, if the variable declaration has no initializer.
+    * The [=zero value=] for the store type, if the variable declaration has no initializer.
     * Otherwise, it is the result of evaluating the initializer expression at that point in the program execution.
 * For variables in other storage classes, the execution environment provides the initial value.
 
@@ -2725,7 +2908,7 @@ Consider the following snippet of WGSL:
     loop {
       var twice: i32 = 2 * i;   // Re-evaluated each iteration.
       i = i + 1;
-      break if (i == 5);
+      if (i == 5) { break; }
     }
   </xmp>
 </div>
@@ -2771,11 +2954,12 @@ Variables at [=module scope=] are restricted as follows:
 
 A variable in the [=storage classes/uniform=] storage class is a <dfn noexport>uniform buffer</dfn> variable.
 Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
-satisfying the [storage class constraints](#storage-class-constraints).
+satisfying the [storage class layout constraints](#storage-class-layout-constraints).
 
 A variable in the [=storage classes/storage=] storage class is a <dfn noexport>storage buffer</dfn> variable.
 Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
-satisfying the [storage class constraints](#storage-class-constraints).
+satisfying the [storage class layout constraints](#storage-class-layout-constraints).
+It may be declared with a [=access/read=] or [=access/write=] access mode; the default is [=access/read=].
 
 As described in [[#resource-interface]],
 uniform buffers, storage buffers, textures, and samplers form the
@@ -2792,29 +2976,28 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
       count: i32;
     };
     [[group(0), binding(2)]]
-    var<uniform> param: Params;          // A uniform buffer
+    var<uniform> param: Params;    // A uniform buffer
 
     [[block]] struct PositionsBuffer {
       pos: array<vec2<f32>>;
     };
+    // A storage buffer, for reading and writing
     [[group(0), binding(0)]]
-    var<storage> pbuf: [[access(read_write)]] PositionsBuffer;  // A storage buffer
+    var<storage,read_write> pbuf: PositionsBuffer;
 
+    // Textures and samplers are always in "handle" storage.
     [[group(0), binding(1)]]
-    var filter_params: sampler;   // Textures and samplers are always in "handle" storage.
+    var filter_params: sampler;
   </xmp>
 </div>
 
 <pre class='def'>
 global_variable_decl
-  : attribute_list* variable_decl (EQUAL const_expr)?
+  : attribute_list* variable_decl (EQUAL const_expression)?
 </pre>
 
 <div class='example' heading="Variable Decorations">
   <xmp>
-    [[location(2)]]
-       OpDecorate %variable Location 2
-
     [[group(4), binding(3)]]
        OpDecorate %variable DescriptorSet 4
        OpDecorate %variable Binding 3
@@ -2832,7 +3015,7 @@ A `let`-declaration appearing outside all functions declares a
 The name is available for use after the end of the declaration,
 until the end of the [SHORTNAME] program.
 
-A module-scope let-declared constant must be of [=atomic-free=] [=plain type=].
+A module-scope let-declared constant must be of [=constructible=] type.
 
 When the declaration has no attributes, an initializer expression must be present,
 and the name denotes the value of that expression.
@@ -2853,19 +3036,18 @@ the constant is <dfn noexport>pipeline-overridable</dfn>. In this case:
   * The type must one of the [=scalar=] types.
   * The initializer expression is optional.
   * The attribute's literal operand, if present, is known as the <dfn noexport>pipeline constant ID</dfn>,
-    and must be a non-negative integer value representable in 32 bits.
+    and must be an integer value between 0 and 65535.
   * Pipeline constant IDs must be unique within the [SHORTNAME] program: Two module constants
     must not use the same pipeline constant ID.
-  * The application can specify its own value for the name at pipeline-creation time.
+  * The application can specify its own value for the constant at pipeline-creation time.
     The pipeline creation API accepts a mapping from overridable constant to a
     value of the constant's type.
-    The constant is specified by the pipeline constant ID if it was specified
-    or by the constant's identifier otherwise.
-    If the mapping has an entry for the constant, the value in the mapping is used.
-    Otherwise, the initializer expression must be present, and its value is used.
-
-Issue(dneto): What happens if the application supplies a constant ID that is not in the program?
-Proposal: pipeline creation fails with an error.
+    The constant is identified by a <dfn export>pipeline-overridable constant identifier string</dfn>,
+    which is the base-10 representation of the [=pipeline constant ID=] if specified, and otherwise
+    the declared [=name=] of the constant.
+  * The <dfn export>pipeline-overridable constant has a default value</dfn> if
+    its declaration has an initializer expression.
+    If it doesn't, a value must be provided at pipeline-creation time.
 
 <div class='example wgsl global-scope' heading='Module constants, pipeline-overrideable'>
   <xmp>
@@ -2873,10 +3055,10 @@ Proposal: pipeline creation fails with an error.
     [[override(1200)]] let specular_param: f32 = 2.3;     // Numeric control
     [[override(1300)]] let gain: f32;                     // Must be overridden
     [[override]]       let width: f32 = 0.0;              // Specifed at the API level using
-                                                           // the name "width".
+                                                          // the name "width".
     [[override]]       let depth: f32;                    // Specifed at the API level using
-                                                           // the name "depth".
-                                                           // Must be overridden.
+                                                          // the name "depth".
+                                                          // Must be overridden.
   </xmp>
 </div>
 
@@ -2891,10 +3073,10 @@ global_constant_decl
   : attribute_list* LET variable_ident_decl global_const_initializer?
 
 global_const_initializer
-  : EQUAL const_expr
+  : EQUAL const_expression
 
-const_expr
-  : type_decl PAREN_LEFT ((const_expr COMMA)* const_expr COMMA?)? PAREN_RIGHT
+const_expression
+  : type_decl PAREN_LEFT ((const_expression COMMA)* const_expression COMMA?)? PAREN_RIGHT
   | const_literal
 </pre>
 
@@ -2934,11 +3116,14 @@ A variable or constant declared in a declaration statement in a function body is
 The name is available for use immediately after its declaration statement,
 and until the end of the brace-delimited list of statements immediately enclosing the declaration.
 
-A function-scope let-declared constant must be of [=atomic-free=] [=plain type=], or of [=pointer type=].
+A function-scope let-declared constant must be of [=constructible=] type, or of [=pointer type=].
 
-A variable declared in function scope is always in the [=storage classes/function=] storage class.
-The variable storage decoration is optional.
-The variable's [=store type=] must be a [=atomic-free=] [=plain type=].
+For a variable declared in function scope:
+* The variable is always in the [=storage classes/function=] storage class.
+* The storage decoration is optional.
+* The [=store type=] must be a [=constructible=] type.
+* When an initializer is specified, the store type may be omitted from the declaration.
+    In this case the store type is the type of the result of evaluating the initializer.
 
 <div class='example wgsl global-scope' heading="Function scope variables and constants">
   <xmp highlight='rust'>
@@ -2946,7 +3131,8 @@ The variable's [=store type=] must be a [=atomic-free=] [=plain type=].
        var<function> count: u32;  // A variable in function storage class.
        var delta: i32;            // Another variable in the function storage class.
        var sum: f32 = 0.0;        // A function storage class variable with initializer.
-       let unit: i32 = 1;       // A constant. Let declarations don't use a storage class.
+       var pi = 3.14159;          // Infer the f32 store type from the initializer.
+       let unit: i32 = 1;         // Let-declared constants don't use a storage class.
     }
   </xmp>
 </div>
@@ -2954,6 +3140,12 @@ The variable's [=store type=] must be a [=atomic-free=] [=plain type=].
 A variable or constant declared in the first clause of a `for` statement is available for use in the second
 and third clauses and in the body of the `for` statement.
 
+An instance of a function scope variable is a [=dynamic context=].
+Each variable that is [=in scope=] for some invocation has an overlapping
+[=lifetime=] and, therefore, has non-overlapping storage.
+Variables with non-overlapping lifetimes may reuse the storage of previous
+variables; however, new instances of the same variable are not guaranteed to
+use the same storage.
 
 ## Never-alias assumption TODO ## {#never-alias-assumption}
 
@@ -2973,7 +3165,31 @@ and third clauses and in the body of the `for` statement.
   <tr><td><td>*FLOAT_LITERAL*: f32<td>OpConstant %float *literal*
 </table>
 
-## Type Constructor Expressions TODO ## {#type-constructor-expr}
+## Parenthesized Expressions ## {#parenthesized-expressions}
+
+<table class='data'>
+  <caption>Parenthesized expression type rules</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="parenthesized expression">
+      <td>|e| : |T|
+      <td>`(` |e| `)` : |T|
+      <td>Evaluates to |e|.<br>
+          Use parentheses to isolate an expression from the surrounding text.
+</table>
+
+## Type Constructor Expressions ## {#type-constructor-expr}
+
+Type constructor expressions explicitly create a value of a given type.
+
+The scalar forms are redundant, but provide symmetry with scalar [[#conversion-expr|conversion expressions]],
+and can be used to enhance readability.
+
+The vector forms construct vector values from various combinations of components and subvectors
+with matching component types.
+
+See also [[#zero-value-expr]] and [[#conversion-expr]].
 
 <table class='data'>
   <caption>Scalar constructor type rules</caption>
@@ -3094,39 +3310,34 @@ and third clauses and in the body of the `for` statement.
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
-  <tr>
-    <td>*e1*: *T*<br>
+  <tr algorithm="array value construction">
+    <td>|e1|: |T|<br>
         ...<br>
-        *eN*: *T*<br>
-    <td>`array<`*T*,*N*`>(e1,...,eN)`: array<*T*, *N*>
-    <td>Construction of an array from elements
+        |eN|: |T|,<br>
+        |T| is a [=constructible=] type.
+    <td>`array<`|T|,|N|`>(`|e1|,...,|eN|`)` : array&lt;|T|,|N|&gt;
+    <td>Construction of an array from elements.
 </table>
-TODO: Should this only work for storable sized arrays?  https://github.com/gpuweb/gpuweb/issues/982
 
 <table class='data'>
   <caption>Structure constructor type rules</caption>
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
-  <tr>
-    <td>*e1*: *T1*<br>
+  <tr algorithm="structure value construction">
+    <td>|e1|: |T1|<br>
         ...<br>
-        *eN*: *TN*<br>
-        *T1* is storable<br>
-        ...<br>
-        *TN* is storable<br>
-        S is a structure type with members having types *T1* ... *TN*.<br>
-        The expression is in the scope of declaration of S.
-    <td>`S(e1,...,eN)`: S
-    <td>Construction of a structure from members
+        |eN|: |TN|,<br>
+        |S| is a [=constructible=] structure type with members having types |T1| ... |TN|.<br>
+        The expression is in the scope of declaration of |S|.
+    <td>|S|`(`|e1|,...,|eN|`)`: |S|
+    <td>Construction of a structure from members.
 </table>
-
 
 ## Zero Value Expressions ## {#zero-value-expr}
 
-Each storable type *T* has a unique *zero value*, written in WGSL as the type followed by an empty pair of parentheses: *T* `()`.
-
-Issue: We should exclude being able to write the zero value for an [=runtime-sized=] array. https://github.com/gpuweb/gpuweb/issues/981
+Each [=constructible=] *T* has a unique <dfn noexport>zero value</dfn>
+written in WGSL as the type followed by an empty pair of parentheses: *T* `()`.
 
 The zero values are as follows:
 
@@ -3136,8 +3347,11 @@ The zero values are as follows:
 * `f32()` is 0.0
 * The zero value for an *N*-element vector of type *T* is the *N*-element vector of the zero value for *T*.
 * The zero value for an *N*-column *M*-row matrix of `f32` is the matrix of those dimensions filled with 0.0 entries.
-* The zero value for an *N*-element array with storable element type *E* is an array of *N* elements of the zero value for *E*.
-* The zero value for a storable structure type *S* is the structure value *S* with zero-valued members.
+* The zero value for an *N*-element array with [=constructible=] element type *E* is an array of *N* elements of the zero value for *E*.
+* The zero value for a [=constructible=] structure type *S* is the structure value *S* with zero-valued members.
+
+Note: WGSL does not have zero expression for [=atomic types=],
+[=runtime-sized=] arrays, or other types that are not [=constructible=].
 
 <table class='data'>
   <caption>Scalar zero value type rules</caption>
@@ -3175,7 +3389,7 @@ The zero values are as follows:
     vec2<f32>()                 // The zero-valued vector of two f32 elements.
     vec2<f32>(0.0, 0.0)         // The same value, written explicitly.
 
-    vec3<i32>()                 // The zero-valued vector of four i32 elements.
+    vec3<i32>()                 // The zero-valued vector of three i32 elements.
     vec3<i32>(0, 0, 0)          // The same value, written explicitly.
   </xmp>
 </div>
@@ -3210,9 +3424,9 @@ The zero values are as follows:
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
-  <tr>
-    <td>*T* is storable
-    <td>`array<`*T*,*N*`>()`: array<*T*, *N*>
+  <tr algorithm="array zero value">
+    <td>|T| is a [=constructible=]
+    <td>`array<`|T|,|N|`>()`: array&lt;|T|,|N|&gt;
     <td>Zero-valued array (OpConstantNull)
 </table>
 
@@ -3228,11 +3442,11 @@ The zero values are as follows:
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
-  <tr>
-    <td>`S` is a storable structure type.<br>
-         The expression is in the scope of declaration of S.
-    <td>`S()`: S
-    <td>Zero-valued structure: a structure of type S where each member is the zero value for its member type.
+  <tr algorithm="structure zero value">
+    <td>|S| is a [=constructible=] structure type.<br>
+         The expression is in the scope of declaration of |S|.
+    <td>|S|`()`: |S|
+    <td>Zero-valued structure: a structure of type |S| where each member is the zero value for its member type.
 <br>
  (OpConstantNull)
 </table>
@@ -3263,6 +3477,11 @@ The zero values are as follows:
 
 ## Conversion Expressions ## {#conversion-expr}
 
+[SHORTNAME] does not implicitly convert or promote a numeric or boolean value to another type.
+Instead use conversion expressions as defined in the tables below.
+
+See also [[#type-constructor-expr]].
+
 <table class='data'>
   <caption>Scalar conversion type rules</caption>
   <thead>
@@ -3284,6 +3503,11 @@ The zero values are as follows:
           The result is false if |e| is 0.0 or -0.0, and true otherwise.
           In particular NaN and infinity values map to true.<br>
           (Use OpFUnordNotEqual to compare |e| against `0.0`.)
+  <tr algorithm="conversion from boolean to signed">
+      <td>|e|: bool<td>`i32(`|e|`)`: i32
+      <td>Conversion of a boolean value to a signed integer<br>
+          The result is 1 if |e| is true and 0 otherwise.<br>
+          (Use OpSelect with |e| as the condition, selecting between 1 and 0.)
   <tr algorithm="scalar reinterpretation from unsigned to signed">
       <td>|e|: u32<td>`i32(`|e|`)`: i32
       <td>Reinterpretation of bits.<br>
@@ -3291,6 +3515,11 @@ The zero values are as follows:
           (OpBitcast)
   <tr algorithm="scalar conversion from floating point to signed integer">
       <td>|e|: f32<td>`i32(`|e|`)`: i32<td>Value conversion, including invalid cases. (OpConvertFToS)
+  <tr algorithm="conversion from boolean to unsigned">
+      <td>|e|: bool<td>`u32(`|e|`)`: u32
+      <td>Conversion of a boolean value to an unsigned integer<br>
+          The result is 1u if |e| is true and 0u otherwise.<br>
+          (Use OpSelect with |e| as the condition, selecting between 1u and 0u.)
   <tr algorithm="scalar conversion from signed integer to unsigned integer">
       <td>|e|: i32<td>`u32(`|e|`)`: u32
       <td>Reinterpretation of bits.<br>
@@ -3299,6 +3528,11 @@ The zero values are as follows:
   <tr algorithm="scalar conversion from floating point to unsigned integer">
       <td>|e|: f32<td>`u32(`|e|`)`: u32
       <td>Value conversion, including invalid cases. (OpConvertFToU)
+  <tr algorithm="conversion from boolean to floating point">
+      <td>|e|: bool<td>`f32(`|e|`)`: f32
+      <td>Conversion of a boolean value to floating point<br>
+          The result is 1.0 if |e| is true and 0.0 otherwise.<br>
+          (Use OpSelect with |e| as the condition, selecting between 1.0 and 0.0.)
   <tr algorithm="scalar conversion from signed integer to floating point">
       <td>|e|: i32<td>`f32(`|e|`)`: f32<td>Value conversion, including invalid cases. (OpConvertSToF)
   <tr algorithm="scalar conversion from unsigned integer to floating point">
@@ -3330,6 +3564,13 @@ Details of conversion to and from floating point are explained in [[#floating-po
      <td>[=Component-wise=] coercion of a floating point vector to a boolean vector.<br>
          (OpFUnordNotEqual to compare |e| against a zero vector.)
 
+  <tr algorithm="vector conversion from bool to signed">
+     <td>|e|: vec|N|&lt;bool&gt;
+     <td>`vec`|N|&lt;`i32`&gt;`(`|e|`)`: vec|N|&lt;i32&gt
+     <td>[=Component-wise=] conversion of a boolean vector to signed.<br>
+         Component |i| of the result is `i32(`|e|`[`|i|`])`<br>
+         (OpSelect, with |e| as the condition, selecting between `vec`|N|(1) and `vec`|N|(0).)
+
   <tr algorithm="vector reinterpretation from unsigned to signed">
      <td>|e|: vec|N|&lt;u32&gt;
      <td>`vec`|N|&lt;`i32`&gt;`(`|e|`)`: vec|N|&lt;i32&gt
@@ -3343,6 +3584,13 @@ Details of conversion to and from floating point are explained in [[#floating-po
      <td>[=Component-wise=] value conversion to signed integer, including invalid cases.<br>
         (OpConvertFToS)
 
+  <tr algorithm="vector conversion from bool to unsigned">
+     <td>|e|: vec|N|&lt;bool&gt;
+     <td>`vec`|N|&lt;`u32`&gt;`(`|e|`)`: vec|N|&lt;u32&gt
+     <td>[=Component-wise=] conversion of a boolean vector to unsigned.<br>
+         Component |i| of the result is `u32(`|e|`[`|i|`])`<br>
+         (OpSelect, with |e| as the condition, selecting between `vec`|N|(1u) and `vec`|N|(0u).)
+
   <tr algorithm="vector reinterpretation from signed to unsigned">
      <td>|e|: vec|N|&lt;i32&gt;
      <td>`vec`|N|&lt;`u32`&gt;`(`|e|`)`: vec|N|&lt;u32&gt;
@@ -3354,6 +3602,13 @@ Details of conversion to and from floating point are explained in [[#floating-po
      <td>`vec`|N|&lt;`u32`&gt;`(`|e|`)`: vec|N|&lt;u32&gt;
      <td>[=Component-wise=] value conversion to unsigned integer, including invalid cases.<br>
         (OpConvertFToU)
+
+  <tr algorithm="vector conversion from bool to floating point">
+     <td>|e|: vec|N|&lt;bool&gt;
+     <td>`vec`|N|&lt;`u32`&gt;`(`|e|`)`: vec|N|&lt;u32&gt
+     <td>[=Component-wise=] conversion of a boolean vector to floating point.<br>
+         Component |i| of the result is `f32(`|e|`[`|i|`])`<br>
+         (OpSelect, with |e| as the condition, selecting between `vec`|N|(1.0) and `vec`|N|(0.0).)
 
   <tr algorithm="vector conversion from signed integer to floating point">
      <td>|e|: vec|N|&lt;i32&gt;
@@ -3472,16 +3727,15 @@ The result type depends on the number of letters provided. Assuming a `vec4<f32>
        <td>Select the fourth component of |e|<br>
            (OpCompositeExtract with selection index 3)
   <tr algorithm="vector indexed component selection"><td>|e|: vec|N|&lt;|T|&gt;<br>
-          |i|: *Int*
+          |i|: [INT]
        <td class="nowrap">
            |e|[|i|]: |T|
        <td>Select the |i|'<sup>th</sup> component of vector<br>
            The first component is at index |i|=0.<br>
-           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.
+           If |i| is outside the range [0,|N|-1], then any valid value for |T|
+           may be returned.
            (OpVectorExtractDynamic)
 </table>
-
-Issue: Which index is used when it's out of bounds?
 
 #### Vector multiple component selection #### {#vector-multi-component}
 
@@ -3610,11 +3864,15 @@ Issue: Which index is used when it's out of bounds?
            (OpAccessChain with index value 3)
   <tr algorithm="vector indexed component reference selection">
        <td>|r|: ref&lt;|SC|,vec|N|&lt;|T|&gt;&gt;<br>
-          |i|: *Int*
+          |i|: [INT]
        <td class="nowrap">
-           |r|[|i|]: ref&lt;|SC|,|T|&gt;
-       <td>Compute a reference to the |i|'<sup>th</sup> component of the vector referenced by the reference |r|.<br>
-           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           |r|[|i|] : ref&lt;|SC|,|T|&gt;
+       <td>Compute a reference to the |i|'<sup>th</sup> component of the vector
+           referenced by the reference |r|.
+
+           If |i| is outside the range [0,|N|-1], then the expression evaluates
+           to [=invalid memory reference=].
+
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.<br>
            (OpAccessChain)
@@ -3630,11 +3888,13 @@ Issue: Which index is used when it's out of bounds?
   <tr algorithm="matrix indexed column vector selection">
        <td class="nowrap">
           |e|: mat|N|x|M|&lt;|T|&gt;<br>
-          |i|: *Int*
+          |i|: [INT]<br>
+          |i| is a `const_expression` expression
        <td class="nowrap">
            |e|[|i|]: vec|M|&lt;|T|&gt;
        <td>The result is the |i|'<sup>th</sup> column vector of |e|.<br>
-           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           If |i| is outside the range [0,|N|-1], then any valid value for
+           vec|M|&lt;|T|&gt; may be returned.
            (OpCompositeExtract)
 </table>
 
@@ -3646,15 +3906,27 @@ Issue: Which index is used when it's out of bounds?
   <tr algorithm="matrix indexed column vector reference selection">
        <td class="nowrap">
           |r|: ref&lt;|SC|,mat|N|x|M|&lt;|T|&gt;&gt;<br>
-          |i|: *Int*
+          |i|: [INT]
        <td class="nowrap">
-           |r|[|i|]: ref&lt;vec|M|&lt;|SC|,|T|&gt;&gt;
-       <td>Compute a reference to the |i|'<sup>th</sup> column vector of the matrix referenced by the reference |r|.<br>
-           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           |r|[|i|] : ref&lt;vec|M|&lt;|SC|,|T|&gt;&gt;
+       <td>Compute a reference to the |i|'<sup>th</sup> column vector of the
+           matrix referenced by the reference |r|.
+
+           If |i| is outside the range [0,|N|-1], then the expression evaluates to
+           [=invalid memory reference=].
+
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.<br>
            (OpAccessChain)
 </table>
+
+Note: Reflecting the limitations of the languages WGSL is meant to be translated
+into, it is only possible to use dynamically computed indices to subscript
+references to matrices. A matrix not behind a reference may only be indexed by a
+`const_expression`. To work around this restriction, consider storing the matrix in a
+temporary variable, and then subscripting the variable: a
+[[#var-identifier-expr|variable identifier expression]] produces a reference to
+the variable's value, as required.
 
 ### Array Access Expression ### {#array-access-expr}
 
@@ -3666,11 +3938,14 @@ Issue: Which index is used when it's out of bounds?
   <tr algorithm="sized array indexed element selection">
        <td class="nowrap">
           |e|: array&lt;|T|,|N|&gt;<br>
-          |i|: *Int*
+          |i|: [INT]<br>
+          |i| is a `const_expression` expression
        <td class="nowrap">
-           |e|[|i|]: |T|
-       <td>The result is the value of the |i|'<sup>th</sup> element of the array value |e|.<br>
-           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           |e|[|i|] : |T|
+       <td>The result is the value of the |i|'<sup>th</sup> element of the array value |e|.
+
+           If |i| is outside the range [0,|N|-1], then any valid value for |T|
+           may be returned.
            (OpCompositeExtract)
 </table>
 
@@ -3682,26 +3957,39 @@ Issue: Which index is used when it's out of bounds?
   <tr algorithm="sized array indexed reference selection">
        <td class="nowrap">
           |r|: ref&lt;|SC|,array&lt;|T|,|N|&gt;&gt;<br>
-          |i|: *Int*
+          |i|: [INT]
        <td class="nowrap">
-           |r|[|i|]: ref&lt;|SC|,|T|&gt;
-       <td>Compute a reference to the |i|'<sup>th</sup> element of the array referenced by the reference |r|.<br>
-           If |i| is outside the range [0,|N|-1], then an index in the range [0, |N|-1] is used instead.<br>
+           |r|[|i|] : ref&lt;|SC|,|T|&gt;
+       <td>Compute a reference to the |i|'<sup>th</sup> element of the array
+           referenced by the reference |r|.
+
+           If |i| is outside the range [0,|N|-1], then the expression evaluates
+           to an [=invalid memory reference=].
+
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.<br>
            (OpAccessChain)
   <tr algorithm="array indexed reference selection">
        <td>|r|: ref&lt;|SC|,array&lt;|T|&gt;&gt;<br>
-          |i|: *Int*
+          |i|: [INT]
        <td class="nowrap">
-           |r|[|i|]: ref&lt;|SC|,|T|&gt;
-       <td>Compute a reference to the |i|'<sup>th</sup> element of the runtime-sized array referenced by the reference |r|.<br>
-           If at runtime the array has |N| elements, and |i| is outside the range [0,|N|-1], then an index in the
-           range [0, |N|-1] is used instead.<br>
+           |r|[|i|] : ref&lt;|SC|,|T|&gt;
+       <td>Compute a reference to the |i|'<sup>th</sup> element of the
+           runtime-sized array referenced by the reference |r|.
+
+           If at runtime the array has |N| elements, and |i| is outside the range
+           [0,|N|-1], then the expression evaluates to an [=invalid memory
+           reference=].
+
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.<br>
            (OpAccessChain)
 </table>
+
+Note: Reflecting the limitations of the languages WGSL is meant to be translated
+into, it is only possible to use dynamically computed indices to subscript
+references to arrays. An array not behind a reference may only be indexed by a
+`const_expression`.
 
 ### Structure Access Expression ### {#struct-access-expr}
 
@@ -3784,11 +4072,14 @@ Issue: Which index is used when it's out of bounds?
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
-  <tr algorithm="integer negation"><td>|e|: |T|, |T| is *SignedIntegral*
+  <tr algorithm="integer negation"><td>|e|: |T|<br>
+  |T| is [SIGNEDINTEGRAL]
   <td>`-`|e|`:` |T|
-  <td>Signed integer negation. [=Component-wise=] when |T| is a vector. (OpSNegate)
+  <td>Signed integer negation. [=Component-wise=] when |T| is a vector.
+  If |e| evaluates to the largest negative value, then the result is |e|.
+  (OpSNegate)
 
-  <tr algorithm="floating point negation"><td>|e|: |T|, |T| is *Floating*
+  <tr algorithm="floating point negation"><td>|e|: |T|<br>|T| is [FLOATING]
   <td>`-`|e|`:` |T|
   <td>Floating point negation. [=Component-wise=] when |T| is a vector. (OpFNegate)
 </table>
@@ -3800,55 +4091,55 @@ Issue: Which index is used when it's out of bounds?
   </thead>
 
   <tr algorithm="integer addition">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *Integral*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [INTEGRAL]
     <td>|e1| `+` |e2| : |T|
     <td>Integer addition, modulo 2<sup>32</sup>. [=Component-wise=] when |T| is a vector. (OpIAdd)
   <tr algorithm="floating point addition">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *Floating*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [FLOATING]
     <td>|e1| `+` |e2| : |T|
     <td>Floating point addition. [=Component-wise=] when |T| is a vector. (OpFAdd)
 
   <tr algorithm="integer subtraction">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *Integral*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [INTEGRAL]
     <td>|e1| `-` |e2| : |T|
     <td>Integer subtraction, modulo 2<sup>32</sup>. [=Component-wise=] when |T| is a vector. (OpISub)
   <tr algorithm="floating point subtraction">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *Floating*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [FLOATING]
     <td>|e1| `-` |e2| : |T|
     <td>Floating point subtraction. [=Component-wise=] when |T| is a vector. (OpFSub)
 
   <tr algorithm="integer multiplication">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *Integral*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [INTEGRAL]
     <td>|e1| `*` |e2| : |T|
     <td>Integer multiplication, modulo 2<sup>32</sup>. [=Component-wise=] when |T| is a vector. (OpIMul)
   <tr algorithm="floating point multiplication">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *Floating*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [FLOATING]
     <td>|e1| `*` |e2| : |T|
     <td>Floating point multiplication. [=Component-wise=] when |T| is a vector. (OpFMul)
 
   <tr algorithm="signed integer division">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *SignedIntegral*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [SIGNEDINTEGRAL]
     <td>|e1| `/` |e2| : |T|
     <td>Signed integer division. [=Component-wise=] when |T| is a vector. (OpSDiv)
   <tr algorithm="unsigned integer division">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is u32 or vec|N|&lt;u32&gt;
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [UNSIGNEDINTEGRAL]
     <td>|e1| `/` |e2| : |T|
     <td>Unsigned integer division. [=Component-wise=] when |T| is a vector. (OpUDiv)
   <tr algorithm="floating point division">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *Floating*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [FLOATING]
     <td>|e1| `/` |e2| : |T|
     <td>Floating point division. [=Component-wise=] when |T| is a vector. (OpFDiv)
 
   <tr algorithm="signed integer remainder">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *SignedIntegral*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [SIGNEDINTEGRAL]
     <td>|e1| `%` |e2| : |T|
     <td>Signed integer remainder. [=Component-wise=] when |T| is a vector. (OpSMod)
   <tr algorithm="unsigned integer modulus">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is u32 or vec|N|&lt;u32&gt;
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [UNSIGNEDINTEGRAL]
     <td>|e1| `%` |e2| : |T|
-    <td>Signed integer remainder, where sign of non-zero result matches sign of |e2|. [=Component-wise=] when |T| is a vector. (OpUMod)
+    <td>Unsigned integer remainder. [=Component-wise=] when |T| is a vector. (OpUMod)
   <tr algorithm="floating point remainder">
-    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is *Floating*
+    <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [FLOATING]
     <td>|e1| `%` |e2| : |T|
     <td>Floating point remainder, where sign of non-zero result matches sign of |e2|. [=Component-wise=] when |T| is a vector. (OpFMod)
 
@@ -3956,71 +4247,110 @@ Issue: Which index is used when it's out of bounds?
     <td>Equality. [=Component-wise=] when |T| is a vector. (OpLogicalEqual)
   <tr algorithm="bool inequality">
     <td>|e1|: |T|<br>|e2|: |T|<br>|T| is bool or vec|N|&lt;bool&gt;
-    <td class="nowrap">|e1| `==` |e2|`:` |T|
+    <td class="nowrap">|e1| `!=` |e2|`:` |T|
     <td>Inequality. [=Component-wise=] when |T| is a vector. (OpLogicalNotEqual)
 
   <tr algorithm="integer equality">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *Integral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>
+    |TI| is [INTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
     <td class="nowrap">|e1| `==` |e2|`:` |TB|
     <td>Equality. [=Component-wise=] when |TI| is a vector. (OpIEqual)
   <tr algorithm="integer inequality">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *Integral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>
+    |TI| is [INTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
     <td class="nowrap">|e1| `!=` |e2|`:` |TB|
     <td>Inequality. [=Component-wise=] when |TI| is a vector. (OpINotEqual)
 
   <tr algorithm="signed integer less than">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *SignedIntegral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is [SIGNEDINTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
     <td class="nowrap">|e1| `<` |e2|`:` |TB|
     <td>Less than. [=Component-wise=] when |TI| is a vector. (OpSLessThan)
   <tr algorithm="signed integer less than equal">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *SignedIntegral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is [SIGNEDINTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
     <td class="nowrap">|e1| `<=` |e2|`:` |TB|
     <td>Less than or equal. [=Component-wise=] when |TI| is a vector. (OpSLessThanEqual)
   <tr algorithm="signed integer greater than">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *SignedIntegral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
-    <td class="nowrap">|e1| `<` |e2|`:` |TB|
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is [SIGNEDINTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
+    <td class="nowrap">|e1| `>` |e2|`:` |TB|
     <td>Greater than. [=Component-wise=] when |TI| is a vector. (OpSGreaterThan)
   <tr algorithm="signed integer greater than equal">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *SignedIntegral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
-    <td class="nowrap">|e1| `<=` |e2|`:` |TB|
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is [SIGNEDINTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
+    <td class="nowrap">|e1| `>=` |e2|`:` |TB|
     <td>Greater than or equal. [=Component-wise=] when |TI| is a vector. (OpSGreaterThanEqual)
 
   <tr algorithm="unsigned integer less than">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *SignedIntegral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is [UNSIGNEDINTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
     <td class="nowrap">|e1| `<` |e2|`:` |TB|
-    <td>Less than. [=Component-wise=] when |TI| is a vector. (OpSLessThan)
+    <td>Less than. [=Component-wise=] when |TI| is a vector. (OpULessThan)
   <tr algorithm="unsigned integer less than equal">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *SignedIntegral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is [UNSIGNEDINTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
     <td class="nowrap">|e1| `<=` |e2|`:` |TB|
-    <td>Less than or equal. [=Component-wise=] when |TI| is a vector. (OpSLessThanEqual)
+    <td>Less than or equal. [=Component-wise=] when |TI| is a vector. (OpULessThanEqual)
   <tr algorithm="unsigned integer greater than">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *SignedIntegral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
-    <td class="nowrap">|e1| `<` |e2|`:` |TB|
-    <td>Greater than. [=Component-wise=] when |TI| is a vector. (OpSGreaterThan)
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is [UNSIGNEDINTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
+    <td class="nowrap">|e1| `>` |e2|`:` |TB|
+    <td>Greater than. [=Component-wise=] when |TI| is a vector. (OpUGreaterThan)
   <tr algorithm="unsigned integer greater than equal">
-    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is
-    *SignedIntegral*<br>|TB| is bool if |TI| is scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|TI|*)*) if |TI| is a vector
-    <td class="nowrap">|e1| `<=` |e2|`:` |TB|
-    <td>Greater than or equal. [=Component-wise=] when |TI| is vector. (OpSGreaterThanEqual)
+    <td>|e1|: |TI|<br>|e2|: |TI|<br>|TI| is [UNSIGNEDINTEGRAL]<br>
+    |TB| is bool if |TI| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TI| is a vector
+    <td class="nowrap">|e1| `>=` |e2|`:` |TB|
+    <td>Greater than or equal. [=Component-wise=] when |TI| is vector. (OpUGreaterThanEqual)
+
+  <tr algorithm="floating point equality">
+    <td>|e1|: |TF|<br>|e2|: |TF|<br>|TF| is [FLOATING]<br>
+    |TB| is bool if |TF| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TF| is a vector.
+    <td class="nowrap">|e1| == |e2|: |TB|
+    <td>Equality. [=Component-wise=] when |TF| is a vector. (OpFOrdEqual)
+  <tr algorithm="floating point inequality">
+    <td>|e1|: |TF|<br>|e2|: |TF|<br>|TF| is [FLOATING]<br>
+    |TB| is bool if |TF| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TF| is a vector.
+    <td class="nowrap">|e1| != |e2|: |TB|
+    <td>Inequality. [=Component-wise=] when |TF| is a vector. (OpFOrdEqual)
+  <tr algorithm="floating point less than">
+    <td>|e1|: |TF|<br>|e2|: |TF|<br>|TF| is [FLOATING]<br>
+    |TB| is bool if |TF| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TF| is a vector.
+    <td class="nowrap">|e1| < |e2|: |TB|
+    <td>Less than. [=Component-wise=] when |TF| is a vector. (OpFOrdLessThan)
+  <tr algorithm="floating point less than equal">
+    <td>|e1|: |TF|<br>|e2|: |TF|<br>|TF| is [FLOATING]<br>
+    |TB| is bool if |TF| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TF| is a vector.
+    <td class="nowrap">|e1| <= |e2|: |TB|
+    <td>Less than or equal. [=Component-wise=] when |TF| is a vector. (OpFOrdLessThanEqual)
+  <tr algorithm="floating point greater than">
+    <td>|e1|: |TF|<br>|e2|: |TF|<br>|TF| is [FLOATING]<br>
+    |TB| is bool if |TF| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TF| is a vector.
+    <td class="nowrap">|e1| > |e2|: |TB|
+    <td>Greater than. [=Component-wise=] when |TF| is a vector. (OpFOrdGreaterThan)
+  <tr algorithm="floating point greater than equal">
+    <td>|e1|: |TF|<br>|e2|: |TF|<br>|TF| is [FLOATING]<br>
+    |TB| is bool if |TF| is scalar, or<br>
+    vec|N|&lt;bool&gt; if |TF| is a vector.
+    <td class="nowrap">|e1| >= |e2|: |TB|
+    <td>Greater than or equal. [=Component-wise=] when |TF| is a vector. (OpFOrdGreaterThanEqual)
 
 </table>
 
@@ -4033,7 +4363,7 @@ Issue: Which index is used when it's out of bounds?
   </thead>
   <tr algorithm="complement">
     <td>|e|: |T|<br>
-    |T| is *Integral*
+    |T| is [INTEGRAL]
     <td class="nowrap">`~`|e| : |T|
     <td>Bitwise complement on |e|.
     Each bit in the result is the opposite of the corresponding bit in |e|.
@@ -4048,19 +4378,19 @@ Issue: Which index is used when it's out of bounds?
   <tr algorithm="bitwise or">
     <td>*e1*: *T*<br>
        *e2*: *T*<br>
-       *T* is *Integral*
+       *T* is [INTEGRAL]
     <td class="nowrap">`e1 | e2`: *T*
     <td>Bitwise-or. [=Component-wise=] when |T| is a vector.
   <tr algorithm="bitwise and">
     <td>*e1*: *T*<br>
        *e2*: *T*<br>
-       *T* is *Integral*
+       *T* is [INTEGRAL]
     <td class="nowrap">`e1 & e2`: *T*
     <td>Bitwise-and. [=Component-wise=] when |T| is a vector.
   <tr algorithm="bitwise exclusive or">
     <td>*e1*: *T*<br>
        *e2*: *T*<br>
-       *T* is *Integral*
+       *T* is [INTEGRAL]
     <td class="nowrap">`e1 ^ e2`: *T*
     <td>Bitwise-exclusive-or. [=Component-wise=] when |T| is a vector.
 </table>
@@ -4075,9 +4405,9 @@ Issue: Which index is used when it's out of bounds?
   <tr algorithm="shift left">
     <td>|e1|: |T|<br>
     |e2|: |TS|<br>
-    |T| is *SignedIntegral*<br>
+    |T| is [INTEGRAL]<br>
     |TS| is u32 if |e1| is a scalar, or<br>
-    vec|N|&lt;u32&gt; (where |N| = *Arity(*|T|*)*).
+    vec|N|&lt;u32&gt;.
     <td class="nowrap">|e1| `<<` |e2|: |T|
     <td>Shift left:<br>
         Shift |e1| left, inserting zero bits at the least significant positions,
@@ -4089,7 +4419,7 @@ Issue: Which index is used when it's out of bounds?
   <tr algorithm="logical shift right">
     <td>|e1|: |T|<br>
     |e2|: |T|<br>
-    |T| is u32 or vec|N|&lt;u32&gt;
+    |T| is [UNSIGNEDINTEGRAL]
     <td class="nowrap">|e1| >> |e2|: |T|
     <td>Logical shift right:<br>
         Shift |e1| right, inserting zero bits at the most significant positions,
@@ -4101,9 +4431,9 @@ Issue: Which index is used when it's out of bounds?
   <tr algorithm="arithmetic shift right">
     <td>|e1|: |T|<br>
     |e2|: |TS|<br>
-    |T| is *SignedIntegral*<br>
+    |T| is [SIGNEDINTEGRAL]<br>
     |TS| is u32 if |e1| is a scalar, or<br>
-    vec|N|&lt;u32&gt; (where |N| = *Arity(*|T|*)*).
+    vec|N|&lt;u32&gt;.
     <td class="nowrap">|e1| >> |e2|: |T|
     <td>Arithmetic shift right:<br>
         Shift |e1| right, copying the sign bit of |e1| into the most significant positions,
@@ -4151,7 +4481,7 @@ See [[#function-call-statement]].
           an [=in scope|in-scope=] formal paramter declaration with type |T|
        <td class="nowrap">
           |a|: |T|
-       <td>Result is the value supplied for the corresponding function call operand at the call site
+       <td>Result is the value supplied for the corresponding function call operand at the [=call site=]
            invoking this instance of the function.
 </table>
 
@@ -4166,11 +4496,15 @@ The <dfn noexport>address-of</dfn> operator converts a reference to its correspo
   </thead>
   <tr algorithm="address-of expression">
        <td>
-          |r|: ref&lt;|SC|,|T|&gt;
+          |r|: ref&lt;|SC|,|T|,|A|&gt;
        <td class="nowrap">
-          `&`|r|: ptr&lt;|SC|,|T|&gt;
+          `&`|r|: ptr&lt;|SC|,|T|,|A|&gt;
        <td>Result is the pointer value corresponding to the
            same [=memory view=] as the reference value |r|.
+
+           If |r| is an [=invalid memory reference=], then the resulting
+           pointer is also an invalid memory reference.
+
 </table>
 
 ## Indirection Expression  ## {#indirection-expr}
@@ -4184,11 +4518,15 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
   </thead>
   <tr algorithm="indirection expression">
        <td>
-          |p|: ptr&lt;|SC|,|T|&gt;
+          |p|: ptr&lt;|SC|,|T|,|A|&gt;
        <td class="nowrap">
-          `*`|p|: ref&lt;|SC|,|T|&gt;
+          `*`|p|: ref&lt;|SC|,|T|,|A|&gt;
        <td>Result is the reference value corresponding to the
            same [=memory view=] as the pointer value |p|.
+
+           If |p| is an [=invalid memory reference=], then the resulting
+           reference is also an invalid memory reference.
+
 </table>
 
 ## Constant Identifier Expression  ## {#constant-identifier-expr}
@@ -4233,9 +4571,12 @@ primary_expression
   : IDENT argument_expression_list?
   | type_decl argument_expression_list
   | const_literal
-  | paren_rhs_statement
-  | BITCAST LESS_THAN type_decl GREATER_THAN paren_rhs_statement
+  | paren_expression
+  | BITCAST LESS_THAN type_decl GREATER_THAN paren_expression
       OpBitcast
+
+paren_expression
+  : PAREN_LEFT short_circuit_or_expression PAREN_RIGHT
 
 argument_expression_list
   : PAREN_LEFT ((short_circuit_or_expression COMMA)* short_circuit_or_expression COMMA?)? PAREN_RIGHT
@@ -4366,20 +4707,24 @@ expression to the right of the equals token is the <dfn noexport>right-hand side
 
 <table class='data'>
   <thead>
-    <tr><th>Precondition<th>Statement<th>Description
+    <tr><th style="width:40%">Precondition<th>Statement<th>Description
   </thead>
   <tr algorithm="assignment">
-    <td>|r|: ref<|SC|,|T|>,<br>
+    <td>|r|: ref<|SC|,|T|,|A|>,<br>
+        |A| is [=access/write=] or [=access/read_write=]<br>
         |e|: |T|,<br>
-        |T| is [=storable=],<br>
+        |T| is a [=constructible=] type,<br>
         |SC| is a writable [=storage class=]
     <td class="nowrap">|r| = |e|;
     <td>Evaluates |e|, evaluates |r|, then writes the value computed for |e| into
-        the [=memory locations=] referenced by |r|.<br>
+        the [=memory locations=] referenced by |r|.
+
+        Note: if the reference is an [=invalid memory reference=], the write
+        may not execute, or may write to a different memory location than
+        expected.
+
         (OpStore)
 </table>
-
-The [=originating variable=] of the left-hand side must not have an `access(read)` access attribute.
 
 In the simplest case, the left hand side of the assignment statement is the
 name of a variable.  See [[#forming-references-and-pointers]] for other cases.
@@ -4427,10 +4772,10 @@ assignment_statement
 
 <pre class='def'>
 if_statement
-  : IF paren_rhs_statement compound_statement elseif_statement? else_statement?
+  : IF paren_expression compound_statement elseif_statement? else_statement?
 
 elseif_statement
-  : ELSE_IF paren_rhs_statement compound_statement elseif_statement?
+  : ELSE_IF paren_expression compound_statement elseif_statement?
 
 else_statement
   : ELSE compound_statement
@@ -4456,7 +4801,7 @@ An if statement is executed as follows:
 
 <pre class='def'>
 switch_statement
-  : SWITCH paren_rhs_statement BRACE_LEFT switch_body+ BRACE_RIGHT
+  : SWITCH paren_expression BRACE_LEFT switch_body+ BRACE_RIGHT
 
 switch_body
   : CASE case_selectors COLON BRACE_LEFT case_body BRACE_RIGHT
@@ -4482,7 +4827,7 @@ transferred to the `default` clause.
 
 Each switch statement must have exactly one default clause.
 
-The case selector values must have the same type as the selector expression.
+The case selector values must have the same type as the result of evaluating the selector expression.
 
 A literal value must not appear more than once in the case selectors for a switch statement.
 
@@ -4810,9 +5155,9 @@ A <dfn noexport>return</dfn> statement ends execution of the current function.
 If the function is an [=entry point=], then the current shader invocation
 is terminated.
 Otherwise, evaluation continues with the next expression or statement after
-the evaluation of the call site of the current function invocation.
+the evaluation of the [=call site=] of the current function invocation.
 
-If the function doesn't have a [=return type=], then the return statement is
+If the function doesn't have a [=return type=], then the [=return=] statement is
 optional. If the return statement is provided for such a function, it must not
 supply a value.
 Otherwise the expression must be present, and is called the *return value*.
@@ -4888,9 +5233,6 @@ through assignment, evaluation in another expression or through use of the
 compound_statement
   : BRACE_LEFT statements BRACE_RIGHT
 
-paren_rhs_statement
-  : PAREN_LEFT short_circuit_or_expression PAREN_RIGHT
-
 statements
   : statement*
 
@@ -4951,7 +5293,7 @@ The identifier is [=in scope=] until the end of the function.
 Two formal parameters for a given function must not have the same name.
 
 If the return type is specified, then:
-* The return type must be an [=atomic-free=] [=plain type=].
+* The return type must be [=constructible=].
 * The last statement in the function body must be a [=return=] statement.
 
 <pre class='def'>
@@ -5008,23 +5350,25 @@ A <dfn noexport>function call</dfn> is a statement or expression which invokes a
 
 The function call must supply the same number of argument values as there are
 [=formal parameter|formal parameters=] in the called function.
-Each argument value must have the same type as the corresponding formal
+Each argument value must evaluate to the same type as the corresponding formal
 parameter, by position.
 
 When a function call is executed the following steps occur:
+* Function call argument values are evaluated.
+    The relative order of evaluation is not specified.
 * Execution of the current function is suspended.
     All [=function scope=] variables and constants maintain their current values.
 * Storage is allocated for each function scope variable in the called function.
     * Initialization occurs as described in [[#var-and-let]].
 * Values for the formal parameters of the called function are determined
-    by matching the function call argument values by position the formal
-    parameters (e.g. the first argument is matched to the first formal
-    parameter).
+    by matching the function call argument values by position.
+    For example, in the body of the called function the first formal parameter will denote
+    the value of the first argument at the [=call site=].
 * Control is transferred to the first statement in the called function.
 * The called function is executed.
-* When the called function finishes execution by either executing a return statement or reaching
+* When the called function returns, by either executing a [=return=] statement or reaching
     the end of the called function (if the function does not return a value),
-    control is transferred back the calling function and execution is
+    control is transferred back the calling function, and the called function's execution is
     unsuspended.
     If the called function returns a value, that value is supplied for the
     value of the function call expression.
@@ -5040,19 +5384,23 @@ Note: The current function will not resume execution if the called function or
 any descendent called function executes a `discard` statement.
 See [[#discard-statement]].
 
-## Restrictions ## {#function-restriction}
+## Restrictions on functions ## {#function-restriction}
 
 * Recursion is not permitted.
     That is, there must be no cycles in the call graph.
 * A [=vertex=] shader must return the `position` [=built-in output variable|built-in variable=].
     See [[#builtin-variables]].
 * An entry point must never be the target of a [=function call=].
-* If a function has a return type, it must be an [=atomic-free=] [=plain types|plain type=]
+* If a function has a return type, it must be a [=constructible=] type.
 * A [=formal parameter|function parameter=] must one the following types:
-    * atomic-free plain type
+    * a constructible type
     * a pointer type
     * a texture type
     * a sampler type
+* Each function call argument must evaluate to the type of the corresponding
+    function parameter.
+    * In particular, an argument that is a pointer must agree with the formal parameter
+        on storage class, pointee type, and access mode.
 * A function parameter of pointer type must be in one of
     the following storage classes:
     * [=storage classes/function=]
@@ -5070,7 +5418,7 @@ See [[#discard-statement]].
     * Another function parameter in the same function
     * A statement or expression in the function using the originating variable directly
 
-Note: the aliasing restriction applies to memory location written by function
+Note: The aliasing restriction applies to memory location written by function
 calls in the function.
 
 Issue: Revisit aliasing rules for clarity.
@@ -5182,20 +5530,28 @@ ISSUE: Can we query upper bounds on workgroup size dimensions?  Is it independen
 
 <div class='example wgsl global-scope' heading='workgroup_size Attribute'>
   <xmp>
-    [[ stage(compute), workgroup_size(8,1,1) ]]
+    [[ stage(compute), workgroup_size(8,4,1) ]]
     fn sorter() { }
        // OpEntryPoint GLCompute %sorter "sorter"
-       // OpExecutionMode %sorter LocalSize 8 1 1
+       // OpExecutionMode %sorter LocalSize 8 4 1
 
-    [[ stage(compute), workgroup_size(8) ]]
+    [[ stage(compute), workgroup_size(8u) ]]
     fn reverser() { }
        // OpEntryPoint GLCompute %reverser "reverser"
        // OpExecutionMode %reverser LocalSize 8 1 1
 
+    // Using an pipeline-overridable constant.
+    [[override(42)]] let block_width = 12u;
+    [[ stage(compute), workgroup_size(block_width) ]]
+    fn shuffler() { }
+       // The SPIR-V translation uses a WorkgroupSize-decorated constant,
+       // where the first component is an OpSpecConstant decorated with
+       // SpecID 42, and with default value 12, and second and third components
+       // use defaulted values of 1.
+
+    // Error: workgroup_size must be specified on compute shader
     [[ stage(compute) ]]
-    fn do_nothing() { }
-       // OpEntryPoint GLCompute %do_nothing "do_nothing"
-       // OpExecutionMode %do_nothing LocalSize 1 1 1
+    fn bad_shader() { }
   </xmp>
 </div>
 
@@ -5230,7 +5586,7 @@ More precisely, the <dfn noexport>interface of a shader stage</dfn> consists of:
 
 The <dfn dfn>Entry point IO type</dfn>s include the following:
   - Built-in variables. See [[#builtin-inputs-outputs]].
-  - User-defined IO. See [[#user-data-attributes]]
+  - User-defined IO. See [[#user-defined-inputs-outputs]]
   - Structures containing only built-in variables and user-defined IO.
     The structure must not contain a nested structure.
 
@@ -5243,9 +5599,9 @@ A pipeline output is denoted by the return type of the entry point.
 Each pipeline input or output is one of:
 
 * A built-in variable. See [[#builtin-inputs-outputs]].
-* A user data attribute. See [[#user-data-attributes]].
+* A user-defined value. See [[#user-defined-inputs-outputs]].
 
-#### Built-in inputs and outputs #### {#builtin-inputs-outputs}
+#### Built-in Inputs and Outputs #### {#builtin-inputs-outputs}
 
 A <dfn noexport>built-in input variable</dfn> provides access to system-generated control information.
 The set of built-in inputs are listed in [[#builtin-variables]].
@@ -5283,13 +5639,14 @@ result type, then *F* must be a [=functions in a shader stage|function in a shad
 
 Issue: in Vulkan, builtin variables occoupy I/O location slots counting toward limits.
 
-#### User Data Attribute TODO #### {#user-data-attributes}
+#### User-defined Inputs and Outputs #### {#user-defined-inputs-outputs}
 
 User-defined data can be passed as input to the start of a pipeline, passed
 between stages of a pipeline or output from the end of a pipeline.
 User-defined IO must not be passed to [=compute=] shader entry points.
-User-defined IO must be [=numeric scalar=] or [=numeric vector=] types .
-All user defined IO must be assigned locations (See [[#input-output-locations]]).
+User-defined IO must be of [=numeric scalar=] or [=numeric vector=] type,
+or of a structure type whose members are numeric scalars or vectors.
+All user-defined IO must be assigned locations (See [[#input-output-locations]]).
 
 #### Interpolation #### {#interpolation}
 
@@ -5313,8 +5670,14 @@ The <dfn noexport>interpolation sampling</dfn> must be one of:
     The [=fragment=] shader is invoked once per sample when this attribute is
     applied.
 
-The default interpolation of user-defined IO of scalar or vector floating-point
-type is `[[interpolate(perspective, center)]]`.
+For user-defined IO of scalar or vector floating-point type:
+* If the interpolation attribute is not specified, then `[[interpolate(perspective, center)]]` is assumed.
+* If the interpolation attribute is specified with an interpolation type:
+    * If the interpolation type is `flat`, then interpolation sampling must not be specified.
+    * If the interpolation type is `perspective` or `linear`, then:
+         * Any interpolation sampling is valid.
+         * If interpolation sampling is not specified, `center` is assumed.
+
 User-defined IO of scalar or vector integer type is always
 `[[interpolate(flat)]]` and, therefore, must not be specified in a [SHORTNAME] program.
 
@@ -5471,9 +5834,9 @@ where compatibility is defined by the following table.
       <td rowspan=3>[[WebGPU#dictdef-gpubufferbinding|GPUBufferBinding]]
       <td rowspan=3>GPUBufferBindingType
       <td>[[WebGPU#dom-gpubufferbindingtype-uniform|uniform]]
-  <tr><td>read-write [=storage buffer=]
+  <tr><td>[=storage buffer=] with [=access/read_write=] access
       <td>[[WebGPU#dom-gpubufferbindingtype-storage|storage]]
-  <tr><td>read-only [=storage buffer=]
+  <tr><td>[=storage buffer=] with [=access/read=] access
       <td>[[WebGPU#dom-gpubufferbindingtype-read-only-storage|read-only-storage]]
   <tr><td rowspan=2>sampler
       <td rowspan=3>[[WebGPU#gpusampler|GPUSampler]]
@@ -5495,21 +5858,15 @@ where compatibility is defined by the following table.
       <td>[[WebGPU#dom-gputexturesampletype-uint|uint]]
   <tr>
       <td>[[WebGPU#dom-gputexturesampletype-depth|depth]]
-  <tr><td>[=read-only storage texture=]
-      <td rowspan=2>[[WebGPU#gputextureview|GPUTextureView]]
-      <td rowspan=2>GPUStorageTextureAccess
-      <td>[[WebGPU#dom-gpustoragetextureaccess-read-only|read-only]]
   <tr><td>[=write-only storage texture=]
+      <td>[[WebGPU#gputextureview|GPUTextureView]]
+      <td>GPUStorageTextureAccess
       <td>[[WebGPU#dom-gpustoragetextureaccess-write-only|write-only]]
 </table>
 
 TODO: Describe when filtering or non-filtering samplers are valid.
 
 TODO: Describe when float vs. unfilterable float sampled textures are valid.
-
-TODO: Rewrite the phrases 'read-only storage buffer' and 'read-write storage buffer' after
-we settle on how to express those concepts.
-See https://github.com/gpuweb/gpuweb/pull/1183
 
 If |B| is a [=uniform buffer=] variable in a resource interface,
 and |WB| is the [[WebGPU#buffer-interface|WebGPU GPUBuffer]] bound to |B|, then:
@@ -5591,7 +5948,7 @@ the implementation can issue a clear diagnostic.
 
 <div class='example using extensions' heading="Using hypothetical extensions">
   <xmp>
-    // Enable a hypothetical IEEE binary16 floating point extension.
+    // Enable a hypothetical IEEE-754 binary16 floating point extension.
     enable f16;
 
     // Assuming the f16 extension enables use of the f16 type:
@@ -5684,7 +6041,7 @@ with integer coordinates *(i,j,k)* with:
 
 where *(workgroup_size_x, workgroup_size_y, workgroup_size_z)* is
 the value specified for the [=workgroup_size=] attribute of the
-entry point, or (1,1,1) if the entry point has no such attribute.
+entry point.
 
 There is exactly one invocation in a workgroup for each point in the workgroup grid.
 
@@ -5760,24 +6117,186 @@ However, how do we handle an indirect dispatch that specifies a group count of z
 
 ### Barrier TODO ### {#barrier}
 
-### Image Operations Requiring Uniformity TODO ### {#image-operations-requiring-uniformity}
+### Derivatives ### {#derivatives}
 
-### Derivatives TODO ### {#derivatives}
+A <dfn noexport>partial derivative</dfn> is the rate of change of a value along an axis.
+
+Fragment shader invocations operating on neighbouring fragments (in screen-space coordinates)
+collaborate to compute approximate partial derivatives.
+
+Partial derivatives of the *fragment coordinate* are computed implicitly as part
+of operation of the following built-in functions:
+* [[#texturesample|textureSample]],
+* [[#texturesamplebias|textureSampleBias]], and
+* [[#texturesamplecompare|textureSampleCompare]].
+
+For these, the derivatives help determine the mip levels of texels to be sampled, or in the case of
+`textureSampleCompare`, sampled and compared against a reference value.
+
+Partial derivatives of *invocation-specified* values are computed by the
+built-in functions described in [[#derivative-builtin-functions]]:
+* dpdx, dpdxCoarse, and dpdxFine compute partial derivatives along the x axis.
+* dpdy, dpdyCoarse, and dpdyFine compute partial derivatives along the y axis.
+* fwidth, fwidthCoarse, and fwidthFine compute the Manhattan metric over the associated x and y partial derivatives.
+
+Because neighbouring invocations must collaborate to compute derivatives,
+these functions must only be invoked in uniform control flow in a fragment shader.
 
 ### Arrayed resource access TODO ### {#arrayed-resource-access}
 
-## Floating Point Evaluation TODO ## {#floating-point-evaluation}
+## Floating Point Evaluation ## {#floating-point-evaluation}
 
-TODO: *Stub*
+[SHORTNAME] follows the [[!IEEE-754|IEEE-754]] standard for floating point computation with
+the following exceptions:
+* No floating point exceptions are generated.
+* Signaling NaNs may not be generated.
+    Any signaling NaN may be converted to a quiet NaN.
+* Implementations may assume that NaNs, inifinities are not present
+    * Note: This means some functions (e.g. `isInf`, `isNan`, `min` and `max`)
+        may not return the expected result due to optimizations about the presence
+        of NaNs and infinities.
+* Implementations may ignore the sign of a zero.
+    That is, a zero with a positive sign may behave like a zero a with a negative sign, and vice versa.
+* No rounding mode is specified.
+* Implementations may flush denormalized value on the input and/or output of
+    any operation listed in [[#floating-point-accuracy]].
+    * Other operations are required to preserve denormalized numbers.
+* The accuracy of operations is given in [[#floating-point-accuracy]].
 
-* Infinities, NaNs, negative zeros
-* Denorms, flushing
-* fast-math rules: e.g. reassociation, fusing
-* Invariance (or is this more general than floating point)
-* Rounding
-* Error bounds on basic operations
+### Floating Point Accuracy ### {#floating-point-accuracy}
+
+<div algorithm="correctly rounded">
+Let |x| be the exact real-valued or infinite result of an operation when computed with unbounded precision.
+The <dfn>correctly rounded</dfn> result of the operation for floating point type |T| is:
+* |x|, when |x| is in |T|,
+* Otherwise:
+    * the smallest value in |T| greater than |x|, or
+    * the largest value in |T| less than |x|.
+
+</div>
+
+That is, the result may be rounded up or down:
+[SHORTNAME] does not specify a rounding mode.
+
+Note: Floating point types include positive and negative infinity, so
+the correctly rounded result may be finite or infinite.
+
+The units in the last place, <dfn noexport>ULP</dfn>, for a floating point
+number `x` is the minimum distance between two non-equal floating point numbers
+`a` and `b` such that `a` &le; `x` &le; `b` (i.e. `ulp(x) =
+min`<sub>`a,b`</sub>`|b - a|`).
+
+In the following tables, the accuracy of an operation is provided among five
+possibilities:
+* Correct result (for non-floating point return values)
+* [=Correctly rounded=]
+* A relative error expressed as [=ULP=]
+* A function that the accuracy is <dfn noexport>inherited from</dfn>.
+    That is, the accuracy is equal to implementing the operation in terms of the derived function.
+* An absolute error
+
+For any accuracy values specified over a range, the accuracy is undefined for
+results outside that range.
+
+If an allowable return value for any operation is greater in magnitude than the
+largest representable finite floating-point value, then that operation may additionally
+return either the infinity with the same sign or the largest finite
+value with the same sign.
+
+<table class='data'>
+  <caption>Accuracy of expressions</caption>
+  <thead>
+    <tr><th>Expression<th>Accuracy<th>
+  </thead>
+
+  <tr><td>`x + y`<td>Correctly rounded
+  <tr><td>`x - y`<td>Correctly rounded
+  <tr><td>`x * y`<td>Correctly rounded
+  <tr><td>`x / y`<td>2.5 ULP for `|y|` in the range [2<sup>-126</sup>, 2<sup>126</sup>]
+  <tr><td>`x % y`<td>Derived from `x - y * trunc(x/y)`
+  <tr><td>`-x`<td>Correctly rounded
+
+  <tr><td>`x == y`<td>Correct result
+  <tr><td>`x != y`<td>Correct result
+  <tr><td>`x < y`<td>Correct result
+  <tr><td>`x <= y`<td>Correct result
+  <tr><td>`x > y`<td>Correct result
+  <tr><td>`x >= y`<td>Correct result
+</table>
+
+<table class='data'>
+  <caption>Accuracy of built-in functions</caption>
+  <thead>
+    <tr><th>Built-in Function<th>Accuracy
+  </thead>
+
+  <tr><td>`abs(x)`<td>Correctly rounded
+  <tr><td>`acos(x)`<td>Inherited from `atan2(sqrt(1.0 - x * x), x)`
+  <tr><td>`asin(x)`<td>Inherited from `atan2(x, sqrt(1.0 - x * x))`
+  <tr><td>`atan(x)`<td>4096 ULP
+  <tr><td>`atan2(x)`<td>4096 ULP
+  <tr><td>`ceil(x)`<td>Correctly rounded
+  <tr><td>`clamp(x)`<td>Correctly rounded
+  <tr><td>`cos(x)`<td>Absolute error &le; 2<sup>-11</sup> inside the range of [-&pi;, &pi;]
+  <tr><td>`cosh(x)`<td>Inherited from `(exp(x) - exp(-x)) * 0.5`
+  <tr><td>`cross(x, y)`<td>Inherited from `(x[i] * y[j] - x[j] * y[j])`
+  <tr><td>`distance(x, y)`<td>Inherited from `length(x - y)`
+  <tr><td>`exp(x)`<td>3 + 2 * |x| ULP
+  <tr><td>`exp2(x)`<td>3 + 2 * |x| ULP
+  <tr><td class="nowrap">`faceForward(x, y, z)`<td>Inherited from `select(-x, x, dot(z, y) < 0.0)`
+  <tr><td>`floor(x)`<td>Correctly rounded
+  <tr><td>`fma(x, y, z)`<td>Inherited from `x * y + z`
+  <tr><td>`fract(x)`<td>Correctly rounded
+  <tr><td>`frexp(x, y)`<td>Correctly rounded
+  <tr><td>`inverseSqrt(x)`<td>2 ULP
+  <tr><td>`ldexp(x, y)`<td>Correctly rounded
+  <tr><td>`length(x)`<td>Inherited from `sqrt(dot(x, x))`
+  <tr><td>`log(x)`<td>3 ULP outside the range [0.5, 2.0].<br>Absolute error &lt; 2<sup>-21</sup> inside the range [0.5, 2.0]
+  <tr><td>`log2(x)`<td>3 ULP outside the range [0.5, 2.0].<br>Absolute error &lt; 2<sup>-21</sup> inside the range [0.5, 2.0]
+  <tr><td>`max(x, y)`<td>Correctly rounded
+  <tr><td>`min(x, y)`<td>Correctly rounded
+  <tr><td>`mix(x, y, z)`<td>Inherited from `x - (1.0 - z) + y * z`
+  <tr><td>`modf(x, y)`<td>Correctly rounded
+  <tr><td>`normalize(x)`<td>Inherited from `x - length(x)`
+  <tr><td>`pow(x, y)`<td>Inherited from `exp2(y * log2(x))`
+  <tr><td>`reflect(x, y)`<td>Inherited from `x - 2.0 * dot(x, y) * y`
+  <tr><td>`refract(x, y, z)`<td>Inherited from `z * x - (z * dot(y, x) + sqrt(k)) * y`,<br>where `k = 1.0 - z * z * (1.0 - dot(y, x) * dot(y, x))`<br>If `k < 0.0` the result is precisely 0.0
+  <tr><td>`round(x)`<td>Correctly rounded
+  <tr><td>`sign(x)`<td>Correctly rounded
+  <tr><td>`sin(x)`<td>Absolute error &le; 2<sup>-11</sup> inside the range [-&pi;, &pi;]
+  <tr><td>`sinh(x)`<td>Inherited from `(exp(x) - exp(-x)) * 0.5`
+  <tr><td>`smoothStep(x, y, z)`<td>Inherited from `t * t * (3.0 - 2.0 * t)`,<br>where `t = clamp((z - x) / (y - x), 0.0, 1.0)`
+  <tr><td>`sqrt(x)`<td>Inherited from `1.0 / inverseSqrt(x)`
+  <tr><td>`step(x, y)`<td>Correctly rounded
+  <tr><td>`tan(x)`<td>Inherited from `sin(x) / cos(x)`
+  <tr><td>`tanh(x)`<td>Inherited from `sinh(x) / cosh(x)`
+  <tr><td>`trunc(x)`<td>Correctly rounded
+
+</table>
+
+<dfn noexport>Reassociation</dfn> is the reordering of operations in an
+expression such that the answer is the same if computed exactly. For example:
+* `(a + b) + c` reassociates to `a + (b + c)`
+* `(a - b) + c` reassociates to `(a + c) - b`
+* `(a * b) / c` reassociates to `(a / c) * b`
+
+However, the result may not be the same when computed in floating point.
+The reassociated result may be inaccurate due to approximation, or may trigger
+an overflow or NaN when computing intermediate results.
+
+An implementation may reassociate and/or fuse operations if the optimization is
+at least as accurate as the original formulation.
 
 ### Floating point conversion ### {#floating-point-conversion}
+
+In this section, a floating point type may be any of:
+* The [=f32=] type in WGSL.
+* A hypothetical type corresponding to a binary format defined by the [[!IEEE-754|IEEE-754]]
+    floating point standard.
+
+    Note: The binary16 format is referenced in this way.
+
+Note: Recall that the [=f32=] WGSL type corresponds to the IEEE-754 binary32 format.
 
 When converting a floating point scalar value to an integral type:
 * If the original value is exactly representable in the destination type, then the result is that value.
@@ -5826,6 +6345,7 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
     <tr><th>Token<th>Definition
   </thead>
   <tr><td>`ARRAY`<td>array
+  <tr><td>`ATOMIC`<td>atomic
   <tr><td>`BOOL`<td>bool
   <tr><td>`FLOAT32`<td>f32
   <tr><td>`INT32`<td>i32
@@ -5887,6 +6407,8 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`LET`<td>let
   <tr><td>`LOOP`<td>loop
   <tr><td>`PRIVATE`<td>private
+  <tr><td>`READ`<td>read
+  <tr><td>`READ_WRITE`<td>read_write
   <tr><td>`RETURN`<td>return
   <tr><td>`STORAGE`<td>storage
   <tr><td>`SWITCH`<td>switch
@@ -5895,7 +6417,9 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`UNIFORM`<td>uniform
   <tr><td>`VAR`<td>var
   <tr><td>`WORKGROUP`<td>workgroup
+  <tr><td>`WRITE`<td>write
 </table>
+Issue: Should read, write, and read_write be not completely reserved?  They are only used in specific contexts.
 <table class='data'>
   <caption>Image format keywords</caption>
   <thead>
@@ -5948,27 +6472,31 @@ The following is a list of keywords which are reserved for future expansion.
   <tr>
     <td>asm
     <td>bf16
+    <td>const
     <td>do
     <td>enum
-    <td>f16
   <tr>
+    <td>f16
     <td>f64
+    <td>handle
     <td>i8
     <td>i16
-    <td>i64
-    <td>const
   <tr>
+    <td>i64
+    <td>mat
+    <td>premerge
+    <td>regardless
     <td>typedef
+  <tr>
     <td>u8
     <td>u16
     <td>u64
     <td>unless
-  <tr>
     <td>using
+  <tr>
+    <td>vec
+    <td>void
     <td>while
-    <td>regardless
-    <td>premerge
-    <td>handle
 </table>
 
 ## Syntactic Tokens ## {#syntactic-tokens}
@@ -6030,7 +6558,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
       <td style="width:50%">Index of the current vertex within the current API-level draw command,
          independent of draw instancing.
 
-         For a non-indexed draw, the first vertex has an index equal to the `firstIndex` argument
+         For a non-indexed draw, the first vertex has an index equal to the `firstVertex` argument
          of the draw, whether provided directly or indirectly.
          The index is incremented by one for each additional vertex in the draw instance.
 
@@ -6117,12 +6645,6 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
       group_count_y, group_count_z)`, of the compute shader
       [[WebGPU#dom-gpucomputepassencoder-dispatch|dispatched]] by the API.
 
-  <tr><td>`workgroup_size`
-      <td>compute
-      <td>in
-      <td>vec3&lt;u32&gt;
-      <td style="width:50%">The [=workgroup_size=] of the current entry point.
-
   <tr><td>`sample_index`
       <td>fragment
       <td>in
@@ -6185,7 +6707,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
     [[stage(fragment)]]
     fn fs_main(
-      [[builtin(front_facing)]] is_front: u32,
+      [[builtin(front_facing)]] is_front: bool,
       //     OpDecorate %is_front BuiltIn FrontFacing
       [[builtin(position)]] coord: vec4<f32>,
       //     OpDecorate %coord BuiltIn FragCoord
@@ -6252,15 +6774,15 @@ That's not a full user-defined function declaration.
     (OpAny)
 
   <tr algorithm="scalar select">
-    <td>|T| is a scalar or vector
-    <td>`select(`|T|`,`|T|`,bool)`: |T|
-    <td>`select(a,b,c)` evaluates to `a` when `c` is true, and `b` otherwise.
+    <td>|T| is a scalar
+    <td>`select(`|f|`: `|T|` , `|t|`: `|T|`, `|cond|`: bool)`: |T|
+    <td>Returns |t| when |cond| is true, and |f| otherwise.
     (OpSelect)
 
   <tr algorithm="vector select">
     <td>|T| is a scalar
-    <td>`select(vecN<`|T|`>,vecN<`|T|`>,vecN<bool>`: `vecN<`|T|`>`
-    <td>[=Component-wise=] selection. Result component |i| is evaluated as `select(a[`|i|`],b[`|i|`],c[`|i|`])`.
+    <td>`select(`|f|`: vecN<`|T|`>, `|t|`: vecN<`|T|`, `|cond|`: vecN<bool>>)`
+    <td>[=Component-wise=] selection. Result component |i| is evaluated as `select(`|f|`[`|i|`], `|t|`[`|i|`], `|cond|`[`|i|`])`.
     (OpSelect)
 </table>
 
@@ -6272,27 +6794,27 @@ That's not a full user-defined function declaration.
   </thead>
   <tr><td rowspan=4>
     |e|: |T|<br>
-    |T| is *Floating*<br>
+    |T| is [FLOATING]<br>
     |TR| is bool if |T| is a scalar, or<br>
-    vec|N|&lt;bool&gt; (where |N| = *Arity(*|T|*)*) if |T| is a vector
+    vec|N|&lt;bool&gt; if |T| is a vector
 
     <td class="nowrap">`isNan(`|e|`) -> `|TR|
-    <td>Test for NaN according to IEEE.
+    <td>Test for NaN according to [[!IEEE-754|IEEE-754]].<br>
     [=Component-wise=] when |T| is a vector. (OpIsNan)
   <tr><td class="nowrap">`isInf(`|e|`) -> `|TR|
-    <td>Test for infinity according to IEEE.
+    <td>Test for infinity according to [[!IEEE-754|IEEE-754]].<br>
     [=Component-wise=] when |T| is a vector. (OpIsInf)
   <tr><td class="nowrap">`isFinite(`|e|`) -> `|TR|
-    <td>Test a finite value according to IEEE.
+    <td>Test a finite value according to [[!IEEE-754|IEEE-754]].<br>
     [=Component-wise=] when |T| is a vector.
   <tr><td class="nowrap">`isNormal(`|e|`) -> `|TR|
-    <td>Test a normal value according to IEEE.
+    <td>Test a normal value according to [[!IEEE-754|IEEE-754]].<br>
     [=Component-wise=] when |T| is a vector.
 
-  <tr algorithm="runtime array length">
+  <tr algorithm="runtime-sized array length">
     <td>|e|: ptr&lt;storage,array&lt;|T|&gt;&gt;
-    <td>`arrayLength(`|e|`)`: u32<td>Returns the number of elements in the runtime array.<br>
-        (OpArrayLength, but you have to trace back to get the pointer to the enclosing struct.)
+    <td>`arrayLength(`|e|`)`: u32<td>Returns the number of elements in the [=runtime-sized=] array.<br>
+        (OpArrayLength, but the implementation has to trace back to get the pointer to the enclosing struct.)
 </table>
 
 ## Float built-in functions ## {#float-builtin-functions}
@@ -6302,63 +6824,63 @@ That's not a full user-defined function declaration.
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
   <tr algorithm="float abs">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`abs(`|e|`:` |T| `) -> ` |T|
     <td>Returns the absolute value of |e| (e.g. |e| with a positive sign bit).
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Fabs)
 
   <tr algorithm="acos">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`acos(`|e|`:` |T| `) -> ` |T|
     <td>Returns the arc cosine of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Acos)
 
   <tr algorithm="asin">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`asin(`|e|`:` |T| `) -> ` |T|
     <td>Returns the arc sine of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Asin)
 
   <tr algorithm="atan">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`atan(`|e|`:` |T| `) -> ` |T|
     <td>Returns the arc tangent of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Atan)
 
   <tr algorithm="atan2">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`atan2(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
     <td>Returns the arc tangent of |e1| over |e2|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Atan2)
 
   <tr algorithm="ceil">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`ceil(`|e|`:` |T| `) -> ` |T|
     <td>Returns the [=ceiling expression|ceiling=] of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Ceil)
 
   <tr algorithm="clamp">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`clamp(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T|`) -> ` |T|
     <td>Returns `min(max(`|e1|`,`|e2|`),`|e3|`)`.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450NClamp)
 
   <tr algorithm="cos">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`cos(`|e|`:` |T| `) -> ` |T|
     <td>Returns the cosine of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Cos)
 
   <tr algorithm="cosh">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`cosh(`|e|`:` |T| `) -> ` |T|
     <td>Returns the hyperbolic cosine of |e|.
     [=Component-wise=] when |T| is a vector
@@ -6370,35 +6892,34 @@ That's not a full user-defined function declaration.
     <td>Returns the cross product of |e1| and |e2|. (GLSLstd450Cross)
 
   <tr algorithm="distance">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`distance(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
     <td>Returns the distance between |e1| and |e2| (e.g. `length(`|e1|` - `|e2|`)`).
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Distance)
 
   <tr algorithm="exp">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`exp(`|e1|`:` |T| `) -> ` |T|
     <td>Returns the natural exponentiation of |e1| (e.g. `e`<sup>|e1|</sup>).
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Exp)
 
   <tr algorithm="exp2">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`exp2(`|e|`:` |T| `) -> ` |T|
     <td>Returns 2 raised to the power |e| (e.g. `2`<sup>|e|</sup>).
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Exp2)
 
   <tr algorithm="faceForward">
-    <td>|T| is *Floating*
+    <td>|T| is vec|N|&lt;f32&gt;
     <td class="nowrap">`faceForward(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T| `) -> ` |T|
     <td>Returns |e1| if `dot(`|e2|`,`|e3|`)` is negative, and `-`|e1| otherwise.
-    [=Component-wise=] when |T| is a vector.
     (GLSLstd450FaceForward)
 
   <tr algorithm="floor">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`floor(`|e|`:` |T| `) -> ` |T|
     <td>Returns the [=floor expression|floor=] of |e|.
     [=Component-wise=] when |T| is a vector.
@@ -6412,18 +6933,20 @@ That's not a full user-defined function declaration.
     (GLSLstd450Fma)
 
   <tr algorithm="fract">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`fract(`|e|`:` |T| `) -> ` |T|
     <td>Returns the fractional bits of |e| (e.g. |e| `- floor(`|e|`)`).
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Fract)
 
   <tr algorithm="frexp">
-    <td>|T| is *Floating*<br>
-        |I| is *Integral*, where<br>
+    <td>|T| is [FLOATING]<br>
+        |I| is [SIGNEDINTEGRAL], where<br>
         |I| is a scalar if |T| is a scalar, or<br>
-        a vector when |T| is a vector (with equal *Arity*)
-    <td class="nowrap">`frexp(`|e1|`:` |T| `, `|e2|`:` ptr<|I|> `) -> ` |T|
+        a vector when |T| is a vector<br>
+        |SC| is a storage class<br>
+        |A| is [=access/write=] or [=access/read_write=]
+    <td class="nowrap">`frexp(`|e1|`:` |T| `, `|e2|`:` ptr&lt;|SC|,|I|,|A|&gt; `) -> ` |T|
     <td>Splits |e1| into a signficand and exponent of the form `significand * 2`<sup>`exponent`</sup> and returns the significand.
     The magnitude of the signficand is in the range of [0.5, 1.0) or 0.
     The exponent is stored through the pointer |e2|.
@@ -6431,67 +6954,73 @@ That's not a full user-defined function declaration.
     (GLSLstd450Frexp)
 
   <tr algorithm="inverseSqrt">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`inverseSqrt(`|e|`:` |T| `) -> ` |T|
     <td>Returns the reciprocal of `sqrt(`|e|`)`.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450InverseSqrt)
 
   <tr algorithm="ldexp">
-    <td>|T| is *Floating*<br>
-        |I| is *Integral*, where<br>
+    <td>|T| is [FLOATING]<br>
+        |I| is [SIGNEDINTEGRAL], where<br>
         |I| is a scalar if |T| is a scalar, or<br>
-        a vector when |T| is a vector (with equal *Arity*)
+        a vector when |T| is a vector
     <td class="nowrap">`ldexp(`|e1|`:` |T| `, `|e2|`:` |I| `) -> ` |T|
     <td>Returns |e1| `* 2`<sup>|e2|</sup>.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Ldexp)
 
   <tr algorithm="length">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`length(`|e|`:` |T| `) -> ` |T|
     <td>Returns the length of |e| (e.g. `abs(`|e|`)` if |T| is a scalar, or `sqrt(`|e|`[0]`<sup>`2`</sup> `+` |e|`[1]`<sup>`2`</sup> `+ ...)` if |T| is a vector).
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Length)
 
   <tr algorithm="log">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`log(`|e|`:` |T| `) -> ` |T|
     <td>Returns the natural logaritm of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Log)
 
   <tr algorithm="log2">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`log2(`|e|`:` |T| `) -> ` |T|
     <td>Returns the base-2 logarithm of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Log2)
 
   <tr algorithm="max">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`max(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
     <td>Returns |e2| if |e1| is less than |e2|, and |e1| otherwise.
+    If one operand is a NaN, the other is returned.
+    If both operands are NaNs, a NaN is returned.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450NMax)
 
   <tr algorithm="min">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`min(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
     <td>Returns |e2| if |e2| is less than |e1|, and |e1| otherwise.
+    If one operand is a NaN, the other is returned.
+    If both operands are NaNs, a NaN is returned.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450NMin)
 
   <tr algorithm="mix">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`mix(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T|`) -> ` |T|
     <td>Returns the linear blend of |e1| and |e2| (e.g. |e1|`*(1-`|e3|`)+`|e2|`*`|e3|).
     [=Component-wise=] with |T| is a vector.
     (GLSLstd450FMix)
 
   <tr algorithm="scalar case, modf">
-    <td>|T| is *Floating*
-    <td class="nowrap">`modf(`|e1|`:` |T| `, `|e2|`:` ptr<|T|> `) -> ` |T|
+    <td>|T| is [FLOATING]
+        |SC| is a storage class<br>
+        |A| is [=access/write=] or [=access/read_write=]
+    <td class="nowrap">`modf(`|e1|`:` |T| `, `|e2|`:` ptr&lt;|SC|,|T|,|A|&gt; `) -> ` |T|
     <td>Splits |e1| into fractional and whole number parts.
     Returns the fractional part and stores the whole number through the pointer |e2|.
     [=Component-wise=] when |T| is a vector.
@@ -6504,22 +7033,42 @@ That's not a full user-defined function declaration.
     (GLSLstd450Normalize)
 
   <tr algorithm="pow">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`pow(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
     <td>Returns |e1| raised to the power |e2|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Pow)
 
+  <tr algorithm="quantize to f16">
+    <td>|T| is [FLOATING]
+    <td class="nowrap">`quantizeToF16(`|e|`:` |T| `) -> ` |T|
+    <td>Quantizes a 32-bit floating point value |e| as if |e| were converted to a [[!IEEE-754|IEEE 754]] binary16 value,
+        and then converted back to a IEEE 754 binary32 value.<br>
+        See [[#floating-point-conversion]].<br>
+        [=Component-wise=] when |T| is a vector.<br>
+
+        Note: The vec2&lt;f32&gt; case is the same as `unpack2x16float(pack2x16float(`|e|`))`.
+
+        (OpQuantizeToF16)
+
   <tr algorithm="reflect">
-    <td>|T| is *Floating*
+    <td>|T| is vec|N|&lt;f32&gt;
     <td class="nowrap">`reflect(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
     <td>For the incident vector |e1| and surface orientation |e2|, returns the reflection direction
-    |e1|`-2*dot(`|e2|`,`|e1|`)*|e2|`.
-    [=Component-wise=] when |T| is a vector.
+    |e1|`-2*dot(`|e2|`,`|e1|`)*`|e2|.
     (GLSLstd450Reflect)
 
+  <tr algorithm="refract">
+    <td>|T| is vec|N|&lt;f32&gt;<br>I is f32
+    <td class="nowrap">`refract(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |I| `) -> ` |T|
+    <td>For the incident vector |e1| and surface normal |e2|, and the ratio of indices of refraction |e3|,
+    let `k = 1.0 - `|e3|` * `|e3|` * (1.0 - dot(`|e2|`, `|e1|`) * dot(`|e2|`, `|e1|`))`. If `k < 0.0`, returns the
+    refraction vector 0.0, otherwise return the refraction vector
+    |e3|` * `|e1|` - (`|e3|` * dot(`|e2|`, `|e1|`) + sqrt(k)) * `|e2|.
+    (GLSLstd450Refract)
+
   <tr algorithm="round">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`round(`|e|`:` |T| `) -> ` |T|
     <td>Result is the integer |k| nearest to |e|, as a floating point value.<br>
         When |e| lies halfway between integers |k| and |k|+1,
@@ -6528,63 +7077,63 @@ That's not a full user-defined function declaration.
         (GLSLstd450RoundEven)
 
   <tr algorithm="float sign">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`sign(`|e|`:` |T| `) -> ` |T|
     <td>Returns the sign of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450FSign)
 
   <tr algorithm="sin">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`sin(`|e|`:` |T| `) -> ` |T|
     <td>Returns the sine of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Sin)
 
   <tr algorithm="sinh">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`sinh(`|e|`:` |T| `) -> ` |T|
     <td>Returns the hyperbolic sine of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Sinh)
 
   <tr algorithm="smoothStep">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`smoothStep(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T| `) -> ` |T|
     <td>Returns the smooth Hermite interpolation between 0 and 1.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450SmoothStep)
 
   <tr algorithm="sqrt">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`sqrt(`|e|`:` |T| `) -> ` |T|
     <td>Returns the square root of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Sqrt)
 
   <tr algorithm="step">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`step(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
     <td>Returns 0.0 if |e1| is less than |e2|, and 1.0 otherwise.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Step)
 
   <tr algorithm="tan">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`tan(`|e|`:` |T| `) -> ` |T|
     <td>Returns the tangent of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Tan)
 
   <tr algorithm="tanh">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`tanh(`|e|`:` |T| `) -> ` |T|
     <td>Returns the hyperbolic tangent of |e|.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Tanh)
 
   <tr algorithm="trunc">
-    <td>|T| is *Floating*
+    <td>|T| is [FLOATING]
     <td class="nowrap">`trunc(`|e|`:` |T| `) -> ` |T|
     <td>Returns the nearest whole number whose absolute value is less than or equal to |e|.
     [=Component-wise=] when |T| is a vector.
@@ -6598,34 +7147,35 @@ That's not a full user-defined function declaration.
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
   <tr algorithm="signed abs">
-    <td>|T| is *SignedIntegral*
+    <td>|T| is [SIGNEDINTEGRAL]
     <td class="nowrap">`abs`(|e|: |T| ) -> |T|
     <td>The absolute value of |e|.
         [=Component-wise=] when |T| is a vector.
+        If |e| evaluates to the largest negative value, then the result is |e|.
         (GLSLstd450SAbs)
 
   <tr algorithm="scalar case, unsigned abs">
-    <td>|T| is u32 or vec|N|&lt;u32&gt;
+    <td>|T| is [UNSIGNEDINTEGRAL]
     <td class="nowrap">`abs`(|e|: |T| ) -> |T|
     <td>Result is |e|.  This is provided for symmetry with `abs` for signed integers.
     [=Component-wise=] when |T| is a vector.
 
   <tr algorithm="unsigned clamp">
-    <td>|T| is u32 or vec|N|&lt;u32&gt;
+    <td>|T| is [UNSIGNEDINTEGRAL]
     <td class="nowrap">`clamp(`|e1|`:` |T| `, `|e2|`:` |T|`, `|e3|`:` |T|`) ->` |T|
     <td>Returns `min(max(`|e1|`,`|e2|`),`|e3|`)`.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450UClamp)
 
   <tr algorithm="signed clamp">
-    <td>|T| is *SignedIntegral*
+    <td>|T| is [SIGNEDINTEGRAL]
     <td class="nowrap">`clamp(`|e1|`:` |T| `, `|e2|`:` |T|`, `|e3|`:` |T|`) ->` |T|
     <td>Returns `min(max(`|e1|`,`|e2|`),`|e3|`)`.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450SClamp)
 
   <tr algorithm="count 1 bits">
-    <td>|T| is *Integral*
+    <td>|T| is [INTEGRAL]
     <td class="nowrap">`countOneBits(`|e|`:` |T| `) ->` |T|
     <td>The number of 1 bits in the representation of |e|.<br>
         Also known as "population count".<br>
@@ -6633,35 +7183,35 @@ That's not a full user-defined function declaration.
         (SPIR-V OpBitCount)
 
   <tr algorithm="unsigned max">
-    <td>|T| is u32 or vec|N|&lt;u32&gt;
+    <td>|T| is [UNSIGNEDINTEGRAL]
     <td class="nowrap">`max(`|e1|`:` |T| `, `|e2|`:` |T|`) ->` |T|
     <td>Returns |e2| if |e1| is less than |e2|, and |e1| otherwise.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450UMax)
 
   <tr algorithm="signed max">
-    <td>|T| is *SignedIntegral*
+    <td>|T| is [SIGNEDINTEGRAL]
     <td class="nowrap">`max(`|e1|`:` |T| `, `|e2|`:` |T|`) ->` |T|
     <td>Returns |e2| if |e1| is less than |e2|, and |e1| otherwise.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450SMax)
 
   <tr algorithm="unsigned min">
-    <td>|T| is u32 or vec|N|&lt;u32&gt;
+    <td>|T| is [UNSIGNEDINTEGRAL]
     <td class="nowrap">`min(`|e1|`:` |T| `, `|e2|`:` |T|`) ->` |T|
     <td>Returns |e1| if |e1| is less than |e2|, and |e2| otherwise.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450UMin)
 
   <tr algorithm="signed min">
-    <td>|T| is *SignedIntegral*
+    <td>|T| is [SIGNEDINTEGRAL]
     <td class="nowrap">`min(`|e1|`:` |T| `, `|e2|`:` |T|`) ->` |T|
     <td>Returns |e1| if |e1| is less than |e2|, and |e2| otherwise.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd45SUMin)
 
   <tr algorithm="bit reversal">
-    <td>|T| is *Integral*
+    <td>|T| is [INTEGRAL]
     <td class="nowrap">`reverseBits(`|e|`:` |T| `) ->`  |T|
     <td>Reverses the bits in |e|:  The bit at position |k| of the result equals the
         bit at position 31-|k| of |e|.<br>
@@ -6699,6 +7249,12 @@ That's not a full user-defined function declaration.
 </table>
 
 ## Derivative built-in functions ## {#derivative-builtin-functions}
+
+See [[#derivatives]].
+
+These functions:
+* Must only be used in a [=fragment=] shader stage.
+* Must only be invoked in uniform control flow.
 
 <table class='data'>
   <thead>
@@ -6742,36 +7298,43 @@ That's not a full user-defined function declaration.
 
 ## Texture built-in functions ## {#texture-builtin-functions}
 
+In this section, texture types are shown with the following parameters:
+* |T|, a sampled type.
+* <var ignore>F</var>, a [=texel format=].
+* <var ignore>A</var>, an [=access mode=].
+
+Parameter values must be valid for the respective texture types.
+
 ### `textureDimensions` ### {#texturedimensions}
 
 Returns the dimensions of a texture, or texture's mip level in texels.
 
 ```rust
 textureDimensions(t: texture_1d<T>) -> i32
+textureDimensions(t: texture_1d<T>, level: i32) -> i32
 textureDimensions(t: texture_2d<T>) -> vec2<i32>
 textureDimensions(t: texture_2d<T>, level: i32) -> vec2<i32>
 textureDimensions(t: texture_2d_array<T>) -> vec2<i32>
 textureDimensions(t: texture_2d_array<T>, level: i32) -> vec2<i32>
 textureDimensions(t: texture_3d<T>) -> vec3<i32>
 textureDimensions(t: texture_3d<T>, level: i32) -> vec3<i32>
-textureDimensions(t: texture_cube<T>) -> vec3<i32>
-textureDimensions(t: texture_cube<T>, level: i32) -> vec3<i32>
-textureDimensions(t: texture_cube_array<T>) -> vec3<i32>
-textureDimensions(t: texture_cube_array<T>, level: i32) -> vec3<i32>
+textureDimensions(t: texture_cube<T>) -> vec2<i32>
+textureDimensions(t: texture_cube<T>, level: i32) -> vec2<i32>
+textureDimensions(t: texture_cube_array<T>) -> vec2<i32>
+textureDimensions(t: texture_cube_array<T>, level: i32) -> vec2<i32>
 textureDimensions(t: texture_multisampled_2d<T>)-> vec2<i32>
-textureDimensions(t: texture_multisampled_2d_array<T>)-> vec2<i32>
 textureDimensions(t: texture_depth_2d) -> vec2<i32>
 textureDimensions(t: texture_depth_2d, level: i32) -> vec2<i32>
 textureDimensions(t: texture_depth_2d_array) -> vec2<i32>
 textureDimensions(t: texture_depth_2d_array, level: i32) -> vec2<i32>
-textureDimensions(t: texture_depth_cube) -> vec3<i32>
-textureDimensions(t: texture_depth_cube, level: i32) -> vec3<i32>
-textureDimensions(t: texture_depth_cube_array) -> vec3<i32>
-textureDimensions(t: texture_depth_cube_array, level: i32) -> vec3<i32>
-textureDimensions(t: texture_storage_1d<F>) -> i32
-textureDimensions(t: texture_storage_2d<F>) -> vec2<i32>
-textureDimensions(t: texture_storage_2d_array<F>) -> vec2<i32>
-textureDimensions(t: texture_storage_3d<F>) -> vec3<i32>
+textureDimensions(t: texture_depth_cube) -> vec2<i32>
+textureDimensions(t: texture_depth_cube, level: i32) -> vec2<i32>
+textureDimensions(t: texture_depth_cube_array) -> vec2<i32>
+textureDimensions(t: texture_depth_cube_array, level: i32) -> vec2<i32>
+textureDimensions(t: texture_storage_1d<F,A>) -> i32
+textureDimensions(t: texture_storage_2d<F,A>) -> vec2<i32>
+textureDimensions(t: texture_storage_2d_array<F,A>) -> vec2<i32>
+textureDimensions(t: texture_storage_3d<F,A>) -> vec3<i32>
 textureDimensions(t: texture_external) -> vec2<i32>
 ```
 
@@ -6789,8 +7352,13 @@ textureDimensions(t: texture_external) -> vec2<i32>
 
 **Returns:**
 
-The dimensions of the texture in texels.<br>
+The dimensions of the texture in texels.
 
+For textures based on cubes, the results are the dimensions of each face of the cube.
+Cube faces are square, so the x and y components of the result are equal.
+
+If `level` is outside the range `[0, textureNumLevels(t))` then any valid value
+for the return type may be returned.
 
 ### `textureLoad` ### {#textureload}
 
@@ -6802,20 +7370,10 @@ textureLoad(t: texture_2d<T>, coords: vec2<i32>, level: i32) -> vec4<T>
 textureLoad(t: texture_2d_array<T>, coords: vec2<i32>, array_index: i32, level: i32) -> vec4<T>
 textureLoad(t: texture_3d<T>, coords: vec3<i32>, level: i32) -> vec4<T>
 textureLoad(t: texture_multisampled_2d<T>, coords: vec2<i32>, sample_index: i32)-> vec4<T>
-textureLoad(t: texture_multisampled_2d_array<T>, coords: vec2<i32>, array_index: i32, sample_index: i32)-> vec4<T>
 textureLoad(t: texture_depth_2d, coords: vec2<i32>, level: i32) -> f32
 textureLoad(t: texture_depth_2d_array, coords: vec2<i32>, array_index: i32, level: i32) -> f32
-textureLoad(t: [[access(read)]] texture_storage_1d<F>, coords: i32) -> vec4<T>
-textureLoad(t: [[access(read)]] texture_storage_2d<F>, coords: vec2<i32>) -> vec4<T>
-textureLoad(t: [[access(read)]] texture_storage_2d_array<F>, coords: vec2<i32>, array_index: i32) -> vec4<T>
-textureLoad(t: [[access(read)]] texture_storage_3d<F>, coords: vec3<i32>) -> vec4<T>
 textureLoad(t: texture_external, coords: vec2<i32>) -> vec4<f32>
 ```
-
-For [read-only storage textures](#texture-storage) the returned channel format `T`
-depends on the texel format `F`.
-[See the texel format table](#storage-texel-formats) for the mapping of texel
-format to channel format.
 
 **Parameters:**
 
@@ -6823,7 +7381,7 @@ format to channel format.
   <tr><td>`t`<td>
   The [sampled](#sampled-texture-type),
   [multisampled](#multisampled-texture-type), [depth](#texture-depth),
-  [read-only storage](#texture-storage), or [external](#external-texture-type) texture.
+  or [external](#external-texture-type) texture.
   <tr><td>`coords`<td>
   The 0-based texel coordinate.
   <tr><td>`array_index`<td>
@@ -6836,8 +7394,18 @@ format to channel format.
 
 **Returns:**
 
-If all the parameters are within bounds, the unfiltered texel data.<br>
-If any of the parameters are out of bounds, then zero in all components.
+The unfiltered texel data.
+
+An out of bounds access occurs if:
+* any element of `coords` is outside the range `[0, textureDimensions(t, level))`
+    for the corresponding element, or
+* `array_index` is outside the range `[0, textureNumLayers(t))`, or
+* `level` is outside the range `[0, textureNumLevels(t))`
+
+If an out of bounds access occurs, the built-in function returns one of:
+* The data for some texel within bounds of the texture
+* A vector (0,0,0,0) or (0,0,0,1) of the appropriate type for non-depth textures
+* 0.0 for depth textures
 
 ### `textureNumLayers` ### {#texturenumlayers}
 
@@ -6846,10 +7414,9 @@ Returns the number of layers (elements) of an array texture.
 ```rust
 textureNumLayers(t: texture_2d_array<T>) -> i32
 textureNumLayers(t: texture_cube_array<T>) -> i32
-textureNumLayers(t: texture_multisampled_2d_array<T>) -> i32
 textureNumLayers(t: texture_depth_2d_array) -> i32
 textureNumLayers(t: texture_depth_cube_array) -> i32
-textureNumLayers(t: texture_storage_2d_array<F>) -> i32
+textureNumLayers(t: texture_storage_2d_array<F,A>) -> i32
 ```
 
 **Parameters:**
@@ -6871,6 +7438,7 @@ If the number of layers (elements) of the array texture.
 Returns the number of mip levels of a texture.
 
 ```rust
+textureNumLevels(t: texture_1d<T>) -> i32
 textureNumLevels(t: texture_2d<T>) -> i32
 textureNumLevels(t: texture_2d_array<T>) -> i32
 textureNumLevels(t: texture_3d<T>) -> i32
@@ -6900,7 +7468,6 @@ Returns the number samples per texel in a multisampled texture.
 
 ```rust
 textureNumSamples(t: texture_multisampled_2d<T>) -> i32
-textureNumSamples(t: texture_multisampled_2d_array<T>) -> i32
 ```
 
 **Parameters:**
@@ -6918,7 +7485,9 @@ If the number of samples per texel in the multisampled texture.
 ### `textureSample` ### {#texturesample}
 
 Samples a texture.
+
 Must only be used in a [=fragment=] shader stage.
+Must only be invoked in uniform control flow.
 
 ```rust
 textureSample(t: texture_1d<f32>, s: sampler, coords: f32) -> vec4<f32>
@@ -6955,10 +7524,9 @@ textureSample(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  `offset` must be compile time constant, and may only be provided as a
-  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
   Each `offset` component must be at least `-8` and at most `7`. Values outside
-  of this range will be treated as a compile time error.
+  of this range will result in a [=shader-creation error=].
 </table>
 
 **Returns:**
@@ -6968,7 +7536,9 @@ The sampled value.
 ### `textureSampleBias` ### {#texturesamplebias}
 
 Samples a texture with a bias to the mip level.
+
 Must only be used in a [=fragment=] shader stage.
+Must only be invoked in uniform control flow.
 
 ```rust
 textureSampleBias(t: texture_2d<f32>, s: sampler, coords: vec2<f32>, bias: f32) -> vec4<f32>
@@ -6999,10 +7569,9 @@ textureSampleBias(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, arr
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  `offset` must be compile time constant, and may only be provided as a
-  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
   Each `offset` component must be at least `-8` and at most `7`. Values outside
-  of this range will be treated as a compile time error.
+  of this range will result in a [=shader-creation error=].
 </table>
 
 **Returns:**
@@ -7013,6 +7582,9 @@ The sampled value.
 ### `textureSampleCompare` ### {#texturesamplecompare}
 
 Samples a depth texture and compares the sampled depth values against a reference value.
+
+Must only be used in a [=fragment=] shader stage.
+Must only be invoked in uniform control flow.
 
 ```rust
 textureSampleCompare(t: texture_depth_2d, s: sampler_comparison, coords: vec2<f32>, depth_ref: f32) -> f32
@@ -7040,10 +7612,9 @@ textureSampleCompare(t: texture_depth_cube_array, s: sampler_comparison, coords:
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  `offset` must be compile time constant, and may only be provided as a
-  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
   Each `offset` component must be at least `-8` and at most `7`. Values outside
-  of this range will be treated as a compile time error.
+  of this range will result in a [=shader-creation error=].
 </table>
 
 **Returns:**
@@ -7113,10 +7684,9 @@ textureSampleGrad(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, arr
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  `offset` must be compile time constant, and may only be provided as a
-  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
   Each `offset` component must be at least `-8` and at most `7`. Values outside
-  of this range will be treated as a compile time error.
+  of this range will result in a [=shader-creation error=].
 </table>
 
 **Returns:**
@@ -7126,7 +7696,7 @@ The sampled value.
 
 ### `textureSampleLevel` ### {#texturesamplelevel}
 
-Samples a texture using an explicit mip level.
+Samples a texture using an explicit mip level, or at mip level 0.
 
 ```rust
 textureSampleLevel(t: texture_2d<f32>, s: sampler, coords: vec2<f32>, level: f32) -> vec4<f32>
@@ -7162,15 +7732,15 @@ textureSampleLevel(t: texture_external, s: sampler, coords: vec2<f32>) -> vec4<f
   The mip level, with level 0 containing a full size version of the texture.
   For the functions where `level` is a `f32`, fractional values may interpolate
   between two levels if the format is filterable according to the
-  [Texture Format Capabilities](https://gpuweb.github.io/gpuweb/#texture-format-caps).
+  [Texture Format Capabilities](https://gpuweb.github.io/gpuweb/#texture-format-caps).<br>
+  When not specified, mip level 0 is sampled.
   <tr><td>`offset`<td>
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  `offset` must be compile time constant, and may only be provided as a
-  [literal](#literals) or `const_expr` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
   Each `offset` component must be at least `-8` and at most `7`. Values outside
-  of this range will be treated as a compile time error.
+  of this range will result in a [=shader-creation error=].
 </table>
 
 **Returns:**
@@ -7183,10 +7753,10 @@ The sampled value.
 Writes a single texel to a texture.
 
 ```rust
-textureStore(t: [[access(write)]] texture_storage_1d<F>, coords: i32, value: vec4<T>)
-textureStore(t: [[access(write)]] texture_storage_2d<F>, coords: vec2<i32>, value: vec4<T>)
-textureStore(t: [[access(write)]] texture_storage_2d_array<F>, coords: vec2<i32>, array_index: i32, value: vec4<T>)
-textureStore(t: [[access(write)]] texture_storage_3d<F>, coords: vec3<i32>, value: vec4<T>)
+textureStore(t: texture_storage_1d<F,write>, coords: i32, value: vec4<T>)
+textureStore(t: texture_storage_2d<F,write>, coords: vec2<i32>, value: vec4<T>)
+textureStore(t: texture_storage_2d_array<F,write>, coords: vec2<i32>, array_index: i32, value: vec4<T>)
+textureStore(t: texture_storage_3d<F,write>, coords: vec3<i32>, value: vec4<T>)
 ```
 
 The channel format `T` depends on the storage texel format `F`.
@@ -7208,9 +7778,14 @@ format to channel format.
 
 **Note:**
 
-If any of the parameters are out of bounds, then the call to `textureStore()`
-does nothing.
+An out-of-bounds access occurs if:
+* any element of `coords` is outside the range `[0, textureDimensions(t))`
+    for the corresponding element, or
+* `array_index` is outside the range of `[0, textureNumLayers(t))`
 
+If an out-of-bounds access occurs, the built-in function may do any of the following:
+* not be executed
+* store `value` to some in bounds texel
 
 **TODO:**
 
@@ -7239,12 +7814,14 @@ classes/workgroup=]. [=storage classes/workgroup=] atomics have a **Workgroup**
 memory scope in SPIR-V, while [=storage classes/storage=] atomics have a
 **Device** memory scope in SPIR-V.
 
+The access mode `A` in all atomic built-in functions must be [=access/read_write=].
+
 TODO: Add links to the eventual memory model descriptions.
 
 ### Atomic Load ### {#atomic-load}
 
 ```rust
-atomicLoad(atomic_ptr: ptr<SC, atomic<T>>) -> T
+atomicLoad(atomic_ptr: ptr<SC, atomic<T>, A>) -> T
 
 // Maps to the SPIR-V instruction OpAtomicLoad.
 ```
@@ -7255,7 +7832,7 @@ It does not [=atomic modification|modify=] the object.
 ### Atomic Store ### {#atomic-store}
 
 ```rust
-atomicStore(atomic_ptr: ptr<SC, atomic<T>>, v: T)
+atomicStore(atomic_ptr: ptr<SC, atomic<T>, A>, v: T)
 
 // Maps to the SPIR-V instruction OpAtomicStore.
 ```
@@ -7265,12 +7842,12 @@ Atomically stores the value `v` in the atomic object pointed to by `atomic_ptr`.
 ### Atomic Read-Modify-Write ### {#atomic-rmw}
 
 ```rust
-atomicAdd(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicMax(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicMin(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicAnd(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicOr(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
-atomicXor(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
+atomicAdd(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicMax(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicMin(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicAnd(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicOr(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicXor(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
 
 // Mappings to SPIR-V instructions:
 // atomicAdd -> OpAtomicIAdd
@@ -7290,7 +7867,7 @@ Each function performs the following steps atomically:
 Each function returns the original value stored in the atomic object.
 
 ```rust
-atomicExchange(atomic_ptr: ptr<SC, atomic<T>>, v: T) -> T
+atomicExchange(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
 
 // Maps to the SPIR-V instruction OpAtomicExchange.
 ```
@@ -7299,7 +7876,7 @@ Atomically stores the value `v` in the atomic object pointed to
 `atomic_ptr` and returns the original value stored in the atomic object.
 
 ```rust
-atomicCompareExchangeWeak(atomic_ptr: ptr<SC, atomic<T>>, cmp: T, v: T) -> vec2<T>
+atomicCompareExchangeWeak(atomic_ptr: ptr<SC, atomic<T>, A>, cmp: T, v: T) -> vec2<T>
 
 // Maps to the SPIR-V instruction OpAtomicCompareExchange.
 ```
@@ -7369,11 +7946,11 @@ reduce a shader's memory bandwidth demand.
     <td class="nowrap">`pack2x16float`(|e|: vec2&lt;f32&gt;) -> u32
     <td>Converts two floating point values to half-precision floating point numbers, and then combines
         them into one one `u32` value.<br>
-        Component |e|[|i|] of the input is converted to a IEEE 754 binary16 value, which is then
+        Component |e|[|i|] of the input is converted to a [[!IEEE-754|IEEE-754]] binary16 value, which is then
         placed in bits
         16 &times; |i| through
         16 &times; |i| + 15 of the result.
-        See [[#floating-point-conversion]] for edge case behaviour.
+        See [[#floating-point-conversion]].
 </table>
 
 ## Data unpacking built-in functions ## {#unpack-builtin-functions}
@@ -7421,8 +7998,8 @@ reduce a shader's memory bandwidth demand.
         as a floating point value.<br>
         Component |i| of the result is the f32 representation of |v|,
         where |v| is the interpretation of bits 16&times;|i| through 16&times;|i|+15 of |e|
-        as an IEEE 754 binary16 value.
-        See [[#floating-point-conversion]] for edge case behaviour.
+        as an [[!IEEE-754|IEEE-754]] binary16 value.
+        See [[#floating-point-conversion]].
 </table>
 
 ## Synchronization built-in functions ## {#sync-builtin-functions}
@@ -7442,6 +8019,7 @@ operations program-ordered before the synchronization function must be visible
 to all other threads in the workgroup before any affected memory or atomic
 operation program-ordered after the synchronization function is executed by a
 member of the workgroup.
+All synchronization functions must only be used in the [=compute=] shader stage.
 
 storageBarrier affects memory and atomic operations in the [=storage
 classes/storage=] storage class.
@@ -7490,54 +8068,13 @@ TODO: Add links to the eventual memory model.
     <td class="nowrap">
         `ignore`(|e|: |T|)
     <td>Evaluates |e|, and then ignores the result.<br>
-        Type |T| is any type that can be returned from a function.<br>
+        Type |T| is any non-reference type.
 </table>
 
-# Glossary # {#glossary}
-
-TODO: Remove terms unused in the rest of the specification.
-
-<table class='data'>
-  <thead>
-    <tr><th>Term<th>Definition
-  </thead>
-  <tr><td>Dominates
-      <td>Basic block `A` *dominates* basic block `B` if:
-          * `A` and `B` are both in the same function `F`
-          * Every control flow path in `F` that goes to `B` must also to through `A`
-  <tr><td>Strictly dominates
-      <td>`A` *strictly dominates* `B` if `A` dominates `B` and `A != B`
-  <tr><td>DomBy(A)
-      <td>The basic blocks dominated by `A`
-</table>
 
 # MATERIAL TO BE MOVED TO A NEW HOME OR DELETED # {#junkyard}
 
 
 [SHORTNAME] has operations for:
 
-* extracting one of the components of a composite value
 * creating a new composite value from an old one by replacing one of its components
-* creating a new composite value from components
-
-## Type Promotions ## {#type-promotions}
-There are no implicit type promotions in [SHORTNAME]. If you want to convert between
-types you must use the cast syntax to do it.
-
-<div class='example wgsl function-scope'>
-  <xmp highlight='rust'>
-    var e: f32 = 3;    // error: literal is the wrong type
-
-    var f: f32 = 1.0;
-
-    var t: i32 = i32(f);
-  </xmp>
-</div>
-
-The non-promotion extends to vector classes as well. There are no overrides to
-shorten vector declarations based on the type or number of elements provided.
-If you want `vec4<f32>` you must provide 4 float values in the constructor.
-
-## Precedence ## {#precedence}
-
-Issue: (dsinclair) Write out precedence rules. Matches c and glsl rules ....
