@@ -5522,7 +5522,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     1. Else, the [=texture subresource=] seen by |depthStencilView|
                         is considered to be used as [=internal usage/attachment=] for the duration of the render pass.
                 1. Let |pass| be a new {{GPURenderPassEncoder}} object.
-                1. Set |pass|.{{GPURenderEncoderBase/[[descriptor]]}} to [$derive render encoder descriptor from pass$](|descriptor|).
+                1. Set |pass|.{{GPURenderEncoderBase/[[layout]]}} to [$derive render targets layout from pass$](|descriptor|).
                 1. Return |pass|.
             </div>
 
@@ -6791,9 +6791,9 @@ GPURenderPassEncoder includes GPURenderEncoderBase;
 {{GPURenderEncoderBase}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPURenderEncoderBase">
-    : <dfn>\[[descriptor]]</dfn>, of type {{GPURenderBundleEncoderDescriptor}}
+    : <dfn>\[[layout]]</dfn>, of type {{GPURenderTargetsLayout}}
     ::
-        The render pass descriptor.
+        The layout of the render targets.
 
     : <dfn>\[[pipeline]]</dfn>, of type {{GPURenderPipeline}}
     ::
@@ -7107,6 +7107,59 @@ enum GPUStoreOp {
 };
 </script>
 
+#### Render Targets Layout #### {#render-targets-layout}
+
+{{GPURenderTargetsLayout}} contains the layout of the render targets for the current pass,
+which determines the compatibility of the pass with render pipelines.
+
+<script type=idl>
+dictionary GPURenderTargetsLayout {
+    required sequence<GPUTextureFormat> colorFormats;
+    GPUTextureFormat depthStencilFormat;
+    GPUSize32 sampleCount = 1;
+};
+</script>
+
+<div algorithm>
+    <dfn abstract-op>derive render targets layout from pass</dfn>
+
+    **Arguments:**
+    - {{GPURenderPassDescriptor}} |descriptor|
+
+    **Returns:** {{GPURenderTargetsLayout}}
+
+    1. Let |layout| be a new {{GPURenderTargetsLayout}} object.
+    1. For each |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
+        1. Set |layout|.{{GPURenderTargetsLayout/sampleCount}} to |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[texture]]}}.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/sampleCount}}.
+        1. Append |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}} to |layout|.{{GPURenderTargetsLayout/colorFormats}}.
+    1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
+    1. If |depthStencilAttachment| is not `null`:
+        1. Let |view| be |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}
+        1. Set |layout|.{{GPURenderTargetsLayout/sampleCount}} to |view|.{{GPUTextureView/[[texture]]}}.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/sampleCount}}.
+        1. Set |layout|.{{GPURenderTargetsLayout/depthStencilFormat}} to |view|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
+    1. Return |layout|.
+
+</div>
+
+<div algorithm>
+    <dfn abstract-op>derive render targets layout from pipeline</dfn>
+
+    **Arguments:**
+    - {{GPURenderPipelineDescriptor}} |descriptor|
+
+    **Returns:** {{GPURenderTargetsLayout}}
+
+    1. Let |layout| be a new {{GPURenderTargetsLayout}} object.
+    1. Set |layout|.{{GPURenderTargetsLayout/sampleCount}} to |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is not `null`:
+        1. Set |layout|.{{GPURenderTargetsLayout/depthStencilFormat}} to |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}/{{GPUDepthStencilState/format}}.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is not `null`:
+        1. For each |colorTarget| in |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}:
+            1. Append |colorTarget|.{{GPUColorTargetState/format}} to |layout|.{{GPURenderTargetsLayout/colorFormats}}
+    1. Return |layout|.
+
+</div>
+
 ### Drawing ### {#render-pass-encoder-drawing}
 
 <dl dfn-type=method dfn-for=GPURenderEncoderBase>
@@ -7126,15 +7179,16 @@ enum GPUStoreOp {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. Let |pipelineEncoderDesc| be [$derive render encoder descriptor from pipeline$](|pipeline|.{{GPURenderPipeline/[[descriptor]]}}).
+                1. Let |pipelineTargetsLayout| be [$derive render targets layout from pipeline$](|pipeline|.{{GPURenderPipeline/[[descriptor]]}}).
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |pipeline| is [$valid to use with$] |this|.
-                        - |this|.{{GPURenderEncoderBase/[[descriptor]]}} equals |pipelineEncoderDesc|.
+                        - |this|.{{GPURenderEncoderBase/[[layout]]}} equals |pipelineTargetsLayout|.
                     </div>
                 1. Set |this|.{{GPURenderEncoderBase/[[pipeline]]}} to be |pipeline|.
 
-                Issue: check read-only depth/stencil versus the pipeline state
+                Issue: check read-only depth/stencil versus the pipeline state.
+                Issue: define what "equals" means for {{GPURenderTargetsLayout}} here.
             </div>
         </div>
 
@@ -7750,7 +7804,7 @@ GPURenderBundleEncoder includes GPURenderEncoderBase;
                         Issue: Add remaining validation.
                     </div>
                 1. Let |e| be a new {{GPURenderBundleEncoder}} object.
-                1. Set |e|.{{GPURenderEncoderBase/[[descriptor]]}} to |descriptor|.
+                1. Set |e|.{{GPURenderEncoderBase/[[layout]]}} to |descriptor|.{{GPURenderTargetsLayout}}.
                 1. Return |e|.
 
                 Issue: Describe the reset of the steps for {{GPUDevice/createRenderBundleEncoder()}}.
@@ -7761,53 +7815,11 @@ GPURenderBundleEncoder includes GPURenderEncoderBase;
 ### Encoding ### {#render-bundle-encoding}
 
 <script type=idl>
-dictionary GPURenderBundleEncoderDescriptor : GPUObjectDescriptorBase {
-    required sequence<GPUTextureFormat> colorFormats;
-    GPUTextureFormat depthStencilFormat;
-    GPUSize32 sampleCount = 1;
+dictionary GPURenderBundleEncoderDescriptor : GPURenderTargetsLayout, GPUObjectDescriptorBase {
     boolean depthReadOnly = false;
     boolean stencilReadOnly = false;
 };
 </script>
-
-<div algorithm>
-    <dfn abstract-op>derive render encoder descriptor from pass</dfn>
-
-    **Arguments:**
-    - {{GPURenderPassDescriptor}} |descriptor|
-
-    **Returns:** {{GPURenderBundleEncoderDescriptor}}
-
-    1. Let |d| be a new {{GPURenderBundleEncoderDescriptor}} object.
-    1. For each |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
-        1. Set |d|.{{GPURenderBundleEncoderDescriptor/sampleCount}} to |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[texture]]}}.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/sampleCount}}.
-        1. Append |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}} to |d|.{{GPURenderBundleEncoderDescriptor/colorFormats}}.
-    1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
-    1. If |depthStencilAttachment| is not `null`:
-        1. Set |d|.{{GPURenderBundleEncoderDescriptor/sampleCount}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTextureView/[[texture]]}}.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/sampleCount}}.
-        1. Set |d|.{{GPURenderBundleEncoderDescriptor/depthStencilFormat}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
-    1. Return |d|.
-
-</div>
-
-<div algorithm>
-    <dfn abstract-op>derive render encoder descriptor from pipeline</dfn>
-
-    **Arguments:**
-    - {{GPURenderPipelineDescriptor}} |descriptor|
-
-    **Returns:** {{GPURenderBundleEncoderDescriptor}}
-
-    1. Let |d| be a new {{GPURenderBundleEncoderDescriptor}} object.
-    1. Set |d|.{{GPURenderBundleEncoderDescriptor/sampleCount}} to |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}.
-    1. If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is not `null`:
-        1. Set |d|.{{GPURenderBundleEncoderDescriptor/depthStencilFormat}} to |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}/{{GPUDepthStencilState/format}}.
-    1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is not `null`:
-        1. For each |colorTarget| in |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}:
-            1. Append |colorTarget|.{{GPUColorTargetState/format}} to |d|.{{GPURenderBundleEncoderDescriptor/colorFormats}}
-    1. Return |d|.
-
-</div>
 
 ### Finalization ### {#render-bundle-finalization}
 
