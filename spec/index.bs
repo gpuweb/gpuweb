@@ -94,6 +94,11 @@ main dl:not(.switch) {
     padding-left: .5em;
 }
 
+/** In switches, make multiple consecutive <dd> entries distinguishable. */
+dl.switch > dd {
+    display: list-item;
+}
+
 /* <p> by default has these margins. Update ul/ol/dl to match,
  * since they are also put in places where paragraphs go. */
 p, ul, ol, dl {
@@ -3748,7 +3753,8 @@ A {{GPUBindGroup}} object has the following internal slots:
                                             - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}}
                                                 is equal to |resource|'s {{GPUTextureViewDescriptor/dimension}}.
                                             - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}}
-                                                is compatible with |resource|'s {{GPUTextureViewDescriptor/format}}.
+                                                is [[#texture-format-caps|compatible]] with
+                                                |resource|'s {{GPUTextureViewDescriptor/format}}.
                                             - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/SHADER_READ}}.
                                             - If |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}}
                                                 is `true`, |texture|'s {{GPUTextureDescriptor/sampleCount}}
@@ -3805,8 +3811,6 @@ A {{GPUBindGroup}} object has the following internal slots:
                                     </dl>
 
                         </div>
-
-                        Issue: define the association between texture formats and component types
 
                         Then:
                             1. Generate a {{GPUValidationError}} in the current scope with appropriate
@@ -4230,6 +4234,9 @@ has a default layout created and used instead.
                 1. Let |textureLayout| be a new {{GPUTextureBindingLayout}}.
 
                 1. Set |textureLayout|.{{GPUTextureBindingLayout/sampleType}} to |resource|'s component type.
+
+                    Issue: Detail how the sampleType is chosen from the binding.
+
                 1. Set |textureLayout|.{{GPUTextureBindingLayout/viewDimension}} to |resource|'s dimension.
                 1. If |resource| is for a multisampled texture:
 
@@ -4398,11 +4405,11 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     <dfn abstract-op>validating shader binding</dfn>(binding, layout)
 
     **Arguments:**
-        - shader |binding|, reflected from the shader module
+        - shader binding declaration |variable|, a module-scope variable declaration reflected from a shader module
         - {{GPUPipelineLayout}} |layout|
 
-    Consider the shader |binding| annotation of |bindIndex| for the
-    binding index and |bindGroup| for the bind group index.
+    Let |bindGroup| be the bind group index, and |bindIndex| be the binding index,
+    of the shader binding declaration |variable|.
 
     Return `true` if all of the following conditions are satisfied:
 
@@ -4411,16 +4418,18 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         - If the defined [=binding member=] for |entry| is:
             <dl class=switch>
                 : {{GPUBindGroupLayoutEntry/buffer}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/type}} is:
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/type}} is:
                     <dl class=switch>
                         : {{GPUBufferBindingType/"uniform"}}
-                        :: The |binding| is a uniform buffer.
+                        :: |variable| is declared with the storage class `uniform`.
                         : {{GPUBufferBindingType/"storage"}}
-                        :: The |binding| is a storage buffer.
+                        :: |variable| is declared with the storage class `storage` and access mode `read_write`.
                         : {{GPUBufferBindingType/"read-only-storage"}}
-                        :: The |binding| is a read-only storage buffer.
+                        :: |variable| is declared with the storage class `storage` and access mode `read`.
                     </dl>
-                :: If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}} is not `0`:
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}} is not `0`:
                     - If the last field of the corresponding structure defined in the shader has an unbounded array type,
                         then the value of |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}}
                         must be greater than or equal to the byte offset of that field plus the stride of the unbounded array.
@@ -4429,40 +4438,84 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
                         must be greater than or equal to the size of the structure.
 
                 : {{GPUBindGroupLayoutEntry/sampler}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/sampler}}.{{GPUSamplerBindingLayout/type}} is:
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/sampler}}.{{GPUSamplerBindingLayout/type}} is:
                     <dl class=switch>
-                        : {{GPUSamplerBindingType/"filtering"}}
-                        :: the |binding| is a non-comparison sampler
-                        : {{GPUSamplerBindingType/"non-filtering"}}
-                        :: the |binding| is a non-comparison sampler
+                        : {{GPUSamplerBindingType/"filtering"}} or {{GPUSamplerBindingType/"non-filtering"}}
+                        :: |variable| has type `sampler`.
                         : {{GPUSamplerBindingType/"comparison"}}
-                        :: the |binding| is a comparison sampler
+                        :: |variable| has type `comparison_sampler`.
                     </dl>
 
                 : {{GPUBindGroupLayoutEntry/texture}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}} is:
+                ::
+                    If, and only if,
+                    |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}}
+                    is `true`, |variable| has type `texture_multisampled_2d<T>` or `texture_depth_multisampled_2d<T>`.
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}} is:
                     <dl class=switch>
-                        : `true`
-                        :: the |binding| is a multisampled texture.
-                        : `false`
-                        :: The |binding| is a sampled texture with a sample count of 1.
+                        : {{GPUTextureSampleType/"float"}}, {{GPUTextureSampleType/"unfilterable-float"}},
+                            {{GPUTextureSampleType/"sint"}} or {{GPUTextureSampleType/"uint"}}
+                        ::
+                            |variable| has type `texture_1d<T>`, `texture_2d<T>`, `texture_2d_array<T>`,
+                            `texture_cube<T>`, `texture_cube_array<T>`, `texture_3d<T>`, or
+                            `texture_multisampled_2d<T>`.
+                        ::
+                            If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}} is:
+                            <dl class=switch>
+                                : {{GPUTextureSampleType/"float"}} or {{GPUTextureSampleType/"unfilterable-float"}}
+                                :: The sampled type `T` is `f32`.
+                                : {{GPUTextureSampleType/"sint"}}
+                                :: The sampled type `T` is `i32`.
+                                : {{GPUTextureSampleType/"uint"}}
+                                :: The sampled type `T` is `u32`.
+                            </dl>
+
+                        : {{GPUTextureSampleType/"depth"}}
+                        ::
+                            |variable| has type `texture_depth_2d`, `texture_depth_2d_array`,
+                            `texture_depth_cube`, `texture_depth_cube_array`, or `texture_depth_multisampled_2d`.
                     </dl>
-                :: The component type of the texture matches
-                    |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}}.
-                :: The shader view dimension of the texture matches
-                    |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}}.
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}} is:
+                    <dl class=switch>
+                        : {{GPUTextureViewDimension/"1d"}}
+                        :: |variable| has type `texture_1d<T>`.
+                        : {{GPUTextureViewDimension/"2d"}}
+                        :: |variable| has type `texture_2d<T>` or `texture_multisampled_2d<T>`.
+                        : {{GPUTextureViewDimension/"2d-array"}}
+                        :: |variable| has type `texture_2d_array<T>`.
+                        : {{GPUTextureViewDimension/"cube"}}
+                        :: |variable| has type `texture_cube<T>`.
+                        : {{GPUTextureViewDimension/"cube-array"}}
+                        :: |variable| has type `texture_cube_array<T>`.
+                        : {{GPUTextureViewDimension/"3d"}}
+                        :: |variable| has type `texture_3d<T>`.
+                    </dl>
 
                 : {{GPUBindGroupLayoutEntry/storageTexture}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/access}} is:
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/viewDimension}} is:
+                    <dl class=switch>
+                        : {{GPUTextureViewDimension/"1d"}}
+                        :: |variable| has type `texture_storage_1d<T, A>`.
+                        : {{GPUTextureViewDimension/"2d"}}
+                        :: |variable| has type `texture_storage_2d<T, A>`.
+                        : {{GPUTextureViewDimension/"2d-array"}}
+                        :: |variable| has type `texture_storage_2d_array<T, A>`.
+                        : {{GPUTextureViewDimension/"3d"}}
+                        :: |variable| has type `texture_storage_3d<T, A>`.
+                    </dl>
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/access}} is:
                     <dl class=switch>
                         : {{GPUStorageTextureAccess/"write-only"}}
-                        :: The |binding| is a writable storage texture.
+                        :: The access mode `A` is `write`.
                     </dl>
-                :: The format of the storage texture matches
+                ::
+                    The texel format `T` equals
                     |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/format}}.
-                :: The shader view dimension of the storage texture matches
-                    |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/viewDimension}}.
-
             </dl>
 </div>
 
@@ -5202,11 +5255,11 @@ dictionary GPUVertexAttribute {
             - The shader format is compatible with |attrib|.{{GPUVertexAttribute/format}}'s [=vertex data type=]:
                 <dl class="switch">
                     : "unorm", "snorm", or "float"
-                    :: shader format has to be `f32` or `vecN<f32>`.
+                    :: shader format must be `f32` or `vecN<f32>`.
                     : "uint"
-                    :: shader format has to be `u32` or `vecN<u32>`.
+                    :: shader format must be `u32` or `vecN<u32>`.
                     : "sint"
-                    :: shader format has to be `i32` or `vecN<i32>`.
+                    :: shader format must be `i32` or `vecN<i32>`.
                 </dl>
             - The shader location is |attrib|.{{GPUVertexAttribute/shaderLocation}}.
 </div>
