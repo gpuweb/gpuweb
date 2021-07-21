@@ -85,6 +85,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: pipeline input; url: pipeline-input
         text: builtin; url: builtin-variables
         text: channel formats; url: channel-formats
+        text: invalid memory reference; url: invalid-memory-reference
 </pre>
 
 <style>
@@ -8793,50 +8794,57 @@ a list of vertices to process for each instance.
 <div algorithm>
     <dfn abstract-op>resolve indices</dfn>(drawCall, state)
 
-        **Arguments:**
-            - |drawCall|: The draw call parameters.
-            - |state|: The active [=RenderState=].
+    **Arguments:**
+    - |drawCall|: The draw call parameters.
+    - |state|: The active [=RenderState=].
 
-        **Returns:** list of integer indices.
+    **Returns:** list of integer indices.
 
-        1. Let |vertexIndexList| be an empty list of indices.
-        1. If |drawCall| is an indexed draw call:
-            1. initialize the |vertexIndexList| with |drawCall|.indexCount integers.
-            1. for |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
-                1. let |vertexIndex| be [$fetch index$](|i| + |drawCall|.firstIndex,
-                    |state|.[=RenderState/indexBuffer=].buffer, |state|.[=RenderState/indexBuffer=].offset,
-                    |state|.[=RenderState/indexBuffer=].format) + |drawCall|.baseVertex
-                1. append |vertexIndex| to the |vertexIndexList|
-        1. Otherwise:
-            1. initialize the |vertexIndexList| with |drawCall|.vertexCount integers.
-            1. assign the |vertexIndexList| item |i| to be |drawCall|.firstVertex + |i|
-        1. Return |vertexIndexList|.
+    1. Let |vertexIndexList| be an empty list of indices.
+    1. If |drawCall| is an indexed draw call:
+        1. Initialize the |vertexIndexList| with |drawCall|.indexCount integers.
+        1. For |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
+            1. Let |relativeVertexIndex| be [$fetch index$](|i| + |drawCall|.`firstIndex`,
+                |state|.[=RenderState/indexBuffer=]).
+            1. If |relativeVertexIndex| has the special value `"out of bounds"`,
+                stop and return the empty list.
 
-        Note: in case of indirect draw calls, the `indexCount`, `vertexCount`,
-        and other properties of |drawCall| are read from the indirect buffer
-        instead of the draw command itself.
+                Note: Implementations may choose to display a warning when this occurs,
+                especially when it is easy to detect (like in non-indirect indexed draw calls).
+            1. Append |drawCall|.`baseVertex` + |relativeVertexIndex| to the |vertexIndexList|.
+    1. Otherwise:
+        1. Initialize the |vertexIndexList| with |drawCall|.vertexCount integers.
+        1. Set each |vertexIndexList| item |i| to the value |drawCall|.firstVertex + |i|.
+    1. Return |vertexIndexList|.
 
-        Issue: specify indirect commands better.
+    Note: in case of indirect draw calls, the `indexCount`, `vertexCount`,
+    and other properties of |drawCall| are read from the indirect buffer
+    instead of the draw command itself.
+
+    Issue: specify indirect commands better.
 </div>
 
 <div algorithm>
     <dfn abstract-op>fetch index</dfn>(i, buffer, offset, format)
 
-        **Arguments:**
-            - |i|: Index of a vertex index to fetch.
-            - |buffer|: {{GPUBuffer}} containing index data.
-            - |offset|: Base offset into the |buffer|.
-            - |format|: {{GPUIndexFormat}} of the index.
+    **Arguments:**
+    - |i|: Index of a vertex index to fetch.
+    - |indexBufferState|: A value of [=RenderState/indexBuffer=] (buffer, format, offset, and size).
 
-        Let |stride| be defined by the |format|:
+    **Returns:** unsigned integer or `"out of bounds"`
+
+    1. Let |indexSize| be defined by the |indexBufferState|.`format`:
         <dl class="switch">
             : {{GPUIndexFormat/"uint16"}}
             :: 2
             : {{GPUIndexFormat/"uint32"}}
             :: 4
         </dl>
-        Interpret the data in |buffer| starting with |offset| + |i| * |stride|
-        of size |stride| bytes as an unsigned integer and return it.
+    1. If |indexBufferState|.`offset` + |i + 1| &times; |indexSize| &gt; |indexBufferState|.`size`,
+        return the special value `"out of bounds"`.
+    1. Interpret the data in |indexBufferState|.`buffer`, starting at offset
+        |indexBufferState|.`offset` + |i| &times; |indexSize|,
+        of size |indexSize| bytes, as an unsigned integer and return it.
 </div>
 
 ### Vertex Processing ### {#vertex-processing}
@@ -8849,72 +8857,82 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
 <div algorithm>
     <dfn abstract-op>process vertices</dfn>(vertexIndexList, drawCall, desc, state)
 
-        **Arguments:**
-            - |vertexIndexList|: List of vertex indices to process.
-            - |drawCall|: The draw call parameters.
-            - |desc|: The descriptor of type {{GPUVertexState}}.
-            - |state|: The active [=RenderState=].
+    **Arguments:**
+    - |vertexIndexList|: List of vertex indices to process (mutable, passed by reference).
+    - |drawCall|: The draw call parameters.
+    - |desc|: The descriptor of type {{GPUVertexState}}.
+    - |state|: The active [=RenderState=].
 
-        Each vertex |vertexIndex| in the |vertexIndexList|,
-        in each instance of index |rawInstanceIndex|, is processed independently.
-        The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
-        This processing happens in parallel, and any side effects, such as
-        writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
-        may happen in any order.
-        1. Let |instanceIndex| be |rawInstanceIndex| + |drawCall|.firstInstance.
-        1. For each non-`null` |vertexBufferLayout| in the list of |desc|.{{GPUVertexState/buffers}}:
-            1. Let |i| be the index of the buffer layout in this list.
-            1. Let |vertexBuffer| and |vertexBufferOffset| be the buffer and offset in
-                |state|.[=RenderState/vertexBuffers=] bindings at slot |i|
-            1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
-                <dl class="switch">
-                    : {{GPUVertexStepMode/"vertex"}}
-                    :: |vertexIndex|
-                    : {{GPUVertexStepMode/"instance"}}
-                    :: |instanceIndex|
-                </dl>
-            1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
-                1. Let |attributeOffset| be |vertexBufferOffset| +
-                    |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
-                    |attributeDesc|.{{GPUVertexAttribute/offset}}.
-                1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
-                    from |vertexBuffer| starting at offset |attributeOffset|.
-                    - the components are loaded in the order of `x`, `y`, `z`, `w` from buffer memory.
-                1. Convert the |data| into a shader-visible format, according to [=channel formats=] rules.
+    Each vertex |vertexIndex| in the |vertexIndexList|,
+    in each instance of index |rawInstanceIndex|, is processed independently.
+    The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
+    This processing happens in parallel, and any side effects, such as
+    writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
+    may happen in any order.
+    1. Let |instanceIndex| be |rawInstanceIndex| + |drawCall|.firstInstance.
+    1. For each non-`null` |vertexBufferLayout| in the list of |desc|.{{GPUVertexState/buffers}}:
+        1. Let |i| be the index of the buffer layout in this list.
+        1. Let |vertexBuffer|, |vertexBufferOffset|, and |vertexBufferBindingSize| be the
+            buffer, offset, and size at slot |i| of |state|.[=RenderState/vertexBuffers=].
+        1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
+            <dl class="switch">
+                : {{GPUVertexStepMode/"vertex"}}
+                :: |vertexIndex|
+                : {{GPUVertexStepMode/"instance"}}
+                :: |instanceIndex|
+            </dl>
+        1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
+            1. Let |attributeOffset| be |vertexBufferOffset| +
+                |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
+                |attributeDesc|.{{GPUVertexAttribute/offset}}.
+            1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
+                from |vertexBuffer| starting at offset |attributeOffset|.
+                The components are loaded in the order `x`, `y`, `z`, `w` from buffer memory.
+
+                If this results in an out-of-bounds access, the resulting value is determined
+                according to WGSL's [=invalid memory reference=] behavior.
+            1. **Optionally (implementation-defined):**
+                If |attributeOffset| + sizeof(|attributeDesc|.{{GPUVertexAttribute/format}}) &gt;
+                |vertexBufferOffset| + |vertexBufferBindingSize|,
+                [=list/empty=] |vertexIndexList| and stop, cancelling the draw call.
+
+                Note: This allows implementations to detect out-of-bounds values in the index buffer
+                before issuing a draw call, instead of using [=invalid memory reference=] behavior.
+            1. Convert the |data| into a shader-visible format, according to [=channel formats=] rules.
+                <div class="example">
+                    An attribute of type {{GPUVertexFormat/"snorm8x2"}} and byte values of `[0x70, 0xD0]`
+                    will be converted to `vec2<f32>(0.88, -0.24)` in WGSL.
+                </div>
+            1. Adjust the |data| size to the shader type:
+                - if both are scalar, or both are vectors of the same dimensionality, no adjustment is needed.
+                - if |data| is vector but the shader type is scalar, then only the first component is extracted.
+                - if both are vectors, and |data| has a higher dimension, the extra components are dropped.
                     <div class="example">
-                        An attribute of type {{GPUVertexFormat/"snorm8x2"}} and byte values of `[0x70, 0xD0]`
-                        will be converted to `vec2<f32>(0.88, -0.24)` in WGSL.
+                        An attribute of type {{GPUVertexFormat/"float32x3"}} and value `vec3<f32>(1.0, 2.0, 3.0)`
+                        will exposed to the shader as `vec2<f32>(1.0, 2.0)` if a 2-component vector is expected.
                     </div>
-                1. Adjust the |data| size to the shader type:
-                    - if both are scalar, or both are vectors of the same dimensionality, no adjustment is needed.
-                    - if |data| is vector but the shader type is scalar, then only the first component is extracted.
-                    - if both are vectors, and |data| has a higher dimension, the extra components are dropped.
-                        <div class="example">
-                            An attribute of type {{GPUVertexFormat/"float32x3"}} and value `vec3<f32>(1.0, 2.0, 3.0)`
-                            will exposed to the shader as `vec2<f32>(1.0, 2.0)` if a 2-component vector is expected.
-                        </div>
-                    - if the shader type is a vector of higher dimensionality, or the |data| is a scalar,
-                        then the missing components are filled from `vec4<*>(0, 0, 0, 1)` value.
-                        <div class="example">
-                            An attribute of type {{GPUVertexFormat/"sint32"}} and value `5` will be exposed
-                            to the shader as `vec4<i32>(5, 0, 0, 1)` if a 4-component vector is expected.
-                        </div>
-                1. Bind the |data| to vertex shader input
-                    location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
-        1. For each {{GPUBindGroup}} group at |index| in |state|.[=RenderState/bindGroups=]:
-            1. For each resource {{GPUBindingResource}} in the bind group:
-                1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
-                1. If |entry|.{{GPUBindGroupLayoutEntry}}.visibility includes {{GPUShaderStage/VERTEX}}:
-                    - Bind the resource to the shader under group |index| and binding {{GPUBindGroupLayoutEntry/binding|GPUBindGroupLayoutEntry.binding}}.
-        1. Set the shader [=builtins=]:
-            - Set the `vertex_index` builtin, if any, to |vertexIndex|.
-            - Set the `instance_index` builtin, if any, to |instanceIndex|.
-        1. Invoke vertex shader entry point described by |desc|.
+                - if the shader type is a vector of higher dimensionality, or the |data| is a scalar,
+                    then the missing components are filled from `vec4<*>(0, 0, 0, 1)` value.
+                    <div class="example">
+                        An attribute of type {{GPUVertexFormat/"sint32"}} and value `5` will be exposed
+                        to the shader as `vec4<i32>(5, 0, 0, 1)` if a 4-component vector is expected.
+                    </div>
+            1. Bind the |data| to vertex shader input
+                location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
+    1. For each {{GPUBindGroup}} group at |index| in |state|.[=RenderState/bindGroups=]:
+        1. For each resource {{GPUBindingResource}} in the bind group:
+            1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
+            1. If |entry|.{{GPUBindGroupLayoutEntry}}.visibility includes {{GPUShaderStage/VERTEX}}:
+                - Bind the resource to the shader under group |index| and binding {{GPUBindGroupLayoutEntry/binding|GPUBindGroupLayoutEntry.binding}}.
+    1. Set the shader [=builtins=]:
+        - Set the `vertex_index` builtin, if any, to |vertexIndex|.
+        - Set the `instance_index` builtin, if any, to |instanceIndex|.
+    1. Invoke vertex shader entry point described by |desc|.
 
-            Note: The target platform caches the results of vertex shader invocations.
-            There is no guarantee that any |vertexIndex| that repeats more than once will
-            result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
-            will only be processed once.
+        Note: The target platform caches the results of vertex shader invocations.
+        There is no guarantee that any |vertexIndex| that repeats more than once will
+        result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
+        will only be processed once.
 </div>
 
 ### Primitive Assembly ### {#primitive-assembly}
