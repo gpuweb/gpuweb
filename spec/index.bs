@@ -71,6 +71,7 @@ spec: canvas; urlPrefix: https://html.spec.whatwg.org/multipage/canvas.html#
         text: placeholder canvas element; url: offscreencanvas-placeholder
         text: canvas context mode; url: concept-canvas-context-mode
         text: OffscreenCanvas context mode; url: offscreencanvas-context-mode
+        text: check the usability of the image argument; url: check-the-usability-of-the-image-argument
 spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
         text: location; url: input-output-locations
@@ -2922,6 +2923,12 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
             **Returns:** {{GPUExternalTexture}}
 
             1. Let |source| be |descriptor|.{{GPUExternalTextureDescriptor/source}}.
+
+            1. Let |usability| be the result of
+                [=check the usability of the image argument|checking the usability of=] |source|
+                (which may throw an exception).
+
+            1. If |usability| is `bad`, throw an {{InvalidStateError}} and stop.
 
             1. If |source| <l spec=html>[=is not origin-clean=]</l>,
                 throw a {{SecurityError}} and stop.
@@ -8027,7 +8034,7 @@ GPUQueue includes GPUObjectBase;
         into the destination texture.
 
         <div algorithm=GPUQueue.copyExternalImageToTexture>
-            **Called on:** {{GPUQueue}} this.
+            **Called on:** {{GPUQueue}} |this|.
 
             **Arguments:**
             <pre class=argumentdef for="GPUQueue/copyExternalImageToTexture(source, destination, copySize)">
@@ -8038,35 +8045,51 @@ GPUQueue includes GPUObjectBase;
 
             **Returns:** {{undefined}}
 
-            - If |source|.{{GPUImageCopyExternalImage/source}}
-                <l spec=html>[=is not origin-clean=]</l>,
+            1. Let |sourceImage| be |source|.{{GPUImageCopyExternalImage/source}}
+            1. Run [=Check the usability of the image argument=](|sourceImage|).
+                If it throws an exception, stop.
+                If it does not return `good`, throw an {{InvalidStateError}} and stop.
+            1. If |sourceImage| <l spec=html>[=is not origin-clean=]</l>,
                 throw a {{SecurityError}} and stop.
+            1. If any of the following requirements are unmet, throw an {{OperationError}} and stop.
+                <div class=validusage>
+                    - If |source|.{{GPUImageCopyExternalImage/source}} is an {{HTMLCanvasElement}}:
+                        Its [=canvas context mode=] must be `"2d"`, `"webgl"`, or `"webgl2"`.
+                    - If |source|.{{GPUImageCopyExternalImage/source}} is an {{OffscreenCanvas}}:
+                        Its [=OffscreenCanvas context mode=] must be `"2d"`, `"webgl"`, or `"webgl2"`.
+                    - |source|.|origin|.[=Origin3D/x=] + |copySize|.[=Extent3D/width=]
+                        must be &le; the width of |sourceImage|.
+                    - |source|.|origin|.[=Origin3D/y=] + |copySize|.[=Extent3D/height=]
+                        must be &le; the height of |sourceImage|.
+                    - |source|.|origin|.[=Origin3D/z=] + |copySize|.[=Extent3D/depthOrArrayLayers=]
+                        must be &le; 1.
+                </div>
+            1. Issue the following steps on the [=Device timeline=] of |this|:
+                <div class=device-timeline>
+                    1. Let |textureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
+                    1. If any of the following requirements are unmet, generate a validation error and stop.
+                        <div class=validusage>
+                            - |destination|.{{GPUImageCopyTexture/texture}} must be [$valid to use with$] |this|.
+                            - [$validating GPUImageCopyTexture$](destination, copySize) must return true.
+                            - [=Valid Texture Copy Range=](destination, copySize) must be satisfied.
+                            - |textureDesc|.{{GPUTextureDescriptor/usage}} must include both
+                                {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/COPY_DST}}.
+                            - |textureDesc|.{{GPUTextureDescriptor/dimension}} must be {{GPUTextureDimension/"2d"}}.
+                            - |textureDesc|.{{GPUTextureDescriptor/sampleCount}} must be 1.
+                            - |textureDesc|.{{GPUTextureDescriptor/format}} must be one of the following:
+                                - {{GPUTextureFormat/"rgba8unorm"}}
+                                - {{GPUTextureFormat/"rgba8unorm-srgb"}}
+                                - {{GPUTextureFormat/"bgra8unorm"}}
+                                - {{GPUTextureFormat/"bgra8unorm-srgb"}}
+                                - {{GPUTextureFormat/"rgb10a2unorm"}}
+                                - {{GPUTextureFormat/"rg8unorm"}}
 
-            If any of the following requirements are unmet, throw an {{OperationError}} and stop.
-            <div class=validusage>
-                - Let |textureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
-                - |copySize|.[=Extent3D/depthOrArrayLayers=] must be `1`.
-                - |textureDesc|.{{GPUTextureDescriptor/usage}} must include both {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/COPY_DST}}.
-                - |textureDesc|.{{GPUTextureDescriptor/dimension}} must be {{GPUTextureDimension/"2d"}}.
-                - |textureDesc|.{{GPUTextureDescriptor/format}} must be one of the following:
-                    - {{GPUTextureFormat/"rgba8unorm"}}
-                    - {{GPUTextureFormat/"rgba8unorm-srgb"}}
-                    - {{GPUTextureFormat/"bgra8unorm"}}
-                    - {{GPUTextureFormat/"bgra8unorm-srgb"}}
-                    - {{GPUTextureFormat/"rgb10a2unorm"}}
-                    - {{GPUTextureFormat/"rg8unorm"}}
-                - If |source|.{{GPUImageCopyExternalImage/source}} is an {{HTMLCanvasElement}}:
-                    Its [=canvas context mode=] must be `"2d"`, `"webgl"`, or `"webgl2"`.
-                - If |source|.{{GPUImageCopyExternalImage/source}} is an {{OffscreenCanvas}}:
-                    Its [=OffscreenCanvas context mode=] must be `"2d"`, `"webgl"`, or `"webgl2"`.
-            </div>
-
-            Issue: The above list was written just for ImageBitmap.
-            Re-evaluate it for canvas (and video).
-            (It's probably still fine, though `rgb10a2unorm` is a bit of an outlier.)
-
-            Issue: Add float formats once the behavior can be defined - need an upstream
-            clarification on whether "srgb" means extended-srgb or clamped-srgb.
+                                Issue: Evaluate adding additional formats to this list.
+                                Note that any format that represents values outside of 0 to 1
+                                has interactions with color space (e.g. clamped-srgb vs extended-srgb).
+                        </div>
+                    1. Issue: Do the actual copy.
+                </div>
         </div>
 
     : <dfn>submit(commandBuffers)</dfn>
