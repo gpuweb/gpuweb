@@ -599,21 +599,6 @@ An attribute must not be specified more than once per object or type.
     Specifies the binding number of the resource in a bind [=attribute/group=].
     See [[#resource-interface]].
 
-  <tr><td><dfn noexport dfn-for="attribute">`block`</dfn>
-    <td>*None*
-    <td>Must only be applied to a [=structure=] type.
-
-    Indicates this structure type represents the contents of a buffer
-    resource occupying a single binding slot in the [=resource interface of a
-    shader|shader's resource interface=].
-
-    The `block` attribute must be applied to a structure type used as the
-    [=store type=] of a [=uniform buffer=] or [=storage buffer=] variable.
-
-    A structure type with the block attribute must not be:
-    * the element type of an [=array=] type
-    * the member type in another structure
-
   <tr><td><dfn noexport dfn-for="attribute">`builtin`
     <td>a builtin variable identifier
     <td>Must only be applied to an entry point function parameter, entry point
@@ -1126,7 +1111,7 @@ TODO: Add links the eventual memory model descriptions.
 
 <div class='example storage atomic' heading='Mapping atomics in a storage variable to SPIR-V'>
   <xmp>
-    [[block]] struct S {
+    struct S {
       a: atomic<i32>;
       b: atomic<u32>;
     };
@@ -1229,17 +1214,64 @@ An array element type must be one of:
 * a matrix type
 * an [=atomic type|atomic=] type
 * an array type
-* a [=structure=] type
+* a [=structure=] type that is not a [=buffer-root=]
 
 Note: That is, the element type must be a [=plain type=].
 
 [SHORTNAME] defines the following attributes that can be applied to array types:
 * [=attribute/stride=]
 
-Restrictions on runtime-sized arrays:
-* The last member of the structure type defining the [=store type=]
-    for a variable in the [=storage classes/storage=] storage class may be a runtime-sized array.
-* A runtime-sized array must not be used as the store type or contained within
+Note: The element count value for a fixed-size array is fully determined at [=shader module creation=] time.
+
+When spelling an array type in [SHORTNAME] program source, specifying the [=element stride=] |S| is optional,
+and defaults to the [=implicit stride=] computed from the array element type. See [[#array-layout-rules]].
+When specified, |S| must be a positive [=integer scalar=] literal.
+
+Note: Specifying an explicit [=element stride=] can make it easier to satisfy
+layout constraints for the [=storage classes/uniform=] storage storage class.
+See [[#storage-class-layout-constraints]].
+
+Two array types are the same if and only if all of the following are true:
+* They have the same element type.
+* Their element count specifications match, i.e. either of the following is true:
+    * They are both runtime-sized.
+    * They are both fixed-sized with equal-valued element counts,
+        even if one is signed and the other is unsigned.
+        (Signed and unsigned values are comparable in this case because element counts must
+        be greater than zero.)
+* They have the same [=element stride=].
+
+<div class='example fixed-size array types' heading='Example fixed-size array types'>
+  <xmp highlight='rust'>
+    // array<f32,5> and array<i32,5> are different types because they have
+    // different element types
+    var<private> a: array<f32,5>;
+    var<private> b: array<i32,5>;
+    var<private> c: array<i32,5u>;  // array<i32,5> and array<i32,5u> are the same type
+
+    let width = 5;
+    let height = 5;
+
+    // array<i32,5>, array<i32,5u>, and array<i32,width> are the same type.
+    // Their element counts evaluate to 5.
+    var<private> d: array<i32,width>;
+
+    // array<i32,height> and array<i32,width> are the same type.
+    var<private> e: array<i32,width>;
+    var<private> f: array<i32,height>;
+
+    // array<i32,5,4> and array<i32,5> are the same type because the implicit stride of
+    // array<i32,5> is 4.
+    var<private> g: array<i32,5,4>;
+    // array<i32,5,8> and array<i32,5,4> are different due to different strides.
+    var<private> h: array<i32,5,8>;
+  </xmp>
+</div>
+
+Restrictions on dynamically-sized arrays:
+* The last member of the [=buffer-root=] structure type defining the [=store type=]
+    for a variable in the [=storage classes/storage=] storage class may be a dynamically-sized array.
+* A dynamically-sized array must not be used as the store type or contained within
     a store type in any other cases.
 * An expression must not evaluate to a runtime-sized array type.
 
@@ -1280,9 +1312,18 @@ A structure member type must be one of:
 * a matrix type
 * an [=atomic type|atomic=] type
 * an array type
-* a [=structure=] type
+* a [=structure=] type that is not a [=buffer-root=]
 
 Note: That is, each member type must be a [=plain type=].
+
+A structure type is a <dfn>buffer-root</dfn> if it is used as the [=store type=]
+for a [=uniform buffer=] or [=storage buffer=] variable.
+That is, a buffer-root type represents the contents of a buffer
+[=resource=] occupying a single binding slot in the [=resource interface of a
+shader|shader's resource interface=].
+
+Note: In a translation to SPIR-V, the SPIR-V structure type corresponding to a [=buffer-root=]
+structure type is decorated with `Block` or `BufferBlock`.
 
 Note: The structure member type restriction and the array element type restriction are
 mutually reinforcing.
@@ -1316,9 +1357,6 @@ Similarly, the same limitations apply to textures and samplers.
     | [=syntax/attribute_list=] * [=syntax/variable_ident_decl=] [=syntax/semicolon=]
 </div>
 
-[SHORTNAME] defines the following attributes that can be applied to structure types:
- * [=attribute/block=]
-
 [SHORTNAME] defines the following attributes that can be applied to structure members:
  * [=attribute/builtin=]
  * [=attribute/location=]
@@ -1351,13 +1389,15 @@ to define a [=uniform buffer=] or a [=storage buffer=]. See [[#memory-layouts]].
 
 <div class='example wgsl global-scope' heading='Structure WGSL'>
   <xmp>
+    // TODO: runtime-sized array syntax may have changed
     // Runtime Array
     type RTArr = [[stride(16)]] array<vec4<f32>>;
-    [[block]] struct S {
+    struct S {
       a: f32;
       b: f32;
       data: RTArr;
     };
+    [[group(0),binding(0)]] var<storage> buffer: S;
   </xmp>
 </div>
 
@@ -1815,7 +1855,7 @@ rounded to the next multiple of the structure's alignment:
         // -- implicit struct size padding --      // offset(20)            size(4)
     };
 
-    [[block]] struct B {                           //             align(16) size(160)
+    struct B {                                     //             align(16) size(160)
         a: vec2<f32>;                              // offset(0)   align(8)  size(8)
         // -- implicit member alignment padding -- // offset(8)             size(8)
         b: vec3<f32>;                              // offset(16)  align(16) size(12)
@@ -1844,7 +1884,7 @@ rounded to the next multiple of the structure's alignment:
         [[size(16)]] x: f32;                       // offset(16)  align(4)  size(16)
     };
 
-    [[block]] struct B {                           //             align(16) size(208)
+    struct B {                                     //             align(16) size(208)
         a: vec2<f32>;                              // offset(0)   align(8)  size(8)
         // -- implicit member alignment padding -- // offset(8)             size(8)
         b: vec3<f32>;                              // offset(16)  align(16) size(12)
@@ -2283,7 +2323,7 @@ Note: The following examples use [SHORTNAME] features explained later in this sp
       position: vec3<f32>;
       velocity: vec3<f32>;
     };
-    [[block]] struct System {
+    struct System {
       active_index: i32;
       timestep: f32;
       particles: array<Particle,100>;
@@ -3301,13 +3341,16 @@ Variables at [=module scope=] are restricted as follows:
     have a storage class decoration.  The storage class will always be [=storage classes/handle=].
 
 A variable in the [=storage classes/uniform=] storage class is a <dfn noexport>uniform buffer</dfn> variable.
-Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
+Its [=store type=] must be a [=host-shareable=] structure type
 satisfying the [storage class layout constraints](#storage-class-layout-constraints).
 
 A variable in the [=storage classes/storage=] storage class is a <dfn noexport>storage buffer</dfn> variable.
-Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
+Its [=store type=] must be a [=host-shareable=] structure type
 satisfying the [storage class layout constraints](#storage-class-layout-constraints).
 It may be declared with a [=access/read=] or [=access/read_write=] access mode; the default is [=access/read=].
+
+Note: Recall that use of a structure type as the store type for a uniform buffer or storage buffer variable causes that
+structure type to be a [=buffer-root=].
 
 As described in [[#resource-interface]],
 uniform buffers, storage buffers, textures, and samplers form the
@@ -3319,14 +3362,15 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
     var<private> decibels: f32;
     var<workgroup> worklist: array<i32,10>;
 
-    [[block]] struct Params {
+    struct Params {
       specular: f32;
       count: i32;
     };
     [[group(0), binding(2)]]
     var<uniform> param: Params;    // A uniform buffer
 
-    [[block]] struct PositionsBuffer {
+    struct PositionsBuffer {
+      // TODO: runtime-sized array syntax may have changed
       pos: array<vec2<f32>>;
     };
     // A storage buffer, for reading and writing
