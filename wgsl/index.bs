@@ -799,6 +799,8 @@ The <dfn dfn noexport>scalar</dfn> types are [=bool=], [=i32=], [=u32=], and [=f
 
 The <dfn dfn noexport>numeric scalar</dfn> types are [=i32=], [=u32=], and [=f32=].
 
+The <dfn dfn noexport>integer scalar</dfn> types are [=i32=] and [=u32=].
+
 ### Vector Types ### {#vector-types}
 
 A <dfn noexport>vector</dfn> is a grouped sequence of 2, 3, or 4 [=scalar=] components.
@@ -955,15 +957,52 @@ An <dfn noexport>array</dfn> is an indexable grouping of element values.
   <thead>
     <tr><th>Type<th>Description
   </thead>
-  <tr><td algorithm="sized array type">array&lt;|E|,|N|&gt;
-      <td>A <dfn>sized array</dfn> with |N| elements of type |E|.<br>
-                |N| must be 1 or larger.
-  <tr><td algorithm="runtime-sized array type">array&lt;|E|&gt;<td>A <dfn noexport>runtime-sized</dfn> array of elements of type |E|.
-                       These may only appear in specific contexts.<br>
+  <tr><td algorithm="fixed-size array type">array&lt;|E|,|N|&gt;
+      <td>A <dfn>fixed-size array</dfn> with |N| elements of type |E|.<br>
+          |N| is called the <dfn noexport>element count</dfn> of the array.
+  <tr><td algorithm="runtime-sized array type">array&lt;|E|&gt;
+      <td>A <dfn noexport>runtime-sized</dfn> array of elements of type |E|.
+          These may only appear in specific contexts.<br>
 </table>
 
-Note: Sized arrays and runtime-sized arrays are always distinct types.
-That is, `array`&lt;|E|,|N|&gt; and `array`&lt;|E|&gt; are different.
+When specified, an element count expression |N| must:
+* be a literal, or the name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=], and
+* evaluate to an [=integer scalar=] with value greater than zero.
+
+Note:  The element count value is fully determined at [=shader module creation=] time.
+
+Two array types are the same if and only if all of the following are true:
+* They have the same element type.
+* Their element count specifications match, i.e. either of the following is true:
+    * They are both runtime-sized.
+    * They are both fixed-sized with equal-valued element counts,
+        even if one is signed and the other is unsigned.
+        (Signed and unsigned values are comparable in this case because element counts must
+        be greater than zero.)
+
+Issue: Array types should differ if they have different element strides.
+See https://github.com/gpuweb/gpuweb/issues/1534
+
+<div class='example fixed-size array types' heading='Example fixed-size array types'>
+  <xmp>
+    // array<f32,8> and array<i32,8> are different types:
+    // different element types
+    var<private> a: array<f32,8>;
+    var<private> b: array<i32,8>;
+    var<private> c: array<i32,8u>;  // array<i32,8> and array<i32,8u> are the same type
+
+    let width = 8;
+    let height = 8;
+
+    // array<i32,8>, array<i32,8u>, and array<i32,width> are the same type.
+    // Their element counts evaluate to 8.
+    var<private> d: array<i32,width>;
+
+    // array<i32,height> and array<i32,width> are the same type.
+    var<private> e: array<i32,width>;
+    var<private> f: array<i32,height>;
+  </xmp>
+</div>
 
 The first element in an array is at index 0, and each successive element is at the next integer index.
 See [[#array-access-expr]].
@@ -987,6 +1026,16 @@ Restrictions on runtime-sized arrays:
 * A runtime-sized array must not be used as the store type or contained within
     a store type in any other cases.
 * An expression must not evaluate to a runtime-sized array type.
+
+<pre class='def'>
+array_type_decl
+  | attribute_list* ARRAY LESS_THAN type_decl (COMMA element_count_expression)? GREATER_THAN
+
+element_count_expression
+  : INT_LITERAL
+  | UINT_LITERAL
+  | IDENT
+</pre>
 
 ### Structure Types ### {#struct-types}
 
@@ -1127,7 +1176,7 @@ A type is <dfn>constructible</dfn> if it is one of:
 * a [=scalar=] type
 * a [=vector=] type
 * a [=matrix=] type
-* a [=sized array=] type, if its element type is constructible.
+* a [=fixed-size array=] type, if its element type is constructible.
 * a [=structure=] type, if all its members are constructible.
 
 Note: All constructible types are [=plain types|plain=].
@@ -1238,7 +1287,8 @@ A type is <dfn dfn noexport>host-shareable</dfn> if it is one of:
 * a [=numeric vector=] type
 * a [=matrix=] type
 * an [=atomic type|atomic=] type
-* an [=array=] type, if its element type is host-shareable
+* a [=fixed-size array=] type, if its element type is host-shareable
+* a [=runtime-sized=] array type, if its element type is host-shareable
 * a [=structure=] type, if all its members are host-shareable
 
 [SHORTNAME] defines the following attributes that affect memory layouts:
@@ -1246,9 +1296,9 @@ A type is <dfn dfn noexport>host-shareable</dfn> if it is one of:
  * [=attribute/align=]
  * [=attribute/size=]
 
-Note: An [=IO-shareable=] type *T* would also be host-shareable if *T* and its subtypes have
-appropriate [=stride=] attributes, and if *T* is not [=bool=] and does not contain a [=bool=].
-Additionally, a [=runtime-sized=] array is host-shareable but is not IO-shareable.
+Note: An [=IO-shareable=] type *T* is host-shareable if *T* is not [=bool=] and does not contain [=bool=].
+Many types are host-shareable, but not IO-shareable, including [=atomic types=],
+[=runtime-sized=] arrays, and any composite types containing them.
 
 Note: Both IO-shareable and host-shareable types have concrete sizes, but counted differently.
 IO-shareable types are sized by a location-count metric, see [[#input-output-locations]].
@@ -1368,7 +1418,7 @@ We will use the following notation:
 * <dfn noexport>AlignOfMember</dfn>(|S|, |M|) is the alignment of member |M| of the host-shareable structure |S|.
 * <dfn noexport>SizeOf</dfn>(|T|) is the size of host-shareable type |T|.
 * <dfn noexport>SizeOfMember</dfn>(|S|, |M|) is the size of member |M| of the host-shareable structure |S|.
-* <dfn noexport>StrideOf</dfn>(|A|) is the element stride of host-shareable array type |A|.
+* <dfn noexport>StrideOf</dfn>(|A|) is the [=element stride=] of host-shareable array type |A|.
 * <dfn noexport>OffsetOfMember</dfn>(|S|, |M|) is the offset of member |M| from the start of the host-shareable structure |S|.
 
 
@@ -1579,24 +1629,24 @@ rounded to the next multiple of the structure's alignment:
 
 #### Array Layout Rules ####  {#array-layout-rules}
 
-An array element stride is the number of bytes from the start of one array
-element to the start of the next element.
-
 The first array element always has a zero byte offset from the start of the
 array.
 
-If the array type is annotated with an explicit [=stride=] decoration then this
-will be used as the array stride, otherwise the array uses an implicit stride
-equal to the size of the array's element type, rounded up to the alignment of
-the element type:
+The <dfn noexport>element stride</dfn> of an array is the number of bytes from the
+start of one array element to the start of the next element.
+It is determined as follows:
+* It is the value of an explicit [=stride=] attribute on the type, if specified.
+* Otherwise, it is the <dfn noexport>implicit stride</dfn>,
+    equal to the size of the array's element type, rounded up to the alignment of
+    the element type:
 
 <p algorithm="array implicit element stride">
   [=StrideOf=](array<|T|[, |N|]>) = [=roundUp=]([=AlignOf=](T), [=SizeOf=](T))
 </p>
 
-In all cases, the array stride must be a multiple of the element alignment.
+In all cases, the array element stride must be a multiple of the element alignment.
 
-<div class='example wgsl' heading='Implicit / explicit array strides'>
+<div class='example wgsl' heading='Implicit / explicit array element strides'>
   <xmp highlight='rust'>
     // Array with an implicit element stride of 16 bytes
     var implicit_stride: array<vec3<f32>, 8>;
@@ -1610,9 +1660,9 @@ Arrays decorated with the [=stride=] attribute must have a stride that is at
 least the size of the element type, and be a multiple of the element type's
 alignment value.
 
-The array size is equal to the element stride multiplied by the number of
+The array size (in bytes) is equal to the array's element stride multiplied by the number of
 elements:
-<p algorithm="array stride">
+<p algorithm="array element stride">
   [=SizeOf=](array<|T|, |N|>) = [=StrideOf=](array<|T|, |N|>) &times; |N|<br>
   [=SizeOf=](array<|T|>) = [=StrideOf=](array<|T|>) &times; N<sub>runtime</sub>
 </p>
@@ -1686,7 +1736,7 @@ When a matrix value |M| is placed at byte offset |k| of a host-shared memory buf
 
 When a value of array type |A| is placed at byte offset |k| of a host-shared memory buffer,
 then:
-   * Element |i| of the array is placed at byte offset |k| + |i| &times; |Stride|(|A|)
+   * Element |i| of the array is placed at byte offset |k| + |i| &times; [=StrideOf=](|A|)
 
 When a value of structure type |S| is placed at byte offset |k| of a host-shared memory buffer,
 then:
@@ -1752,7 +1802,7 @@ for the storage class |C|:
     Where |k| is a positive integer and |M| is a member of structure |S| with type |T|
 </p>
 
-Arrays of element type |T| must have an element [=stride=] that is a
+Arrays of element type |T| must have an [=element stride=] that is a
 multiple of the [=RequiredAlignOf=](|T|, |C|) for the storage class |C|:
 
 <p algorithm="array element minimum alignment">
@@ -2742,7 +2792,7 @@ type_decl
   | VEC3 LESS_THAN type_decl GREATER_THAN
   | VEC4 LESS_THAN type_decl GREATER_THAN
   | POINTER LESS_THAN storage_class COMMA type_decl (COMMA access_mode)? GREATER_THAN
-  | attribute_list* ARRAY LESS_THAN type_decl (COMMA (INT_LITERAL | UINT_LITERAL))? GREATER_THAN
+  | array_type_decl
   | MAT2x2 LESS_THAN type_decl GREATER_THAN
   | MAT2x3 LESS_THAN type_decl GREATER_THAN
   | MAT2x4 LESS_THAN type_decl GREATER_THAN
@@ -3038,7 +3088,7 @@ and the name denotes the value of that expression.
 When the declaration uses the [=override=] attribute,
 the constant is <dfn noexport>pipeline-overridable</dfn>. In this case:
 
-  * The type must one of the [=scalar=] types.
+  * The type must be one of the [=scalar=] types.
   * The initializer expression is optional.
   * The attribute's literal operand, if present, is known as the <dfn noexport>pipeline constant ID</dfn>,
     and must be an integer value between 0 and 65535.
@@ -3940,7 +3990,7 @@ the variable's value, as required.
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
-  <tr algorithm="sized array indexed element selection">
+  <tr algorithm="fixed-size array indexed element selection">
        <td class="nowrap">
           |e|: array&lt;|T|,|N|&gt;<br>
           |i|: [INT]<br>
@@ -3959,7 +4009,7 @@ the variable's value, as required.
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
-  <tr algorithm="sized array indexed reference selection">
+  <tr algorithm="fixed-size array indexed reference selection">
        <td class="nowrap">
           |r|: ref&lt;|SC|,array&lt;|T|,|N|&gt;&gt;<br>
           |i|: [INT]
