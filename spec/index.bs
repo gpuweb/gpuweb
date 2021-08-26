@@ -3560,6 +3560,13 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
     : <dfn>\[[dynamicOffsetCount]]</dfn> of type {{GPUSize32}}.
     ::
         The number of buffer bindings with dynamic offsets in this {{GPUBindGroupLayout}}.
+
+    : <dfn>\[[exclusivePipeline]]</dfn> of type {{GPUPipelineBase}}?, initially `null`.
+    ::
+        The pipeline that created this {{GPUBindGroupLayout}}, if it was created as part of a
+        [[#default-pipeline-layout|default pipeline layout]]. If not `null`, {{GPUBindGroup}}s
+        created with this {{GPUBindGroupLayout}} can only be used with the specified
+        {{GPUPipelineBase}}.
 </dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
@@ -3640,9 +3647,11 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
 
 <div algorithm>
 Two {{GPUBindGroupLayout}} objects |a| and |b| are considered <dfn dfn>group-equivalent</dfn>
-if and only if, for any binding number |binding|, one of the following conditions is satisfied:
-    - it's missing from both |a|.{{GPUBindGroupLayout/[[entryMap]]}} and |b|.{{GPUBindGroupLayout/[[entryMap]]}}.
-    - |a|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|] == |b|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|]
+if and only if all of the following conditions are satisfied:
+    - |a|.{{GPUBindGroupLayout/[[exclusivePipeline]]}} == |b|.{{GPUBindGroupLayout/[[exclusivePipeline]]}}.
+    - for any binding number |binding|, one of the following conditions is satisfied:
+        - it's missing from both |a|.{{GPUBindGroupLayout/[[entryMap]]}} and |b|.{{GPUBindGroupLayout/[[entryMap]]}}.
+        - |a|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|] == |b|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|]
 </div>
 
 If bind groups layouts are [=group-equivalent=] they can be interchangeably used in all contents.
@@ -4195,13 +4204,16 @@ has a default layout created and used instead.
 
 <div algorithm="default pipeline layout creation">
 
+To create a <dfn abstract-op>default pipeline layout</dfn> for {{GPUPipelineBase}} |pipeline|,
+run the following steps:
+
     1. Let |groupDescs| be a sequence of |device|.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}
         new {{GPUBindGroupLayoutDescriptor}} objects.
     1. For each |groupDesc| in |groupDescs|:
 
         1. Set |groupDesc|.{{GPUBindGroupLayoutDescriptor/entries}} to an empty sequence.
 
-    1. For each {{GPUProgrammableStage}} |stageDesc| in the descriptor used to create the pipeline:
+    1. For each {{GPUProgrammableStage}} |stageDesc| in the descriptor used to create |pipeline|:
 
         1. Let |stageInfo| be the "reflection information" for |stageDesc|.
 
@@ -4298,7 +4310,9 @@ has a default layout created and used instead.
     1. Let |groupLayouts| be a new sequence.
     1. For each |groupDesc| in |groupDescs|:
 
-        1. Append |device|.{{GPUDevice/createBindGroupLayout()}}(|groupDesc|) to |groupLayouts|.
+        1. Let |bindGroupLayout| be the result of calling |device|.{{GPUDevice/createBindGroupLayout()}}(|groupDesc|).
+        1. Set |bindGroupLayout|.{{GPUBindGroupLayout/[[exclusivePipeline]]}} to |pipeline|.
+        1. Append |bindGroupLayout| to |groupLayouts|.
 
     1. Let |desc| be a new {{GPUPipelineLayoutDescriptor}}.
     1. Set |desc|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}} to |groupLayouts|.
@@ -4585,31 +4599,44 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 
             **Returns:** {{GPUComputePipeline}}
 
-            If any of the following conditions are unsatisfied:
-                <div class=validusage>
-                    - |descriptor|.{{GPUPipelineDescriptorBase/layout}} is [$valid to use with$] |this|.
-                    - [$validating GPUProgrammableStage$]({{GPUShaderStage/COMPUTE}},
-                        |descriptor|.{{GPUComputePipelineDescriptor/compute}},
-                        |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
-                    - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
-                        |device|.limits.{{supported limits/maxComputeWorkgroupStorageSize}} bytes of
-                        workgroup storage.
+            1. Let |pipeline| be a new valid {{GPUComputePipeline}} object.
+            1. Issue the following steps on the [=Device timeline=] of |this|:
+                <div class=device-timeline>
+                    1. If any of the following conditions are unsatisfied:
+                        <div class=validusage>
+                            - |descriptor|.{{GPUPipelineDescriptorBase/layout}} is [$valid to use with$] |this|.
+                            - [$validating GPUProgrammableStage$]({{GPUShaderStage/COMPUTE}},
+                                |descriptor|.{{GPUComputePipelineDescriptor/compute}},
+                                |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+                            - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
+                                |device|.limits.{{supported limits/maxComputeWorkgroupStorageSize}} bytes of
+                                workgroup storage.
 
-                        Issue: Better define using static use, etc.
-                    - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
-                        |device|.limits.{{supported limits/maxComputeInvocationsPerWorkgroup}} per
-                        workgroup.
+                                Issue: Better define using static use, etc.
+                            - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
+                                |device|.limits.{{supported limits/maxComputeInvocationsPerWorkgroup}} per
+                                workgroup.
 
-                    - |descriptor|.{{GPUComputePipelineDescriptor/compute}}'s `workgroup_size` attribute
-                        has each component &le; the corresponding component in
-                        [|device|.limits.{{supported limits/maxComputeWorkgroupSizeX}},
-                        |device|.limits.{{supported limits/maxComputeWorkgroupSizeY}},
-                        |device|.limits.{{supported limits/maxComputeWorkgroupSizeZ}}].
+                            - |descriptor|.{{GPUComputePipelineDescriptor/compute}}'s `workgroup_size` attribute
+                                has each component &le; the corresponding component in
+                                [|device|.limits.{{supported limits/maxComputeWorkgroupSizeX}},
+                                |device|.limits.{{supported limits/maxComputeWorkgroupSizeY}},
+                                |device|.limits.{{supported limits/maxComputeWorkgroupSizeZ}}].
+                        </div>
+
+                        Then:
+                            1. Generate a {{GPUValidationError}} in the current scope with appropriate
+                                error message.
+                            1. Make |pipeline| [=invalid=].
+
+                    1. If |descriptor|.{{GPUPipelineDescriptorBase/layout}} is `undefined`:
+                        1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to a new [$default pipeline layout$]
+                            for |pipeline|.
+
+                        Otherwise set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |descriptor|.{{GPUPipelineDescriptorBase/layout}}.
                 </div>
+            1. Return |pipeline|.
 
-            Then:
-                1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
-                1. Create a new [=invalid=] {{GPUComputePipeline}} and return the result.
         </div>
 
     : <dfn>createComputePipelineAsync(descriptor)</dfn>
@@ -4778,6 +4805,11 @@ details.
                                 |stencilBack|.{{GPUStencilFaceState/depthFailOp}}, or |stencilBack|.{{GPUStencilFaceState/failOp}}
                                 is not {{GPUStencilOperation/"keep"}}:
                                 1. Set |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} to true.
+                    1. If |descriptor|.{{GPUPipelineDescriptorBase/layout}} is `undefined`:
+                        1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to a new [$default pipeline layout$]
+                            for |pipeline|.
+
+                        Otherwise set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |descriptor|.{{GPUPipelineDescriptorBase/layout}}.
                 </div>
             1. Return |pipeline|.
 
