@@ -531,7 +531,7 @@ literal_or_ident
     When applied to the `position` [=built-in output variable=] of a vertex
     shader, the computation of the result is invariant across different
     programs and different invocations of the same entry point.
-    That is, if the data and control flow match for two `position` outputs in
+    That is, if the data and [=control flow=] match for two `position` outputs in
     different entry points, then the result values are guaranteed to be the
     same.
     There is no affect on a `position` [=built-in input variable=].
@@ -3164,7 +3164,7 @@ the constant is <dfn noexport>pipeline-overridable</dfn>. In this case:
   </xmp>
 </div>
 
-When a variable or feature is used within control flow that depends on the
+When a variable or feature is used within [=control flow=] that depends on the
 value of a constant, then that variable or feature is considered to be used by the
 program.
 This is true regardless of the value of the constant, whether that value
@@ -4886,9 +4886,37 @@ assignment_statement
       which maps to OpAccessChain followed by OpStore
 </pre>
 
-## Control flow TODO ## {#control-flow}
+## Control Flow ## {#control-flow-section}
 
-### Sequence TODO ### {#sequence-statement}
+<dfn>Control flow</dfn> is the ordering of statement execution.
+
+### Sequenced Execution ### {#sequence-statement}
+
+Statements within a compound statement execute in textual order, unless interrupted
+by a [=control flow interruption=].
+More precisely:
+
+<div algorithm="executing a compound statement">
+    A [=compound statement=] |C| in function |F| in entry point |E| executes as follows:
+
+    * If |C| is empty, then it immediately finishes execution.
+    * Otherwise:
+        * The first statement in the compound statement becomes the |Current| statement.
+        * Repeatedly execute a |Current| statement:
+            * Execute the |Current| statement.
+                * This may cause a [=control flow interruption=] to execute,
+                    transferring control as prescribed by the specific kind of interruption.
+            * Execution of |C| ends if any of the following occurs:
+                * |Current| is the last member of |C|, or
+                * Control was transferred outside of |C| (via [=break=], [=continue=], or [=fallthrough=]), or
+                * Execution of entry point |E| ended (via [=statement/discard=]), or
+                * Execution of function |F| ended (via [=return=]).
+            * Otherwise, advance |Current| to the next statement appearing in |C|.
+</div>
+
+Note: A statement inside a compound statement may have complex internal [=control flow=],
+which is abstracted away in this description.
+See the [=if=], [=switch=], [=loop=], and [=for=] statements.
 
 ### If Statement ### {#if-statement}
 
@@ -5308,7 +5336,7 @@ Note: A `discard` statement may be executed by any
 [=functions in a shader stage|function in a fragment stage=] and the effect is the same:
 immediate termination of the invocation.
 
-After a `discard` statement is executed, control flow is non-uniform for the
+After a `discard` statement is executed, [=control flow=] is non-uniform for the
 duration of the entry point.
 
 Issue: [[#uniform-control-flow]] needs to state whether all invocations being discarded maintains uniform control flow.
@@ -5337,6 +5365,145 @@ Issue: [[#uniform-control-flow]] needs to state whether all invocations being di
     will_emit_color = true;
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);
   }
+  </xmp>
+</div>
+
+### Control Flow Interruption ### {#control-flow-interruption-section}
+
+A <dfn>control flow interruption</dfn> is any one of the following statements:
+* a [=statement/break=] statement
+* a [=statement/continue=] statement
+* a [=statement/fallthrough=] statement
+* a [=statement/return=] statement
+* a [=statement/discard=] statement
+* a [=compound statement=], if one of its members is a [=control flow interruption=].
+
+A control flow interruption must:
+* be a [=continue=] statement immediately followed by a [=continuing=] statement, or
+* appear last in its immediately enclosing compound statement.
+
+Note: In the cases forbidden by this rule, there are statements that immediately
+follow the control flow interruption.
+Those statements can never be executed, which may indicate a programming error.
+
+[=Switch=], [=if=], [=loop=], and [=for=] statements *contain* [=compound statements=],
+but are not themselves compound statements.
+(That is, they do not match the `compound_statement` grammar rule.)
+They are never classified as control flow interruptions.
+
+<div class='example wgsl' heading='A simple invalid control flow interruption'>
+  <xmp highlight='rust'>
+   fn simple() -> i32 {
+     var a: i32;
+     return 0;  // Error: A control flow interruption, not appearing last.
+     a = 1;     // This is never executed.
+     return 2;
+   }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='An invalid nested control flow interruption'>
+  <xmp highlight='rust'>
+   fn nested() -> i32 {
+     var a: i32;
+     {             // The start of a compound statement.
+       a = 2;
+       return 1;   // Valid: A control flow interruption appearing last in its
+                   // enclosing compound statement.
+
+     }             // Error: The compound statement is a control flow interruption,
+                   // not appearing last.
+     a = 1;        // This is never executed.
+     return 2;
+   }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='An if is not a control flow interruption'>
+  <xmp highlight='rust'>
+   fn if_example() {
+     var a: i32 = 0;
+     loop {
+       // This if statement contains a control flow interruption.
+       // But a whole if statement is never a control flow interruption.
+       if (a == 5) {
+         break; // A control flow interruption.
+       }
+       a = a + 1;
+     }
+   }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='A switch is not a control flow interruption'>
+  <xmp highlight='rust'>
+   fn switch_example() {
+     var a: i32 = 0;
+     switch (a) {
+       // This default clause contains a control flow interruption.
+       // But a whole switch statement is never a control flow interruption.
+       default: {
+         return; // A control flow interruption.
+       }
+     } // Valid. Not a control flow interruption.
+     a = 5;
+   }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='An invalid continue'>
+  <xmp highlight='rust'>
+   fn invalid_continue() {
+     var a: i32;
+     loop {
+       if (a == 5) { break; }  // Valid
+       continue;               // Error: Invalid control flow interruption.
+       a = a + 1;
+     }                         // Valid
+   }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='A conditional continue with continuing statement'>
+  <xmp highlight='rust'>
+   fn conditional_continue() {
+     var a: i32;
+     loop {
+       if (a == 5) { break; }
+       if (a % 2 == 1) {
+         continue; // Valid: A control flow interruption.
+       }           // Valid: Not a control flow interruption.
+       a = a * 2;
+       continuing {
+         a = a + 1;
+       }
+     }
+   }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='A redundant continue with continuing statement'>
+  <xmp highlight='rust'>
+   fn redundant_continue_with_continuing() {
+     var a: i32;
+     loop {
+       if (a == 5) { break; }
+       continue;   // Valid. This is redundant, branching to the next statement.
+       continuing {
+         a = a + 1;
+       }
+     }
+   }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='A continue at the end of a loop body'>
+  <xmp highlight='rust'>
+   fn continue_end_of_loop_body() {
+     for (var i: i32 = 0; i < 5; i = i + 1 ) {
+       continue;   // Valid. This is redundant, branching to the end of the loop body.
+     }
+   }
   </xmp>
 </div>
 
