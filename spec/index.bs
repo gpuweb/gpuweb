@@ -71,6 +71,7 @@ spec: canvas; urlPrefix: https://html.spec.whatwg.org/multipage/canvas.html#
         text: placeholder canvas element; url: offscreencanvas-placeholder
         text: canvas context mode; url: concept-canvas-context-mode
         text: OffscreenCanvas context mode; url: offscreencanvas-context-mode
+        text: check the usability of the image argument; url: check-the-usability-of-the-image-argument
 spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
         text: location; url: input-output-locations
@@ -85,6 +86,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: pipeline input; url: pipeline-input
         text: builtin; url: builtin-variables
         text: channel formats; url: channel-formats
+        text: invalid memory reference; url: invalid-memory-reference
 </pre>
 
 <style>
@@ -92,6 +94,11 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
 main dl:not(.switch) {
     border-left: thin solid #f3e48c;
     padding-left: .5em;
+}
+
+/** In switches, make multiple consecutive <dd> entries distinguishable. */
+dl.switch > dd {
+    display: list-item;
 }
 
 /* <p> by default has these margins. Update ul/ol/dl to match,
@@ -265,10 +272,7 @@ thead.stickyheader th, th.stickyheader {
 [Graphics Processing Units](https://en.wikipedia.org/wiki/Graphics_processing_unit), or GPUs for short,
 have been essential in enabling rich rendering and computational applications in personal computing.
 WebGPU is an API that exposes the capabilities of GPU hardware for the Web.
-The API is designed from the ground up to efficiently map to the
-[Vulkan](https://www.khronos.org/vulkan/),
-[Direct3D 12](https://docs.microsoft.com/en-us/windows/win32/direct3d12/what-is-directx-12-),
-and [Metal](https://developer.apple.com/metal/) native GPU APIs.
+The API is designed from the ground up to efficiently map to (post-2014) native GPU APIs.
 WebGPU is not related to [WebGL](https://www.khronos.org/webgl/) and does not explicitly target OpenGL ES.
 
 WebGPU sees physical GPU hardware as {{GPUAdapter}}s. It provides a connection to an adapter via
@@ -470,7 +474,7 @@ that could be used (such as the maximum texture size), and any optional hardware
 capabilities that are available.
 
 User agents are not obligated to expose the real hardware limits, they are in full contol of
-how much the machine specifics are exposed. One strategy to reduce fingeprinting is binning
+how much the machine specifics are exposed. One strategy to reduce fingerprinting is binning
 all the target platforms into a few number of bins. In general, the privacy impact of exposing
 the hardware limits matches the one of WebGL.
 
@@ -640,7 +644,6 @@ This would let validity be immutable, and only operations involving devices, buf
 
 ## Coordinate Systems ## {#coordinate-systems}
 
-WebGPU's coordinate systems match DirectX and Metal's coordinate systems in a graphics pipeline.
   - Y-axis is up in normalized device coordinate (NDC): point(-1.0, -1.0) in NDC is located at the bottom-left corner of NDC.
     In addition, x and y in NDC should be between -1.0 and 1.0 inclusive, while z in NDC should be between 0.0 and 1.0 inclusive.
     Vertices out of this range in NDC will not introduce any errors, but they will be clipped.
@@ -649,6 +652,7 @@ WebGPU's coordinate systems match DirectX and Metal's coordinate systems in a gr
   - Window/present coordinate matches [=framebuffer=] coordinate.
   - UV of origin(0, 0) in texture coordinate represents the first texel (the lowest byte) in texture memory.
 
+Note: WebGPU's coordinate systems match DirectX's coordinate systems in a graphics pipeline.
 
 ## Programming Model ## {#programming-model}
 
@@ -773,10 +777,10 @@ A [=physical resource=] can be used on GPU with an <dfn dfn>internal usage</dfn>
         Allowed by buffer {{GPUBufferUsage/INDEX}}, buffer {{GPUBufferUsage/VERTEX}}, or buffer {{GPUBufferUsage/INDIRECT}}.
     : <dfn>constant</dfn>
     ::  Resource bindings that are constant from the shader point of view. Preserves the contents.
-        Allowed by buffer {{GPUBufferUsage/UNIFORM}} or texture {{GPUTextureUsage/SHADER_READ}}.
+        Allowed by buffer {{GPUBufferUsage/UNIFORM}} or texture {{GPUTextureUsage/TEXTURE_BINDING}}.
     : <dfn>storage</dfn>
     ::  Writable storage resource binding.
-        Allowed by buffer {{GPUBufferUsage/STORAGE}} or texture {{GPUTextureUsage/STORAGE}}.
+        Allowed by buffer {{GPUBufferUsage/STORAGE}} or texture {{GPUTextureUsage/STORAGE_BINDING}}.
     : <dfn>storage-read</dfn>
     ::  Read-only storage resource bindings. Preserves the contents.
         Allowed by buffer {{GPUBufferUsage/STORAGE}}.
@@ -921,8 +925,9 @@ generates a {{GPUValidationError}} in the current error scope.
 ### Adapters ### {#adapters}
 
 An <dfn dfn>adapter</dfn> represents an implementation of WebGPU on the system.
-Each adapter identifies both an instance of a hardware accelerator (e.g. GPU or CPU) and
-an instance of a browser's implementation of WebGPU on top of that accelerator.
+Each adapter identifies both an instance of compute/rendering functionality on a
+platform underlying a browser, and an instance of a browser's implementation of
+WebGPU on top of that functionality.
 
 If an [=adapter=] becomes unavailable, it becomes [=invalid=].
 Once invalid, it never becomes valid again.
@@ -938,6 +943,10 @@ Applications can hold onto multiple [=adapters=] at once (via {{GPUAdapter}})
 (even if some are [=invalid=]),
 and two of these could refer to different instances of the same physical
 configuration (e.g. if the GPU was reset or disconnected and reconnected).
+
+An [=adapter=] may be considered a <dfn>fallback adapter</dfn> if it has significant performance
+caveats in exchange for some combination of wider compatibility, more predictable behavior, or
+improved privacy. It is not required that a [=fallback adapter=] is available on every system.
 
 An [=adapter=] has the following internal slots:
 
@@ -969,10 +978,9 @@ An [=adapter=] has the following internal slots:
         {{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc. It also ensures applications use
         the latest system state to make decisions about which adapter to use.
 
-    : <dfn>\[[software]]</dfn>, of type boolean
+    : <dfn>\[[fallback]]</dfn>, of type boolean
     ::
-        If set to `true` indicates that the adapter is backed by a software implementation of an
-        appropriate graphics API rather than physical GPU hardware.
+        If set to `true` indicates that the adapter is a [=fallback adapter=].
 </dl>
 
 [=Adapters=] are exposed via {{GPUAdapter}}.
@@ -1107,7 +1115,7 @@ The default is used if a value is not explicitly specified in {{GPUDeviceDescrip
         of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"3d"}}.
 
     <tr><td><dfn>maxTextureArrayLayers</dfn>
-        <td>{{GPUSize32}} <td>Higher <td>2048
+        <td>{{GPUSize32}} <td>Higher <td>256
     <tr class=row-continuation><td colspan=4>
         The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=Extent3D/depthOrArrayLayers=]
         of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"1d"}} or {{GPUTextureDimension/"2d"}}.
@@ -1240,19 +1248,31 @@ The default is used if a value is not explicitly specified in {{GPUDeviceDescrip
         The maximum number of bytes used for a compute stage
         {{GPUShaderModule}} entry-point.
 
-    <tr><td><dfn>maxComputeWorkgroupInvocations</dfn>
+    <tr><td><dfn>maxComputeInvocationsPerWorkgroup</dfn>
         <td>{{GPUSize32}} <td>Higher <td>256
     <tr class=row-continuation><td colspan=4>
-        The maximum value of the product of the `workgroup_size` values for a
+        The maximum value of the product of the `workgroup_size` dimensions for a
         compute stage {{GPUShaderModule}} entry-point.
 
-    <tr><td><dfn>maxComputeWorkgroupSize</dfn>
-        <td>{{GPUExtent3D}} <td>Per-component Higher <td>[256, 256, 64]
+    <tr><td><dfn>maxComputeWorkgroupSizeX</dfn>
+        <td>{{GPUSize32}} <td>Higher <td>256
     <tr class=row-continuation><td colspan=4>
-        The maximum values of the `workgroup_size` values for a
+        The maximum value of the `workgroup_size` X dimension for a
         compute stage {{GPUShaderModule}} entry-point.
 
-    <tr><td><dfn>maxComputePerDimensionDispatchSize</dfn>
+    <tr><td><dfn>maxComputeWorkgroupSizeY</dfn>
+        <td>{{GPUSize32}} <td>Higher <td>256
+    <tr class=row-continuation><td colspan=4>
+        The maximum value of the `workgroup_size` Y dimensions for a
+        compute stage {{GPUShaderModule}} entry-point.
+
+    <tr><td><dfn>maxComputeWorkgroupSizeZ</dfn>
+        <td>{{GPUSize32}} <td>Higher <td>64
+    <tr class=row-continuation><td colspan=4>
+        The maximum value of the `workgroup_size` Z dimensions for a
+        compute stage {{GPUShaderModule}} entry-point.
+
+    <tr><td><dfn>maxComputeWorkgroupsPerDimension</dfn>
         <td>{{GPUSize32}} <td>Higher <td>65535
     <tr class=row-continuation><td colspan=4>
         The maximum value for the arguments of {{GPUComputePassEncoder/dispatch(x, y, z)}}.
@@ -1290,9 +1310,11 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxVertexBufferArrayStride;
     readonly attribute unsigned long maxInterStageShaderComponents;
     readonly attribute unsigned long maxComputeWorkgroupStorageSize;
-    readonly attribute unsigned long maxComputeWorkgroupInvocations;
-    readonly attribute GPUExtent3D maxComputeWorkgroupSize;
-    readonly attribute unsigned long maxComputePerDimensionDispatchSize;
+    readonly attribute unsigned long maxComputeInvocationsPerWorkgroup;
+    readonly attribute unsigned long maxComputeWorkgroupSizeX;
+    readonly attribute unsigned long maxComputeWorkgroupSizeY;
+    readonly attribute unsigned long maxComputeWorkgroupSizeZ;
+    readonly attribute unsigned long maxComputeWorkgroupsPerDimension;
 };
 </script>
 
@@ -1388,7 +1410,7 @@ and {{WorkerNavigator}} interfaces respectively and is exposed via `navigator.gp
 
 <script type=idl>
 interface mixin NavigatorGPU {
-    [SameObject] readonly attribute GPU gpu;
+    [SameObject, SecureContext] readonly attribute GPU gpu;
 };
 Navigator includes NavigatorGPU;
 WorkerNavigator includes NavigatorGPU;
@@ -1399,7 +1421,7 @@ WorkerNavigator includes NavigatorGPU;
 <dfn interface>GPU</dfn> is the entry point to WebGPU.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPU {
     Promise<GPUAdapter?> requestAdapter(optional GPURequestAdapterOptions options = {});
 };
@@ -1432,8 +1454,8 @@ interface GPU {
                             `true`, chosen according to the rules in [[#adapter-selection]] and the
                             criteria in |options|.
 
-                        1. If |adapter| is backed by a software graphics API implementation set
-                            |adapter|.{{adapter/[[software]]}} to `true`.
+                        1. If |adapter| meets the criteria of a [=fallback adapter=] set
+                            |adapter|.{{adapter/[[fallback]]}} to `true`.
 
                         1. [=Resolve=] |promise| with a new {{GPUAdapter}} encapsulating |adapter|.
 
@@ -1496,7 +1518,7 @@ configuration is suitable for the application.
 <script type=idl>
 dictionary GPURequestAdapterOptions {
     GPUPowerPreference powerPreference;
-    boolean forceSoftware = false;
+    boolean forceFallbackAdapter = false;
 };
 </script>
 
@@ -1560,19 +1582,19 @@ enum GPUPowerPreference {
                 necessary, since it may significantly decrease battery life on portable devices.
         </dl>
 
-    : <dfn>forceSoftware</dfn>
+    : <dfn>forceFallbackAdapter</dfn>
     ::
-        When set to `true` indicates that only software [=adapters=] may be returned. If the user
-        agent does not support a software [=adapter=], will cause {{GPU/requestAdapter()}} to
+        When set to `true` indicates that only a [=fallback adapter=] may be returned. If the user
+        agent does not support a [=fallback adapter=], will cause {{GPU/requestAdapter()}} to
         resolve to `null`.
 
         Note:
-        {{GPU/requestAdapter()}} may still return a software [=adapter=] is
-        {{GPURequestAdapterOptions/forceSoftware}} is set to `false` and either no appropriate
-        hardware [=adapter=] is available or the user agent chooses not to return a hardware
-        [=adapter=]. Developers that wish to prevent their applications from running on software
-        [=adapters=] should check the {{GPUAdapter}}.{{GPUAdapter/isSoftware}} attribute prior to
-        requesting a {{GPUDevice}}.
+        {{GPU/requestAdapter()}} may still return a [=fallback adapter=] if
+        {{GPURequestAdapterOptions/forceFallbackAdapter}} is set to `false` and either no
+        other appropriate [=adapter=] is available or the user agent chooses to return a
+        [=fallback adapter=]. Developers that wish to prevent their applications from running on
+        [=fallback adapters=] should check the {{GPUAdapter}}.{{GPUAdapter/isFallbackAdapter}}
+        attribute prior to requesting a {{GPUDevice}}.
 </dl>
 
 ## <dfn interface>GPUAdapter</dfn> ## {#gpu-adapter}
@@ -1583,12 +1605,12 @@ and describes its capabilities ([=features=] and [=limits=]).
 To get a {{GPUAdapter}}, use {{GPU/requestAdapter()}}.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUAdapter {
     readonly attribute DOMString name;
     [SameObject] readonly attribute GPUSupportedFeatures features;
     [SameObject] readonly attribute GPUSupportedLimits limits;
-    readonly attribute boolean isSoftware;
+    readonly attribute boolean isFallbackAdapter;
 
     Promise<GPUDevice> requestDevice(optional GPUDeviceDescriptor descriptor = {});
 };
@@ -1610,9 +1632,9 @@ interface GPUAdapter {
     ::
         The limits in `this`.{{GPUAdapter/[[adapter]]}}.{{adapter/[[limits]]}}.
 
-    : <dfn>isSoftware</dfn>
+    : <dfn>isFallbackAdapter</dfn>
     ::
-        Returns the value of {{GPUAdapter/[[adapter]]}}.{{adapter/[[software]]}}.
+        Returns the value of {{GPUAdapter/[[adapter]]}}.{{adapter/[[fallback]]}}.
 </dl>
 
 {{GPUAdapter}} has the following internal slots:
@@ -1697,7 +1719,7 @@ interface GPUAdapter {
 <script type=idl>
 dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
     sequence<GPUFeatureName> requiredFeatures = [];
-    record<DOMString, GPUSize32> requiredLimits = {};
+    record<DOMString, GPUSize64> requiredLimits = {};
 };
 </script>
 
@@ -1721,10 +1743,10 @@ dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
         Exactly the specified limits, and no [=limit/better=] or worse,
         will be allowed in validation of API calls on the resulting device.
 
-        <!-- If we ever need limit types other than GPUSize32, we can change the value type to
-        `double` or `any` in the future and write out the type conversion explicitly (by reference
-        to WebIDL spec). Or change the entire type to `any` and add back a `dictionary GPULimits`
-        and define the conversion of the whole object by reference to WebIDL. -->
+        <!-- If we ever need limit types other than GPUSize32/GPUSize64, we can change the value
+        type to `double` or `any` in the future and write out the type conversion explicitly (by
+        reference to WebIDL spec). Or change the entire type to `any` and add back a `dictionary
+        GPULimits` and define the conversion of the whole object by reference to WebIDL. -->
 </dl>
 
 #### <dfn enum>GPUFeatureName</dfn> #### {#gpufeaturename}
@@ -1753,7 +1775,7 @@ the functionality of that device.
 To get a {{GPUDevice}}, use {{GPUAdapter/requestDevice()}}.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUDevice : EventTarget {
     [SameObject] readonly attribute GPUSupportedFeatures features;
     [SameObject] readonly attribute GPUSupportedLimits limits;
@@ -1869,7 +1891,7 @@ its mapping.
 that returns a new buffer in the [=buffer state/mapped=] or [=buffer state/unmapped=] state.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUBuffer {
     Promise<undefined> mapAsync(GPUMapModeFlags mode, optional GPUSize64 offset = 0, optional GPUSize64 size);
     ArrayBuffer getMappedRange(optional GPUSize64 offset = 0, optional GPUSize64 size);
@@ -2284,7 +2306,7 @@ Issue: define <dfn dfn>mipmap level</dfn>, <dfn dfn>array layer</dfn>, <dfn dfn>
 that returns a new texture.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUTexture {
     GPUTextureView createView(optional GPUTextureViewDescriptor descriptor = {});
 
@@ -2353,8 +2375,8 @@ typedef [EnforceRange] unsigned long GPUTextureUsageFlags;
 namespace GPUTextureUsage {
     const GPUFlagsConstant COPY_SRC          = 0x01;
     const GPUFlagsConstant COPY_DST          = 0x02;
-    const GPUFlagsConstant SHADER_READ       = 0x04;
-    const GPUFlagsConstant STORAGE           = 0x08;
+    const GPUFlagsConstant TEXTURE_BINDING   = 0x04;
+    const GPUFlagsConstant STORAGE_BINDING   = 0x08;
     const GPUFlagsConstant RENDER_ATTACHMENT = 0x10;
 };
 </script>
@@ -2446,7 +2468,7 @@ namespace GPUTextureUsage {
                             - If |descriptor|.{{GPUTextureDescriptor/sampleCount}} > 1:
                                 - |descriptor|.{{GPUTextureDescriptor/mipLevelCount}} must be 1.
                                 - |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/depthOrArrayLayers=] must be 1.
-                                - |descriptor|.{{GPUTextureDescriptor/usage}} must not include the {{GPUTextureUsage/STORAGE}} bit.
+                                - |descriptor|.{{GPUTextureDescriptor/usage}} must not include the {{GPUTextureUsage/STORAGE_BINDING}} bit.
                                 - |descriptor|.{{GPUTextureDescriptor/format}} must be a [=renderable format=].
 
                             - |descriptor|.{{GPUTextureDescriptor/mipLevelCount}} must be less than or equal to
@@ -2455,9 +2477,9 @@ namespace GPUTextureUsage {
                             - |descriptor|.{{GPUTextureDescriptor/usage}} must be a combination of {{GPUTextureUsage}} values.
                             - If |descriptor|.{{GPUTextureDescriptor/usage}} includes the {{GPUTextureUsage/RENDER_ATTACHMENT}} bit,
                                 |descriptor|.{{GPUTextureDescriptor/format}} must be a [=renderable format=].
-                            - If |descriptor|.{{GPUTextureDescriptor/usage}} includes the {{GPUTextureUsage/STORAGE}} bit,
+                            - If |descriptor|.{{GPUTextureDescriptor/usage}} includes the {{GPUTextureUsage/STORAGE_BINDING}} bit,
                                 |descriptor|.{{GPUTextureDescriptor/format}} must be listed in [[#plain-color-formats]] table
-                                with {{GPUTextureUsage/STORAGE}} capability.
+                                with {{GPUTextureUsage/STORAGE_BINDING}} capability.
                         </div>
 
                         Then:
@@ -2496,7 +2518,7 @@ all previously submitted operations using it are complete.
 ## <dfn interface>GPUTextureView</dfn> ## {#gpu-textureview}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUTextureView {
 };
 GPUTextureView includes GPUObjectBase;
@@ -2813,7 +2835,7 @@ or a 32-bit IEEE 754 floating point value ("depth32float").
 
 Issue: add something on GPUAdapter(?) that gives an estimate of the bytes per texel of "stencil8"
 
-The {{GPUTextureFormat/stencil8}}) format may be implemented as
+The {{GPUTextureFormat/stencil8}} format may be implemented as
 either a real "stencil8", or "depth24stencil8", where the depth aspect is
 hidden and inaccessible.
 
@@ -2866,7 +2888,7 @@ External textures use several binding slots: see [=Exceeds the binding slot limi
 </div>
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUExternalTexture {
 };
 GPUExternalTexture includes GPUObjectBase;
@@ -2916,6 +2938,12 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
             **Returns:** {{GPUExternalTexture}}
 
             1. Let |source| be |descriptor|.{{GPUExternalTextureDescriptor/source}}.
+
+            1. Let |usability| be the result of
+                [=check the usability of the image argument|checking the usability of=] |source|
+                (which may throw an exception).
+
+            1. If |usability| is `bad`, throw an {{InvalidStateError}} and stop.
 
             1. If |source| <l spec=html>[=is not origin-clean=]</l>,
                 throw a {{SecurityError}} and stop.
@@ -2975,7 +3003,7 @@ be used in a shader to interpret texture resource data.
 that returns a new sampler object.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUSampler {
 };
 GPUSampler includes GPUObjectBase;
@@ -3012,7 +3040,7 @@ dictionary GPUSamplerDescriptor : GPUObjectDescriptorBase {
     GPUFilterMode minFilter = "nearest";
     GPUFilterMode mipmapFilter = "nearest";
     float lodMinClamp = 0;
-    float lodMaxClamp = 0xffffffff; // TODO: What should this be? Was Number.MAX_VALUE.
+    float lodMaxClamp = 32;
     GPUCompareFunction compare;
     [Clamp] unsigned short maxAnisotropy = 1;
 };
@@ -3035,6 +3063,7 @@ dictionary GPUSamplerDescriptor : GPUObjectDescriptorBase {
     Note: most implementations support {{GPUSamplerDescriptor/maxAnisotropy}} values in range between 1 and 16, inclusive.
 
 Issue: explain how LOD is calculated and if there are differences here between platforms.
+
 Issue: explain what anisotropic sampling is
 
 {{GPUAddressMode}} describes the behavior of the sampler if the sample footprint extends beyond
@@ -3198,7 +3227,7 @@ enum GPUCompareFunction {
 A {{GPUBindGroupLayout}} defines the interface between a set of resources bound in a {{GPUBindGroup}} and their accessibility in shader stages.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUBindGroupLayout {
 };
 GPUBindGroupLayout includes GPUObjectBase;
@@ -3474,10 +3503,7 @@ truly optional.
     ::
         Indicates the required {{GPUTextureViewDescriptor/dimension}} for texture views bound to
         this binding.
-
-        Note:
-            This enables Metal-based WebGPU implementations to back the respective bind groups with
-            `MTLArgumentBuffer` objects that are more efficient to bind at run-time.
+        <!-- https://github.com/gpuweb/gpuweb/pull/339 -->
 
     : <dfn>multisampled</dfn>
     ::
@@ -3515,10 +3541,7 @@ truly optional.
     ::
         Indicates the required {{GPUTextureViewDescriptor/dimension}} for texture views bound to
         this binding.
-
-        Note:
-            This enables Metal-based WebGPU implementations to back the respective bind groups with
-            `MTLArgumentBuffer` objects that are more efficient to bind at run-time.
+        <!-- https://github.com/gpuweb/gpuweb/pull/339 -->
 </dl>
 
 <script type=idl>
@@ -3537,6 +3560,13 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
     : <dfn>\[[dynamicOffsetCount]]</dfn> of type {{GPUSize32}}.
     ::
         The number of buffer bindings with dynamic offsets in this {{GPUBindGroupLayout}}.
+
+    : <dfn>\[[exclusivePipeline]]</dfn> of type {{GPUPipelineBase}}?, initially `null`.
+    ::
+        The pipeline that created this {{GPUBindGroupLayout}}, if it was created as part of a
+        [[#default-pipeline-layout|default pipeline layout]]. If not `null`, {{GPUBindGroup}}s
+        created with this {{GPUBindGroupLayout}} can only be used with the specified
+        {{GPUPipelineBase}}.
 </dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
@@ -3586,7 +3616,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                                     - |textureLayout|.{{GPUTextureBindingLayout/viewDimension}} is
                                         {{GPUTextureViewDimension/"2d"}}.
                                     - |textureLayout|.{{GPUTextureBindingLayout/sampleType}} is not
-                                        {{GPUTextureSampleType/"float"}}.
+                                        {{GPUTextureSampleType/"float"}} or {{GPUTextureSampleType/"depth"}}.
 
                                 - If |storageTextureLayout| is not `undefined`:
                                     - |storageTextureLayout|.{{GPUStorageTextureBindingLayout/viewDimension}} is not
@@ -3617,9 +3647,11 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
 
 <div algorithm>
 Two {{GPUBindGroupLayout}} objects |a| and |b| are considered <dfn dfn>group-equivalent</dfn>
-if and only if, for any binding number |binding|, one of the following conditions is satisfied:
-    - it's missing from both |a|.{{GPUBindGroupLayout/[[entryMap]]}} and |b|.{{GPUBindGroupLayout/[[entryMap]]}}.
-    - |a|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|] == |b|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|]
+if and only if all of the following conditions are satisfied:
+    - |a|.{{GPUBindGroupLayout/[[exclusivePipeline]]}} == |b|.{{GPUBindGroupLayout/[[exclusivePipeline]]}}.
+    - for any binding number |binding|, one of the following conditions is satisfied:
+        - it's missing from both |a|.{{GPUBindGroupLayout/[[entryMap]]}} and |b|.{{GPUBindGroupLayout/[[entryMap]]}}.
+        - |a|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|] == |b|.{{GPUBindGroupLayout/[[entryMap]]}}[|binding|]
 </div>
 
 If bind groups layouts are [=group-equivalent=] they can be interchangeably used in all contents.
@@ -3630,7 +3662,7 @@ A {{GPUBindGroup}} defines a set of resources to be bound together in a group
     and how the resources are used in shader stages.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUBindGroup {
 };
 GPUBindGroup includes GPUObjectBase;
@@ -3748,8 +3780,9 @@ A {{GPUBindGroup}} object has the following internal slots:
                                             - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}}
                                                 is equal to |resource|'s {{GPUTextureViewDescriptor/dimension}}.
                                             - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}}
-                                                is compatible with |resource|'s {{GPUTextureViewDescriptor/format}}.
-                                            - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/SHADER_READ}}.
+                                                is [[#texture-format-caps|compatible]] with
+                                                |resource|'s {{GPUTextureViewDescriptor/format}}.
+                                            - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/TEXTURE_BINDING}}.
                                             - If |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}}
                                                 is `true`, |texture|'s {{GPUTextureDescriptor/sampleCount}}
                                                 &gt; `1`, Otherwise |texture|'s {{GPUTextureDescriptor/sampleCount}} is `1`.
@@ -3763,7 +3796,7 @@ A {{GPUBindGroup}} object has the following internal slots:
                                                 is equal to |resource|'s {{GPUTextureViewDescriptor/dimension}}.
                                             - |layoutBinding|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/format}}
                                                 is equal to |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
-                                            - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/STORAGE}}.
+                                            - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/STORAGE_BINDING}}.
 
                                         :  {{GPUBindGroupLayoutEntry/buffer}}
                                         ::
@@ -3806,8 +3839,6 @@ A {{GPUBindGroup}} object has the following internal slots:
 
                         </div>
 
-                        Issue: define the association between texture formats and component types
-
                         Then:
                             1. Generate a {{GPUValidationError}} in the current scope with appropriate
                                 error message.
@@ -3842,7 +3873,7 @@ The full binding address of a resource can be defined as a trio of:
 The components of this address can also be seen as the binding space of a pipeline. A {{GPUBindGroup}} (with the corresponding {{GPUBindGroupLayout}}) covers that space for a fixed bind group index. The contained bindings need to be a superset of the resources used by the shader at this bind group index.
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUPipelineLayout {
 };
 GPUPipelineLayout includes GPUObjectBase;
@@ -3911,7 +3942,8 @@ dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
                         for all |bgl| in |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}.
 
                     - Every {{GPUBindGroupLayout}} in |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
-                        must be [$valid to use with$] |this|.
+                        must be [$valid to use with$] |this| and have a {{GPUBindGroupLayout/[[exclusivePipeline]]}}
+                        of `null`.
                     - The [=list/size=] of |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
                         must be &le; |limits|.{{supported limits/maxBindGroups}}.
                     - |allEntries| must not [=exceeds the binding slot limits|exceed the binding slot limits=] of |limits|.
@@ -3937,7 +3969,7 @@ if their internal {{GPUPipelineLayout/[[bindGroupLayouts]]}} sequences contain
 ## <dfn interface>GPUShaderModule</dfn> ## {#shader-module}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUShaderModule {
     Promise<GPUCompilationInfo> compilationInfo();
 };
@@ -3994,7 +4026,7 @@ enum GPUCompilationMessageType {
     "info"
 };
 
-[Exposed=(Window, DedicatedWorker), Serializable]
+[Exposed=(Window, DedicatedWorker), Serializable, SecureContext]
 interface GPUCompilationMessage {
     readonly attribute DOMString message;
     readonly attribute GPUCompilationMessageType type;
@@ -4004,7 +4036,7 @@ interface GPUCompilationMessage {
     readonly attribute unsigned long long length;
 };
 
-[Exposed=(Window, DedicatedWorker), Serializable]
+[Exposed=(Window, DedicatedWorker), Serializable, SecureContext]
 interface GPUCompilationInfo {
     readonly attribute FrozenArray<GPUCompilationMessage> messages;
 };
@@ -4173,13 +4205,16 @@ has a default layout created and used instead.
 
 <div algorithm="default pipeline layout creation">
 
+To create a <dfn abstract-op>default pipeline layout</dfn> for {{GPUPipelineBase}} |pipeline|,
+run the following steps:
+
     1. Let |groupDescs| be a sequence of |device|.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}
         new {{GPUBindGroupLayoutDescriptor}} objects.
     1. For each |groupDesc| in |groupDescs|:
 
         1. Set |groupDesc|.{{GPUBindGroupLayoutDescriptor/entries}} to an empty sequence.
 
-    1. For each {{GPUProgrammableStage}} |stageDesc| in the descriptor used to create the pipeline:
+    1. For each {{GPUProgrammableStage}} |stageDesc| in the descriptor used to create |pipeline|:
 
         1. Let |stageInfo| be the "reflection information" for |stageDesc|.
 
@@ -4230,6 +4265,9 @@ has a default layout created and used instead.
                 1. Let |textureLayout| be a new {{GPUTextureBindingLayout}}.
 
                 1. Set |textureLayout|.{{GPUTextureBindingLayout/sampleType}} to |resource|'s component type.
+
+                    Issue: Detail how the sampleType is chosen from the binding.
+
                 1. Set |textureLayout|.{{GPUTextureBindingLayout/viewDimension}} to |resource|'s dimension.
                 1. If |resource| is for a multisampled texture:
 
@@ -4273,7 +4311,9 @@ has a default layout created and used instead.
     1. Let |groupLayouts| be a new sequence.
     1. For each |groupDesc| in |groupDescs|:
 
-        1. Append |device|.{{GPUDevice/createBindGroupLayout()}}(|groupDesc|) to |groupLayouts|.
+        1. Let |bindGroupLayout| be the result of calling |device|.{{GPUDevice/createBindGroupLayout()}}(|groupDesc|).
+        1. Set |bindGroupLayout|.{{GPUBindGroupLayout/[[exclusivePipeline]]}} to |pipeline|.
+        1. Append |bindGroupLayout| to |groupLayouts|.
 
     1. Let |desc| be a new {{GPUPipelineLayoutDescriptor}}.
     1. Set |desc|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}} to |groupLayouts|.
@@ -4398,11 +4438,11 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     <dfn abstract-op>validating shader binding</dfn>(binding, layout)
 
     **Arguments:**
-        - shader |binding|, reflected from the shader module
+        - shader binding declaration |variable|, a module-scope variable declaration reflected from a shader module
         - {{GPUPipelineLayout}} |layout|
 
-    Consider the shader |binding| annotation of |bindIndex| for the
-    binding index and |bindGroup| for the bind group index.
+    Let |bindGroup| be the bind group index, and |bindIndex| be the binding index,
+    of the shader binding declaration |variable|.
 
     Return `true` if all of the following conditions are satisfied:
 
@@ -4411,16 +4451,18 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         - If the defined [=binding member=] for |entry| is:
             <dl class=switch>
                 : {{GPUBindGroupLayoutEntry/buffer}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/type}} is:
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/type}} is:
                     <dl class=switch>
                         : {{GPUBufferBindingType/"uniform"}}
-                        :: The |binding| is a uniform buffer.
+                        :: |variable| is declared with the storage class `uniform`.
                         : {{GPUBufferBindingType/"storage"}}
-                        :: The |binding| is a storage buffer.
+                        :: |variable| is declared with the storage class `storage` and access mode `read_write`.
                         : {{GPUBufferBindingType/"read-only-storage"}}
-                        :: The |binding| is a read-only storage buffer.
+                        :: |variable| is declared with the storage class `storage` and access mode `read`.
                     </dl>
-                :: If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}} is not `0`:
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}} is not `0`:
                     - If the last field of the corresponding structure defined in the shader has an unbounded array type,
                         then the value of |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}}
                         must be greater than or equal to the byte offset of that field plus the stride of the unbounded array.
@@ -4429,40 +4471,84 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
                         must be greater than or equal to the size of the structure.
 
                 : {{GPUBindGroupLayoutEntry/sampler}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/sampler}}.{{GPUSamplerBindingLayout/type}} is:
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/sampler}}.{{GPUSamplerBindingLayout/type}} is:
                     <dl class=switch>
-                        : {{GPUSamplerBindingType/"filtering"}}
-                        :: the |binding| is a non-comparison sampler
-                        : {{GPUSamplerBindingType/"non-filtering"}}
-                        :: the |binding| is a non-comparison sampler
+                        : {{GPUSamplerBindingType/"filtering"}} or {{GPUSamplerBindingType/"non-filtering"}}
+                        :: |variable| has type `sampler`.
                         : {{GPUSamplerBindingType/"comparison"}}
-                        :: the |binding| is a comparison sampler
+                        :: |variable| has type `comparison_sampler`.
                     </dl>
 
                 : {{GPUBindGroupLayoutEntry/texture}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}} is:
+                ::
+                    If, and only if,
+                    |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}}
+                    is `true`, |variable| has type `texture_multisampled_2d<T>` or `texture_depth_multisampled_2d<T>`.
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}} is:
                     <dl class=switch>
-                        : `true`
-                        :: the |binding| is a multisampled texture.
-                        : `false`
-                        :: The |binding| is a sampled texture with a sample count of 1.
+                        : {{GPUTextureSampleType/"float"}}, {{GPUTextureSampleType/"unfilterable-float"}},
+                            {{GPUTextureSampleType/"sint"}} or {{GPUTextureSampleType/"uint"}}
+                        ::
+                            |variable| has type `texture_1d<T>`, `texture_2d<T>`, `texture_2d_array<T>`,
+                            `texture_cube<T>`, `texture_cube_array<T>`, `texture_3d<T>`, or
+                            `texture_multisampled_2d<T>`.
+                        ::
+                            If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}} is:
+                            <dl class=switch>
+                                : {{GPUTextureSampleType/"float"}} or {{GPUTextureSampleType/"unfilterable-float"}}
+                                :: The sampled type `T` is `f32`.
+                                : {{GPUTextureSampleType/"sint"}}
+                                :: The sampled type `T` is `i32`.
+                                : {{GPUTextureSampleType/"uint"}}
+                                :: The sampled type `T` is `u32`.
+                            </dl>
+
+                        : {{GPUTextureSampleType/"depth"}}
+                        ::
+                            |variable| has type `texture_depth_2d`, `texture_depth_2d_array`,
+                            `texture_depth_cube`, `texture_depth_cube_array`, or `texture_depth_multisampled_2d`.
                     </dl>
-                :: The component type of the texture matches
-                    |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}}.
-                :: The shader view dimension of the texture matches
-                    |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}}.
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}} is:
+                    <dl class=switch>
+                        : {{GPUTextureViewDimension/"1d"}}
+                        :: |variable| has type `texture_1d<T>`.
+                        : {{GPUTextureViewDimension/"2d"}}
+                        :: |variable| has type `texture_2d<T>` or `texture_multisampled_2d<T>`.
+                        : {{GPUTextureViewDimension/"2d-array"}}
+                        :: |variable| has type `texture_2d_array<T>`.
+                        : {{GPUTextureViewDimension/"cube"}}
+                        :: |variable| has type `texture_cube<T>`.
+                        : {{GPUTextureViewDimension/"cube-array"}}
+                        :: |variable| has type `texture_cube_array<T>`.
+                        : {{GPUTextureViewDimension/"3d"}}
+                        :: |variable| has type `texture_3d<T>`.
+                    </dl>
 
                 : {{GPUBindGroupLayoutEntry/storageTexture}}
-                :: If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/access}} is:
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/viewDimension}} is:
+                    <dl class=switch>
+                        : {{GPUTextureViewDimension/"1d"}}
+                        :: |variable| has type `texture_storage_1d<T, A>`.
+                        : {{GPUTextureViewDimension/"2d"}}
+                        :: |variable| has type `texture_storage_2d<T, A>`.
+                        : {{GPUTextureViewDimension/"2d-array"}}
+                        :: |variable| has type `texture_storage_2d_array<T, A>`.
+                        : {{GPUTextureViewDimension/"3d"}}
+                        :: |variable| has type `texture_storage_3d<T, A>`.
+                    </dl>
+                ::
+                    If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/access}} is:
                     <dl class=switch>
                         : {{GPUStorageTextureAccess/"write-only"}}
-                        :: The |binding| is a writable storage texture.
+                        :: The access mode `A` is `write`.
                     </dl>
-                :: The format of the storage texture matches
+                ::
+                    The texel format `T` equals
                     |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/format}}.
-                :: The shader view dimension of the storage texture matches
-                    |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/viewDimension}}.
-
             </dl>
 </div>
 
@@ -4484,7 +4570,7 @@ Stages of a compute [=pipeline=]:
   1. Compute shader
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUComputePipeline {
 };
 GPUComputePipeline includes GPUObjectBase;
@@ -4514,29 +4600,44 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 
             **Returns:** {{GPUComputePipeline}}
 
-            If any of the following conditions are unsatisfied:
-                <div class=validusage>
-                    - |descriptor|.{{GPUPipelineDescriptorBase/layout}} is [$valid to use with$] |this|.
-                    - [$validating GPUProgrammableStage$]({{GPUShaderStage/COMPUTE}},
-                        |descriptor|.{{GPUComputePipelineDescriptor/compute}},
-                        |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
-                    - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
-                        |device|.limits.{{supported limits/maxComputeWorkgroupStorageSize}} bytes of
-                        workgroup storage.
+            1. Let |pipeline| be a new valid {{GPUComputePipeline}} object.
+            1. Issue the following steps on the [=Device timeline=] of |this|:
+                <div class=device-timeline>
+                    1. If any of the following conditions are unsatisfied:
+                        <div class=validusage>
+                            - |descriptor|.{{GPUPipelineDescriptorBase/layout}} is [$valid to use with$] |this|.
+                            - [$validating GPUProgrammableStage$]({{GPUShaderStage/COMPUTE}},
+                                |descriptor|.{{GPUComputePipelineDescriptor/compute}},
+                                |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+                            - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
+                                |device|.limits.{{supported limits/maxComputeWorkgroupStorageSize}} bytes of
+                                workgroup storage.
 
-                        Issue: Better define using static use, etc.
-                    - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
-                        |device|.limits.{{supported limits/maxComputeWorkgroupInvocations}} per
-                        workgroup.
+                                Issue: Better define using static use, etc.
+                            - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
+                                |device|.limits.{{supported limits/maxComputeInvocationsPerWorkgroup}} per
+                                workgroup.
 
-                    - |descriptor|.{{GPUComputePipelineDescriptor/compute}}'s `workgroup_size` attribute
-                        has each component &le; the corresponding component in
-                        |device|.limits.{{supported limits/maxComputeWorkgroupSize}}.
+                            - |descriptor|.{{GPUComputePipelineDescriptor/compute}}'s `workgroup_size` attribute
+                                has each component &le; the corresponding component in
+                                [|device|.limits.{{supported limits/maxComputeWorkgroupSizeX}},
+                                |device|.limits.{{supported limits/maxComputeWorkgroupSizeY}},
+                                |device|.limits.{{supported limits/maxComputeWorkgroupSizeZ}}].
+                        </div>
+
+                        Then:
+                            1. Generate a {{GPUValidationError}} in the current scope with appropriate
+                                error message.
+                            1. Make |pipeline| [=invalid=].
+
+                    1. If |descriptor|.{{GPUPipelineDescriptorBase/layout}} is `undefined`:
+                        1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to a new [$default pipeline layout$]
+                            for |pipeline|.
+
+                        Otherwise set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |descriptor|.{{GPUPipelineDescriptorBase/layout}}.
                 </div>
+            1. Return |pipeline|.
 
-            Then:
-                1. Generate a {{GPUValidationError}} in the current scope with appropriate error message.
-                1. Create a new [=invalid=] {{GPUComputePipeline}} and return the result.
         </div>
 
     : <dfn>createComputePipelineAsync(descriptor)</dfn>
@@ -4600,7 +4701,7 @@ A render [=pipeline=] is comprised of the following <dfn dfn>render stages</dfn>
   8. Output merging, controlled by {{GPUFragmentState/targets|GPUFragmentState.targets}}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPURenderPipeline {
 };
 GPURenderPipeline includes GPUObjectBase;
@@ -4620,6 +4721,12 @@ GPURenderPipeline includes GPUPipelineBase;
     ::
         The format index data this pipeline requires if using a strip primitive topology,
         initially `undefined`.
+
+    : <dfn>\[[writesDepth]]</dfn>, of type boolean
+    :: True if the pipeline writes to the depth component of the depth/stencil attachment
+
+    : <dfn>\[[writesStencil]]</dfn>, of type boolean
+    :: True if the pipeline writes to the stencil component of the depth/stencil attachment
 </dl>
 
 ### Creation ### {#render-pipeline-creation}
@@ -4682,7 +4789,28 @@ details.
                     1. Set |pipeline|.{{GPURenderPipeline/[[descriptor]]}} to |descriptor|.
                     1. Set |pipeline|.{{GPURenderPipeline/[[strip_index_format]]}} to
                         |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/stripIndexFormat}}.
+                    1. Set |pipeline|.{{GPURenderPipeline/[[writesDepth]]}} to false.
+                    1. Set |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} to false.
+                    1. Let |depthStencil| be |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.
+                    1. If |depthStencil| is not null:
+                        1. Set |pipeline|.{{GPURenderPipeline/[[writesDepth]]}} to |depthStencil|.{{GPUDepthStencilState/depthWriteEnabled}}.
+                        1. If |depthStencil|.{{GPUDepthStencilState/stencilWriteMask}} is not 0:
+                            1. Let |stencilFront| be |depthStencil|.{{GPUDepthStencilState/stencilFront}}.
+                            1. Let |stencilBack| be |depthStencil|.{{GPUDepthStencilState/stencilBack}}.
+                            1. Let |cullMode| be |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/cullMode}}.
+                            1. If |cullMode| is not {{GPUCullMode/"front"}}, and any of |stencilFront|.{{GPUStencilFaceState/passOp}},
+                                |stencilFront|.{{GPUStencilFaceState/depthFailOp}}, or |stencilFront|.{{GPUStencilFaceState/failOp}}
+                                is not {{GPUStencilOperation/"keep"}}:
+                                1. Set |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} to true.
+                            1. If |cullMode| is not {{GPUCullMode/"back"}}, and any of |stencilBack|.{{GPUStencilFaceState/passOp}},
+                                |stencilBack|.{{GPUStencilFaceState/depthFailOp}}, or |stencilBack|.{{GPUStencilFaceState/failOp}}
+                                is not {{GPUStencilOperation/"keep"}}:
+                                1. Set |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} to true.
+                    1. If |descriptor|.{{GPUPipelineDescriptorBase/layout}} is `undefined`:
+                        1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to a new [$default pipeline layout$]
+                            for |pipeline|.
 
+                        Otherwise set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |descriptor|.{{GPUPipelineDescriptorBase/layout}}.
                 </div>
             1. Return |pipeline|.
 
@@ -4876,10 +5004,13 @@ dictionary GPUFragmentState: GPUProgrammableStage {
                 - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
                     must be a [=valid GPUBlendComponent=].
             - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
-            - |descriptor|.{{GPUProgrammableStage/entryPoint}} must have a [=pipeline output=] value:
-                - with [=location=] attribute equal to the index of the |colorState|
-                    in the |descriptor|.{{GPUFragmentState/targets}} list
-                - has a type that is compatible with |colorState|.{{GPUColorTargetState/format}}.
+            - If |descriptor|.{{GPUProgrammableStage/entryPoint}} has a [=pipeline output=] value
+                with [=location=] attribute equal to the index of the |colorState|
+                in the |descriptor|.{{GPUFragmentState/targets}} list:
+                - The [=pipeline output=] type must be compatible with |colorState|.{{GPUColorTargetState/format}}.
+
+                Otherwise:
+                - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
 </div>
 
 <div algorithm>
@@ -4927,9 +5058,9 @@ namespace GPUColorWrite {
 
 <script type=idl>
 dictionary GPUBlendComponent {
+    GPUBlendOperation operation = "add";
     GPUBlendFactor srcFactor = "one";
     GPUBlendFactor dstFactor = "zero";
-    GPUBlendOperation operation = "add";
 };
 </script>
 
@@ -5188,8 +5319,8 @@ dictionary GPUVertexAttribute {
                 Otherwise:
                 - |attrib|.{{GPUVertexAttribute/offset}} + sizeof(|attrib|.{{GPUVertexAttribute/format}}) &le;
                     |descriptor|.{{GPUVertexBufferLayout/arrayStride}}.
-            - |attrib|.{{GPUVertexAttribute/offset}} is a multiple of the size of one component of
-                |attrib|.{{GPUVertexAttribute/format}}.
+            - |attrib|.{{GPUVertexAttribute/offset}} is a multiple of the minimum of 4 and
+                sizeof(|attrib|.{{GPUVertexAttribute/format}}).
             - |attrib|.{{GPUVertexAttribute/shaderLocation}} is less than
                 |device|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexAttributes}}.
         - For every vertex attribute in the shader reflection of |vertexStage|.{{GPUProgrammableStage/module}}
@@ -5199,11 +5330,11 @@ dictionary GPUVertexAttribute {
             - The shader format is compatible with |attrib|.{{GPUVertexAttribute/format}}'s [=vertex data type=]:
                 <dl class="switch">
                     : "unorm", "snorm", or "float"
-                    :: shader format has to be `f32` or `vecN<f32>`.
+                    :: shader format must be `f32` or `vecN<f32>`.
                     : "uint"
-                    :: shader format has to be `u32` or `vecN<u32>`.
+                    :: shader format must be `u32` or `vecN<u32>`.
                     : "sint"
-                    :: shader format has to be `i32` or `vecN<i32>`.
+                    :: shader format must be `i32` or `vecN<i32>`.
                 </dl>
             - The shader location is |attrib|.{{GPUVertexAttribute/shaderLocation}}.
 </div>
@@ -5238,7 +5369,7 @@ setting state, drawing, copying resources, etc.
 ## <dfn interface>GPUCommandBuffer</dfn> ## {#command-buffer}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUCommandBuffer {
     readonly attribute Promise<double> executionTime;
 };
@@ -5295,7 +5426,7 @@ dictionary GPUCommandBufferDescriptor : GPUObjectDescriptorBase {
 ## <dfn interface>GPUCommandEncoder</dfn> ## {#command-encoder}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUCommandEncoder {
     GPURenderPassEncoder beginRenderPass(GPURenderPassDescriptor descriptor);
     GPUComputePassEncoder beginComputePass(optional GPUComputePassDescriptor descriptor = {});
@@ -5395,8 +5526,6 @@ which may be one of the following:
 <script type=idl>
 dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
     boolean measureExecutionTime = false;
-
-    // TODO: reusability flag?
 };
 </script>
 
@@ -5444,6 +5573,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
+                1. Let |pass| be a new {{GPURenderPassEncoder}} object.
                 1. If any of the following conditions are unsatisfied, generate a validation
                     error and stop.
                     <div class=validusage>
@@ -5458,12 +5588,17 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         duration of the render pass.
                 1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
                 1. If |depthStencilAttachment| is not `null`:
-                    1. if |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} and
-                        {{GPURenderPassDepthStencilAttachment/stencilReadOnly}} are set
-                        1. The [=texture subresources=] seen by |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}
+                    1. Let |depthStencilView| be |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}.
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} and
+                        {{GPURenderPassDepthStencilAttachment/stencilReadOnly}} are set:
+                        1. The [=texture subresources=] seen by |depthStencilView|
                             are considered to be used as [=internal usage/attachment-read=] for the duration of the render pass.
-                    1. Else, the [=texture subresource=] seen by |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}
+                    1. Else, the [=texture subresource=] seen by |depthStencilView|
                         is considered to be used as [=internal usage/attachment=] for the duration of the render pass.
+                    1. Set |pass|.{{GPURenderEncoderBase/[[depthReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}}.
+                    1. Set |pass|.{{GPURenderEncoderBase/[[stencilReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}}.
+                1. Set |pass|.{{GPURenderEncoderBase/[[layout]]}} to [$derive render targets layout from pass$](|descriptor|).
+                1. Return |pass|.
             </div>
 
             Issue: specify the behavior of read-only depth/stencil
@@ -5492,6 +5627,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
                     </div>
                 1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/encoding a compute pass}}.
+                1. Let |pass| be a new {{GPUComputePassEncoder}} object.
+                1. Return |pass|.
             </div>
         </div>
 </dl>
@@ -6148,7 +6285,7 @@ must be well nested.
                 - |destination|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/QUERY_RESOLVE}}.
                 - |firstQuery| is less than the number of queries in |querySet|.
                 - (|firstQuery| + |queryCount|) is less than or equal to the number of queries in |querySet|.
-                - |destinationOffset| is a multiple of 8.
+                - |destinationOffset| is a multiple of 256.
                 - |destinationOffset| + 8 &times; |queryCount| &le; |destination|.{{GPUBuffer/[[size]]}}.
             </div>
 
@@ -6434,7 +6571,7 @@ pass.
 ## <dfn interface>GPUComputePassEncoder</dfn> ## {#compute-pass-encoder}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUComputePassEncoder {
     undefined setPipeline(GPUComputePipeline pipeline);
     undefined dispatch(GPUSize32 x, optional GPUSize32 y = 1, optional GPUSize32 z = 1);
@@ -6517,7 +6654,7 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
                         - all of |x|, |y| and |z| are less than
-                            |this|.device.limits.{{supported limits/maxComputePerDimensionDispatchSize}}.
+                            |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}}.
                     </div>
 
                 1. [=list/Append=] a [=GPU command=] to
@@ -6575,7 +6712,7 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                 1. Add |indirectBuffer| to the [=usage scope=] as {{GPUBufferUsage/INDIRECT}}.
             </div>
 
-            Issue: add some validation related to {{supported limits/maxComputePerDimensionDispatchSize}}.
+            Issue: add some validation related to {{supported limits/maxComputeWorkgroupsPerDimension}}.
         </div>
 </dl>
 
@@ -6695,7 +6832,7 @@ interface mixin GPURenderEncoderBase {
     undefined drawIndexedIndirect(GPUBuffer indirectBuffer, GPUSize64 indirectOffset);
 };
 
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPURenderPassEncoder {
     undefined setViewport(float x, float y,
                      float width, float height,
@@ -6729,6 +6866,18 @@ GPURenderPassEncoder includes GPURenderEncoderBase;
 {{GPURenderEncoderBase}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPURenderEncoderBase">
+    : <dfn>\[[layout]]</dfn>, of type {{GPURenderPassLayout}}
+    ::
+        The layout of the render pass.
+
+    : <dfn>\[[depthReadOnly]]</dfn>, of type boolean?
+    ::
+        If present, the flag indicates that the depth component is not modified.
+
+    : <dfn>\[[stencilReadOnly]]</dfn>, of type boolean?
+    ::
+        If present, the flag indicates that the stencil component is not modified.
+
     : <dfn>\[[pipeline]]</dfn>, of type {{GPURenderPipeline}}
     ::
         The current {{GPURenderPipeline}}, initially `null`.
@@ -6993,17 +7142,19 @@ dictionary GPURenderPassDepthStencilAttachment {
     Given a {{GPURenderPassDepthStencilAttachment}} |this| the following validation
     rules apply:
 
-    1. |this|.{{GPURenderPassDepthStencilAttachment/view}} must have a [=depth or stencil renderable
+    - |this|.{{GPURenderPassDepthStencilAttachment/view}} must have a [=depth or stencil renderable
         format=].
-    1. |this|.{{GPURenderPassDepthStencilAttachment/view}} must be a view of a
+    - |this|.{{GPURenderPassDepthStencilAttachment/view}} must be a view of a
         single [=texture subresource=].
-    1. |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/usage}}
+    - |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/usage}}
         must contain {{GPUTextureUsage/RENDER_ATTACHMENT}}.
-    1. |this|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} is `true`,
-        |this|.{{GPURenderPassDepthStencilAttachment/depthLoadValue}} must be
-        {{GPULoadOp/"load"}} and |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}}
-        must be {{GPUStoreOp/"store"}}.
-    1. |this|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}} is `true`,
+    - If |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}
+        contains both depth and stencil aspects (See [[#depth-formats|depth-stencil formats]]):
+        - |this|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} must be equal to |this|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}}
+    - If |this|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} is `true`:
+        - |this|.{{GPURenderPassDepthStencilAttachment/depthLoadValue}} must be {{GPULoadOp/"load"}}.
+        - |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} must be {{GPUStoreOp/"store"}}.
+    - If |this|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}} is `true`,
         |this|.{{GPURenderPassDepthStencilAttachment/stencilLoadValue}} must be
         {{GPULoadOp/"load"}} and |this|.{{GPURenderPassDepthStencilAttachment/stencilStoreOp}}
         must be {{GPUStoreOp/"store"}}.
@@ -7039,6 +7190,59 @@ enum GPUStoreOp {
 };
 </script>
 
+#### Render Pass Layout #### {#render-pass-layout}
+
+{{GPURenderPassLayout}} contains the layout of the render targets for the current pass,
+which determines the compatibility of the pass with render pipelines.
+
+<script type=idl>
+dictionary GPURenderPassLayout: GPUObjectDescriptorBase {
+    required sequence<GPUTextureFormat> colorFormats;
+    GPUTextureFormat depthStencilFormat;
+    GPUSize32 sampleCount = 1;
+};
+</script>
+
+<div algorithm>
+    <dfn abstract-op>derive render targets layout from pass</dfn>
+
+    **Arguments:**
+    - {{GPURenderPassDescriptor}} |descriptor|
+
+    **Returns:** {{GPURenderPassLayout}}
+
+    1. Let |layout| be a new {{GPURenderPassLayout}} object.
+    1. For each |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
+        1. Set |layout|.{{GPURenderPassLayout/sampleCount}} to |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[texture]]}}.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/sampleCount}}.
+        1. Append |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}} to |layout|.{{GPURenderPassLayout/colorFormats}}.
+    1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
+    1. If |depthStencilAttachment| is not `null`:
+        1. Let |view| be |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}
+        1. Set |layout|.{{GPURenderPassLayout/sampleCount}} to |view|.{{GPUTextureView/[[texture]]}}.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/sampleCount}}.
+        1. Set |layout|.{{GPURenderPassLayout/depthStencilFormat}} to |view|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
+    1. Return |layout|.
+
+</div>
+
+<div algorithm>
+    <dfn abstract-op>derive render targets layout from pipeline</dfn>
+
+    **Arguments:**
+    - {{GPURenderPipelineDescriptor}} |descriptor|
+
+    **Returns:** {{GPURenderPassLayout}}
+
+    1. Let |layout| be a new {{GPURenderPassLayout}} object.
+    1. Set |layout|.{{GPURenderPassLayout/sampleCount}} to |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is not `null`:
+        1. Set |layout|.{{GPURenderPassLayout/depthStencilFormat}} to |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}/{{GPUDepthStencilState/format}}.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is not `null`:
+        1. For each |colorTarget| in |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}:
+            1. Append |colorTarget|.{{GPUColorTargetState/format}} to |layout|.{{GPURenderPassLayout/colorFormats}}
+    1. Return |layout|.
+
+</div>
+
 ### Drawing ### {#render-pass-encoder-drawing}
 
 <dl dfn-type=method dfn-for=GPURenderEncoderBase>
@@ -7058,13 +7262,19 @@ enum GPUStoreOp {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
+                1. Let |pipelineTargetsLayout| be [$derive render targets layout from pipeline$](|pipeline|.{{GPURenderPipeline/[[descriptor]]}}).
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |pipeline| is [$valid to use with$] |this|.
-
-                        Issue: Validate that |pipeline| is compatible with the render pass descriptor.
+                        - |this|.{{GPURenderEncoderBase/[[layout]]}} equals |pipelineTargetsLayout|.
+                        - If |pipeline|.{{GPURenderPipeline/[[writesDepth]]}}:
+                            |this|.{{GPURenderEncoderBase/[[depthReadOnly]]}} must be `false`.
+                        - If |pipeline|.{{GPURenderPipeline/[[writesStencil]]}}:
+                            |this|.{{GPURenderEncoderBase/[[stencilReadOnly]]}} must be `false`.
                     </div>
                 1. Set |this|.{{GPURenderEncoderBase/[[pipeline]]}} to be |pipeline|.
+
+                Issue: define what "equals" means for {{GPURenderPassLayout}} here.
             </div>
         </div>
 
@@ -7165,13 +7375,20 @@ enum GPUStoreOp {
                     - For each {{GPUIndex32}} |slot| `0` to |buffers|.length:
                         - Let |bufferSize| be |this|.{{GPURenderEncoderBase/[[vertex_buffer_sizes]]}}[|slot|].
                         - Let |stride| be |buffers|[|slot|].{{GPUVertexBufferLayout/arrayStride}}.
-                        - If |buffers|[|slot|].{{GPUVertexBufferLayout/stepMode}} is:
-                            <dl class="switch">
-                                : {{GPUVertexStepMode/"vertex"}}
-                                :: (|firstVertex| + |vertexCount|) * |stride| &le; |bufferSize|.
-                                : {{GPUVertexStepMode/"instance"}}
-                                :: (|firstInstance| + |instanceCount|) * |stride| &le; |bufferSize|.
-                            </dl>
+                        - If |stride| is zero:
+                            - For each attribute |attrib| in the list |this|.{{GPURenderEncoderBase/[[pipeline]]}}.{{GPURenderPipeline/[[descriptor]]}}.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}.{{GPUVertexBufferLayout/attributes}}:
+                                - |attrib|.{{GPUVertexAttribute/offset}} + sizeof(|attrib|.{{GPUVertexAttribute/format}}) &le;
+                                    |bufferSize|
+
+                            Otherwise:
+
+                            - If |buffers|[|slot|].{{GPUVertexBufferLayout/stepMode}} is:
+                                <dl class="switch">
+                                    : {{GPUVertexStepMode/"vertex"}}
+                                    :: (|firstVertex| + |vertexCount|) * |stride| &le; |bufferSize|.
+                                    : {{GPUVertexStepMode/"instance"}}
+                                    :: (|firstInstance| + |instanceCount|) * |stride| &le; |bufferSize|.
+                                </dl>
                 </div>
             </div>
         </div>
@@ -7204,10 +7421,17 @@ enum GPUStoreOp {
                         &div; |this|.{{GPURenderEncoderBase/[[index_format]]}}'s byte size;
                     - Let |buffers| be |this|.{{GPURenderEncoderBase/[[pipeline]]}}.{{GPURenderPipeline/[[descriptor]]}}.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}.
                     - For each {{GPUIndex32}} |slot| `0` to |buffers|.length:
-                        - If |buffers|[|slot|].{{GPUVertexBufferLayout/stepMode}} is {{GPUVertexStepMode/"instance"}}:
-                            - Let |bufferSize| be |this|.{{GPURenderEncoderBase/[[vertex_buffer_sizes]]}}[|slot|].
-                            - Let |stride| be |buffers|[|slot|].{{GPUVertexBufferLayout/arrayStride}}.
-                            - (|firstInstance| + |instanceCount|) * |stride| &le; |bufferSize|.
+                        - Let |bufferSize| be |this|.{{GPURenderEncoderBase/[[vertex_buffer_sizes]]}}[|slot|].
+                        - Let |stride| be |buffers|[|slot|].{{GPUVertexBufferLayout/arrayStride}}.
+                        - If |stride| is zero:
+                            - For each attribute |attrib| in the list |this|.{{GPURenderEncoderBase/[[pipeline]]}}.{{GPURenderPipeline/[[descriptor]]}}.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}.{{GPUVertexBufferLayout/attributes}}:
+                                - |attrib|.{{GPUVertexAttribute/offset}} + sizeof(|attrib|.{{GPUVertexAttribute/format}}) &le;
+                                    |bufferSize|
+
+                            Otherwise:
+
+                            - If |buffers|[|slot|].{{GPUVertexBufferLayout/stepMode}} is {{GPUVertexStepMode/"instance"}}:
+                                - (|firstInstance| + |instanceCount|) * |stride| &le; |bufferSize|.
                 </div>
             </div>
         </div>
@@ -7634,7 +7858,7 @@ called the render pass encoder can no longer be used.
 ## <dfn interface>GPURenderBundle</dfn> ## {#render-bundle}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPURenderBundle {
 };
 GPURenderBundle includes GPUObjectBase;
@@ -7648,7 +7872,7 @@ dictionary GPURenderBundleDescriptor : GPUObjectDescriptorBase {
 </script>
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPURenderBundleEncoder {
     GPURenderBundle finish(optional GPURenderBundleDescriptor descriptor = {});
 };
@@ -7663,26 +7887,39 @@ GPURenderBundleEncoder includes GPURenderEncoderBase;
         Creates a {{GPURenderBundleEncoder}}.
 
         <div algorithm=GPUDevice.createRenderBundleEncoder>
-            **Called on:** {{GPUDevice}} this.
+            **Called on:** {{GPUDevice}} |this|.
 
             **Arguments:**
             <pre class=argumentdef for="GPUDevice/createRenderBundleEncoder(descriptor)">
-                descriptor: Description of the {{GPURenderBundleEncoder}} to create.
+                |descriptor|: Description of the {{GPURenderBundleEncoder}} to create.
             </pre>
 
             **Returns:** {{GPURenderBundleEncoder}}
 
-            Issue: Describe {{GPUDevice/createRenderBundleEncoder()}} algorithm steps.
+            Issue the following steps on the [=Device timeline=] of |this|:
+            <div class=device-timeline>
+                1. If any of the following conditions are unsatisfied, generate a validation
+                    error and stop.
+                    <div class=validusage>
+                        Issue: Add remaining validation.
+                    </div>
+                1. Let |e| be a new {{GPURenderBundleEncoder}} object.
+                1. Set |e|.{{GPURenderEncoderBase/[[layout]]}} to |descriptor|.{{GPURenderPassLayout}}.
+                1. Set |e|.{{GPURenderEncoderBase/[[depthReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/depthReadOnly}}.
+                1. Set |e|.{{GPURenderEncoderBase/[[stencilReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/stencilReadOnly}}.
+                1. Return |e|.
+
+                Issue: Describe the reset of the steps for {{GPUDevice/createRenderBundleEncoder()}}.
+            </div>
         </div>
 </dl>
 
 ### Encoding ### {#render-bundle-encoding}
 
 <script type=idl>
-dictionary GPURenderBundleEncoderDescriptor : GPUObjectDescriptorBase {
-    required sequence<GPUTextureFormat> colorFormats;
-    GPUTextureFormat depthStencilFormat;
-    GPUSize32 sampleCount = 1;
+dictionary GPURenderBundleEncoderDescriptor : GPURenderPassLayout {
+    boolean depthReadOnly = false;
+    boolean stencilReadOnly = false;
 };
 </script>
 
@@ -7710,7 +7947,7 @@ dictionary GPURenderBundleEncoderDescriptor : GPUObjectDescriptorBase {
 # Queues # {#queues}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUQueue {
     undefined submit(sequence<GPUCommandBuffer> commandBuffers);
 
@@ -7854,7 +8091,7 @@ GPUQueue includes GPUObjectBase;
         into the destination texture.
 
         <div algorithm=GPUQueue.copyExternalImageToTexture>
-            **Called on:** {{GPUQueue}} this.
+            **Called on:** {{GPUQueue}} |this|.
 
             **Arguments:**
             <pre class=argumentdef for="GPUQueue/copyExternalImageToTexture(source, destination, copySize)">
@@ -7865,35 +8102,51 @@ GPUQueue includes GPUObjectBase;
 
             **Returns:** {{undefined}}
 
-            - If |source|.{{GPUImageCopyExternalImage/source}}
-                <l spec=html>[=is not origin-clean=]</l>,
+            1. Let |sourceImage| be |source|.{{GPUImageCopyExternalImage/source}}
+            1. Run [=Check the usability of the image argument=](|sourceImage|).
+                If it throws an exception, stop.
+                If it does not return `good`, throw an {{InvalidStateError}} and stop.
+            1. If |sourceImage| <l spec=html>[=is not origin-clean=]</l>,
                 throw a {{SecurityError}} and stop.
+            1. If any of the following requirements are unmet, throw an {{OperationError}} and stop.
+                <div class=validusage>
+                    - If |source|.{{GPUImageCopyExternalImage/source}} is an {{HTMLCanvasElement}}:
+                        Its [=canvas context mode=] must be `"2d"`, `"webgl"`, or `"webgl2"`.
+                    - If |source|.{{GPUImageCopyExternalImage/source}} is an {{OffscreenCanvas}}:
+                        Its [=OffscreenCanvas context mode=] must be `"2d"`, `"webgl"`, or `"webgl2"`.
+                    - |source|.|origin|.[=Origin3D/x=] + |copySize|.[=Extent3D/width=]
+                        must be &le; the width of |sourceImage|.
+                    - |source|.|origin|.[=Origin3D/y=] + |copySize|.[=Extent3D/height=]
+                        must be &le; the height of |sourceImage|.
+                    - |source|.|origin|.[=Origin3D/z=] + |copySize|.[=Extent3D/depthOrArrayLayers=]
+                        must be &le; 1.
+                </div>
+            1. Issue the following steps on the [=Device timeline=] of |this|:
+                <div class=device-timeline>
+                    1. Let |textureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
+                    1. If any of the following requirements are unmet, generate a validation error and stop.
+                        <div class=validusage>
+                            - |destination|.{{GPUImageCopyTexture/texture}} must be [$valid to use with$] |this|.
+                            - [$validating GPUImageCopyTexture$](destination, copySize) must return true.
+                            - [=Valid Texture Copy Range=](destination, copySize) must be satisfied.
+                            - |textureDesc|.{{GPUTextureDescriptor/usage}} must include both
+                                {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/COPY_DST}}.
+                            - |textureDesc|.{{GPUTextureDescriptor/dimension}} must be {{GPUTextureDimension/"2d"}}.
+                            - |textureDesc|.{{GPUTextureDescriptor/sampleCount}} must be 1.
+                            - |textureDesc|.{{GPUTextureDescriptor/format}} must be one of the following:
+                                - {{GPUTextureFormat/"rgba8unorm"}}
+                                - {{GPUTextureFormat/"rgba8unorm-srgb"}}
+                                - {{GPUTextureFormat/"bgra8unorm"}}
+                                - {{GPUTextureFormat/"bgra8unorm-srgb"}}
+                                - {{GPUTextureFormat/"rgb10a2unorm"}}
+                                - {{GPUTextureFormat/"rg8unorm"}}
 
-            If any of the following requirements are unmet, throw an {{OperationError}} and stop.
-            <div class=validusage>
-                - Let |textureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
-                - |copySize|.[=Extent3D/depthOrArrayLayers=] must be `1`.
-                - |textureDesc|.{{GPUTextureDescriptor/usage}} must include both {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/COPY_DST}}.
-                - |textureDesc|.{{GPUTextureDescriptor/dimension}} must be {{GPUTextureDimension/"2d"}}.
-                - |textureDesc|.{{GPUTextureDescriptor/format}} must be one of the following:
-                    - {{GPUTextureFormat/"rgba8unorm"}}
-                    - {{GPUTextureFormat/"rgba8unorm-srgb"}}
-                    - {{GPUTextureFormat/"bgra8unorm"}}
-                    - {{GPUTextureFormat/"bgra8unorm-srgb"}}
-                    - {{GPUTextureFormat/"rgb10a2unorm"}}
-                    - {{GPUTextureFormat/"rg8unorm"}}
-                - If |source|.{{GPUImageCopyExternalImage/source}} is an {{HTMLCanvasElement}}:
-                    Its [=canvas context mode=] must be `"2d"`, `"webgl"`, or `"webgl2"`.
-                - If |source|.{{GPUImageCopyExternalImage/source}} is an {{OffscreenCanvas}}:
-                    Its [=OffscreenCanvas context mode=] must be `"2d"`, `"webgl"`, or `"webgl2"`.
-            </div>
-
-            Issue: The above list was written just for ImageBitmap.
-            Re-evaluate it for canvas (and video).
-            (It's probably still fine, though `rgb10a2unorm` is a bit of an outlier.)
-
-            Issue: Add float formats once the behavior can be defined - need an upstream
-            clarification on whether "srgb" means extended-srgb or clamped-srgb.
+                                Issue: Evaluate adding additional formats to this list.
+                                Note that any format that represents values outside of 0 to 1
+                                has interactions with color space (e.g. clamped-srgb vs extended-srgb).
+                        </div>
+                    1. Issue: Do the actual copy.
+                </div>
         </div>
 
     : <dfn>submit(commandBuffers)</dfn>
@@ -7955,7 +8208,7 @@ Queries {#queries}
 ## <dfn interface>GPUQuerySet</dfn> ## {#queryset}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUQuerySet {
     undefined destroy();
 };
@@ -8146,7 +8399,7 @@ method of an {{HTMLCanvasElement}} instance by passing the string literal `'webg
 ## GPUCanvasContext ## {#canvas-context}
 
 <script type=idl>
-[Exposed=(Window, DedicatedWorker)]
+[Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUCanvasContext {
     readonly attribute (HTMLCanvasElement or OffscreenCanvas) canvas;
 
@@ -8675,50 +8928,57 @@ a list of vertices to process for each instance.
 <div algorithm>
     <dfn abstract-op>resolve indices</dfn>(drawCall, state)
 
-        **Arguments:**
-            - |drawCall|: The draw call parameters.
-            - |state|: The active [=RenderState=].
+    **Arguments:**
+    - |drawCall|: The draw call parameters.
+    - |state|: The active [=RenderState=].
 
-        **Returns:** list of integer indices.
+    **Returns:** list of integer indices.
 
-        1. Let |vertexIndexList| be an empty list of indices.
-        1. If |drawCall| is an indexed draw call:
-            1. initialize the |vertexIndexList| with |drawCall|.indexCount integers.
-            1. for |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
-                1. let |vertexIndex| be [$fetch index$](|i| + |drawCall|.firstIndex,
-                    |state|.[=RenderState/indexBuffer=].buffer, |state|.[=RenderState/indexBuffer=].offset,
-                    |state|.[=RenderState/indexBuffer=].format) + |drawCall|.baseVertex
-                1. append |vertexIndex| to the |vertexIndexList|
-        1. Otherwise:
-            1. initialize the |vertexIndexList| with |drawCall|.vertexCount integers.
-            1. assign the |vertexIndexList| item |i| to be |drawCall|.firstVertex + |i|
-        1. Return |vertexIndexList|.
+    1. Let |vertexIndexList| be an empty list of indices.
+    1. If |drawCall| is an indexed draw call:
+        1. Initialize the |vertexIndexList| with |drawCall|.indexCount integers.
+        1. For |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
+            1. Let |relativeVertexIndex| be [$fetch index$](|i| + |drawCall|.`firstIndex`,
+                |state|.[=RenderState/indexBuffer=]).
+            1. If |relativeVertexIndex| has the special value `"out of bounds"`,
+                stop and return the empty list.
 
-        Note: in case of indirect draw calls, the `indexCount`, `vertexCount`,
-        and other properties of |drawCall| are read from the indirect buffer
-        instead of the draw command itself.
+                Note: Implementations may choose to display a warning when this occurs,
+                especially when it is easy to detect (like in non-indirect indexed draw calls).
+            1. Append |drawCall|.`baseVertex` + |relativeVertexIndex| to the |vertexIndexList|.
+    1. Otherwise:
+        1. Initialize the |vertexIndexList| with |drawCall|.vertexCount integers.
+        1. Set each |vertexIndexList| item |i| to the value |drawCall|.firstVertex + |i|.
+    1. Return |vertexIndexList|.
 
-        Issue: specify indirect commands better.
+    Note: in case of indirect draw calls, the `indexCount`, `vertexCount`,
+    and other properties of |drawCall| are read from the indirect buffer
+    instead of the draw command itself.
+
+    Issue: specify indirect commands better.
 </div>
 
 <div algorithm>
     <dfn abstract-op>fetch index</dfn>(i, buffer, offset, format)
 
-        **Arguments:**
-            - |i|: Index of a vertex index to fetch.
-            - |buffer|: {{GPUBuffer}} containing index data.
-            - |offset|: Base offset into the |buffer|.
-            - |format|: {{GPUIndexFormat}} of the index.
+    **Arguments:**
+    - |i|: Index of a vertex index to fetch.
+    - |indexBufferState|: A value of [=RenderState/indexBuffer=] (buffer, format, offset, and size).
 
-        Let |stride| be defined by the |format|:
+    **Returns:** unsigned integer or `"out of bounds"`
+
+    1. Let |indexSize| be defined by the |indexBufferState|.`format`:
         <dl class="switch">
             : {{GPUIndexFormat/"uint16"}}
             :: 2
             : {{GPUIndexFormat/"uint32"}}
             :: 4
         </dl>
-        Interpret the data in |buffer| starting with |offset| + |i| * |stride|
-        of size |stride| bytes as an unsigned integer and return it.
+    1. If |indexBufferState|.`offset` + |i + 1| &times; |indexSize| &gt; |indexBufferState|.`size`,
+        return the special value `"out of bounds"`.
+    1. Interpret the data in |indexBufferState|.`buffer`, starting at offset
+        |indexBufferState|.`offset` + |i| &times; |indexSize|,
+        of size |indexSize| bytes, as an unsigned integer and return it.
 </div>
 
 ### Vertex Processing ### {#vertex-processing}
@@ -8731,72 +8991,82 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
 <div algorithm>
     <dfn abstract-op>process vertices</dfn>(vertexIndexList, drawCall, desc, state)
 
-        **Arguments:**
-            - |vertexIndexList|: List of vertex indices to process.
-            - |drawCall|: The draw call parameters.
-            - |desc|: The descriptor of type {{GPUVertexState}}.
-            - |state|: The active [=RenderState=].
+    **Arguments:**
+    - |vertexIndexList|: List of vertex indices to process (mutable, passed by reference).
+    - |drawCall|: The draw call parameters.
+    - |desc|: The descriptor of type {{GPUVertexState}}.
+    - |state|: The active [=RenderState=].
 
-        Each vertex |vertexIndex| in the |vertexIndexList|,
-        in each instance of index |rawInstanceIndex|, is processed independently.
-        The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
-        This processing happens in parallel, and any side effects, such as
-        writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
-        may happen in any order.
-        1. Let |instanceIndex| be |rawInstanceIndex| + |drawCall|.firstInstance.
-        1. For each non-`null` |vertexBufferLayout| in the list of |desc|.{{GPUVertexState/buffers}}:
-            1. Let |i| be the index of the buffer layout in this list.
-            1. Let |vertexBuffer| and |vertexBufferOffset| be the buffer and offset in
-                |state|.[=RenderState/vertexBuffers=] bindings at slot |i|
-            1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
-                <dl class="switch">
-                    : {{GPUVertexStepMode/"vertex"}}
-                    :: |vertexIndex|
-                    : {{GPUVertexStepMode/"instance"}}
-                    :: |instanceIndex|
-                </dl>
-            1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
-                1. Let |attributeOffset| be |vertexBufferOffset| +
-                    |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
-                    |attributeDesc|.{{GPUVertexAttribute/offset}}.
-                1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
-                    from |vertexBuffer| starting at offset |attributeOffset|.
-                    - the components are loaded in the order of `x`, `y`, `z`, `w` from buffer memory.
-                1. Convert the |data| into a shader-visible format, according to [=channel formats=] rules.
+    Each vertex |vertexIndex| in the |vertexIndexList|,
+    in each instance of index |rawInstanceIndex|, is processed independently.
+    The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
+    This processing happens in parallel, and any side effects, such as
+    writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
+    may happen in any order.
+    1. Let |instanceIndex| be |rawInstanceIndex| + |drawCall|.firstInstance.
+    1. For each non-`null` |vertexBufferLayout| in the list of |desc|.{{GPUVertexState/buffers}}:
+        1. Let |i| be the index of the buffer layout in this list.
+        1. Let |vertexBuffer|, |vertexBufferOffset|, and |vertexBufferBindingSize| be the
+            buffer, offset, and size at slot |i| of |state|.[=RenderState/vertexBuffers=].
+        1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
+            <dl class="switch">
+                : {{GPUVertexStepMode/"vertex"}}
+                :: |vertexIndex|
+                : {{GPUVertexStepMode/"instance"}}
+                :: |instanceIndex|
+            </dl>
+        1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
+            1. Let |attributeOffset| be |vertexBufferOffset| +
+                |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
+                |attributeDesc|.{{GPUVertexAttribute/offset}}.
+            1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
+                from |vertexBuffer| starting at offset |attributeOffset|.
+                The components are loaded in the order `x`, `y`, `z`, `w` from buffer memory.
+
+                If this results in an out-of-bounds access, the resulting value is determined
+                according to WGSL's [=invalid memory reference=] behavior.
+            1. **Optionally (implementation-defined):**
+                If |attributeOffset| + sizeof(|attributeDesc|.{{GPUVertexAttribute/format}}) &gt;
+                |vertexBufferOffset| + |vertexBufferBindingSize|,
+                [=list/empty=] |vertexIndexList| and stop, cancelling the draw call.
+
+                Note: This allows implementations to detect out-of-bounds values in the index buffer
+                before issuing a draw call, instead of using [=invalid memory reference=] behavior.
+            1. Convert the |data| into a shader-visible format, according to [=channel formats=] rules.
+                <div class="example">
+                    An attribute of type {{GPUVertexFormat/"snorm8x2"}} and byte values of `[0x70, 0xD0]`
+                    will be converted to `vec2<f32>(0.88, -0.24)` in WGSL.
+                </div>
+            1. Adjust the |data| size to the shader type:
+                - if both are scalar, or both are vectors of the same dimensionality, no adjustment is needed.
+                - if |data| is vector but the shader type is scalar, then only the first component is extracted.
+                - if both are vectors, and |data| has a higher dimension, the extra components are dropped.
                     <div class="example">
-                        An attribute of type {{GPUVertexFormat/"snorm8x2"}} and byte values of `[0x70, 0xD0]`
-                        will be converted to `vec2<f32>(0.88, -0.24)` in WGSL.
+                        An attribute of type {{GPUVertexFormat/"float32x3"}} and value `vec3<f32>(1.0, 2.0, 3.0)`
+                        will exposed to the shader as `vec2<f32>(1.0, 2.0)` if a 2-component vector is expected.
                     </div>
-                1. Adjust the |data| size to the shader type:
-                    - if both are scalar, or both are vectors of the same dimensionality, no adjustment is needed.
-                    - if |data| is vector but the shader type is scalar, then only the first component is extracted.
-                    - if both are vectors, and |data| has a higher dimension, the extra components are dropped.
-                        <div class="example">
-                            An attribute of type {{GPUVertexFormat/"float32x3"}} and value `vec3<f32>(1.0, 2.0, 3.0)`
-                            will exposed to the shader as `vec2<f32>(1.0, 2.0)` if a 2-component vector is expected.
-                        </div>
-                    - if the shader type is a vector of higher dimensionality, or the |data| is a scalar,
-                        then the missing components are filled from `vec4<*>(0, 0, 0, 1)` value.
-                        <div class="example">
-                            An attribute of type {{GPUVertexFormat/"sint32"}} and value `5` will be exposed
-                            to the shader as `vec4<i32>(5, 0, 0, 1)` if a 4-component vector is expected.
-                        </div>
-                1. Bind the |data| to vertex shader input
-                    location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
-        1. For each {{GPUBindGroup}} group at |index| in |state|.[=RenderState/bindGroups=]:
-            1. For each resource {{GPUBindingResource}} in the bind group:
-                1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
-                1. If |entry|.{{GPUBindGroupLayoutEntry}}.visibility includes {{GPUShaderStage/VERTEX}}:
-                    - Bind the resource to the shader under group |index| and binding {{GPUBindGroupLayoutEntry/binding|GPUBindGroupLayoutEntry.binding}}.
-        1. Set the shader [=builtins=]:
-            - Set the `vertex_index` builtin, if any, to |vertexIndex|.
-            - Set the `instance_index` builtin, if any, to |instanceIndex|.
-        1. Invoke vertex shader entry point described by |desc|.
+                - if the shader type is a vector of higher dimensionality, or the |data| is a scalar,
+                    then the missing components are filled from `vec4<*>(0, 0, 0, 1)` value.
+                    <div class="example">
+                        An attribute of type {{GPUVertexFormat/"sint32"}} and value `5` will be exposed
+                        to the shader as `vec4<i32>(5, 0, 0, 1)` if a 4-component vector is expected.
+                    </div>
+            1. Bind the |data| to vertex shader input
+                location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
+    1. For each {{GPUBindGroup}} group at |index| in |state|.[=RenderState/bindGroups=]:
+        1. For each resource {{GPUBindingResource}} in the bind group:
+            1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
+            1. If |entry|.{{GPUBindGroupLayoutEntry}}.visibility includes {{GPUShaderStage/VERTEX}}:
+                - Bind the resource to the shader under group |index| and binding {{GPUBindGroupLayoutEntry/binding|GPUBindGroupLayoutEntry.binding}}.
+    1. Set the shader [=builtins=]:
+        - Set the `vertex_index` builtin, if any, to |vertexIndex|.
+        - Set the `instance_index` builtin, if any, to |instanceIndex|.
+    1. Invoke vertex shader entry point described by |desc|.
 
-            Note: The target platform caches the results of vertex shader invocations.
-            There is no guarantee that any |vertexIndex| that repeats more than once will
-            result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
-            will only be processed once.
+        Note: The target platform caches the results of vertex shader invocations.
+        There is no guarantee that any |vertexIndex| that repeats more than once will
+        result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
+        will only be processed once.
 </div>
 
 ### Primitive Assembly ### {#primitive-assembly}
@@ -9048,7 +9318,7 @@ The determination is based on |descriptor|.{{GPURenderPipelineDescriptor/multisa
 
 ### Fragment Processing ### {#fragment-processing}
 
-TODO: fill out this section
+Issue: fill out this section
 
 ### No Color Output ### {#no-color-output}
 
@@ -9072,7 +9342,7 @@ It guarantees that:
 
 ### Sample frequency shading ### {#sample-frequency-shading}
 
-TODO: fill out the section
+Issue: fill out the section
 
 ### Sample Masking ### {#sample-masking}
 
@@ -9318,15 +9588,13 @@ The following enums are supported if and only if the {{GPUFeatureName/"timestamp
 
 ### Plain color formats ### {#plain-color-formats}
 
-All plain color formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}}, and {{GPUTextureUsage/SHADER_READ}} usage.
+All plain color formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}}, and {{GPUTextureUsage/TEXTURE_BINDING}} usage.
 
 Only formats with {{GPUTextureSampleType}} {{GPUTextureSampleType/"float"}} can be blended.
 
-The {{GPUTextureUsage/RENDER_ATTACHMENT|GPUTextureUsage.RENDER_ATTACHMENT}} column specifies support for
-{{GPUTextureUsage/RENDER_ATTACHMENT}} usage.
-
-The {{GPUTextureUsage/STORAGE|GPUTextureUsage.STORAGE}} column specifies support for {{GPUTextureUsage/STORAGE}}
-usage.
+The {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/STORAGE_BINDING}} columns
+specify support for {{GPUTextureUsage/RENDER_ATTACHMENT|GPUTextureUsage.RENDER_ATTACHMENT}}
+and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage respectively.
 
 <table class='data'>
     <thead class=stickyheader>
@@ -9334,7 +9602,7 @@ usage.
             <th>Format
             <th>{{GPUTextureSampleType}}
             <th>{{GPUTextureUsage/RENDER_ATTACHMENT}}
-            <th>{{GPUTextureUsage/STORAGE}}
+            <th>{{GPUTextureUsage/STORAGE_BINDING}}
     </thead>
     <tr><th class=stickyheader>8-bit per component<th><th><th>
     <tr>
@@ -9471,7 +9739,7 @@ usage.
         <td>&checkmark;
     <tr>
         <td>{{GPUTextureFormat/r32float}}
-        <td>{{GPUTextureSampleType/"unfilterable-float"}}<!-- Metal -->
+        <td>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>&checkmark;
     <tr>
@@ -9520,7 +9788,7 @@ usage.
 
 ### Depth/stencil formats ### {#depth-formats}
 
-All depth formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}}, {{GPUTextureUsage/SHADER_READ}}, and {{GPUTextureUsage/RENDER_ATTACHMENT}} usage. However, the source/destination is restricted based on the format.
+All depth formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}}, {{GPUTextureUsage/TEXTURE_BINDING}}, and {{GPUTextureUsage/RENDER_ATTACHMENT}} usage. However, the source/destination is restricted based on the format.
 
 None of the depth formats can be filtered.
 
@@ -9531,6 +9799,7 @@ None of the depth formats can be filtered.
             <th>Bytes per texel
             <th>Aspect
             <th>{{GPUTextureSampleType}}
+            <th>Returned in shaders as...
             <th>Copy aspect from Buffer
             <th>Copy aspect into Buffer
     </thead>
@@ -9539,37 +9808,51 @@ None of the depth formats can be filtered.
         <td>1 &minus; 4
         <td>stencil
         <td>{{GPUTextureSampleType/"uint"}}
+        <td>`vec4<u32>(S, X, X, X)`
         <td colspan=2>&checkmark;
     <tr>
         <td>{{GPUTextureFormat/depth16unorm}}
         <td>2
         <td>depth
         <td>{{GPUTextureSampleType/"depth"}}
+        <td>`f32(D)`
         <td colspan=2>&checkmark;
     <tr>
         <td>{{GPUTextureFormat/depth24plus}}
         <td>4
         <td>depth
         <td>{{GPUTextureSampleType/"depth"}}
+        <td>`f32(D)`
         <td colspan=2>&cross;
     <tr>
         <td rowspan=2 style='white-space:nowrap'>{{GPUTextureFormat/depth24plus-stencil8}}
         <td rowspan=2>4 &minus; 8
         <td>depth
         <td>{{GPUTextureSampleType/"depth"}}
+        <td>`f32(D)`
         <td colspan=2>&cross;
     <tr>
         <td>stencil
         <td>{{GPUTextureSampleType/"uint"}}
+        <td>`vec4<u32>(S, X, X, X)`
         <td colspan=2>&checkmark;
     <tr>
         <td>{{GPUTextureFormat/depth32float}}
         <td>4
         <td>depth
         <td>{{GPUTextureSampleType/"depth"}}
+        <td>`f32(D)`
         <td colspan=1>&cross;
         <td colspan=1>&checkmark;
 </table>
+
+Stencil formats must sample as `vec4<u32>(S, X, X, X)`, where S is the stencil value and each X is an implementation-defined unspecified value.
+Authors must not rely on these `.y`, `.z`, and `.w` components, as their behavior is non-portable.
+
+Note:
+Short of adding a new more constrained stencil sampler type (like depth), it's infeasible for implementations to efficiently paper over the driver differences for stencil reads.
+As this was not a portability pain point for WebGL, it's not expected to be problematic in WebGPU.
+In practice, expect either `vec4<u32>(S, S, S, S)` or `vec4<u32>(S, 0, 0, 1)`, depending on hardware.
 
 <dfn dfn>Copies of depth and stencil textures</dfn> can only happen within the following sets of formats:
   - {{GPUTextureFormat/stencil8}}, {{GPUTextureFormat/depth24plus-stencil8}} (stencil component), {{GPUTextureFormat/r8uint}}
@@ -9582,11 +9865,11 @@ Note:
 {{GPUTextureFormat/depth32float}} texel values have a limited range. As a result, copies into
 {{GPUTextureFormat/depth32float}} textures are only valid from other {{GPUTextureFormat/depth32float}} textures.
 
-Issue: clarify if `depth24plus-stencil8` is copyable into `depth24plus` in Metal.
+Issue: clarify if `depth24plus-stencil8` is copyable into `depth24plus` in all target backend APIs.
 
 ### Packed formats ### {#packed-formats}
 
-All packed texture formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}}, and {{GPUTextureUsage/SHADER_READ}} usages. All of these formats have {{GPUTextureSampleType/"float"}} type and can be filtered on sampling.
+All packed texture formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}}, and {{GPUTextureUsage/TEXTURE_BINDING}} usages. All of these formats have {{GPUTextureSampleType/"float"}} type and can be filtered on sampling.
 
 <table class='data'>
     <thead class=stickyheader>

@@ -12,7 +12,7 @@ Text Macro: UNSIGNEDINTEGRAL u32 or vec|N|&lt;u32&gt;
 Text Macro: SIGNEDINTEGRAL i32 or vec|N|&lt;i32&gt;
 Text Macro: INTEGRAL i32, u32, vec|N|&lt;i32&gt;, or vec|N|&lt;u32&gt;
 Text Macro: FLOATING f32 or vec|N|&lt;f32&gt;
-Ignored Vars: i, e, e1, e2, e3, N, M, v, Stride, Offset, Align, Extent, S, T, T1
+Ignored Vars: i, e, e1, e2, e3, eN, N, M, v, Stride, Offset, Align, Extent, S, T, T1
 
 !Participate: <a href="https://github.com/gpuweb/gpuweb/issues/new?labels=wgsl">File an issue</a> (<a href="https://github.com/gpuweb/gpuweb/issues?q=is%3Aissue+is%3Aopen+label%3Awgsl">open issues</a>)
 
@@ -305,9 +305,7 @@ The WebGPU specification describes the consequences of each kind of error.
 
 TODO: Update the WebGPU spec, referring back to the three kinds of errors defined here.
 
-# Textual structure TODO # {#textual-structure}
-
-TODO: This is a stub.
+# Textual structure # {#textual-structure}
 
 A [SHORTNAME] program is text.
 This specification does not prescribe a particular encoding for that text.
@@ -316,30 +314,88 @@ However, UTF-8 is always a valid encoding for a [SHORTNAME] program.
 Note: The intent of promoting UTF-8 like this is to simplify interchange of [SHORTNAME] programs
 and to encourage interoperability among tools.
 
+[SHORTNAME] program text consists of a sequence of characters, grouped into contiguous non-empty sets forming:
+* [=comments=]
+* [=tokens=]
+* [=blankspace=]
+
+<dfn>Blankspace</dfn> is any combination of one or more of the following characters:
+* space
+* tab
+* linefeed
+* vertical tab
+* formfeed
+* carriage return
+
+Issue: What else should be blankspace? Anything in the Unicode Separator category?
+
+To parse a [SHORTNAME] program:
+1. Remove comments:
+    * Replace the first comment with a space character.
+    * Repeat until no comments remain.
+2. Scanning from beginning to end, group the remaining characters into tokens and blankspace
+    in greedy fashion:
+    * The next group is formed from the longest
+        non-empty prefix of the remaining ungrouped characters, that is either:
+        * a valid token, or
+        * blankspace
+    * Repeat until no ungrouped characters remain.
+3. Discard the blankspace, leaving only tokens.
+3. Parse the token sequence, attempting to match the `translation_unit` grammar rule.
+
+<pre class='def'>
+translation_unit
+  : global_decl_or_directive*
+</pre>
+
+A [=shader-creation error=] results if:
+* the entire source text cannot be converted into a finite sequence of valid tokens, or
+* the `translation_unit` grammar rule does not match the entire token sequence.
+
 ## Comments ## {#comments}
 
-Comments begin with `//` and continue to the end of the current line. There are no multi-line comments.
+A <dfn>comment</dfn> is a span of text that does not influence the validity or meaning of a [SHORTNAME]
+program, except that a comment can separate [=tokens=].
+Shader authors can use comments to document their programs.
 
-TODO: What indicates the end of a line?  (E.g. A line ends at the next linefeed or at the end of the program)
+A <dfn noexport>line-ending comment</dfn> is a kind of [=comment=] consisting
+of the two characters `//` and the characters that follow,
+up until the next linefeed or the end of the program.
 
-## Tokens TODO ## {#tokens}
+TODO(dneto): Incorporate block comments, per https://github.com/gpuweb/gpuweb/pull/1470
 
-## Literals TODO ## {#literals}
+## Tokens ## {#tokens}
 
+A <dfn>token</dfn> is a contiguous sequence of characters forming one of:
+* a [=literal=].
+* a [=keyword=].
+* a [=reserved word=].
+* a [=syntactic token=].
+* an [=identifier=].
+
+## Literals ## {#literals}
+
+A <dfn>literal</dfn> is one of:
+* a <dfn>numeric literal</dfn>, used to represent a number.
+* a <dfn noexport>boolean literal</dfn>: either `true` or `false`.
+
+The form of a [=numeric literal=] is defined via pattern-matching:
 <table class='data'>
   <thead>
-    <tr><th>Token<th>Definition
+    <tr><th>Numeric literal<th>Textual pattern
   </thead>
-  <tr><td>`DECIMAL_FLOAT_LITERAL`<td>`(-?[0-9]*.[0-9]+ | -?[0-9]+.[0-9]*)((e|E)(+|-)?[0-9]+)?`
-  <tr><td>`HEX_FLOAT_LITERAL`<td>`-?0x([0-9a-fA-F]*.?[0-9a-fA-F]+ | [0-9a-fA-F]+.[0-9a-fA-F]*)(p|P)(+|-)?[0-9]+`
-  <tr><td>`INT_LITERAL`<td>`-?0x[0-9a-fA-F]+ | 0 | -?[1-9][0-9]*`
-  <tr><td>`UINT_LITERAL`<td>`0x[0-9a-fA-F]+u | 0u | [1-9][0-9]*u`
+  <tr><td>`DECIMAL_FLOAT_LITERAL`<td>`(-?[0-9]*\.[0-9]+|-?[0-9]+\.[0-9]*)((e|E)(\+|-)?[0-9]+)?`
+  <tr><td>`HEX_FLOAT_LITERAL`<td>`-?0x([0-9a-fA-F]*\.?[0-9a-fA-F]+|[0-9a-fA-F]+\.[0-9a-fA-F]*)(p|P)(\+|-)?[0-9]+`
+  <tr><td>`INT_LITERAL`<td>`-?0x[0-9a-fA-F]+|0|-?[1-9][0-9]*`
+  <tr><td>`UINT_LITERAL`<td>`0x[0-9a-fA-F]+u|0u|[1-9][0-9]*u`
 </table>
 
 Note: literals are parsed greedily. This means that for statements like `a -5`
       this will *not* parse as `a` `minus` `5` but instead as `a` `-5` which
       may be unexpected. A space must be inserted after the `-` if the first
       expression is desired.
+
+TODO(dneto): Describe how numeric literal tokens map to idealized values, and then to typed values.
 
 <pre class='def'>
 const_literal
@@ -357,22 +413,25 @@ FLOAT_LITERAL
 </pre>
 
 
-## Keywords TODO ## {#keywords}
+## Keywords ## {#keywords}
 
-TODO: *Stub*
+A <dfn>keyword</dfn> is a [=token=] which always refers to a predefined language concept.
+See [[#keyword-summary]] for the list of [SHORTNAME] keywords.
 
-See [[#keyword-summary]] for a list of keywords.
+## Identifiers ## {#identifiers}
 
-## Identifiers TODO ## {#identifiers}
+An <dfn>identifier</dfn> is a kind of [=token=] used as a name.
+See [[#declaration-and-scope]] and [[#directives]].
+
+The form of an identifier is defined via pattern-matching, except that
+an identifier must not have the same spelling as a [=keyword=] or as a [=reserved word=].
 
 <table class='data'>
   <thead>
-    <tr><th>Token<th>Definition
+    <tr><th>Token<th>Textual pattern
   </thead>
   <tr><td>`IDENT`<td>`[a-zA-Z][0-9a-zA-Z_]*`
 </table>
-
-An identifier must not have the same spelling as a keyword or as a reserved keyword.
 
 ## Attributes ## {#attributes}
 
@@ -389,7 +448,7 @@ attribute_list
   : ATTR_LEFT (attribute COMMA)* attribute ATTR_RIGHT
 
 attribute
-  : IDENT PAREN_LEFT literal_or_ident PAREN_RIGHT
+  : IDENT PAREN_LEFT (literal_or_ident COMMA)* literal_or_ident PAREN_RIGHT
   | IDENT
 
 literal_or_ident
@@ -478,8 +537,7 @@ literal_or_ident
     There is no affect on a `position` [=built-in input variable=].
 
     Note: this attribute maps to the `Invariant` decoration in SPIR-V, the
-    `invariant` attribute in Metal shading language, the `precise` qualifier in
-    HLSL, the `invariant` qualifier in GLSL.
+    `precise` qualifier in HLSL, and the `invariant` qualifier in GLSL.
 
   <tr><td><dfn noexport dfn-for="attribute">`location`
     <td>non-negative i32 literal
@@ -539,15 +597,15 @@ literal_or_ident
 </table>
 
 
-## Directives TODO ## {#directives}
+## Directives ## {#directives}
 
-A <dfn noexport>directive</dfn> is a token sequence which modifies how a [SHORTNAME]
+A <dfn noexport>directive</dfn> is a [=token=] sequence which modifies how a [SHORTNAME]
 program is processed by a WebGPU implementation.
 See [[#enable-directive-section]].
 
 ## Declaration and scope ## {#declaration-and-scope}
 
-A <dfn noexport>declaration</dfn> associates an identifier with one of
+A <dfn noexport>declaration</dfn> associates an [=identifier=] with one of
 the following kinds of objects:
 * a type
 * a value
@@ -603,7 +661,7 @@ use of the identifier.
     fn my_func(foo: f32) { // my_func_1, foo_2
       // Any reference to 'foo' resolves to the function parameter.
 
-      // Invalid, the scope of foo_3 ends at the of the function.
+      // Invalid, the scope of foo_2 ends at the of the function.
       var foo: f32; // foo_3
 
       // Valid, bar_2 is in scope until the end of the function.
@@ -799,6 +857,8 @@ The <dfn dfn noexport>scalar</dfn> types are [=bool=], [=i32=], [=u32=], and [=f
 
 The <dfn dfn noexport>numeric scalar</dfn> types are [=i32=], [=u32=], and [=f32=].
 
+The <dfn dfn noexport>integer scalar</dfn> types are [=i32=] and [=u32=].
+
 ### Vector Types ### {#vector-types}
 
 A <dfn noexport>vector</dfn> is a grouped sequence of 2, 3, or 4 [=scalar=] components.
@@ -955,15 +1015,52 @@ An <dfn noexport>array</dfn> is an indexable grouping of element values.
   <thead>
     <tr><th>Type<th>Description
   </thead>
-  <tr><td algorithm="sized array type">array&lt;|E|,|N|&gt;
-      <td>A <dfn>sized array</dfn> with |N| elements of type |E|.<br>
-                |N| must be 1 or larger.
-  <tr><td algorithm="runtime-sized array type">array&lt;|E|&gt;<td>A <dfn noexport>runtime-sized</dfn> array of elements of type |E|.
-                       These may only appear in specific contexts.<br>
+  <tr><td algorithm="fixed-size array type">array&lt;|E|,|N|&gt;
+      <td>A <dfn>fixed-size array</dfn> with |N| elements of type |E|.<br>
+          |N| is called the <dfn noexport>element count</dfn> of the array.
+  <tr><td algorithm="runtime-sized array type">array&lt;|E|&gt;
+      <td>A <dfn noexport>runtime-sized</dfn> array of elements of type |E|.
+          These may only appear in specific contexts.<br>
 </table>
 
-Note: Sized arrays and runtime-sized arrays are always distinct types.
-That is, `array`&lt;|E|,|N|&gt; and `array`&lt;|E|&gt; are different.
+When specified, an element count expression |N| must:
+* be a literal, or the name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=], and
+* evaluate to an [=integer scalar=] with value greater than zero.
+
+Note:  The element count value is fully determined at [=shader module creation=] time.
+
+Two array types are the same if and only if all of the following are true:
+* They have the same element type.
+* Their element count specifications match, i.e. either of the following is true:
+    * They are both runtime-sized.
+    * They are both fixed-sized with equal-valued element counts,
+        even if one is signed and the other is unsigned.
+        (Signed and unsigned values are comparable in this case because element counts must
+        be greater than zero.)
+
+Issue: Array types should differ if they have different element strides.
+See https://github.com/gpuweb/gpuweb/issues/1534
+
+<div class='example fixed-size array types' heading='Example fixed-size array types'>
+  <xmp>
+    // array<f32,8> and array<i32,8> are different types:
+    // different element types
+    var<private> a: array<f32,8>;
+    var<private> b: array<i32,8>;
+    var<private> c: array<i32,8u>;  // array<i32,8> and array<i32,8u> are the same type
+
+    let width = 8;
+    let height = 8;
+
+    // array<i32,8>, array<i32,8u>, and array<i32,width> are the same type.
+    // Their element counts evaluate to 8.
+    var<private> d: array<i32,width>;
+
+    // array<i32,height> and array<i32,width> are the same type.
+    var<private> e: array<i32,width>;
+    var<private> f: array<i32,height>;
+  </xmp>
+</div>
 
 The first element in an array is at index 0, and each successive element is at the next integer index.
 See [[#array-access-expr]].
@@ -988,6 +1085,16 @@ Restrictions on runtime-sized arrays:
     a store type in any other cases.
 * An expression must not evaluate to a runtime-sized array type.
 
+<pre class='def'>
+array_type_decl
+  | attribute_list* ARRAY LESS_THAN type_decl (COMMA element_count_expression)? GREATER_THAN
+
+element_count_expression
+  : INT_LITERAL
+  | UINT_LITERAL
+  | IDENT
+</pre>
+
 ### Structure Types ### {#struct-types}
 
 A <dfn noexport>structure</dfn> is a grouping of named member values.
@@ -1000,7 +1107,7 @@ A <dfn noexport>structure</dfn> is a grouping of named member values.
       <td>struct&lt;|T|<sub>1</sub>,...,|T|<sub>N</sub>&gt;
       <td>An ordered tuple of *N* members of types
           |T|<sub>1</sub> through |T|<sub>N</sub>, with |N| being an integer greater than 0.
-          A structure type declaration specifies an identifier name for each member.
+          A structure type declaration specifies an [=identifier=] name for each member.
           Two members of the same structure type must not have the same name.
 </table>
 
@@ -1127,7 +1234,7 @@ A type is <dfn>constructible</dfn> if it is one of:
 * a [=scalar=] type
 * a [=vector=] type
 * a [=matrix=] type
-* a [=sized array=] type, if its element type is constructible.
+* a [=fixed-size array=] type, if its element type is constructible.
 * a [=structure=] type, if all its members are constructible.
 
 Note: All constructible types are [=plain types|plain=].
@@ -1238,7 +1345,8 @@ A type is <dfn dfn noexport>host-shareable</dfn> if it is one of:
 * a [=numeric vector=] type
 * a [=matrix=] type
 * an [=atomic type|atomic=] type
-* an [=array=] type, if its element type is host-shareable
+* a [=fixed-size array=] type, if its element type is host-shareable
+* a [=runtime-sized=] array type, if its element type is host-shareable
 * a [=structure=] type, if all its members are host-shareable
 
 [SHORTNAME] defines the following attributes that affect memory layouts:
@@ -1246,9 +1354,9 @@ A type is <dfn dfn noexport>host-shareable</dfn> if it is one of:
  * [=attribute/align=]
  * [=attribute/size=]
 
-Note: An [=IO-shareable=] type *T* would also be host-shareable if *T* and its subtypes have
-appropriate [=stride=] attributes, and if *T* is not [=bool=] and does not contain a [=bool=].
-Additionally, a [=runtime-sized=] array is host-shareable but is not IO-shareable.
+Note: An [=IO-shareable=] type *T* is host-shareable if *T* is not [=bool=] and does not contain [=bool=].
+Many types are host-shareable, but not IO-shareable, including [=atomic types=],
+[=runtime-sized=] arrays, and any composite types containing them.
 
 Note: Both IO-shareable and host-shareable types have concrete sizes, but counted differently.
 IO-shareable types are sized by a location-count metric, see [[#input-output-locations]].
@@ -1368,7 +1476,7 @@ We will use the following notation:
 * <dfn noexport>AlignOfMember</dfn>(|S|, |M|) is the alignment of member |M| of the host-shareable structure |S|.
 * <dfn noexport>SizeOf</dfn>(|T|) is the size of host-shareable type |T|.
 * <dfn noexport>SizeOfMember</dfn>(|S|, |M|) is the size of member |M| of the host-shareable structure |S|.
-* <dfn noexport>StrideOf</dfn>(|A|) is the element stride of host-shareable array type |A|.
+* <dfn noexport>StrideOf</dfn>(|A|) is the [=element stride=] of host-shareable array type |A|.
 * <dfn noexport>OffsetOfMember</dfn>(|S|, |M|) is the offset of member |M| from the start of the host-shareable structure |S|.
 
 
@@ -1579,24 +1687,24 @@ rounded to the next multiple of the structure's alignment:
 
 #### Array Layout Rules ####  {#array-layout-rules}
 
-An array element stride is the number of bytes from the start of one array
-element to the start of the next element.
-
 The first array element always has a zero byte offset from the start of the
 array.
 
-If the array type is annotated with an explicit [=stride=] decoration then this
-will be used as the array stride, otherwise the array uses an implicit stride
-equal to the size of the array's element type, rounded up to the alignment of
-the element type:
+The <dfn noexport>element stride</dfn> of an array is the number of bytes from the
+start of one array element to the start of the next element.
+It is determined as follows:
+* It is the value of an explicit [=stride=] attribute on the type, if specified.
+* Otherwise, it is the <dfn noexport>implicit stride</dfn>,
+    equal to the size of the array's element type, rounded up to the alignment of
+    the element type:
 
 <p algorithm="array implicit element stride">
   [=StrideOf=](array<|T|[, |N|]>) = [=roundUp=]([=AlignOf=](T), [=SizeOf=](T))
 </p>
 
-In all cases, the array stride must be a multiple of the element alignment.
+In all cases, the array element stride must be a multiple of the element alignment.
 
-<div class='example wgsl' heading='Implicit / explicit array strides'>
+<div class='example wgsl' heading='Implicit / explicit array element strides'>
   <xmp highlight='rust'>
     // Array with an implicit element stride of 16 bytes
     var implicit_stride: array<vec3<f32>, 8>;
@@ -1610,9 +1718,9 @@ Arrays decorated with the [=stride=] attribute must have a stride that is at
 least the size of the element type, and be a multiple of the element type's
 alignment value.
 
-The array size is equal to the element stride multiplied by the number of
+The array size (in bytes) is equal to the array's element stride multiplied by the number of
 elements:
-<p algorithm="array stride">
+<p algorithm="array element stride">
   [=SizeOf=](array<|T|, |N|>) = [=StrideOf=](array<|T|, |N|>) &times; |N|<br>
   [=SizeOf=](array<|T|>) = [=StrideOf=](array<|T|>) &times; N<sub>runtime</sub>
 </p>
@@ -1686,7 +1794,7 @@ When a matrix value |M| is placed at byte offset |k| of a host-shared memory buf
 
 When a value of array type |A| is placed at byte offset |k| of a host-shared memory buffer,
 then:
-   * Element |i| of the array is placed at byte offset |k| + |i| &times; |Stride|(|A|)
+   * Element |i| of the array is placed at byte offset |k| + |i| &times; [=StrideOf=](|A|)
 
 When a value of structure type |S| is placed at byte offset |k| of a host-shared memory buffer,
 then:
@@ -1749,15 +1857,15 @@ for the storage class |C|:
 
 <p algorithm="structure member minimum alignment">
     [=OffsetOfMember=](|S|, |M|) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
-    Where |k| is a non-negative integer and |M| is a member of structure |S| with type |T|
+    Where |k| is a positive integer and |M| is a member of structure |S| with type |T|
 </p>
 
-Arrays of element type |T| must have an element [=stride=] that is a
+Arrays of element type |T| must have an [=element stride=] that is a
 multiple of the [=RequiredAlignOf=](|T|, |C|) for the storage class |C|:
 
 <p algorithm="array element minimum alignment">
     [=StrideOf=](array<|T|[, |N|]>) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
-    Where |k| is a non-negative integer
+    Where |k| is a positive integer
 </p>
 
 Note: [=RequiredAlignOf=](|T|, |C|) does not impose any additional restrictions
@@ -1768,6 +1876,7 @@ sections and then the resulting layout is validated against the
 
 The [=storage classes/uniform=] storage class also requires that:
 * Array elements are aligned to 16 byte boundaries.
+    That is, [=StrideOf=](array&lt;|T|,|N|&gt;) = 16 &times; |k|' for some positive integer |k|'.
 * If a structure member itself has a structure type `S`, then the number of
     bytes between the start of that member and the start of any following member
     must be at least [=roundUp=](16, [=SizeOf=](S)).
@@ -1906,6 +2015,9 @@ memory reference</dfn> is produced.
     * store the value to any [=memory locations|memory location(s)=] of the
         [[WebGPU#buffers|WebGPU buffer]] bound to the [=originating variable=]
     * not be executed
+[[#atomic-rmw|Read-modify-write atomics]] that operate on an invalid memory
+reference must load and store from the same [=memory locations|memory
+locations=] if they access memory.
 
 ### Use cases for references and pointers ### {#ref-ptr-use-cases}
 
@@ -2049,7 +2161,7 @@ Note: The following examples use [SHORTNAME] features explained later in this sp
 
 A reference value is formed in one of the following ways:
 
-* The identifer [=resolves|resolving=] to an [=in scope|in-scope=] variable *v* denotes the reference value for *v*'s storage.
+* The [=identifier=] [=resolves|resolving=] to an [=in scope|in-scope=] variable *v* denotes the reference value for *v*'s storage.
     * The resolved variable is the [=originating variable=] for the reference.
 * Use the [=indirection=] (unary `*`) operation on a pointer.
     * The originating variable of the result is defined as the originating variable of the pointer.
@@ -2508,7 +2620,7 @@ TODO(dneto): Move description of the conversion to the builtin function that act
 </pre>
 
 * `texel_format` must be one of the texel types specified in [=storage-texel-formats=]
-* `access` must be [=access/write=], if specified.
+* `access` must be [=access/write=].
 
 In the SPIR-V mapping:
 * The *Image Format* parameter of the image type declaration is
@@ -2519,20 +2631,6 @@ In the SPIR-V mapping:
 When mapping to SPIR-V, a write-only storage texture variable must have a `NonReadable` decoration.
 
 For example:
-
-<div class='example wgsl global-scope' heading='Mapping a readable texture_storage_1d variable to SPIR-V'>
-  <xmp>
-      var tbuf: texture_storage_1d<rgba8unorm,read>;
-
-      // Maps to the following SPIR-V:
-      //  OpDecorate %tbuf NonWritable
-      //  ...
-      //  %float = OpTypeFloat 32
-      //  %image_type = OpTypeImage %float 1D 0 0 0 2 Rgba8
-      //  %image_ptr_type = OpTypePointer UniformConstant %image_type
-      //  %tbuf = OpVariable %image_ptr_type UniformConstant
-  </xmp>
-</div>
 
 <div class='example wgsl global-scope' heading='Mapping a writable texture_storage_1d variable to SPIR-V'>
   <xmp>
@@ -2561,6 +2659,9 @@ For example:
 
 `texture_depth_cube_array`
   %1 = OpTypeImage %f32 Cube 1 1 0 1 Unknown
+
+`texture_depth_multisampled_2d`
+  %1 = OpTypeImage %f32 2D 1 0 1 1 Unknown
 </pre>
 
 ### Sampler Type ### {#sampler-type}
@@ -2634,6 +2735,7 @@ depth_texture_type
   | TEXTURE_DEPTH_2D_ARRAY
   | TEXTURE_DEPTH_CUBE
   | TEXTURE_DEPTH_CUBE_ARRAY
+  | TEXTURE_DEPTH_MULTISAMPLED_2D
 
 texel_format
   : R8UNORM
@@ -2737,7 +2839,7 @@ type_decl
   | VEC3 LESS_THAN type_decl GREATER_THAN
   | VEC4 LESS_THAN type_decl GREATER_THAN
   | POINTER LESS_THAN storage_class COMMA type_decl (COMMA access_mode)? GREATER_THAN
-  | attribute_list* ARRAY LESS_THAN type_decl (COMMA INT_LITERAL)? GREATER_THAN
+  | array_type_decl
   | MAT2x2 LESS_THAN type_decl GREATER_THAN
   | MAT2x3 LESS_THAN type_decl GREATER_THAN
   | MAT2x4 LESS_THAN type_decl GREATER_THAN
@@ -2751,8 +2853,8 @@ type_decl
   | texture_sampler_types
 </pre>
 
-When the type declaration is an identifer, then the expression must be in scope of a
-declaration of the identifier as a type alias or structure type.
+When the type declaration is an [=identifier=], then the expression must be in scope of a
+[=declaration=] of the identifier as a type alias or structure type.
 
 <div class='example' heading="Type Declarations">
   <xmp>
@@ -2799,7 +2901,7 @@ declaration of the identifier as a type alias or structure type.
     var<storage,read> buf1: Buffer;       // Can read, cannot write.
     [[group(0), binding(0)]]
     var<storage> buf2: Buffer;            // Can read, cannot write.
-    [[group(0), binding(1)]
+    [[group(0), binding(1)]]
     var<storage,read_write> buf3: Buffer; // Can both read and write.
 
     // Uniform buffer. Always read-only, and has more restrictive layout rules.
@@ -2813,7 +2915,7 @@ declaration of the identifier as a type alias or structure type.
 
 A <dfn noexport>let declaration</dfn> specifies a name for a value.
 Once the value for a let-declaration is computed, it is immutable.
-When an identifier use [=resolves=] to a let-declaration, the identifier denotes that value.
+When an [=identifier=] use [=resolves=] to a let-declaration, the identifier denotes that value.
 
 When a `let` identifier is declared without an explicitly specified type,
 e.g. `let foo = 4`, the type is automatically inferred from the expression to the right of the equals token (`=`).
@@ -2851,8 +2953,8 @@ A <dfn dfn noexport>variable declaration</dfn>:
 * Optionally has an *initializer* expression, if the variable is in the [=storage classes/private=] or [=storage classes/function=] storage classes.
     If present, the initializer expression must evaluate to the variable's store type.
 
-When an identifier use [=resolves=] to a variable declaration,
-the identifer is an expression denoting the reference [=memory view=] for the variable's storage,
+When an [=identifier=] use [=resolves=] to a variable declaration,
+the identifier is an expression denoting the reference [=memory view=] for the variable's storage,
 and its type is the variable's reference type.
 See [[#var-identifier-expr]].
 
@@ -2883,7 +2985,7 @@ The <dfn noexport>lifetime</dfn> of a variable is the period during shader
 execution for which the variable exists.
 The lifetime of a [=module scope=] variable is the entire execution of the shader stage.
 
-For a [=function scope=] variable, each invocation has its own indepdendent
+For a [=function scope=] variable, each invocation has its own independent
 version of the variable.
 The lifetime of the variable is determined by its scope:
 * It begins when control enters the variable's decalaration.
@@ -2959,7 +3061,7 @@ satisfying the [storage class layout constraints](#storage-class-layout-constrai
 A variable in the [=storage classes/storage=] storage class is a <dfn noexport>storage buffer</dfn> variable.
 Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
 satisfying the [storage class layout constraints](#storage-class-layout-constraints).
-It may be declared with a [=access/read=] or [=access/write=] access mode; the default is [=access/read=].
+It may be declared with a [=access/read=] or [=access/read_write=] access mode; the default is [=access/read=].
 
 As described in [[#resource-interface]],
 uniform buffers, storage buffers, textures, and samplers form the
@@ -3033,7 +3135,7 @@ and the name denotes the value of that expression.
 When the declaration uses the [=override=] attribute,
 the constant is <dfn noexport>pipeline-overridable</dfn>. In this case:
 
-  * The type must one of the [=scalar=] types.
+  * The type must be one of the [=scalar=] types.
   * The initializer expression is optional.
   * The attribute's literal operand, if present, is known as the <dfn noexport>pipeline constant ID</dfn>,
     and must be an integer value between 0 and 65535.
@@ -3070,7 +3172,7 @@ is the one from the constant's declaration or from a pipeline override.
 
 <pre class='def'>
 global_constant_decl
-  : attribute_list* LET variable_ident_decl global_const_initializer?
+  : attribute_list* LET (IDENT | variable_ident_decl) global_const_initializer?
 
 global_const_initializer
   : EQUAL const_expression
@@ -3273,6 +3375,21 @@ See also [[#zero-value-expr]] and [[#conversion-expr]].
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
+  <tr>
+    <td>|e1|: |f32|<br>
+        ...<br>
+        |eN|: |f32|
+    <td>`mat2x2<f32>(e1,e2,e3,e4)`: mat2x2&lt;f32&gt;<br>
+        `mat3x2<f32>(e1,...,e6)`: mat3x2&lt;f32&gt;<br>
+        `mat2x3<f32>(e1,...,e6)`: mat2x3&lt;f32&gt;<br>
+        `mat4x2<f32>(e1,...,e8)`: mat4x2&lt;f32&gt;<br>
+        `mat2x4<f32>(e1,...,e8)`: mat2x4&lt;f32&gt;<br>
+        `mat3x3<f32>(e1,...,e9)`: mat3x3&lt;f32&gt;<br>
+        `mat4x3<f32>(e1,...,e12)`: mat4x3&lt;f32&gt;<br>
+        `mat3x4<f32>(e1,...,e12)`: mat3x4&lt;f32&gt;<br>
+        `mat4x4<f32>(e1,...,e16)`: mat4x4&lt;f32&gt;
+    <td>Column-major construction by elements.<br>
+        OpCompositeConstruct
   <tr>
     <td>*e1*: vec2&lt;f32&gt;<br>
         *e2*: vec2&lt;f32&gt;<br>
@@ -3935,7 +4052,7 @@ the variable's value, as required.
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
-  <tr algorithm="sized array indexed element selection">
+  <tr algorithm="fixed-size array indexed element selection">
        <td class="nowrap">
           |e|: array&lt;|T|,|N|&gt;<br>
           |i|: [INT]<br>
@@ -3954,7 +4071,7 @@ the variable's value, as required.
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
-  <tr algorithm="sized array indexed reference selection">
+  <tr algorithm="fixed-size array indexed reference selection">
        <td class="nowrap">
           |r|: ref&lt;|SC|,array&lt;|T|,|N|&gt;&gt;<br>
           |i|: [INT]
@@ -4141,7 +4258,9 @@ references to arrays. An array not behind a reference may only be indexed by a
   <tr algorithm="floating point remainder">
     <td>|e1| : |T|<br>|e2| : |T|<br>|T| is [FLOATING]
     <td>|e1| `%` |e2| : |T|
-    <td>Floating point remainder, where sign of non-zero result matches sign of |e2|. [=Component-wise=] when |T| is a vector. (OpFMod)
+    <td>Floating point remainder, where sign of non-zero result matches sign of |e1|. [=Component-wise=] when |T| is a vector.<br>
+        Result equal to: |e1| - |e2| * trunc(|e1| / |e2|)<br>
+        (OpFRem)
 
 </table>
 
@@ -4460,7 +4579,7 @@ See [[#function-call-statement]].
   </thead>
   <tr algorithm="variable reference">
        <td>
-          |v| is an identifier [=resolves|resolving=] to
+          |v| is an [=identifier=] [=resolves|resolving=] to
           an [=in scope|in-scope=] variable declared in [=storage class=] |SC|
           with [=store type=] |T|
        <td class="nowrap">
@@ -4477,7 +4596,7 @@ See [[#function-call-statement]].
   </thead>
   <tr algorithm="formal parameter value">
        <td>
-          |a| is an identifier [=resolves|resolving=] to
+          |a| is an [=identifier=] [=resolves|resolving=] to
           an [=in scope|in-scope=] formal paramter declaration with type |T|
        <td class="nowrap">
           |a|: |T|
@@ -4504,6 +4623,9 @@ The <dfn noexport>address-of</dfn> operator converts a reference to its correspo
 
            If |r| is an [=invalid memory reference=], then the resulting
            pointer is also an invalid memory reference.
+
+           It is a [=shader-creation error=] if |SC| is  the [=storage
+           classes/handle=] storage class.
 
 </table>
 
@@ -4538,7 +4660,7 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
   </thead>
   <tr algorithm="pipeline-overridable constant value">
        <td>
-          |c| is an identifier [=resolves|resolving=] to
+          |c| is an [=identifier=] [=resolves|resolving=] to
           an [=in scope|in-scope=] [=pipeline-overridable=] `let` declaration with type |T|
        <td class="nowrap">
           |c|: |T|
@@ -4552,7 +4674,7 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
            and the `let`-declaration has no intializer expression.
   <tr algorithm="constant value">
        <td>
-          |c| is an identifier [=resolves|resolving=] to
+          |c| is an [=identifier=] [=resolves|resolving=] to
           an [=in scope|in-scope=] `let` declaration with type |T|,
           and is not pipeline-overridable
        <td class="nowrap">
@@ -4618,7 +4740,7 @@ multiplicative_expression
   | multiplicative_expression MODULO unary_expression
       OpUMOd
       OpSMod
-      OpFMod
+      OpFRem
 
 additive_expression
   : multiplicative_expression
@@ -4687,12 +4809,12 @@ short_circuit_or_expression
 ## Compound Statement ## {#compound-statement}
 
 A compound statement is a brace-enclosed group of zero or more statements.
-When a declaration is one of those statements, its identifier is [=in scope=]
+When a [=declaration=] is one of those statements, its [=identifier=] is [=in scope=]
 from the start of the next statement until the end of the compound statement.
 
 <pre class='def'>
 compound_statement
-  : BRACE_LEFT statements BRACE_RIGHT
+  : BRACE_LEFT statements? BRACE_RIGHT
 </pre>
 
 ## Assignment Statement ## {#assignment}
@@ -4758,9 +4880,9 @@ name of a variable.  See [[#forming-references-and-pointers]] for other cases.
 
 <pre class='def'>
 assignment_statement
-  : singular_expression EQUAL short_circuit_or_expression
-      If singular_expression is a variable, this maps to OpStore to the variable.
-      Otherwise, singular expression is a pointer expression in an Assigning (L-value) context
+  : unary_expression EQUAL short_circuit_or_expression
+      If unary_expression is a variable, this maps to OpStore to the variable.
+      Otherwise, unary expression is a pointer expression in an Assigning (L-value) context
       which maps to OpAccessChain followed by OpStore
 </pre>
 
@@ -4839,7 +4961,7 @@ after the switch statement.
 Alternately, executing a `fallthrough` statement transfers control to the body of the next case clause or
 default clause, whichever appears next in the switch body.
 A `fallthrough` statement must not appear as the last statement in the last clause of a switch.
-When a declaration appears in a case body, its identifier is [=in scope=] from
+When a [=declaration=] appears in a case body, its [=identifier=] is [=in scope=] from
 the start of the next statement until the end of the case body.
 
 Note: Identifiers declared in a case body are not [=in scope=] of case bodies
@@ -4850,14 +4972,14 @@ which are reachable via a `fallthrough` statement.
 
 <pre class='def'>
 loop_statement
-  : LOOP BRACE_LEFT statements continuing_statement? BRACE_RIGHT
+  : LOOP BRACE_LEFT statements? continuing_statement? BRACE_RIGHT
 </pre>
 
 The <dfn noexport>loop body</dfn> is special form [compound
 statement](#compound-statement) that executes repeatedly.
 Each execution of the loop body is called an <dfn noexport>iteration</dfn>.
 
-The identifier of a declaration in a loop is [=in scope=] from the start of the
+The [=identifier=] of a [=declaration=] in a loop is [=in scope=] from the start of the
 next statement until the end of the loop body.
 The declaration is executed each time it is reached, so each new iteration
 creates a new instance of the variable or constant, and re-initializes it.
@@ -4919,7 +5041,7 @@ allows them to naturally use values defined in the loop body.
 
       let step: i32 = 1;
 
-      i = i + 1;
+      i = i + step;
       if (i % 2 == 0) { continue; }
 
       a = a * 2;
@@ -4966,7 +5088,7 @@ The `for(initializer; condition; continuing) { body }` statement is syntactic su
 * If `continuing` is non-empty, it becomes a [[#continuing-statement]] at the end of the loop body.
 
 The `initializer` of a for loop is executed once prior to executing the loop.
-When a declaration appears in the initializer, its identifier is [=in scope=] until the end of the `body`.
+When a [=declaration=] appears in the initializer, its [=identifier=] is [=in scope=] until the end of the `body`.
 Unlike declarations in the `body`, the declaration is not re-initialized each iteration.
 
 The `condition`, `body` and `continuing` execute in that order to form a loop [=iteration=].
@@ -5230,11 +5352,8 @@ through assignment, evaluation in another expression or through use of the
 ## Statements Grammar Summary ## {#statements-summary}
 
 <pre class='def'>
-compound_statement
-  : BRACE_LEFT statements BRACE_RIGHT
-
 statements
-  : statement*
+  : statement+
 
 statement
   : SEMICOLON
@@ -5285,7 +5404,7 @@ A function declaration must only occur at [=module scope=].
 The function name is [=in scope=] from the start of the formal parameter list
 until the end of the program.
 
-A <dfn noexport>formal parameter</dfn> declaration specifies an identifier name and a type for a value that must be
+A <dfn noexport>formal parameter</dfn> [=declaration=] specifies an [=identifier=] name and a type for a value that must be
 provided when invoking the function.
 A formal parameter may have attributes.
 See [[#function-calls]].
@@ -5401,12 +5520,18 @@ See [[#discard-statement]].
     function parameter.
     * In particular, an argument that is a pointer must agree with the formal parameter
         on storage class, pointee type, and access mode.
-* A function parameter of pointer type must be in one of
+* For [=user-defined functions=], a parameter of pointer type must be in one of
     the following storage classes:
     * [=storage classes/function=]
     * [=storage classes/private=]
     * [=storage classes/workgroup=]
-* Each argument of a function call of pointer type must be one of:
+* For [=built-in functions=], a parameter of pointer type must be in one of
+    the following storage classes:
+    * [=storage classes/function=]
+    * [=storage classes/private=]
+    * [=storage classes/workgroup=]
+    * [=storage classes/storage=]
+* Each argument of pointer type to a [=user-defined function=] must be one of:
     * An [[#address-of-expr|address-of expression]] of a
         [[#var-identifier-expr|variable identifier expression]]
     * A function parameter
@@ -5570,7 +5695,7 @@ The interface includes:
 These objects are represented by module-scope variables in certain [=storage classes=].
 
 We say a variable is <dfn noexport>statically accessed</dfn> by a function if any subexpression
-in the body of the function uses the variable's identifier,
+in the body of the function uses the variable's [=identifier=],
 and that subexpression is [=in scope=] of the variable's declaration.
 Static access of a `let`-declared constant is defined similarly.
 Note that being statically accessed is independent of whether an execution of the shader
@@ -5697,11 +5822,20 @@ locations.
 Each structure member in the entry point IO must be one of either a builtin variable
 (see [[#builtin-inputs-outputs]]), or assigned a location.
 
-For a given entry point, the locations of the return type are distinct from
-the locations of the function parameters.
-Within each set of locations, there must be no overlap.
+Locations must not overlap within each of the following sets:
+* Members within a structure type.
+    This applies to any structure, not just those used in pipeline inputs or outputs.
+* An entry point's pipeline inputs,
+    i.e. locations for its formal parameters, or for the members of its formal parameters of structure type.
 
-Note: the number of available locations for an entry point is defined by the WebGPU API.
+Note: Location numbering is distinct between inputs and outputs: 
+Location numbers for an entry point's pipeline inputs do not conflict with location numbers for the entry point's pipeline outputs.
+
+Note: No additional rule is required to prevent location overlap within an entry point's outputs.
+When the outptut is a structure, the first rule above prevents overlap.
+Otherwise, the output is a scalar or a vector, and can have only a single location assigned to it.
+
+Note: The number of available locations for an entry point is defined by the WebGPU API.
 
 <div class='example applying location attribute' heading='Applying location attributes'>
   <xmp>
@@ -5930,7 +6064,7 @@ source text after the `enable` directive.
 The directive must not appear inside the text of any [=declaration=].
 (If it were a declaration, it would be at [=module scope=].)
 
-The directive uses an identifier to name the extension, but does not
+The directive uses an [=identifier=] to name the extension, but does not
 create a [=scope=] for the identifier.
 Use of the identifier by the directive does not conflict with the
 use of that identifier as the name in any [=declaration=].
@@ -5977,11 +6111,6 @@ the implementation can issue a clear diagnostic.
 # WGSL program TODO # {#wgsl-module}
 
 TODO: *Stub* A WGSL program is a sequence of [=directives=] and [=module scope=] [=declarations=].
-
-<pre class='def'>
-translation_unit
-  : global_decl_or_directive* EOF
-</pre>
 
 <pre class='def'>
 global_decl_or_directive
@@ -6234,7 +6363,7 @@ value with the same sign.
   <tr><td>`acos(x)`<td>Inherited from `atan2(sqrt(1.0 - x * x), x)`
   <tr><td>`asin(x)`<td>Inherited from `atan2(x, sqrt(1.0 - x * x))`
   <tr><td>`atan(x)`<td>4096 ULP
-  <tr><td>`atan2(x)`<td>4096 ULP
+  <tr><td>`atan2(y, x)`<td>4096 ULP
   <tr><td>`ceil(x)`<td>Correctly rounded
   <tr><td>`clamp(x)`<td>Correctly rounded
   <tr><td>`cos(x)`<td>Absolute error &le; 2<sup>-11</sup> inside the range of [-&pi;, &pi;]
@@ -6247,7 +6376,7 @@ value with the same sign.
   <tr><td>`floor(x)`<td>Correctly rounded
   <tr><td>`fma(x, y, z)`<td>Inherited from `x * y + z`
   <tr><td>`fract(x)`<td>Correctly rounded
-  <tr><td>`frexp(x, y)`<td>Correctly rounded
+  <tr><td>`frexp(x)`<td>Correctly rounded
   <tr><td>`inverseSqrt(x)`<td>2 ULP
   <tr><td>`ldexp(x, y)`<td>Correctly rounded
   <tr><td>`length(x)`<td>Inherited from `sqrt(dot(x, x))`
@@ -6256,7 +6385,7 @@ value with the same sign.
   <tr><td>`max(x, y)`<td>Correctly rounded
   <tr><td>`min(x, y)`<td>Correctly rounded
   <tr><td>`mix(x, y, z)`<td>Inherited from `x - (1.0 - z) + y * z`
-  <tr><td>`modf(x, y)`<td>Correctly rounded
+  <tr><td>`modf(x)`<td>Correctly rounded
   <tr><td>`normalize(x)`<td>Inherited from `x - length(x)`
   <tr><td>`pow(x, y)`<td>Inherited from `exp2(y * log2(x))`
   <tr><td>`reflect(x, y)`<td>Inherited from `x - 2.0 * dot(x, y) * y`
@@ -6377,6 +6506,7 @@ I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/
   <tr><td>`TEXTURE_DEPTH_2D_ARRAY`<td>texture_depth_2d_array
   <tr><td>`TEXTURE_DEPTH_CUBE`<td>texture_depth_cube
   <tr><td>`TEXTURE_DEPTH_CUBE_ARRAY`<td>texture_depth_cube_array
+  <tr><td>`TEXTURE_DEPTH_MULTISAMPLED_2D`<td>texture_depth_multisampled_2d
   <tr><td>`UINT32`<td>u32
   <tr><td>`VEC2`<td>vec2
   <tr><td>`VEC3`<td>vec3
@@ -6465,8 +6595,12 @@ Issue: Should read, write, and read_write be not completely reserved?  They are 
 TODO(dneto): Eliminate the image formats that are not used in storage images.
 For example SRGB formats (bgra8unorm_srgb), mixed channel widths (rg11b10float), out-of-order channels (bgra8unorm)
 
-## Reserved Keywords ## {#reserved-keywords}
-The following is a list of keywords which are reserved for future expansion.
+## Reserved Words ## {#reserved-words}
+
+A <dfn>reserved word</dfn> is a [=token=] which is reserved for future use.
+A [SHORTNAME] program must not contain a reserved word.
+
+The following are reserved words:
 
 <table class='data'>
   <tr>
@@ -6500,6 +6634,11 @@ The following is a list of keywords which are reserved for future expansion.
 </table>
 
 ## Syntactic Tokens ## {#syntactic-tokens}
+
+A <dfn>syntactic token</dfn> is a sequence of special characters, used:
+* to spell an expression operator, or
+* as punctuation: to group, sequence, or separate other grammar elements.
+
 <table class='data'>
   <tr><td>`AND`<td>`&`
   <tr><td>`AND_AND`<td>`&&`
@@ -6737,7 +6876,7 @@ and are provided by the implementation.
 These are called <dfn noexport>built-in functions</dfn>.
 
 Since a built-in function is always in scope, it is an error to attempt to redefine
-one or to use the name of a built-in function as an identifier for any other
+one or to use the name of a built-in function as an [=identifier=] for any other
 kind of declaration.
 
 Unlike ordinary functions defined in a [SHORTNAME] program,
@@ -6893,9 +7032,8 @@ That's not a full user-defined function declaration.
 
   <tr algorithm="distance">
     <td>|T| is [FLOATING]
-    <td class="nowrap">`distance(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` |T|
+    <td class="nowrap">`distance(`|e1|`:` |T| `, `|e2|`:` |T| `) -> ` f32
     <td>Returns the distance between |e1| and |e2| (e.g. `length(`|e1|` - `|e2|`)`).
-    [=Component-wise=] when |T| is a vector.
     (GLSLstd450Distance)
 
   <tr algorithm="exp">
@@ -6926,7 +7064,7 @@ That's not a full user-defined function declaration.
     (GLSLstd450Floor)
 
   <tr algorithm="fma">
-    <td>|T| is f32
+    <td>|T| is [FLOATING]
     <td class="nowrap">`fma(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T| `) -> ` |T|
     <td>Returns |e1| `*` |e2| `+` |e3|.
     [=Component-wise=] when |T| is a vector.
@@ -6939,19 +7077,39 @@ That's not a full user-defined function declaration.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Fract)
 
-  <tr algorithm="frexp">
-    <td>|T| is [FLOATING]<br>
-        |I| is [SIGNEDINTEGRAL], where<br>
-        |I| is a scalar if |T| is a scalar, or<br>
-        a vector when |T| is a vector<br>
-        |SC| is a storage class<br>
-        |A| is [=access/write=] or [=access/read_write=]
-    <td class="nowrap">`frexp(`|e1|`:` |T| `, `|e2|`:` ptr&lt;|SC|,|I|,|A|&gt; `) -> ` |T|
-    <td>Splits |e1| into a signficand and exponent of the form `significand * 2`<sup>`exponent`</sup> and returns the significand.
-    The magnitude of the signficand is in the range of [0.5, 1.0) or 0.
-    The exponent is stored through the pointer |e2|.
-    [=Component-wise=] when |T| is a vector.
-    (GLSLstd450Frexp)
+  <tr algorithm="scalar case, frexp">
+    <td>|T| is f32
+    <td class="nowrap">`frexp(`|e|`: `|T|`) -> _frexp_result`<br>
+    <td>Splits |e| into a significand and exponent of the form `significand * 2`<sup>`exponent`</sup>.
+    Returns the `_frexp_result` built-in structure, defined as:
+    ```rust
+struct _frexp_result {
+  sig : f32; // significand part
+  exp : i32; // exponent part
+};
+    ```
+    The magnitude of the significand is in the range of [0.5, 1.0) or 0.
+
+    Note: A value cannot be explicitly declared with the type `_frexp_result`, but a value may infer the type.
+
+    (GLSLstd450FrexpStruct)
+
+  <tr algorithm="vector case, frexp">
+    <td>|T| is vec|N|&lt;f32&gt;
+    <td class="nowrap">`frexp(`|e|`: `|T|`) -> _frexp_result_vec`|N|<br>
+    <td>Splits the components of |e| into a significand and exponent of the form `significand * 2`<sup>`exponent`</sup>.
+    Returns the `_frexp_result_vec`|N| built-in structure, defined as:
+    ```rust
+struct _frexp_result_vecN {
+  sig : vecN<f32>; // significand part
+  exp : vecN<i32>; // exponent part
+};
+    ```
+    The magnitude of each component of the significand is in the range of [0.5, 1.0) or 0.
+
+    Note: A value cannot be explicitly declared with the type `_frexp_result_vec`|N|, but a value may infer the type.
+
+    (GLSLstd450FrexpStruct)
 
   <tr algorithm="inverseSqrt">
     <td>|T| is [FLOATING]
@@ -6972,9 +7130,8 @@ That's not a full user-defined function declaration.
 
   <tr algorithm="length">
     <td>|T| is [FLOATING]
-    <td class="nowrap">`length(`|e|`:` |T| `) -> ` |T|
+    <td class="nowrap">`length(`|e|`:` |T| `) -> ` f32
     <td>Returns the length of |e| (e.g. `abs(`|e|`)` if |T| is a scalar, or `sqrt(`|e|`[0]`<sup>`2`</sup> `+` |e|`[1]`<sup>`2`</sup> `+ ...)` if |T| is a vector).
-    [=Component-wise=] when |T| is a vector.
     (GLSLstd450Length)
 
   <tr algorithm="log">
@@ -7009,22 +7166,52 @@ That's not a full user-defined function declaration.
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450NMin)
 
-  <tr algorithm="mix">
+  <tr algorithm="mix all same type operands">
     <td>|T| is [FLOATING]
     <td class="nowrap">`mix(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` |T|`) -> ` |T|
     <td>Returns the linear blend of |e1| and |e2| (e.g. |e1|`*(1-`|e3|`)+`|e2|`*`|e3|).
-    [=Component-wise=] with |T| is a vector.
+    [=Component-wise=] when |T| is a vector.
+    <br>
     (GLSLstd450FMix)
 
+  <tr algorithm="vector mix with scalar blending factor">
+    <td>|T| is vec|N|&lt;f32&gt;
+    <td class="nowrap">`mix(`|e1|`:` |T| `, `|e2|`:` |T| `, `|e3|`:` f32 `) -> ` |T|
+    <td>Returns the component-wise linear blend of |e1| and |e2|,
+        using scalar blending factor |e3| for each component.<br>
+        Same as `mix(`|e1|`, `|e2|`, `|T|`(`|e3|`))`.
+
   <tr algorithm="scalar case, modf">
-    <td>|T| is [FLOATING]
-        |SC| is a storage class<br>
-        |A| is [=access/write=] or [=access/read_write=]
-    <td class="nowrap">`modf(`|e1|`:` |T| `, `|e2|`:` ptr&lt;|SC|,|T|,|A|&gt; `) -> ` |T|
-    <td>Splits |e1| into fractional and whole number parts.
-    Returns the fractional part and stores the whole number through the pointer |e2|.
-    [=Component-wise=] when |T| is a vector.
-    (GLSLstd450Modf)
+    <td>|T| is f32
+    <td class="nowrap">`modf(`|e|`: `|T|`) -> _modf_result`<br>
+    <td>Splits |e| into fractional and whole number parts.
+    Returns the `_modf_result` built-in structure, defined as:
+    ```rust
+struct _modf_result {
+  fract : f32; // fractional part
+  whole : f32; // whole part
+};
+    ```
+
+    Note: A value cannot be explicitly declared with the type `_modf_result`, but a value may infer the type.
+
+    (GLSLstd450ModfStruct)
+
+  <tr algorithm="vector case, modf">
+    <td>|T| is vec|N|&lt;f32&gt;
+    <td class="nowrap">`modf(`|e|`: `|T|`) -> _modf_result_vec`|N|<br>
+    <td>Splits the components of |e| into fractional and whole number parts.
+    Returns the `_modf_result_vec`|N| built-in structure, defined as:
+    ```rust
+struct _modf_result_vecN {
+  fract : vecN<f32>; // fractional part
+  whole : vecN<f32>; // whole part
+};
+    ```
+
+    Note: A value cannot be explicitly declared with the type `_modf_result_vec`|N|, but a value may infer the type.
+
+    (GLSLstd450ModfStruct)
 
   <tr algorithm="vector case, normalize">
     <td>|T| is f32
@@ -7331,6 +7518,7 @@ textureDimensions(t: texture_depth_cube) -> vec2<i32>
 textureDimensions(t: texture_depth_cube, level: i32) -> vec2<i32>
 textureDimensions(t: texture_depth_cube_array) -> vec2<i32>
 textureDimensions(t: texture_depth_cube_array, level: i32) -> vec2<i32>
+textureDimensions(t: texture_depth_multisampled_2d)-> vec2<i32>
 textureDimensions(t: texture_storage_1d<F,A>) -> i32
 textureDimensions(t: texture_storage_2d<F,A>) -> vec2<i32>
 textureDimensions(t: texture_storage_2d_array<F,A>) -> vec2<i32>
@@ -7372,6 +7560,7 @@ textureLoad(t: texture_3d<T>, coords: vec3<i32>, level: i32) -> vec4<T>
 textureLoad(t: texture_multisampled_2d<T>, coords: vec2<i32>, sample_index: i32)-> vec4<T>
 textureLoad(t: texture_depth_2d, coords: vec2<i32>, level: i32) -> f32
 textureLoad(t: texture_depth_2d_array, coords: vec2<i32>, array_index: i32, level: i32) -> f32
+textureLoad(t: texture_depth_multisampled_2d, coords: vec2<i32>, sample_index: i32)-> f32
 textureLoad(t: texture_external, coords: vec2<i32>) -> vec4<f32>
 ```
 
@@ -7468,6 +7657,7 @@ Returns the number samples per texel in a multisampled texture.
 
 ```rust
 textureNumSamples(t: texture_multisampled_2d<T>) -> i32
+textureNumSamples(t: texture_depth_multisampled_2d) -> i32
 ```
 
 **Parameters:**
@@ -7843,6 +8033,7 @@ Atomically stores the value `v` in the atomic object pointed to by `atomic_ptr`.
 
 ```rust
 atomicAdd(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
+atomicSub(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
 atomicMax(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
 atomicMin(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
 atomicAnd(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
@@ -7851,6 +8042,7 @@ atomicXor(atomic_ptr: ptr<SC, atomic<T>, A>, v: T) -> T
 
 // Mappings to SPIR-V instructions:
 // atomicAdd -> OpAtomicIAdd
+// atomicSub -> OpAtomicISub
 // atomicMax -> OpAtomicSMax or OpAtomicUMax (depending on the signedness of T)
 // atomicMin -> OpAtomicSMin or OpAtomicUMin (depending on the signedness of T)
 // atomicAnd -> OpAtomicAnd
@@ -8068,7 +8260,9 @@ TODO: Add links to the eventual memory model.
     <td class="nowrap">
         `ignore`(|e|: |T|)
     <td>Evaluates |e|, and then ignores the result.<br>
-        Type |T| is any non-reference type.
+        Type |T| is any type that is valid as a function parameter.
+
+        Note: An argument to `ignore()` cannot have an atomic or runtime-sized array type, but pointers to these types can be used.
 </table>
 
 
