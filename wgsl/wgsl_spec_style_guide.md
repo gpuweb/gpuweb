@@ -1,5 +1,7 @@
 # WSGL spec writing style guide
 
+## Style
+
 Goal:  Avoid possibly being misunderstood.
 *   Tradeoff: The text might read as stilted.  **Precision is better than flair.**
 
@@ -80,3 +82,66 @@ Use the [serial comma](https://en.wikipedia.org/wiki/Serial_comma), also known a
 
 In Markdown, no two sentences (or parts of sentences) should be on the same text line.
 This makes it easier to edit and review changes.
+
+## Tagging conventions
+
+Several tools process the specification source, extracting things for further processing.
+Those tools rely on attributes on certain elements, as described here.
+
+### Algorithms
+
+In [Bikeshed][] source, an [algorithm](https://tabatkins.github.io/bikeshed/#algorithms)
+attribute on an element does two things:
+
+1. It specifies a unique human-readable name for the thing being defined by the element.
+1. It scopes variables to that element. In a browser, clicking on one use of a variable
+    will highlight all the uses of that variable in the same scope.
+
+For example, the definition of a matrix type has two parameters: _N_ and _M_.
+The uses of `|N|` and `|M|` are scoped to the `tr` element having the `algorithm` attribute:
+
+    <tr algorithm="matrix type">
+      <td>mat|N|x|M|&lt;f32&gt;
+      <td>Matrix of |N| columns and |M| rows, where |N| and |M| are both in {2, 3, 4}.
+          Equivalently, it can be viewed as |N| column vectors of type vec|M|&lt;f32&gt;.
+
+The following kinds of document elements should have `algorithm` attribute:
+
+* Types:  Tag the `tr` element in the table describing the type.
+* Each row (`tr` element) in a [type rule table](https://w3.org/TR/WGSL#typing-tables-section):
+    * This applies to the tables describing expressions and built-in functions.
+* Parameterized definitions, equations, or rules that have variables:
+    * These use `p`, `blockquote`, or `div` elements.
+
+### Code samples
+
+Code samples should have a `class` attribute starting with `example`.
+
+For WGSL code samples, specify a `class` tag whose value is three space-separated words:
+* `example` indicating this is a code example
+* `wgsl` indicating the code is in WGSL
+* a word indicating what kind of code snippet it is, or where it should appear, one of:
+   * `expect-error`: The code snippet is invalid
+   * `global-scope`: The code snippet is assumed to appear at module-scope, i.e. outside all other declarations.
+   * `type-scope`: The code snippet shows the WGSL spelling of a type, independent of other context.
+   * `function-scope`: The code snippet is assumed to appear inside a function body, but the function declaration
+         and surrounding braces are not shown.
+
+For example:
+
+    <div class='example wgsl global-scope' heading='Trivial fragment shader'>
+      <xmp highlight='rust'>
+        [[stage(fragment)]]
+        fn main() -> [[location(0)]] vec4<f32> {
+          return vec4<f32>(0.4,0.4,0.8,1.0);
+        }
+      </xmp>
+    <div>
+
+
+Code samples in languages other than WGSL should name the language, for example:
+
+    <div class='example spirv barrier mapping' heading="Mapping workgroupBarrier to SPIR-V">
+
+
+[Bikeshed]: https://tabatkins.github.io/bikeshed "Bikeshed"
