@@ -2014,7 +2014,7 @@ memory reference</dfn> is produced.
     * if the loaded value is a vector, the value (0, 0, 0, x), where x is:
         * 0, 1, or the maximum positive value for integer components
         * 0.0 or 1.0 for floating-point components
-[=assignment statement|Stores=] to an invalid reference may either:
+[=statement/assignment|Stores=] to an invalid reference may either:
     * store the value to any [=memory locations|memory location(s)=] of the
         [[WebGPU#buffers|WebGPU buffer]] bound to the [=originating variable=]
     * not be executed
@@ -2031,7 +2031,7 @@ References and pointers are distinguished by how they are used:
 * The [=indirection=] operation (unary `*`) converts a pointer value to its corresponding reference value.
 * A [=let declaration=] can be of pointer type, but not of reference type.
 * A [=formal parameter=] can be of pointer type, but not of reference type.
-* An [=assignment statement=] performs a [=write access=] to update the contents of memory via a reference, where:
+* An [=statement/assignment=] statement performs a [=write access=] to update the contents of memory via a reference, where:
     * The left-hand side of the assignment statement must be of reference type, with access mode [=access/write=] or [=access/read_write=].
     * The right-hand side of the assignment statement must evaluate to the store type of the left-hand side.
 * The <dfn noexport>Load Rule</dfn>: Inside a function, a reference is automatically dereferenced (read from) to satisfy type rules:
@@ -4829,7 +4829,7 @@ compound_statement
 
 ## Assignment Statement ## {#assignment}
 
-An <dfn noexport>assignment statement</dfn> replaces the contents of a variable,
+An <dfn noexport dfn-for="statement">assignment</dfn> statement replaces the contents of a variable,
 or a portion of a variable, with a new value.
 
 The
@@ -4847,7 +4847,7 @@ expression to the right of the equals token is the <dfn noexport>right-hand side
         |e|: |T|,<br>
         |T| is a [=constructible=] type,<br>
         |SC| is a writable [=storage class=]
-    <td class="nowrap">|r| = |e|;
+    <td class="nowrap">|r| = |e|
     <td>Evaluates |e|, evaluates |r|, then writes the value computed for |e| into
         the [=memory locations=] referenced by |r|.
 
@@ -4895,6 +4895,79 @@ assignment_statement
       Otherwise, unary expression is a pointer expression in an Assigning (L-value) context
       which maps to OpAccessChain followed by OpStore
 </pre>
+
+## Phony-Assignment Statement ## {#phony-assignment-statement}
+
+A <dfn dfn-for="statement">phony-assignment</dfn> statement evaluates an expression,
+and does nothing with the resulting value.
+
+<table class='data'>
+  <thead>
+    <tr><th>Precondition<th>Statement<th>Description
+  </thead>
+  <tr algorithm="phony-assignment">
+    <td>|e|: |T|,<br>
+        |T| is [=constructible=], or a [=pointer type=]
+    <td class="nowrap">_ = |e|
+    <td>Evaluates |e|.
+
+        Note: The resulting value is not stored.
+        The `_` token is not an identifier, and therefore cannot be used in an expression.
+</table>
+
+A phony-assignment is useful for:
+* Calling a function that returns a value, but clearly expressing that the resulting value
+    is not needed.
+* Establishing a particular variable as part of the [=resource interface of a shader|shader's resource interface=].
+
+    Note: A variable's store type may not be constructible, e.g. it contains an atomic type, or a runtime-sized array.
+    In these cases, use a pointer to the variable's contents instead.
+
+<div class='example wgsl global-scope' heading='Using phony-assignment to throw away an un-needed function result'>
+  <xmp highlight=rust>
+    var<private> counter: i32;
+
+    fn increment_and_yield_previous() -> i32 {
+      let previous = counter;
+      counter = counter + 1;
+      return previous;
+    }
+
+    fn user() {
+      // Increment the counter, but don't use the result.
+      _ = increment_and_yield_previous();
+    }
+  </xmp>
+</div>
+
+
+<div class='example wgsl global-scope' heading='Using phony-assignment to occupy bindings without using them'>
+  <xmp highlight=rust>
+    [[block]] struct BufferContents {
+        counter: atomic<u32>;
+        data: array<vec4<f32>>;
+    };
+    [[group(0),binding(0)]] var<storage> buf: BufferContents;
+    [[group(0),binding(1)]] var t: texture_2d<f32>;
+    [[group(0),binding(2)]] var s: sampler;
+
+    [[stage(fragment)]]
+    fn shade_it() -> [[location(0)]] vec4<f32> {
+      // Declare that buf, t, and s are part of the shader interface, without
+      // using them for anything.
+      _ = &buf;
+      _ = &t;
+      _ = &s;
+      return vec4<f32>();
+    }
+  </xmp>
+</div>
+
+<pre class='def'>
+phony_assignment_statement
+  : UNDERSCORE EQUAL short_circuit_or_expression
+</pre>
+
 
 ## Control flow TODO ## {#control-flow}
 
@@ -5089,9 +5162,9 @@ for_statement
   : FOR PAREN_LEFT for_header PAREN_RIGHT compound_statement
 
 for_header
-  : (variable_statement | assignment_statement | func_call_statement)? SEMICOLON
+  : (variable_statement | assignment_statement | phony_assignment_statement | func_call_statement)? SEMICOLON
      short_circuit_or_expression? SEMICOLON
-     (assignment_statement | func_call_statement)?
+     (assignment_statement | phony_assignment_statement | func_call_statement)?
 </pre>
 
 The <dfn dfn-for="statement">for</dfn> statement takes the form
@@ -5380,6 +5453,7 @@ statement
   | continue_statement SEMICOLON
   | DISCARD SEMICOLON
   | assignment_statement SEMICOLON
+  | phony_assignment_statement SEMICOLON
   | compound_statement
 </pre>
 
@@ -6686,6 +6760,7 @@ A <dfn>syntactic token</dfn> is a sequence of special characters, used:
   <tr><td>`SEMICOLON`<td>`;`
   <tr><td>`STAR`<td>`*`
   <tr><td>`TILDE`<td>`~`
+  <tr><td>`UNDERSCORE`<td>`_`
   <tr><td>`XOR`<td>`^`
 </table>
 
@@ -8278,21 +8353,6 @@ TODO: Add links to the eventual memory model.
     // OpControlBarrier %uint_2 %uint_1 %uint_328
   </xmp>
 </div>
-
-## Value-steering functions ## {#value-steering-functions}
-
-<table class='data'>
-  <thead>
-    <tr><th>Conclusion<td>Notes
-  </thead>
-  <tr algorithm="compute a value then ignore it">
-    <td class="nowrap">
-        `ignore`(|e|: |T|)
-    <td>Evaluates |e|, and then ignores the result.<br>
-        Type |T| is any type that is valid as a function parameter.
-
-        Note: An argument to `ignore()` cannot have an atomic or runtime-sized array type, but pointers to these types can be used.
-</table>
 
 
 # MATERIAL TO BE MOVED TO A NEW HOME OR DELETED # {#junkyard}
