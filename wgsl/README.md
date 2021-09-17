@@ -5,7 +5,7 @@
 The specification is written using [Bikeshed](https://tabatkins.github.io/bikeshed).
 The WGSL grammar in the specification is validated using [Tree-sitter](https://tree-sitter.github.io/tree-sitter/).
 
-To install both Bikeshed and Tree-sitter, type:
+To install both Bikeshed and Tree-sitter, run:
 
 ```bash
 python3 -m pip install bikeshed==3.7.0 tree_sitter==0.19.0
@@ -40,5 +40,28 @@ With Tree-sitter locally installed, type:
 
 ```bash
 make grammar/grammar.js
+```
+
+## Checking that WGSL code samples parse correctly
+
+To check that the WGSL source code samples in the specification parse correctly, run:
+
+```
+make grammar/grammar.js
+```
+
+This uses:
+* [node.js](https://nodejs.org/)
+* [npm](https://www.npmjs.com/)
+* [Python 3](https://www.python.org/)
+* The [tree-sitter](https://github.com/tree-sitter/tree-sitter) Python module: `pip3 install tree-sitter`
+* A C/C++ compiler
+
+## Building and checking everything
+
+To generate the specification and check the examples, run:
+
+```
+make
 ```
 
