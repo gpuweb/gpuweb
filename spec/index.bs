@@ -1373,9 +1373,12 @@ are raw numeric values, not color-managed color values.
 
 WebGPU *does* interface with color-managed outputs (via {{GPUCanvasConfiguration}}) and inputs
 (via {{GPUQueue/copyExternalImageToTexture()}} and {{GPUDevice/importExternalTexture()}}).
-Color conversion must be performed between the WebGPU numeric values and the external color values.
+Thus, color conversion must be performed between the WebGPU numeric values and the external color values.
 Each such interface point locally defines an encoding (color space, transfer function, and alpha
 premultiplication) in which the WebGPU numeric values are to be interpreted.
+
+Unless otherwise specified, each color space is defined over an extended range to represent
+chrominance/luminance values outside of its space.
 
 <script type=idl>
 enum GPUPredefinedColorSpace {
@@ -1393,6 +1396,15 @@ Consider a path for uploading srgb-encoded images into linearly-encoded textures
     : <dfn>"srgb"</dfn>
     :: The CSS predefined color space <a value for=color()>srgb</a>.
 </dl>
+
+### Color Space Conversions ### {#color-space-conversions}
+
+A color is converted between spaces by translating its representation in one space to a
+representation in another according to the definitions above.
+
+Colors are not lossily clamped during conversion: converting from one color space to another
+will result in values outside the range [0, 1] if the source color values were outside the range
+of the destination color space's gamut (e.g. if a Display P3 image is converted to sRGB).
 
 
 # Initialization # {#initialization}
@@ -2952,18 +2964,11 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
                 the color space |descriptor|.{{GPUExternalTextureDescriptor/colorSpace}}
                 with unpremultiplied alpha.
 
+                This [[#color-space-conversions|may result]] in values outside of the range [0, 1].
+                If clamping is desired, it may be performed after sampling.
+
                 Note: This is described like a copy, but may be implemented as a reference to
                 read-only underlying data plus appropriate metadata to perform conversion later.
-
-                Issue: It is currently undetermined whether the default colorSpace, "srgb", is
-                extended-srgb or clamped-srgb.
-                This will be determined upstream as the semantics around super-srgb image sources
-                get defined. Unfortunately we can't sidestep it for now because video sources
-                can go already go outside the srgb range.
-                The upstream determination will change whether using the default colorSpace
-                option can result in sampling values greater than 1.0 or not.
-                If upstream decides to make "srgb" mean clamped-srgb, we also have the option
-                of changing our default to `"extended-srgb"`.
 
             1. Let |result| be a new {{GPUExternalTexture}} object wrapping |data|.
 
@@ -5792,7 +5797,8 @@ However, {{GPUQueue/copyExternalImageToTexture()}} copies from sources that desc
 A {{GPUImageCopyTextureTagged}} is a {{GPUImageCopyTexture}} which is additionally tagged with
 color space/encoding and alpha-premultiplication metadata, so that semantic color data may be
 preserved during copies.
-This metadata only affects the semantics of the {{GPUQueue/copyExternalImageToTexture()}} call.
+This metadata only affects the semantics of the {{GPUQueue/copyExternalImageToTexture()}}
+operation, not the resulting data.
 
 <script type=idl>
 dictionary GPUImageCopyTextureTagged : GPUImageCopyTexture {
@@ -5805,6 +5811,10 @@ dictionary GPUImageCopyTextureTagged : GPUImageCopyTexture {
     : <dfn>colorSpace</dfn>
     ::
         Describes the color space and encoding used to encode data into the destination texture.
+
+        This [[#color-space-conversions|may result]] in values outside of the range [0, 1],
+        if the target texture format can represent them. Otherwise, the results are clamped
+        to the target texture format's range.
 
         Note:
         If {{GPUImageCopyTextureTagged/colorSpace}} matches the source image, no conversion occurs.
@@ -8152,17 +8162,21 @@ GPUQueue includes GPUObjectBase;
                                 {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/COPY_DST}}.
                             - |textureDesc|.{{GPUTextureDescriptor/dimension}} must be {{GPUTextureDimension/"2d"}}.
                             - |textureDesc|.{{GPUTextureDescriptor/sampleCount}} must be 1.
-                            - |textureDesc|.{{GPUTextureDescriptor/format}} must be one of the following:
+                            - |textureDesc|.{{GPUTextureDescriptor/format}} must be one of the following
+                                formats (which all support {{GPUTextureUsage/RENDER_ATTACHMENT}} usage):
+                                - {{GPUTextureFormat/"r8unorm"}}
+                                - {{GPUTextureFormat/"r16float"}}
+                                - {{GPUTextureFormat/"r32float"}}
+                                - {{GPUTextureFormat/"rg8unorm"}}
+                                - {{GPUTextureFormat/"rg16float"}}
+                                - {{GPUTextureFormat/"rg32float"}}
                                 - {{GPUTextureFormat/"rgba8unorm"}}
                                 - {{GPUTextureFormat/"rgba8unorm-srgb"}}
                                 - {{GPUTextureFormat/"bgra8unorm"}}
                                 - {{GPUTextureFormat/"bgra8unorm-srgb"}}
                                 - {{GPUTextureFormat/"rgb10a2unorm"}}
-                                - {{GPUTextureFormat/"rg8unorm"}}
-
-                                Issue: Evaluate adding additional formats to this list.
-                                Note that any format that represents values outside of 0 to 1
-                                has interactions with color space (e.g. clamped-srgb vs extended-srgb).
+                                - {{GPUTextureFormat/"rgba16float"}}
+                                - {{GPUTextureFormat/"rgba32float"}}
                         </div>
                     1. Issue: Do the actual copy.
                 </div>
@@ -8684,10 +8698,15 @@ dictionary GPUCanvasConfiguration {
 };
 </script>
 
-Issue: For SDR, it doesn't matter whether the default colorSpace of "srgb" means extended-srgb
-or clamped-srgb. However, when we add HDR canvas output (representing pixel values > 1),
-we need to choose which of those two is the default. Currently the upstream specs haven't worked
-out this question just yet.
+### Canvas Color Space ### {#canvas-color-space}
+
+The chrominance of color values outside of the [0, 1] range is not to be clamped; extended values
+may be used to display colors outside of the gamut defined by the canvas' color space's primaries
+(configured {{GPUCanvasConfiguration/format}} permitting).
+This is in contrast with luminance, which is to be clamped to the maximum standard dynamic range
+luminance.
+
+Issue: ... unless high dynamic range is explicitly enabled for the canvas element.
 
 ### Canvas Context sizing ### {#context-sizing}
 
