@@ -83,6 +83,29 @@ Use the [serial comma](https://en.wikipedia.org/wiki/Serial_comma), also known a
 In Markdown, no two sentences (or parts of sentences) should be on the same text line.
 This makes it easier to edit and review changes.
 
+Authoring syntactic rules:
+* Each syntactic rule should start with a line which only contains `` <div class='syntactic-rule' noexport='true'> ``
+and end with a line which only contains `` </div> <!-- syntactic-rule --> ``. There must be only one
+syntactic rule between these lines.
+* Each syntactic rule must define itself for Bikeshed. Each syntactic rule definition must start with two spaces
+and then place the rule name between `` <dfn dfn for=syntactic_rule> `` and `` </dfn> : `` on the same line.
+* Each syntactic rule item must start with four spaces and then list members after `` | `` followed by a space.
+    * Syntactic rule items can be split to multiple lines. For this, start the next line with six spaces.
+* Each syntactic rule item must be surrounded by only a space before and after,
+trailing space at the end of the line being redundant.
+* Members of syntactic rules items can be references to existing rules. These must be placed between
+`` [=syntactic_rule/ `` and `` =] ``, and the referenced name can be suffixed by pluralizing `` s `` or `` es ``
+to be repeating as at least one or more of the rule.
+* Members of syntactic rules can contain groups which should contain the group members between `` ( `` and `` ) ``.
+* Members of syntactic rule items which denote a string should start with `` `' ``
+and end with `` '` `` and not contain any space character or line break between these two.
+* Members of syntactic rule items which denote a regular expression should start with `` `/ ``
+and end with `` /` `` and not contain any space character or line break between these two.
+* If a member is optional, then it must be followed by a `` ? `` member token.
+* If a member can repeat and must appear at least once, then it must be followed by a `` + `` member token.
+* If a member can repeat and does not have to appear, then it must be followed by a `` * `` member token.
+    * To realize this with pluralized reference, follow the reference member by a `` ? `` member token.
+
 ## Tagging conventions
 
 Several tools process the specification source, extracting things for further processing.
