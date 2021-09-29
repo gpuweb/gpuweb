@@ -1,19 +1,47 @@
 # WebGPU Shading Language Specification
 
-## Generating the specification
+## Dependencies
 
-The specification is written using [Bikeshed](https://tabatkins.github.io/bikeshed).
+The specification is written using [Bikeshed](https://tabatkins.github.io/bikeshed). \
+The WGSL grammar in the specification is validated using [Tree-sitter](https://tree-sitter.github.io/tree-sitter/).
 
-If you have bikeshed installed locally, you can generate the specification with:
+To install both `Bikeshed` and `Tree-sitter`, type:
 
+```bash
+pip3 install bikeshed==3.0.3 tree_sitter==0.19.0
 ```
+
+## Generating both the specification and validating grammar (recommended)
+
+With both `Bikeshed` and `Tree-sitter` locally installed, type:
+
+```bash
 make
 ```
 
-This simply runs bikeshed on the `index.bs` file.
+The rendered specification will be written to `index.html`.
 
-Otherwise, you can use the bikeshed Web API:
+## Generating the specification only
 
+With `Bikeshed` locally installed, type:
+
+```bash
+make index.html
 ```
+
+Alternatively, if you do not have `Bikeshed` locally installed, you can use the Bikeshed Web API to generate the specification (slower):
+
+```bash
 make online
 ```
+
+Either approach will write the rendered specification to `index.html`.
+
+## Validating grammar only
+
+With `Tree-sitter` installed, type:
+
+```bash
+make grammar/grammar.js
+```
+
