@@ -9011,7 +9011,9 @@ of the current {{GPURenderPassEncoder}} during command encoding.
       - |pass|.<dfn dfn>bindGroups</dfn> refers to
         [=list=]&lt;{{GPUBindGroup}}&gt; bound by {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)}}.
       - |pass|.<dfn dfn>viewport</dfn> refers to an object containining {{GPURenderPassEncoder/setViewport()}} arguments.
-        At the start of a render pass, the state is equivalent to a call of `setViewport(0, 0, targetWidth, targetHeight, 0.0, 1.0)`.
+        At the start of a render pass, the state is equivalent to a call of setViewport(0, 0, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.width, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.height, 0.0, 1.0).
+      - |pass|.<dfn dfn>scissorRect</dfn> refers to an object containining {{GPURenderPassEncoder/setScissorRect()}} arguments.
+        At the start of a render pass, the state is equivalent to a call of setScissorRect(0, 0, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.width, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.height).
 </div>
 
 The main rendering algorithm:
@@ -9042,7 +9044,7 @@ The main rendering algorithm:
 
         1. **Rasterize**. See [[#rasterization]].
 
-            Let |rasterizationList| be the result of [$raserize$](|primitiveList|, |state|).
+            Let |rasterizationList| be the result of [$rasterize$](|primitiveList|, |state|).
 
         1. Process fragments. See [[#fragment-processing]].
 
@@ -9051,7 +9053,7 @@ The main rendering algorithm:
             for each |rasterPoint| in |rasterizationList|.
 
         1. Process depth/stencil.
-            Issue: fill out the section
+            Issue: fill out the section, using |fragment|
         1. Write pixels.
             Issue: fill out the section
 </div>
@@ -9349,13 +9351,16 @@ Each unit corresponds exactly to a pixel. See [[#coordinate-systems]] for more i
 Let's define <dfn dfn>fragment destination</dfn> to be a combination of the pixel position with
 the sample index, in case [[#sample-frequency-shading]] is active.
 
+We'll also use a notion of <dfn dfn>NDC</dfn> - normalized device coordinates.
+In this space, the X and Y are in range -1 to 1, and the Z is between 0 and 1.
+
 Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each associated with the following data:
 <div algorithm="RasterizationPoint accessors" dfn-for=RasterizationPoint>
   - <dfn dfn>destination</dfn> refers to [=fragment destination=].
   - <dfn dfn>coverageMask</dfn> refers to multisample coverage mask (see [[#sample-masking]]).
   - <dfn dfn>frontFacing</dfn> is true if it's a point on the front face of a primitive.
   - <dfn dfn>framebufferCoordinates</dfn> refers to 2D coordinates of the point in [=framebuffer=] space.
-  - <dfn dfn>perspectiveDivisor</dfn> refers to interpolated 1.0 &divide |p|.w across the primitive.
+  - <dfn dfn>perspectiveDivisor</dfn> refers to interpolated 1.0 &divide W across the primitive.
   - <dfn dfn>depth</dfn> refers to the depth in [=NDC=] coordinates.
   - <dfn dfn>primitiveVertices</dfn> refers to the list of vertex outputs forming the primitive.
   - <dfn dfn>barycentricCoordinates</dfn> refers to barycentric coordinates.
@@ -9369,12 +9374,15 @@ Issue: define the depth computation algorithm
     <dfn abstract-op>rasterize</dfn>(primitiveList, state)
 
         **Arguments:**
-            - |primitiveList|: List of primitives to rasterize.
-            - |state|: The active [=RenderState=].
+        - |primitiveList|: List of primitives to rasterize.
+        - |state|: The active [=RenderState=].
 
         **Returns:** list of [=RasterizationPoint=].
 
-        1. First, the clipped vertices are transformed into <dfn dfn>NDC</dfn> - normalized device coordinates.
+        Each primitive in |primitiveList| is processed independently.
+        However, the order of primitives affects later stages, such as depth/stencil operations and pixel writes.
+
+        1. First, the clipped vertices are transformed into [=NDC=] - normalized device coordinates.
             Given the output position |p|, the [=NDC=] coordinates are computed as:
 
             divisor(|p|) = 1.0 &divide; |p|.w
@@ -9384,7 +9392,13 @@ Issue: define the depth computation algorithm
             Then the [=NDC=] coordinates |n| are converted into [=framebuffer=] coordinates,
             based on the size of the render targets:
 
-            framebufferCoords(n) = vector(|vp|.`x` &plus; 0.5&times;(|n|.x&plus;1)&times;|vp|.`width`, |vp|.`y` &plus; 0.5&times;(|n|.y&plus;1)&times;|vp|.`height`)
+           framebufferCoords(n) = vector(|vp|.`x` &plus; 0.5&times;(|n|.x&plus;1)&times;|vp|.`width`, |vp|.`y` &plus; .5&times;(|n|.y&plus;1)&times;|vp|.`height`)
+
+
+        1. Let |rasterizationPoints| be an empty list.
+
+          Issue: specify that each rasterization point gets assigned an interpolated `divisor(p)`
+          and `framebufferCoords(n)`, as well as the other attributes.
 
         1. Proceed with a specific rasterization algorithm,
             depending on {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}}:
@@ -9396,10 +9410,13 @@ Issue: define the depth computation algorithm
                 : {{GPUPrimitiveTopology/"triangle-list"}} or {{GPUPrimitiveTopology/"triangle-strip"}}
                 :: The polygon produced in [[#primitive-clipping]] goes into [[#polygon-rasterization]].
             </dl>
+            Issue: reword the "goes into" part
 
-        Issue: reword the "goes into" part
-        Issue: specify that each rasterization point gets assigned an interpolated `divisor(p)`
-        and `framebufferCoords(n)`, as well as the other attributes.
+        1. Remove all the points |rp| from |rasterizationPoints| that have |rp|.[=RasterizationPoint/framebufferCoordinates=]
+            outside of |state|.[=RenderState/scissorRect=].
+
+        1. Return |rasterizationPoints|.
+
 </div>
 
 #### Point Rasterization #### {#point-rasterization}
@@ -9456,7 +9473,7 @@ The polygon can be culled by {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrim
     :: The [=back-facing=] polygons are discarded.
 </dl>
 
-The next step is determining a set of <dfn dfn>fragments</dfn> inside the polygon in framebuffer space -
+The next step is determining a set of [=fragments=] inside the polygon in framebuffer space -
 these are locations scheduled for the per-fragment operations.
 The determination is based on |descriptor|.{{GPURenderPipelineDescriptor/multisample}}:
 <dl class="switch">
@@ -9531,6 +9548,10 @@ This stage produce a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
     1. Otherwise we are in [[#no-color-output]] mode, and |fragment|.[=Fragment/colors=] is empty.
     1. Return |fragment|.
 </div>
+
+Processing of fragments happens in parallel, while any side effects,
+such as writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
+may happen in any order.
 
 ### Output Merging ### {#output-merging}
 
