@@ -53,7 +53,7 @@ class scanner_rule:
     @staticmethod
     def begin(lines, i):
         line = lines[i].rstrip()
-        return (line.startswith("<div class='syntactic-rule"), None, 1)
+        return (line.startswith("<div class='syntax"), None, 1)
 
     @staticmethod
     def end(lines, i):
@@ -78,8 +78,8 @@ class scanner_rule:
     @staticmethod
     def parse(lines, i):
         line = lines[i].rstrip()
-        if line[2:].startswith("<dfn for=syntactic_rule>"):
-            rule_name = line[2:].split("<dfn for=syntactic_rule>")[1]
+        if line[2:].startswith("<dfn for=syntax>"):
+            rule_name = line[2:].split("<dfn for=syntax>")[1]
             rule_name = rule_name.split("</dfn>")[0].strip()
             return (rule_name, None, 0)
         elif line[4:].startswith("| "):
@@ -255,8 +255,8 @@ def grammar_from_rule_item(rule_item):
         i_repeatone = False
         i_skip = 0
         i_item = ""
-        if rule_item[i].startswith("[=syntactic_rule/"):
-            i_item = rule_item[i].split("[=syntactic_rule/")[1].split("=]")[0]
+        if rule_item[i].startswith("[=syntax/"):
+            i_item = rule_item[i].split("[=syntax/")[1].split("=]")[0]
             if i_item.endswith("s") and i_item[:-1] in scanner_components[scanner_rule.name()]:
                 i_item = i_item[:-1]
                 i_repeatone = True
