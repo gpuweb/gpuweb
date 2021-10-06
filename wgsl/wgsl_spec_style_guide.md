@@ -85,10 +85,10 @@ This makes it easier to edit and review changes.
 
 Authoring syntactic rules:
 * Each syntactic rule should start with a line which only contains `` <div class='syntactic-rule' noexport='true'> ``
-and end with a line which only contains `` </div> <!-- syntactic-rule --> ``. There must be only one
+and end with a line which only contains `` </div> ``. There must be only one
 syntactic rule between these lines.
 * Each syntactic rule must define itself for Bikeshed. Each syntactic rule definition must start with two spaces
-and then place the rule name between `` <dfn dfn for=syntactic_rule> `` and `` </dfn> : `` on the same line.
+and then place the rule name between `` <dfn for=syntactic_rule> `` and `` </dfn> : `` on the same line.
 * Each syntactic rule item must start with four spaces and then list members after `` | `` followed by a space.
     * Syntactic rule items can be split to multiple lines. For this, start the next line with six spaces.
 * Each syntactic rule item must be surrounded by only a space before and after,

@@ -58,7 +58,7 @@ class scanner_rule:
     @staticmethod
     def end(lines, i):
         line = lines[i].rstrip()
-        return (line.startswith("</div> <!-- syntactic-rule"), 0)
+        return (line.startswith("</div>"), 0)
 
     @staticmethod
     def record(lines, i):
@@ -78,8 +78,8 @@ class scanner_rule:
     @staticmethod
     def parse(lines, i):
         line = lines[i].rstrip()
-        if line[2:].startswith("<dfn dfn for=syntactic_rule>"):
-            rule_name = line[2:].split("<dfn dfn for=syntactic_rule>")[1]
+        if line[2:].startswith("<dfn for=syntactic_rule>"):
+            rule_name = line[2:].split("<dfn for=syntactic_rule>")[1]
             rule_name = rule_name.split("</dfn>")[0].strip()
             return (rule_name, None, 0)
         elif line[4:].startswith("| "):
