@@ -83,6 +83,10 @@ Use the [serial comma](https://en.wikipedia.org/wiki/Serial_comma), also known a
 In Markdown, no two sentences (or parts of sentences) should be on the same text line.
 This makes it easier to edit and review changes.
 
+The WGSL grammar's syntactic rules are presented as a set of cross-referenced Bikeshed
+definitions. There is one Bikeshed definition for each grammar token or non-terminal.
+These definitions are contained in `` div `` elements in the `` syntax `` class.
+
 Authoring syntactic rules:
 * Each syntactic rule should start with a line which only contains `` <div class='syntax' noexport='true'> ``
 and end with a line which only contains `` </div> ``. There must be only one
