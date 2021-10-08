@@ -174,10 +174,10 @@ A shader comprises:
 When executing a shader stage, the implementation:
 * Binds [=resources=] to variables in the shader's [=resource interface of a shader|resource interface=],
     making the contents of those resources available to the shader during execution.
-* Allocates storage for other [=module scope|module-scope=] variables,
-    and populates that storage with the specified initial values.
+* Allocates memory for other [=module scope|module-scope=] variables,
+    and populates that memory with the specified initial values.
 * Populates the formal parameters of the entry point, if they exist, with the stage's pipeline inputs.
-* Connects the entry point return value, if one exists, to the stage's pipeline outputs.
+* Connects the entry point [=return value=], if one exists, to the stage's pipeline outputs.
 * Then it invokes the entry point.
 
 A [SHORTNAME] program is organized into:
@@ -185,7 +185,7 @@ A [SHORTNAME] program is organized into:
 * Statements, which are declarations or units of executable behaviour.
 * Literals, which are text representations for pure mathematical values.
 * Constants, each providing a name for a value computed at a specific time.
-* Variables, each providing a name for storage for holding a value.
+* Variables, each providing a name for memory storage for holding a value.
 * Expressions, each of which combines a set of values to produce a result value.
 * Types, each of which describes:
     * A set of values.
@@ -232,7 +232,7 @@ Invocations in a shader stage share access to certain variables:
 
 However, the invocations act on different sets of pipeline inputs, including built-in inputs
 that provide an identifying value to distinguish an invocation from its peers.
-Also, each invocation has its own independent storage space in the form
+Also, each invocation has its own independent memory storage space in the form
 of variables in the [=storage classes/private=] and [=storage classes/function=] storage classes.
 
 Invocations within a shader stage execute concurrently, and may often execute in parallel.
@@ -305,11 +305,21 @@ The events are ordered due to:
 *  data dependencies: shader execution requires a pipeline, and a pipeline requires a shader module.
 *  causality: the shader must start executing before it can finish executing.
 
-## Kinds of errors ## {#kinds-of-errors}
+## Processing errors ## {#processing-errors}
 
-A <dfn export>program error</dfn> is a failure to satisfy the requirements of this specification.
+A WebGPU implementation may fail to process a shader for two reasons:
 
-There are three kinds of errors, corresponding to the shader lifecycle:
+* A <dfn export>program error</dfn> occurs if the shader does not satisfy the requirements of the [SHORTNAME] or WebGPU specifications.
+* An <dfn noexport>uncategorized error</dfn> may occur
+    even when all [SHORTNAME] and WebGPU requirements have been satisfied.
+    Possible causes include:
+    * The shaders are too complex, exceeding the capabilities of the implementation,
+        but in a way not easily captured by prescribed [[#limits|limits]].
+        Simplifying the shaders may work around the issue.
+    * A defect in the WebGPU implementation.
+
+
+A processing error may occur during three phases in the shader lifecycle:
 
 * A <dfn export>shader-creation error</dfn>
     is an error feasibly detectable at [=shader module creation=] time.
@@ -317,7 +327,7 @@ There are three kinds of errors, corresponding to the shader lifecycle:
     and other information available to the `createShaderModule` API method.
 
 * A <dfn export>pipeline-creation error</dfn>
-    is an error feasibly detectable at [=pipeline creation=] time.
+    is an error detectable at [=pipeline creation=] time.
     Detection must rely only on the [SHORTNAME] program source text
     and other information available to the particular pipeline creation API method.
 
@@ -326,13 +336,34 @@ There are three kinds of errors, corresponding to the shader lifecycle:
 
 Note: For example, a race condition may not be detectable.
 
-Each requirement in this specification corresponds to a single kind of error.
-Generally, a requirement corresponds to the earliest error kind at which its violation could be feasibly detected.
-When unclear, the corresponding error kind is explicitly specified.
+Each requirement will be checked at the earliest opportunity.
+That is:
+* A shader-creation error results when failing to meet a requirement detectable at shader-creation time.
+* A pipeline-creation error results when failing to meet a requirement detectable at pipeline-creation time,
+    but not detectable earlier.
+
+When unclear from context, this specification indicates
+whether failure to meet a particular requirement
+results in a shader-creation, pipeline-creation, or dynamic error.
 
 The WebGPU specification describes the consequences of each kind of error.
 
 TODO: Update the WebGPU spec, referring back to the three kinds of errors defined here.
+
+## Limits ## {#limits}
+
+A program must satisfy the following limits:
+
+<table class='data'>
+  <caption>Quantifiable shader complexity limits</caption>
+  <thead>
+    <tr><th>Limit<th>Maximum value
+  </thead>
+    <tr><td>Number of members in a [=structure=] type<td>16383
+    <tr><td>[=Nesting depth=] of a [=composite=] type<td>255
+    <tr><td>Number of [=formal parameter|parameters=] for a function<td>255
+    <tr><td>Number of case selector values in a [=statement/switch=] statement<td>16383
+</table>
 
 # Textual structure # {#textual-structure}
 
@@ -418,6 +449,7 @@ A <dfn>literal</dfn> is one of:
 * a <dfn noexport>boolean literal</dfn>: either `true` or `false`.
 
 The form of a [=numeric literal=] is defined via pattern-matching:
+
 <div class='syntax' noexport='true'>
   <dfn for=syntax>decimal_float_literal</dfn> :
 
@@ -426,7 +458,7 @@ The form of a [=numeric literal=] is defined via pattern-matching:
 <div class='syntax' noexport='true'>
   <dfn for=syntax>hex_float_literal</dfn> :
 
-    | `/-?0x([0-9a-fA-F]*\.?[0-9a-fA-F]+|[0-9a-fA-F]+\.[0-9a-fA-F]*)(p|P)(\+|-)?[0-9]+/`
+    | `/-?0x((([0-9a-fA-F]*\.[0-9a-fA-F]+|[0-9a-fA-F]+\.[0-9a-fA-F]*)((p|P)(\+|-)?[0-9]+)?)|([0-9a-fA-F]+(p|P)(\+|-)?[0-9]+))/`
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>int_literal</dfn> :
@@ -1295,6 +1327,14 @@ The composite types are:
 * [=array=] type
 * [=structure=] type
 
+For a composite type |T|, the <dfn>nesting depth</dfn> of |T|, written *NestDepth*(|T|) is:
+* 1 for a vector type
+* 2 for a matrix type
+* 1 + *NestDepth*(|E|) for an array type with element type |E|
+* 1 + max(*NestDepth*(*M*<sub>1</sub>),..., *NestDepth*(*M*<sub>N</sub>))
+    if |T| is a structure type with member types *M*<sub>1</sub>,...,*M*<sub>1</sub>
+
+
 ### Constructible Types ### {#constructible-types}
 
 Many kinds of values can be created, loaded, stored, passed into functions,
@@ -2091,7 +2131,7 @@ memory reference</dfn> is produced.
     * if the loaded value is a vector, the value (0, 0, 0, x), where x is:
         * 0, 1, or the maximum positive value for integer components
         * 0.0 or 1.0 for floating-point components
-[=assignment statement|Stores=] to an invalid reference may either:
+[=statement/assignment|Stores=] to an invalid reference may either:
     * store the value to any [=memory locations|memory location(s)=] of the
         [[WebGPU#buffers|WebGPU buffer]] bound to the [=originating variable=]
     * not be executed
@@ -2108,7 +2148,7 @@ References and pointers are distinguished by how they are used:
 * The [=indirection=] operation (unary `*`) converts a pointer value to its corresponding reference value.
 * A [=let declaration=] can be of pointer type, but not of reference type.
 * A [=formal parameter=] can be of pointer type, but not of reference type.
-* An [=assignment statement=] performs a [=write access=] to update the contents of memory via a reference, where:
+* An [=statement/assignment=] statement performs a [=write access=] to update the contents of memory via a reference, where:
     * The left-hand side of the assignment statement must be of reference type, with access mode [=access/write=] or [=access/read_write=].
     * The right-hand side of the assignment statement must evaluate to the store type of the left-hand side.
 * The <dfn noexport>Load Rule</dfn>: Inside a function, a reference is automatically dereferenced (read from) to satisfy type rules:
@@ -3064,28 +3104,28 @@ See [[#module-constants]] and [[#function-scope-variables]].
   </xmp>
 </div>
 
-A <dfn dfn noexport>variable</dfn> is a named reference to storage that can contain a value of a
+A <dfn dfn noexport>variable</dfn> is a named reference to memory that can contain a value of a
 particular [=storable=] type.
 
 Two types are associated with a variable: its [=store type=] (the type of value
-that may be placed in the referenced storage) and its [=reference type=] (the type
+that may be placed in the referenced memory) and its [=reference type=] (the type
 of the variable itself).
-If a variable has store type *T* and [=storage class=] *S*,
-then its reference type is ref&lt;*S*,*T*&gt;.
+If a variable has store type *T*, [=storage class=] *S*, and [=access mode=] *A*,
+then its reference type is ref&lt;*S*,*T*,*A*&gt;.
 
 A <dfn dfn noexport>variable declaration</dfn>:
 
 * Specifies the variable’s name.
 * Specifies the [=storage class=], [=store type=], and [=access mode=].
     Together these comprise the variable's [=reference type=].
-* Ensures the execution environment allocates storage for a value of the store type,
+* Ensures the execution environment allocates memory for a value of the store type, in the specified storage class,
     supporting the given access mode, for the [=lifetime=] of the variable.
 * Optionally has an *initializer* expression, if the variable is in the [=storage classes/private=] or [=storage classes/function=] storage classes.
     If present, the initializer expression must evaluate to the variable's store type.
 
 When an [=identifier=] use [=resolves=] to a variable declaration,
-the identifier is an expression denoting the reference [=memory view=] for the variable's storage,
-and its type is the variable's reference type.
+the identifier is an expression denoting the reference [=memory view=] for the variable's memory,
+and its type is the variable's [=reference type=].
 See [[#var-identifier-expr]].
 
 See [[#module-scope-variables]] and [[#function-scope-variables]] for rules about where
@@ -3093,7 +3133,7 @@ a variable in a particular storage class can be declared,
 and when the storage class decoration is required, optional, or forbidden.
 
 The access mode always has a default, and except for variables in the [=storage classes/storage=] storage class,
-must not be written. See [[#access-mode-defaults]].
+must not be written in [SHORTNAME] source text. See [[#access-mode-defaults]].
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>variable_statement</dfn> :
@@ -3127,15 +3167,15 @@ The lifetime of a [=module scope=] variable is the entire execution of the shade
 For a [=function scope=] variable, each invocation has its own independent
 version of the variable.
 The lifetime of the variable is determined by its scope:
-* It begins when control enters the variable's decalaration.
+* It begins when control enters the variable's declaration.
 * It includes the entire execution of any function called from within the variable's scope.
 * It ends when control leaves the variable's scope, other than calling a function from
     within the variable's scope.
 
-Two variables with overlapping lifetimes will not have overlapping storage.
-When a variable's lifetime ends, its storage may be used for another variable.
+Two variables with overlapping lifetimes will not have [=overlap|overlapping memory=].
+When a variable's lifetime ends, its memory may be used for another variable.
 
-When a variable is created, its storage contains an initial value as follows:
+When a variable is created, its memory contains an initial value as follows:
 
 * For variables in the [=storage classes/private=] or [=storage classes/function=] storage classes:
     * The [=zero value=] for the store type, if the variable declaration has no initializer.
@@ -3390,12 +3430,10 @@ and third clauses and in the body of the `for` statement.
 
 An instance of a function scope variable is a [=dynamic context=].
 Each variable that is [=in scope=] for some invocation has an overlapping
-[=lifetime=] and, therefore, has non-overlapping storage.
-Variables with non-overlapping lifetimes may reuse the storage of previous
+[=lifetime=] and, therefore, has non-overlapping memory.
+Variables with non-overlapping lifetimes may reuse the memory of previous
 variables; however, new instances of the same variable are not guaranteed to
-use the same storage.
-
-## Never-alias assumption TODO ## {#never-alias-assumption}
+use the same memory.
 
 # Expressions TODO # {#expressions}
 
@@ -4082,6 +4120,13 @@ The result type depends on the number of letters provided. Assuming a `vec4<f32>
 </table>
 
 #### Component reference from vector reference #### {#component-reference-from-vector-reference}
+
+A [=write access=] to component of a vector **may** access all of the [=memory
+location|memory locations=] associated with that vector.
+
+Note: This means accesses to different components of a vector by different
+invocations must be synchronized if at least one access is a [=write access=].
+See [[#sync-builtin-functions]].
 
 <table class='data'>
   <caption>Getting a reference to a component from a reference to a vector</caption>
@@ -4988,37 +5033,42 @@ from the start of the next statement until the end of the compound statement.
 
 ## Assignment Statement ## {#assignment}
 
-An <dfn noexport>assignment statement</dfn> replaces the contents of a variable,
-or a portion of a variable, with a new value.
+An <dfn noexport dfn-for="statement">assignment</dfn> evaluates an expression,
+and optionally stores it in memory (thus updating the contents of a variable).
 
-The
-expression to the left of the equals token is the <dfn noexport>left-hand side</dfn>,
+
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>assignment_statement</dfn> :
+
+    | ( [=syntax/unary_expression=] | [=syntax/underscore=] ) [=syntax/equal=] [=syntax/short_circuit_or_expression=]
+</div>
+
+
+The text to the left of the equals token is the <dfn noexport>left-hand side</dfn>,
 and the
 expression to the right of the equals token is the <dfn noexport>right-hand side</dfn>.
+
+### Updating Assignment ### {#updating-assignment-section}
+
+When the [=left-hand side=] of an assignment is an expression, the assignment is an <dfn noexport>updating assignment</dfn>:
+The value of the right-hand side is written to the memory referenced by the left-hand side.
 
 <table class='data'>
   <thead>
     <tr><th style="width:40%">Precondition<th>Statement<th>Description
   </thead>
-  <tr algorithm="assignment">
+  <tr algorithm="updating assignment">
     <td>|r|: ref<|SC|,|T|,|A|>,<br>
         |A| is [=access/write=] or [=access/read_write=]<br>
         |e|: |T|,<br>
         |T| is a [=constructible=] type,<br>
         |SC| is a writable [=storage class=]
-    <td class="nowrap">|r| = |e|;
+    <td class="nowrap">|r| = |e|
     <td>Evaluates |e|, evaluates |r|, then writes the value computed for |e| into
         the [=memory locations=] referenced by |r|.
 
-        Note: if the reference is an [=invalid memory reference=], the write
-        may not execute, or may write to a different memory location than
-        expected.
-
-        (OpStore)
-</table>
-
-In the simplest case, the left hand side of the assignment statement is the
-name of a variable.  See [[#forming-references-and-pointers]] for other cases.
+In the simplest case, the left hand side is the name of a variable.
+See [[#forming-references-and-pointers]] for other cases.
 
     <div class='example wgsl' heading='Assignments'>
       <xmp highlight='rust'>
@@ -5047,10 +5097,73 @@ name of a variable.  See [[#forming-references-and-pointers]] for other cases.
       </xmp>
     </div>
 
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>assignment_statement</dfn> :
+### Phony Assignment ### {#phony-assignment-section}
 
-    | [=syntax/unary_expression=] [=syntax/equal=] [=syntax/short_circuit_or_expression=]
+When the [=left-hand side=] of an assignment is an underscore token,
+the assignment is an <dfn noexport>phony assignment</dfn>:
+The right-hand side is evaluated, and then ignored.
+
+<table class='data'>
+  <thead>
+    <tr><th>Precondition<th>Statement<th>Description
+  </thead>
+  <tr algorithm="phony-assignment">
+    <td>|e|: |T|,<br>
+        |T| is [=constructible=], a [=pointer type=], a [=texture=] type, or a [=sampler=] type
+    <td class="nowrap">_ = |e|
+    <td>Evaluates |e|.
+
+        Note: The resulting value is not stored.
+        The `_` token is not an identifier, and therefore cannot be used in an expression.
+</table>
+
+A phony-assignment is useful for:
+* Calling a function that returns a value, but clearly expressing that the resulting value
+    is not needed.
+* [=statically accessed|Statically accessing=] a variable, thus establishing it as a part of
+    the [=resource interface of a shader|shader's resource interface=].
+
+    Note: A buffer variable's store type may not be constructible, e.g. it contains an atomic type, or a runtime-sized array.
+    In these cases, use a pointer to the variable's contents instead.
+
+<div class='example wgsl global-scope' heading='Using phony-assignment to throw away an un-needed function result'>
+  <xmp highlight=rust>
+    var<private> counter: i32;
+
+    fn increment_and_yield_previous() -> i32 {
+      let previous = counter;
+      counter = counter + 1;
+      return previous;
+    }
+
+    fn user() {
+      // Increment the counter, but don't use the result.
+      _ = increment_and_yield_previous();
+    }
+  </xmp>
+</div>
+
+
+<div class='example wgsl global-scope' heading='Using phony-assignment to occupy bindings without using them'>
+  <xmp highlight=rust>
+    [[block]] struct BufferContents {
+        counter: atomic<u32>;
+        data: array<vec4<f32>>;
+    };
+    [[group(0),binding(0)]] var<storage> buf: BufferContents;
+    [[group(0),binding(1)]] var t: texture_2d<f32>;
+    [[group(0),binding(2)]] var s: sampler;
+
+    [[stage(fragment)]]
+    fn shade_it() -> [[location(0)]] vec4<f32> {
+      // Declare that buf, t, and s are part of the shader interface, without
+      // using them for anything.
+      _ = &buf;
+      _ = t;
+      _ = s;
+      return vec4<f32>();
+    }
+  </xmp>
 </div>
 
 ## Control flow TODO ## {#control-flow}
@@ -5469,10 +5582,10 @@ is terminated.
 Otherwise, evaluation continues with the next expression or statement after
 the evaluation of the [=call site=] of the current function invocation.
 
-If the function doesn't have a [=return type=], then the [=statement/return=] statement is
+If the function does not have a [=return type=], then the [=statement/return=] statement is
 optional. If the return statement is provided for such a function, it must not
 supply a value.
-Otherwise the expression must be present, and is called the *return value*.
+Otherwise the expression must be present, and is called the <dfn>return value</dfn>.
 In this case the call site of this function invocation evaluates to the return value.
 The type of the return value must match the return type of the function.
 
@@ -5484,7 +5597,7 @@ The `discard` statement must only be used in a [=fragment=] shader stage.
 More precisely, executing a `discard` statement will:
 
 * immediately terminate the current invocation, and
-* prevent evaluation and generation of a return value for the [=entry point=], and
+* prevent evaluation and generation of a [=return value=] for the [=entry point=], and
 * prevent the current fragment from being processed downstream in the [=GPURenderPipeline=].
 
 Only statements
@@ -5534,11 +5647,9 @@ Issue: [[#uniform-control-flow]] needs to state whether all invocations being di
     | [=syntax/ident=] [=syntax/argument_expression_list=]
 </div>
 
-A function call statement executes a [=function call=] where the called
-function does not return a value.
-If the called function returns a value, that value must be consumed either
-through assignment, evaluation in another expression or through use of the
-`ignore` built-in function (see [[#value-steering-functions]]).
+A function call statement executes a [=function call=].
+
+Note: If the function [=return value|returns a value=], that value is ignored.
 
 ## Statements Grammar Summary ## {#statements-summary}
 
@@ -5689,10 +5800,10 @@ When a function call is executed the following steps occur:
 * Control is transferred to the first statement in the called function.
 * The called function is executed.
 * When the called function returns, by either executing a [=statement/return=] statement or reaching
-    the end of the called function (if the function does not return a value),
+    the end of the called function (if the function does not [=return value|return a value=]),
     control is transferred back the calling function, and the called function's execution is
     unsuspended.
-    If the called function returns a value, that value is supplied for the
+    If the called function [=return value|returns a value=], that value is supplied for the
     value of the function call expression.
 
 The location of a function call is referred to as a <dfn noexport>call site</dfn>.
@@ -6345,7 +6456,6 @@ TODO: *Stub*
 * External-interface variables have initialized backing storage
 * Internal module-scope variables have backing storage
   * Initializers evaluated in textual order
-* No two variables have overlapping storage (might already be covered earlier?)
 
 ### Program order (within an invocation) TODO ### {#program-order}
 
@@ -6408,9 +6518,9 @@ indicating the number of workgroups to be executed, as described in the followin
 The <dfn noexport>compute shader grid</dfn> for a particular dispatch
 is the set of points with integer coordinates *(CSi,CSj,CSk)* with:
 
-*  0 &leq; CSi &le; workgroup_size_x &times; group_count_x
-*  0 &leq; CSj &le; workgroup_size_y &times; group_count_y
-*  0 &leq; CSk &le; workgroup_size_z &times; group_count_z
+*  0 &leq; CSi &lt; workgroup_size_x &times; group_count_x
+*  0 &leq; CSj &lt; workgroup_size_y &times; group_count_y
+*  0 &leq; CSk &lt; workgroup_size_z &times; group_count_z
 
 where *workgroup_size_x*,
 *workgroup_size_y*, and
@@ -6529,10 +6639,10 @@ In the following tables, the accuracy of an operation is provided among five
 possibilities:
 * Correct result (for non-floating point return values)
 * [=Correctly rounded=]
-* A relative error expressed as [=ULP=]
+* A relative error bound expressed as [=ULP=]
 * A function that the accuracy is <dfn noexport>inherited from</dfn>.
     That is, the accuracy is equal to implementing the operation in terms of the derived function.
-* An absolute error
+* An absolute error bound
 
 For any accuracy values specified over a range, the accuracy is undefined for
 results outside that range.
@@ -7451,6 +7561,11 @@ A <dfn>syntactic token</dfn> is a sequence of special characters, used:
     | `'~'`
 </div>
 <div class='syntax' noexport='true'>
+  <dfn for=syntax>underscore</dfn> :
+
+    | `'_'`
+</div>
+<div class='syntax' noexport='true'>
   <dfn for=syntax>xor</dfn> :
 
     | `'^'`
@@ -7692,13 +7807,13 @@ That's not a full user-defined function declaration.
 
   <tr algorithm="scalar select">
     <td>|T| is a scalar or a vector
-    <td>`select(`|f|`: `|T|` , `|t|`: `|T|`, `|cond|`: bool)`: |T|
+    <td>`select(`|f|`: `|T|`, `|t|`: `|T|`, `|cond|`: bool)`: |T|
     <td>Returns |t| when |cond| is true, and |f| otherwise.
     (OpSelect)
 
   <tr algorithm="vector select">
     <td>|T| is a scalar
-    <td>`select(`|f|`: vecN<`|T|`>, `|t|`: vecN<`|T|`, `|cond|`: vecN<bool>>)`
+    <td>`select(`|f|`: vecN<`|T|`>, `|t|`: vecN<`|T|`>, `|cond|`: vecN<bool>)`
     <td>[=Component-wise=] selection. Result component |i| is evaluated as `select(`|f|`[`|i|`], `|t|`[`|i|`], `|cond|`[`|i|`])`.
     (OpSelect)
 </table>
@@ -9045,21 +9160,6 @@ TODO: Add links to the eventual memory model.
     // OpControlBarrier %uint_2 %uint_1 %uint_328
   </xmp>
 </div>
-
-## Value-steering functions ## {#value-steering-functions}
-
-<table class='data'>
-  <thead>
-    <tr><th>Conclusion<td>Notes
-  </thead>
-  <tr algorithm="compute a value then ignore it">
-    <td class="nowrap">
-        `ignore`(|e|: |T|)
-    <td>Evaluates |e|, and then ignores the result.<br>
-        Type |T| is any type that is valid as a function parameter.
-
-        Note: An argument to `ignore()` cannot have an atomic or runtime-sized array type, but pointers to these types can be used.
-</table>
 
 
 # MATERIAL TO BE MOVED TO A NEW HOME OR DELETED # {#junkyard}
