@@ -45,278 +45,50 @@ def scanner_escape_regex(regex):
     return re.escape(regex.strip()).strip().replace("/", "\\/").replace("\\_", "_").replace("\\%", "%").replace("\\;", ";").replace("\\<", "<").replace("\\>", ">").replace("\\=", "=").replace("\\,", ",").replace("\\:", ":").replace("\\!", "!")
 
 
-class scanner_constituent:
+class scanner_rule:
     @staticmethod
     def name():
-        return "constituent"
+        return "rule"
 
     @staticmethod
     def begin(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("<pre class='def'>" in line, None, 1)
+        line = lines[i].rstrip()
+        return (line.startswith("<div class='syntax"), None, 1)
 
     @staticmethod
     def end(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("</pre>" in line, 0)
+        line = lines[i].rstrip()
+        return (line.startswith("</div>"), 0)
 
     @staticmethod
     def record(lines, i):
-        line = lines[i].split("//")[0].rstrip()
+        line = lines[i].rstrip()
         return (True, 0)
 
     @staticmethod
     def skip(lines, i):
-        line = lines[i].split("//")[0].rstrip()
+        line = lines[i].rstrip()
         return (False, 0)
 
     @staticmethod
     def valid(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        result = len(line.strip()) > 0
-        if not result:
-            return result
-        result = result and line[0] != "`"
-        result = result and not line.startswith("TODO")
-        if line[0] == " ":
-            result = result and (line.lstrip()[0] in [":", "|"] or
-                                 (line.startswith("     ") and
-                                  line[5] != " " and
-                                  lines[i-1].rstrip().endswith("SEMICOLON")))
-        else:
-            if len(lines) > i+1:
-                result = result and scanner_constituent.valid(lines, i+1)
-            else:
-                result = False
-        return result
+        line = lines[i].rstrip()
+        return len(line.strip()) > 0
 
     @staticmethod
     def parse(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        if line[0] != " ":
-            # Append new key
-            return (scanner_escape_name(line.strip()), None, 0)
-        else:
-            if line.lstrip()[0] in [":", "|"]:
-                # Append new value
-                return (None, scanner_escape_name(
-                    line.strip()[1:].strip())
-                    .replace("(", " ( ")
-                    .replace(")", " ) ")
-                    .replace("*", " * ")
-                    .replace("+", " + ")
-                    .replace("?", " ? ")
-                    .replace("|", " | ")
-                    .replace(" ", "  "), 0)
-            else:
-                # Extend last value
-                return (None, " " + scanner_escape_name(line.strip())
-                        .replace("(", " ( ")
-                        .replace(")", " ) ")
-                        .replace("*", " * ")
-                        .replace("+", " + ")
-                        .replace("?", " ? ")
-                        .replace("|", " | ")
-                        .replace(" ", "  "), -1)
-
-
-class scanner_literal:
-    @staticmethod
-    def name():
-        return "literal"
-
-    @staticmethod
-    def begin(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("## Literals" in line, None, 1)
-
-    @staticmethod
-    def end(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("</table>" in line, 0)
-
-    @staticmethod
-    def record(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("</thead>" in line, 1)
-
-    @staticmethod
-    def skip(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return (False, 0)
-
-    @staticmethod
-    def valid(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        result = len(line.strip()) > 0
-        result = result and "Token<td>Definition" not in line
-        return result
-
-    @staticmethod
-    def parse(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        split = line.split("<td>")
-        return (scanner_escape_name(split[1]), "/" + split[2].replace("`", "") + "/", 0)
-
-
-class scanner_identifier:
-    @staticmethod
-    def name():
-        return "identifier"
-
-    @staticmethod
-    def begin(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("## Identifiers" in line, None, 1)
-
-    @staticmethod
-    def end(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("</table>" in line, 0)
-
-    @staticmethod
-    def record(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("</thead>" in line, 1)
-
-    @staticmethod
-    def skip(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return (False, 0)
-
-    @staticmethod
-    def valid(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        result = len(line.strip()) > 0
-        result = result and "Token<td>Definition" not in line
-        return result
-
-    @staticmethod
-    def parse(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        split = line.split("<td>")
-        return (scanner_escape_name(split[1]), "/" + split[2].replace("`", "") + "/", 0)
-
-
-class scanner_keyword:
-    @staticmethod
-    def name():
-        return "keyword"
-
-    @staticmethod
-    def begin(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("## Keyword Summary" in line, None, 1)
-
-    @staticmethod
-    def end(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return (False, 0)  # TODO Recognize end of keywords
-
-    @staticmethod
-    def record(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("<table class='data'>" in line, 1)
-
-    @staticmethod
-    def skip(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("</table>" in line, 0)
-
-    @staticmethod
-    def valid(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        result = len(line.strip()) > 0
-        result = result and "Token<td>Definition" not in line
-        result = result and len(line.split("<td>")) > 2
-        return result
-
-    @staticmethod
-    def parse(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        split = line.split("<td>")
-        return (scanner_escape_name(split[1]), "/" + scanner_escape_regex(split[2].replace("`", "")) + "/", 0)
-
-
-class scanner_reserved:
-    @staticmethod
-    def name():
-        return "reserved"
-
-    @staticmethod
-    def begin(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("## Reserved Words" in line, None, 1)
-
-    @staticmethod
-    def end(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("</table>" in line, 0)
-
-    @staticmethod
-    def record(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("<table class='data'>" in line, 1)
-
-    @staticmethod
-    def skip(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return (False, 0)
-
-    @staticmethod
-    def valid(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        result = len(line.strip()) > 0
-        result = result and "Token<td>Definition" not in line
-        result = result and not line.strip().startswith("<tr>")
-        result = result and len(line.split("<td>")) > 1
-        return result
-
-    @staticmethod
-    def parse(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        split = line.split("<td>")
-        return ("_reserved", "/" + scanner_escape_regex(split[1].replace("`", "")) + "/", 0)
-
-
-class scanner_token:
-    @staticmethod
-    def name():
-        return "token"
-
-    @staticmethod
-    def begin(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("## Syntactic Tokens" in line, None, 1)
-
-    @staticmethod
-    def end(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("</table>" in line, 0)
-
-    @staticmethod
-    def record(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return ("<table class='data'>" in line, 1)
-
-    @staticmethod
-    def skip(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        return (False, 0)
-
-    @staticmethod
-    def valid(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        result = len(line.strip()) > 0
-        result = result and "Token<td>Definition" not in line
-        result = result and len(line.split("<td>")) > 2
-        return result
-
-    @staticmethod
-    def parse(lines, i):
-        line = lines[i].split("//")[0].rstrip()
-        split = line.split("<td>")
-        return (scanner_escape_name(split[1]), "/" + scanner_escape_regex(split[2].replace("`", "")) + "/", 0)
+        line = lines[i].rstrip()
+        if line[2:].startswith("<dfn for=syntax>"):
+            rule_name = line[2:].split("<dfn for=syntax>")[1]
+            rule_name = rule_name.split("</dfn>")[0].strip()
+            return (rule_name, None, 0)
+        elif line[4:].startswith("| "):
+            rule_value = line[6:]
+            return (None, rule_value.split(" "), 0)
+        elif line[4:].startswith("  "):
+            rule_value = line[6:]
+            return (None, rule_value.split(" "), -1)
+        return (None, None, None)
 
 
 class scanner_example:  # Not an example of a scanner, scanner of examples from specification
@@ -359,18 +131,11 @@ class scanner_example:  # Not an example of a scanner, scanner of examples from 
         return (None, line, 0)
 
 
-scanner_spans = [scanner_constituent,
-                 scanner_literal,
-                 scanner_identifier,
-                 scanner_keyword,
-                 scanner_reserved,
-                 scanner_token,
+scanner_spans = [scanner_rule,
                  scanner_example]
 
 
 scanner_components = {i.name(): {} for i in scanner_spans}
-scanner_components["comment"] = {"_comment": ["/\\/\\// /.*/"]}
-scanner_components["space"] = {"_space": ["/\\s/"]}
 
 scanner_i = 0
 scanner_span = None
@@ -480,199 +245,173 @@ module.exports = grammar({
 grammar_source += "\n"
 
 
-grammar_constituents_optional = {key for key, value in scanner_components[scanner_constituent.name(
-)].items() if "" in value or value[0].rstrip().endswith("*")}
-
-
-def grammar_sequence_from_element(element):
-    sequence = ""
-    subsequences = element.split()
-    sequence_i = 0
-    sequence_type = "seq"
-    while sequence_i < len(subsequences):
-        if "(" in subsequences[sequence_i]:
-            subelements = [subsequences[sequence_i].replace("(", "")]
-            sequence_i += 1
-            subexpressions = 1
-            while subexpressions > 0:
-                if "(" in subsequences[sequence_i]:
-                    subexpressions += 1
-                if ")" in subsequences[sequence_i]:
-                    subexpressions -= 1
-                subelements.append(subsequences[sequence_i])
-                sequence_i += 1
-            sequence_i -= 1
-            subelements = [i for i in subelements if len(i.strip()) > 0]
-            if sequence_i + 1 < len(subsequences):
-                if subsequences[sequence_i + 1] == "*":
-                    subsequence = grammar_sequence_from_element(
-                        " ".join(subelements))
-                    sequence += "optional(repeat("
-                    if subsequence[1] == "choice":
-                        sequence += "choice("
-                    elif subsequence[1] == "seq":
-                        sequence += "seq("
-                    sequence += subsequence[0]
-                    if subsequence[1] == "choice":
-                        sequence += "),"
-                    elif subsequence[1] == "seq":
-                        sequence += "),"
-                    sequence += ")),"
-                    sequence_i += 1
-                elif subsequences[sequence_i + 1] == "+":
-                    subsequence = grammar_sequence_from_element(
-                        " ".join(subelements))
-                    sequence += "repeat1("
-                    if subsequence[1] == "choice":
-                        sequence += "choice("
-                    elif subsequence[1] == "seq":
-                        sequence += "seq("
-                    sequence += subsequence[0]
-                    if subsequence[1] == "choice":
-                        sequence += "),"
-                    elif subsequence[1] == "seq":
-                        sequence += "),"
-                    sequence += "),"
-                    sequence_i += 1
-                elif subsequences[sequence_i + 1] == "?":
-                    subsequence = grammar_sequence_from_element(
-                        " ".join(subelements))
-                    sequence += "optional("
-                    if subsequence[1] == "choice":
-                        sequence += "choice("
-                    elif subsequence[1] == "seq":
-                        sequence += "seq("
-                    sequence += subsequence[0]
-                    if subsequence[1] == "choice":
-                        sequence += "),"
-                    elif subsequence[1] == "seq":
-                        sequence += "),"
-                    sequence += "),"
-                    sequence_i += 1
-                else:
-                    subsequence = grammar_sequence_from_element(
-                        " ".join(subelements))
-                    if subsequence[1] == "choice":
-                        sequence += "choice("
-                    elif subsequence[1] == "seq":
-                        sequence += "seq("
-                    sequence += subsequence[0]
-                    if subsequence[1] == "choice":
-                        sequence += "),"
-                    elif subsequence[1] == "seq":
-                        sequence += "),"
-            else:
-                subsequence = grammar_sequence_from_element(
-                    " ".join(subelements))
-                if subsequence[1] == "choice":
-                    sequence += "choice("
-                elif subsequence[1] == "seq":
-                    sequence += "seq("
-                sequence += subsequence[0]
-                if subsequence[1] == "choice":
-                    sequence += "),"
-                elif subsequence[1] == "seq":
-                    sequence += "),"
+def grammar_from_rule_item(rule_item):
+    result = ""
+    item_choice = False
+    items = []
+    i = 0
+    while i < len(rule_item):
+        i_optional = False
+        i_repeatone = False
+        i_skip = 0
+        i_item = ""
+        if rule_item[i].startswith("[=syntax/"):
+            i_item = rule_item[i].split("[=syntax/")[1].split("=]")[0]
+            if i_item.endswith("s") and i_item[:-1] in scanner_components[scanner_rule.name()]:
+                i_item = i_item[:-1]
+                i_repeatone = True
+            elif i_item.endswith("es") and i_item[:-2] in scanner_components[scanner_rule.name()]:
+                i_item = i_item[:-2]
+                i_repeatone = True
+            i_item = f"$.{i_item}"
+        elif rule_item[i].startswith("`/"):
+            i_item = f"token({rule_item[i][1:-1]})"
+        elif rule_item[i].startswith("`'"):
+            i_item = f"token({rule_item[i][1:-1]})"
+        elif rule_item[i] == "(":
+            j = i + 1
+            j_span = 0
+            rule_subitem = []
+            while j < len(rule_item):
+                if rule_item[j] == "(":
+                    j_span += 1
+                elif rule_item[j] == ")":
+                    j_span -= 1
+                rule_subitem.append(rule_item[j])
+                j += 1
+                if rule_item[j] == ")" and j_span == 0:
+                    break
+            i_item = grammar_from_rule_item(rule_subitem)
+            i = j
+        if len(rule_item) - i > 1:
+            if rule_item[i + 1] == "+":
+                i_repeatone = True
+                i_skip += 1
+            elif rule_item[i + 1] == "?":
+                i_optional = True
+                i_skip += 1
+            elif rule_item[i + 1] == "*":
+                i_repeatone = True
+                i_optional = True
+                i_skip += 1
+            elif rule_item[i + 1] == "|":
+                item_choice = True
+                i_skip += 1
+        if i_repeatone:
+            i_item = f"repeat1({i_item})"
+        if i_optional:
+            i_item = f"optional({i_item})"
+        items.append(i_item)
+        i += 1 + i_skip
+    if item_choice == True:
+        result = f"choice({', '.join(items)})"
+    else:
+        if len(items) == 1:
+            result = items[0]
         else:
-            if "|" in subsequences[sequence_i]:
-                sequence_type = "choice"
-            else:
-                enforce_optional = subsequences[sequence_i] in grammar_constituents_optional
-                if enforce_optional:
-                    sequence += "optional("
-                if sequence_i + 1 < len(subsequences):
-                    if subsequences[sequence_i + 1] == "*":
-                        sequence += "optional(repeat("
-                        sequence += "$." + subsequences[sequence_i] + ","
-                        sequence += ")),"
-                        sequence_i += 1
-                    elif subsequences[sequence_i + 1] == "+":
-                        sequence += "repeat1("
-                        sequence += "$." + subsequences[sequence_i] + ","
-                        sequence += "),"
-                        sequence_i += 1
-                    elif subsequences[sequence_i + 1] == "?":
-                        sequence += "optional("
-                        sequence += "$." + subsequences[sequence_i] + ","
-                        sequence += "),"
-                        sequence_i += 1
-                    else:
-                        if len(subsequences[sequence_i].strip()) > 0 and ")" not in subsequences[sequence_i]:
-                            sequence += "$." + subsequences[sequence_i] + ","
-                else:
-                    if len(subsequences[sequence_i].strip()) > 0 and ")" not in subsequences[sequence_i]:
-                        sequence += "$." + subsequences[sequence_i] + ","
-                if enforce_optional:
-                    sequence += "),"
-        sequence_i += 1
-    sequence += ""
-    return (sequence, sequence_type)
+            result = f"seq({', '.join(items)})"
+    return result
 
 
-def grammar_from_constituent(key, value):
-    return "        {}: $ => choice(\n            {}\n        ),".format(key, ",\n            ".join(["seq(" + grammar_sequence_from_element(element)[0] + ")" for element in value if len(element.strip()) > 0]))
+def grammar_from_rule(key, value):
+    result = f"        {key}: $ =>"
+    if len(value) == 1:
+        result += f" {grammar_from_rule_item(value[0])}"
+    else:
+        result += " choice(\n            {}\n        )".format(
+            ',\n            '.join([grammar_from_rule_item(i) for i in value]))
+    return result
+
+scanner_components[scanner_rule.name()]["_comment"] = [["`'//'`", '`/.*/`']]
+
+# Following sections are to allow out-of-order per syntactic grammar appearance of rules
 
 
-grammar_source += grammar_from_constituent(
-    "translation_unit", scanner_components[scanner_constituent.name()]["translation_unit"]) + "\n"
-del scanner_components[scanner_constituent.name()]["translation_unit"]
+rule_skip = set()
 
 
-grammar_source += grammar_from_constituent("global_decl_or_directive",
-                                           scanner_components[scanner_constituent.name()]["global_decl_or_directive"]) + "\n\n"
-del scanner_components[scanner_constituent.name()]["global_decl_or_directive"]
+# Extract translation_unit
 
 
-def grammar_from_literal(key, value):
-    return "        {}: $ => token({}),".format(key, value)
+grammar_source += grammar_from_rule(
+    "translation_unit", scanner_components[scanner_rule.name()]["translation_unit"]) + ",\n"
+rule_skip.add("translation_unit")
 
 
-grammar_source += "\n".join([grammar_from_literal(key, value[0])
-                            for key, value in scanner_components[scanner_literal.name()].items()]) + "\n\n"
+# Extract global_decl_or_directive
 
 
-grammar_source += "\n".join([grammar_from_constituent(key, value)
-                             for key, value in scanner_components[scanner_constituent.name()].items()]) + "\n\n"
+grammar_source += grammar_from_rule(
+    "global_decl_or_directive", scanner_components[scanner_rule.name()]["global_decl_or_directive"]) + ",\n"
+rule_skip.add("global_decl_or_directive")
 
 
-grammar_source += "\n".join([grammar_from_literal(key, value[0])
-                            for key, value in scanner_components[scanner_keyword.name()].items()]) + "\n\n"
+# Extract literals
 
 
-grammar_source += "\n".join([grammar_from_literal(key, value[0])
-                            for key, value in scanner_components[scanner_token.name()].items()]) + "\n\n"
+for key, value in scanner_components[scanner_rule.name()].items():
+    if key.endswith("_literal") and key not in rule_skip:
+        grammar_source += grammar_from_rule(key, value) + ",\n"
+        rule_skip.add(key)
 
 
-def grammar_from_reserved(key, value):
-    return "        {}: $ => choice(\n            {}\n        ),".format(key, ",\n            ".join(value))
+# Extract constituents
 
 
-grammar_source += "\n".join([grammar_from_reserved(key, value)
-                            for key, value in scanner_components[scanner_reserved.name()].items()]) + "\n\n"
+def not_token_only(value):
+    result = False
+    for i in value:
+        result = result or len(
+            [j for j in i if not j.startswith("`/") and not j.startswith("`'")]) > 0
+    return result
 
 
-def grammar_from_identifier(key, value):
-    return "        ident: $ => token({}),".format(",".join(value))
+for key, value in scanner_components[scanner_rule.name()].items():
+    if not key.startswith("_") and key != "ident" and not_token_only(value) and key not in rule_skip:
+        grammar_source += grammar_from_rule(key, value) + ",\n"
+        rule_skip.add(key)
 
 
-grammar_source += "\n".join([grammar_from_identifier(key, value)
-                            for key, value in scanner_components[scanner_identifier.name()].items()]) + "\n\n"
+# Extract tokens
 
 
-def grammar_from_comment(key, value):
-    return "        _comment: $ => seq({}),".format(",".join(value[0].split()))
+for key, value in scanner_components[scanner_rule.name()].items():
+    if not key.startswith("_") and key != "ident" and key not in rule_skip:
+        grammar_source += grammar_from_rule(key, value) + ",\n"
+        rule_skip.add(key)
 
 
-grammar_source += "\n".join([grammar_from_comment(key, value)
-                            for key, value in scanner_components["comment"].items()]) + "\n"
+# Extract underscore
 
 
-def grammar_from_space(key, value):
-    return "        _space: $ => {},".format(",".join(value))
+for key, value in scanner_components[scanner_rule.name()].items():
+    if key.startswith("_") and key != "_comment" and key != "_space" and key not in rule_skip:
+        grammar_source += grammar_from_rule(key, value) + ",\n"
+        rule_skip.add(key)
 
 
-grammar_source += "\n".join([grammar_from_space(key, value)
-                            for key, value in scanner_components["space"].items()])
+# Extract ident
+
+
+grammar_source += grammar_from_rule(
+    "ident", scanner_components[scanner_rule.name()]["ident"]) + ",\n"
+rule_skip.add("ident")
+
+
+# Extract comment
+
+
+grammar_source += grammar_from_rule(
+    "_comment", scanner_components[scanner_rule.name()]["_comment"]) + ",\n"
+rule_skip.add("_comment")
+
+
+# Extract space
+
+
+grammar_source += grammar_from_rule(
+    "_space", scanner_components[scanner_rule.name()]["_space"])
+rule_skip.add("_space")
 
 
 grammar_source += "\n"
