@@ -98,8 +98,7 @@ and then place the rule name between `` <dfn for=syntax> `` and `` </dfn> : `` o
 * Each syntactic rule item must be surrounded by only a space before and after,
 trailing space at the end of the line being redundant.
 * Members of syntactic rules items can be references to existing rules. These must be placed between
-`` [=syntax/ `` and `` =] ``, and the referenced name can be suffixed by pluralizing `` s `` or `` es ``
-to be repeating as at least one or more of the rule.
+`` [=syntax/ `` and `` =] ``.
 * Members of syntactic rules can contain groups which should contain the group members between `` ( `` and `` ) ``.
 * Members of syntactic rule items which denote a string should start with `` `' ``
 and end with `` '` `` and not contain any space character or line break between these two.
@@ -108,7 +107,6 @@ and end with `` /` `` and not contain any space character or line break between 
 * If a member is optional, then it must be followed by a `` ? `` member token.
 * If a member can repeat and must appear at least once, then it must be followed by a `` + `` member token.
 * If a member can repeat and does not have to appear, then it must be followed by a `` * `` member token.
-    * To realize this with pluralized reference, follow the reference member by a `` ? `` member token.
 
 ## Tagging conventions
 
