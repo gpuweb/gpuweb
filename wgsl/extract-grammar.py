@@ -257,12 +257,6 @@ def grammar_from_rule_item(rule_item):
         i_item = ""
         if rule_item[i].startswith("[=syntax/"):
             i_item = rule_item[i].split("[=syntax/")[1].split("=]")[0]
-            if i_item.endswith("s") and i_item[:-1] in scanner_components[scanner_rule.name()]:
-                i_item = i_item[:-1]
-                i_repeatone = True
-            elif i_item.endswith("es") and i_item[:-2] in scanner_components[scanner_rule.name()]:
-                i_item = i_item[:-2]
-                i_repeatone = True
             i_item = f"$.{i_item}"
         elif rule_item[i].startswith("`/"):
             i_item = f"token({rule_item[i][1:-1]})"
