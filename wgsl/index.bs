@@ -5709,6 +5709,332 @@ Note: If the function [=return value|returns a value=], that value is ignored.
 </div>
 
 
+## Statements behavior analysis ## {#behaviors}
+
+Some statements affecting control-flow are only valid in some contexts.
+For example, `fallthrough` is invalid outside of a switch, and `continue` is invalid outside of a loop.
+Additionally, the uniformity analysis (see [[#uniformity]]) needs to know when control flow can exit a statement in two different ways.
+Both of these goals are achieved by a simple type system applied to statements.
+To avoid confusion with the types of expressions, we call the types of statements behaviors.
+
+A behavior is simply a set, whose elements may be:
+- Return
+- Discard
+- Break
+- Continue
+- Fallthrough
+- Default
+
+Each of those correspond with a way to exit a compound statement: either through a keyword, or by simply falling to the next statement ("Default").
+
+We note "*s*: *B*" to say that *s* respects the rules regarding behaviors, and has behavior *B*.
+
+For each function:
+- its body must be a valid statement by these rules
+- if it has a return type, its behavior must be one of {Return} or {Return, Discard}
+- otherwise, its behavior must be a subset of {Default, Return, Discard}
+
+We assign a behavior to each function: it is its body's behavior, with any "Return" replaced by "Default".
+As a consequence of the rules above, a function behavior is always one of {Default}, {Discard} or {Default, Discard}.
+
+
+Similarly, we assign a behavior to each expression, since expressions can include function calls, which can discard.
+Expression behaviors are always one of {Default}, {Discard}, or {Default, Discard}.
+
+Note: There is currently no valid program with an expression that has a behavior of {Discard}.
+The reason is that only functions without a return type can have such a behavior, and there is no compound expression in which such a function can be called.
+
+<table class='data'>
+  <caption>Rules for analyzing and validating the behaviors of statements</caption>
+  <thead>
+    <tr><th>Statement<th>Preconditions<th>Resulting behavior
+  </thead>
+  <tr>
+    <td class="nowrap">*s1* ; *s2*
+    <td class="nowrap">*s1*: *B1*<br>
+        Default in B1<br>
+        *s2*: *B2*
+    <td class="nowrap">*B1*\{Default} U *B2*
+  <tr>
+    <td class="nowrap">A variable declaration or assignment
+    <td>
+    <td>{Default}
+  <tr>
+    <td class="nowrap">f(*e_1*, ..., *e_n*);
+    <td class="nowrap">*e_1*: *B_1*<br>
+        ...<br>
+        *e_n*: *B_n*<br>
+        *f*'s body has behavior *B*
+    <td class="nowrap">*B* U (*B_1* U ... U *B_n*)\{Default}
+  <tr>
+    <td>return;
+    <td>
+    <td>{Return}
+  <tr>
+    <td class="nowrap">return *e*;
+    <td class="nowrap">*e*: *B*<br>
+    <td class="nowrap">*B*\{Default} U {Return}
+  <tr>
+    <td>discard;
+    <td>
+    <td>{Discard}
+  <tr>
+    <td>break;
+    <td>
+    <td>{Break}
+  <tr>
+    <td>continue;
+    <td>
+    <td>{Continue}
+  <tr>
+    <td>fallthrough;
+    <td>
+    <td>{Fallthrough}
+  <tr>
+    <td class="nowrap">if (*e*) *s1* else *s2*
+    <td class="nowrap">*e: B*<br>
+        *s1*: *B1*<br>
+        *s2*: *B2*
+    <td class="nowrap">*B*\{Default} U B1 U B2
+  <tr>
+    <td class="nowrap">loop {*s*}
+    <td class="nowrap">*s*: *B*
+    <td class="nowrap">let b = *B* \ {Default};<br>
+        if (Continue in b) b = b \ {Continue};<br>
+        if (Break in b) b = b \ {Break} U {Default};<br>
+        b
+  <tr>
+    <td class="nowrap">loop {*s1* continuing {*s2*}}
+    <td class="nowrap">*s1*: *B1*<br>
+        *s2*: *B2*<br>
+        None of {Break, Continue, Discard, Return} are in *B2*
+    <td class="nowrap">let b = (*B1* U *B2*) \ {Default};<br>
+        if (Continue in b) b = b \ {Continue};<br>
+        if (Break in b) b = b \ {Break} U {Default};<br>
+        b
+  <tr>
+    <td class="nowrap">switch(*e*) {case _: *s_1* ... case _: *s_n*}
+    <td class="nowrap">*e*: *B*<br>
+        *s_1*: *B_1*<br>
+        ...<br>
+        *s_n*: *B_n*<br>
+    <td class="nowrap">let b = *B* \ {Default} U B_1 U ... U B_n;<br>
+        if (Fallthrough in b) b = b \ {Fallthrough};<br>
+        if (Break in b) b = b \ {Break} U {Default};<br>
+        b
+</table>
+
+<table class='data'>
+  <caption>Rules for analyzing and validating the behaviors of expressions</caption>
+  <thead>
+    <tr><th>Expression<th>Preconditions<th>Resulting behavior
+  </thead>
+  <tr>
+    <td class="nowrap">f(*e_1*, ..., *e_n*)
+    <td class="nowrap">*e_1*: *B_1*<br>
+        ...<br>
+        *e_n*: *B_n*<br>
+        *f*'s body has behavior *B*
+    <td class="nowrap">*B* U (*B_1* U ... U *B_n*)\{Default}
+  <tr>
+    <td class="nowrap">Any literal
+    <td>
+    <td class="nowrap">{Default}
+  <tr>
+    <td class="nowrap">Any variable reference
+    <td>
+    <td class="nowrap">{Default}
+  <tr>
+    <td class="nowrap">e1[e2]
+    <td class="nowrap">*e1*: *B1*<br>
+        *e2*: *B2*
+    <td class="nowrap">*B1* U *B2*
+  <tr>
+    <td class="nowrap">e.field
+    <td class="nowrap">*e*: *B*
+    <td class="nowrap">*B*
+  <tr>
+    <td class="nowrap">e1 || e2
+    <td class="nowrap">*e1*: *B1*<br>
+        *e2*: *B2*
+    <td class="nowrap">*B1* U *B2*
+  <tr>
+    <td class="nowrap">e1 && e2
+    <td class="nowrap">*e1*: *B1*<br>
+        *e2*: *B2*
+    <td class="nowrap">*B1* U *B2*
+</table>
+
+All functions in the standard library count as having a body with behavior {Default}.
+
+This analysis can be run in linear time, by analyzing the call-graph bottom-up (since the behavior of a function call can depend on the function's code).
+
+Here are some examples showing this analysis in action:
+<div class='example wgsl expect-error' heading='Trivially dead code is rejected'>
+   <xmp highlight='rust'>
+    fn simple() -> i32 {
+      var a: i32;
+      return 0;  // Behaviours: {Return}
+      a = 1;     // Error: by the rule for sequences of statements, the previous statement should have a behavior that include "Default"
+      return 2;
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl expect-error' heading='Compound statements are supported'>
+   <xmp highlight='rust'>
+    fn nested() -> i32 {
+      var a: i32;
+      {             // The start of a compound statement.
+        a = 2;      // Behaviours: {Default}
+        return 1;   // Behaviours: {Return}
+      }             // The compound statement as a whole has behavior {Return}
+      a = 1;        // Error: for the same reason as in the previous example, the previous statement is missing "Default" in its behavior
+      return 2;
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='if/then behaves as if there is an empty else'>
+   <xmp highlight='rust'>
+    fn if_example() {
+      var a: i32 = 0;
+      loop {
+        if (a == 5) {
+          break;      // Behaviours: {Break}
+        }             // Behaviours of the whole if compound statement: {Break, Default}, as the if has an implicit empty else
+        a = a + 1;    // valid, as the previous statement had "Default" in its behavior
+      }
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl expect-error' heading='if/then/else has the behavior of both sides'>
+   <xmp highlight='rust'>
+    fn if_example() {
+      var a: i32 = 0;
+      loop {
+        if (a == 5) {
+          break;      // Behaviours: {Break}
+        } else {
+          continue;   // Behaviours: {Continue}
+        }             // Behaviours of the whole if compound statement: {Break, Continue}
+        a = a + 1;    // Error: the previous statement is missing "Default" in its behavior
+      }
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='Break in switch becomes Default'>
+   <xmp highlight='rust'>
+    fn switch_example() {
+      var a: i32 = 0;
+      switch (a) {
+        default: {
+          break;   // Behaviours: {Break}
+        }
+      }            // Behaviours: {Default}, as switch replaces Break by Default
+      a = 5;       // valid, as the previous statement had Default in its behavior
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='A conditional continue with continuing statement'>
+   <xmp highlight='rust'>
+    fn conditional_continue() {
+      var a: i32;
+      loop {
+        if (a == 5) { break; } // Behaviours: {Break, Default}
+        if (a % 2 == 1) {      // valid, as the previous statement has Default in its behavior
+          continue;            // Behaviours: {Continue}
+        }                      // Behaviours: {Continue, Default}
+        a = a * 2;             // valid, as the previous statement has Default in its behavior
+        continuing {           // valid as the continuing statement has behavior {Default} which does not include any of {Break, Continue, Discard, Return}
+          a = a + 1;
+        }
+      }                        // The loop as a whole has behavior {Default}, as it absorbs "Continue" and "Default", then replaces "Break" with "Default"
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='A redundant continue with continuing statement'>
+   <xmp highlight='rust'>
+    fn redundant_continue_with_continuing() {
+      var a: i32;
+      loop {
+        if (a == 5) { break; }
+        continue;   // Valid. This is redundant, branching to the next statement.
+        continuing {
+          a = a + 1;
+        }
+      }
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='A continue at the end of a loop body'>
+   <xmp highlight='rust'>
+    fn continue_end_of_loop_body() {
+      for (var i: i32 = 0; i < 5; i = i + 1 ) {
+        continue;   // Valid. This is redundant, branching to the end of the loop body.
+      }             // Behaviours: {Default}, as loops absorb "Continue", and "for" loops always add "Default"
+    }
+   </xmp>
+</div>
+"for" loops desugar to "loop" with a conditional break. As shown in a previous example, the conditional break has behavior {Break, Default}, which leads to adding "Default" to the loop's behavior.
+
+<div class='example wgsl expect-error' heading='Effect of a function that discards unconditionally'>
+   <xmp highlight='rust'>
+    fn always_discard() {
+      discard;
+    }                   // The whole function has behavior {Discard}
+    fn code_after_discard() {
+      var a: i32;
+      always_discard(); // Behaviours: {Discard}
+      a = a + 1;        // Error: the previous statement is missing "Default" in its behavior
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='Effect of a function that discards conditionally'>
+   <xmp highlight='rust'>
+    fn sometimes_discard(a: i32) {
+      if (a) {
+        discard;        // Behaviours: {Discard}
+      }                 // Behaviours: {Default, Discard}
+    }                   // The whole function has behavior {Default, Discard}
+    fn code_after_discard() {
+      var a: i32;
+      a = 42;
+      sometimes_discard(a);  // Behaviours: {Default, Discard}
+      a = a + 1;             // Valid
+    }                        // The whole function has behavior {Default, Discard}
+   </xmp>
+</div>
+
+<div class='example wgsl expect-error' heading='return required in functions that have a return type'>
+   <xmp highlight='rust'>
+    fn missing_return () -> i32 {
+      var a: i32 = 0;
+      if (42) {
+        return a;       // Behaviours: {Return}
+      }                 // Behaviours: {Default, Return}
+    }                   // Error: Default is invalid in the body of a function with a return type
+   </xmp>
+</div>
+
+<div class='example wgsl expect-error' heading='continue must be in a loop'>
+   <xmp highlight='rust'>
+    fn continue_out_of_loop () {
+      var a: i32 = 0;
+      if (a) {
+        continue;       // Behaviours: {Continue}
+      }                 // Behaviours: {Default, Continue}
+    }                   // Error: Continue is invalid in the body of a function
+   </xmp>
+</div>
+The same example would also be invalid for the same reason if continue was replaced by break or fallthrough.
+
 # Functions # {#functions}
 
 A <dfn dfn-for="function" noexport>function</dfn> performs computational work when invoked.
