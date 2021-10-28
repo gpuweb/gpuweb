@@ -453,37 +453,23 @@ The form of a [=numeric literal=] is defined via pattern-matching:
 <div class='syntax' noexport='true'>
   <dfn for=syntax>decimal_float_literal</dfn> :
 
-    | `/((-?[0-9]*\.[0-9]+|-?[0-9]+\.[0-9]*)((e|E)(\+|-)?[0-9]+)?)|(-?[0-9]+(e|E)(\+|-)?[0-9]+)/`
+    | `/((([0-9]*\.[0-9]+|-?[0-9]+\.[0-9]*)((e|E)(\+|-)?[0-9]+)?)|(-?[0-9]+(e|E)(\+|-)?[0-9]+))f?/`
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>hex_float_literal</dfn> :
 
-    | `/-?0x((([0-9a-fA-F]*\.[0-9a-fA-F]+|[0-9a-fA-F]+\.[0-9a-fA-F]*)((p|P)(\+|-)?[0-9]+)?)|([0-9a-fA-F]+(p|P)(\+|-)?[0-9]+))/`
+    | `/0x((([0-9a-fA-F]*\.[0-9a-fA-F]+|[0-9a-fA-F]+\.[0-9a-fA-F]*)((p|P)(\+|-)?[0-9]+)?)|([0-9a-fA-F]+(p|P)(\+|-)?[0-9]+))/`
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>int_literal</dfn> :
 
-    | `/-?0x[0-9a-fA-F]+|0|-?[1-9][0-9]*/`
+    | `/0x[0-9a-fA-F]+|0|-?[1-9][0-9]*[fiu]?/`
 </div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>uint_literal</dfn> :
-
-    | `/0x[0-9a-fA-F]+u|0u|[1-9][0-9]*u/`
-</div>
-
-Note: literals are parsed greedily. This means that for statements like `a -5`
-      this will *not* parse as `a` `minus` `5` but instead as `a` `-5` which
-      may be unexpected. A space must be inserted after the `-` if the first
-      expression is desired.
-
-TODO(dneto): Describe how numeric literal tokens map to idealized values, and then to typed values.
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>const_literal</dfn> :
 
     | [=syntax/int_literal=]
-
-    | [=syntax/uint_literal=]
 
     | [=syntax/float_literal=]
 
@@ -500,6 +486,128 @@ TODO(dneto): Describe how numeric literal tokens map to idealized values, and th
     | [=syntax/hex_float_literal=]
 </div>
 
+[=numeric literal|Numeric literals=] are abstract types composed of two type classes:
+* <dfn noexport>Integral literals</dfn> for signed and unsigned integers composed of
+    [=syntax/int_literal=] without an `f` suffix.
+* <dfn noexport>Real literals</dfn> for real numbers composed of [=syntax/hex_float_literal=],
+    [=syntax/decimal_float_literal=], and [=syntax/int_literal=] (with the `f` suffix only).
+
+The abstract type classes represent infinitely precise numbers.
+It is a [=shader-creation error=] if the literal value cannot be correctly
+represented in the literal's type.
+
+### Literal Types ### {#literal-type-inference}
+
+[=Boolean literal|Boolean literals=] always resolve to the [=bool=] type.
+
+[=Real literals=] always resolve to the [=f32=] type.
+
+[=Integral literals=] are strongly typed when the literal is
+specified using an `i` or `u` suffix. That is, `1u` resolves to [=u32=] and
+`1i` resolves to [=i32=].
+When integral literals are not strongly typed, their type is inferred from the
+surrounding textual context.
+The context may be an [=let declaration=], [=variable declaration=],
+[=statement/assignment=] statement, or [[#expressions|expression]].
+When the surrounding textual context cannot infer the type, the default type
+for integral literals is [=i32=].
+Integral literals can be promoted to real literals, however, real literals
+cannot be promoted to integral literals.
+
+The rules for inferring the type of a statement involving integral literals is
+as follows:
+1. Resolve the types of the full expression tree involving integral literals.
+    1. If all components of the expression are fully typed, then apply the type
+        matching rules for the particular [[#expressions|expression]].
+    2. If any component of an expression is fully typed, filter possible applicable
+        expressions based on the available type information.
+        Integral literals can potentially match [=i32=], [=u32=], [=f32=] types.
+        Integral literals are only be promoted to [=f32=] if there is a single valid
+        expression after filtering and it requires [=f32=] components.
+        If there is a single expression after filtering, propagate types using that
+        expression.
+        It is a [=shader-creation error=] if the known types lead to a violation of
+        any of the type rules.
+2. If the type has not been resolved by after examination of the expression tree,
+    then resolution examines the surrounding statement context.
+    1. If the statement is declaration or [=statement/assignment=] with a well-defined
+        type, propagate that type information to the expression tree to resolve the
+        literal types.
+        It is a [=shader-creation error=] if this resolution leads to a violation of
+        any type rules.
+3. If the type remains unresolved, integral literals are typed as [=i32=].
+
+<div class='example literals' heading="Type inference for literals">
+  <xmp>
+    // Strongly-typed unsigned integer literal.
+    var u32_1 = 1u; // variable is a u32
+
+    // Strongly-typed signed integer literal.
+    var i32_1 = 1i; // variable is an i32
+
+    // Strongly-typed real literal.
+    var f32_1 = 1f; // variable is an f32
+
+    // Strong-typed unsigned integer literal cannot be negated.
+    var u32_neg = -1u; // invalid: unary minus does not support u32
+
+    // Default inferred signed integer literal.
+    var i32_default = 1; // variable is i32
+
+    // Promotion.
+    var f32_promotion : f32 = 1; // variable is f32
+    var i32_demotion : i32 = 1.0; // invalid, real literals cannot be demoted to integral
+
+    // Inferred from declaration type.
+    var u32_from_type : u32 = 1; // variable is u32
+    var i32_from_type : i32 = 1; // variable is i32
+
+    // Inferred from expression.
+    var u32_from_expr = 1 + u32_1; // variable is u32
+    var i32_from_expr = 1 + i32_1; // variable is i32
+
+    // Values must be representable.
+    let u32_too_large : u32 = 1234567890123456890; // invalid, overflow
+    let i32_too_large : i32 = 1234567890123456890; // invalid, overflow
+    let u32_large : u32 = 2147483649; // valid
+    let i32_large : i32 = 2147483649; // invalid, overflow
+    let f32_out_of_range1 = 0x1p500; // invalid, out of range
+    let f32_out_of_range2 = 0x1.0000000001p0; // invalid, not representable in f32
+
+    // Minimum integer.
+    let i32_min = -2147483648;
+
+    // Corner case values don't change type inference.
+    let i32_value = 0x80000001; // Type is i32 and the value is -2147483647.
+
+    // Inference is delayed as long as possible.
+    var u32_expr1 = (1 + (1 + (1 + (1 + 1)))) + 1u; // variable is a u32
+    var u32_expr2 = 1u + (1 + (1 + (1 + (1 + 1)))); // variable is a u32
+    var u32_expr3 = (1 + (1 + (1 + (1u + 1)))) + 1; // variable is a u32
+    var u32_expr4 = 1 + (1 + (1 + (1 + (1u + 1)))); // variable is a u32
+
+    // Inference based on built-in function parameters.
+    let u32_clamp = clamp(5, 0, u32_from_expr); // literals are u32
+    let i32_clamp = clamp(1, -5, 5); // literals are i32
+    let f32_clamp = clamp(0, f32_1, 1); // literals are promoted to f32
+
+    // Inference of expressions.
+    let f32_promotion1 = 1.0 + 2 + 3 + 4; // integral literals are promoted to f32
+    let f32_promotion2 = 2 + 1.0 + 3 + 4; // integral literals are promoted to f32
+    let f32_promotion3 = 1f + ((2 + 3) + 4); // types can propagate down the tree
+    let f32_promotion4 = ((2 + (3 + 1f)) + 4); // types can propagate up the tree
+
+    // Type rule violations.
+    let mismatch : u32 = 1.0 + 1; // invalid, the initializer can only resolve to f32, which
+                                  // which is not a valid assignment to u32.
+    let ambiguous_clamp = clamp(1u, 0, 1i); // There is no overload of clamp that allows
+                                            // mixed sign parameters.
+
+    // Inference completes at the statement level.
+    let some_i32 = 1; // type is i32 (no longer untyped)
+    let some_f32 : f32 = some_i32; // i32 cannot be assigned to f32
+  </xmp>
+</div>
 
 ## Keywords ## {#keywords}
 
@@ -548,8 +656,6 @@ An attribute must not be specified more than once per object or type.
     | [=syntax/float_literal=]
 
     | [=syntax/int_literal=]
-
-    | [=syntax/uint_literal=]
 
     | [=syntax/ident=]
 </div>
@@ -1190,8 +1296,6 @@ Restrictions on runtime-sized arrays:
   <dfn for=syntax>element_count_expression</dfn> :
 
     | [=syntax/int_literal=]
-
-    | [=syntax/uint_literal=]
 
     | [=syntax/ident=]
 </div>
