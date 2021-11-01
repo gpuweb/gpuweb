@@ -1182,7 +1182,7 @@ The default is used if a value is not explicitly specified in {{GPUDeviceDescrip
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxUniformBufferBindingSize</dfn>
-        <td>{{GPUSize64}} <td>Higher <td>16384
+        <td>{{GPUSize64}} <td>Higher <td>65536
     <tr class=row-continuation><td colspan=4>
         The maximum {{GPUBufferBinding}}.{{GPUBufferBinding/size}} for bindings with a
         {{GPUBindGroupLayoutEntry}} |entry| for which
@@ -1373,9 +1373,12 @@ are raw numeric values, not color-managed color values.
 
 WebGPU *does* interface with color-managed outputs (via {{GPUCanvasConfiguration}}) and inputs
 (via {{GPUQueue/copyExternalImageToTexture()}} and {{GPUDevice/importExternalTexture()}}).
-Color conversion must be performed between the WebGPU numeric values and the external color values.
+Thus, color conversion must be performed between the WebGPU numeric values and the external color values.
 Each such interface point locally defines an encoding (color space, transfer function, and alpha
 premultiplication) in which the WebGPU numeric values are to be interpreted.
+
+Each color space is defined over an extended range, if defined by the referenced CSS definitions,
+to represent color values outside of its space (in both chrominance and luminance).
 
 <script type=idl>
 enum GPUPredefinedColorSpace {
@@ -1393,6 +1396,20 @@ Consider a path for uploading srgb-encoded images into linearly-encoded textures
     : <dfn>"srgb"</dfn>
     :: The CSS predefined color space <a value for=color()>srgb</a>.
 </dl>
+
+### Color Space Conversions ### {#color-space-conversions}
+
+A color is converted between spaces by translating its representation in one space to a
+representation in another according to the definitions above.
+
+If the source value has fewer than 4 channels, the remaining green/blue/alpha channels are set to
+`0, 0, 1` respectively, as needed, before converting for color space/encoding and alpha premultiplication.
+After conversion, if the destination needs fewer than 4 channels, the additional channels
+are ignored.
+
+Colors are not lossily clamped during conversion: converting from one color space to another
+will result in values outside the range [0, 1] if the source color values were outside the range
+of the destination color space's gamut (e.g. if a Display P3 image is converted to sRGB).
 
 
 # Initialization # {#initialization}
@@ -1761,6 +1778,8 @@ enum GPUFeatureName {
     "depth32float-stencil8",
     "pipeline-statistics-query",
     "texture-compression-bc",
+    "texture-compression-etc2",
+    "texture-compression-astc",
     "timestamp-query",
 };
 </script>
@@ -2821,6 +2840,50 @@ enum GPUTextureFormat {
     "bc7-rgba-unorm",
     "bc7-rgba-unorm-srgb",
 
+    // ETC2 compressed formats usable if "texture-compression-etc2" is both
+    // supported by the device/user agent and enabled in requestDevice.
+    "etc2-rgb8unorm",
+    "etc2-rgb8unorm-srgb",
+    "etc2-rgb8a1unorm",
+    "etc2-rgb8a1unorm-srgb",
+    "etc2-rgba8unorm",
+    "etc2-rgba8unorm-srgb",
+    "eac-r11unorm",
+    "eac-r11snorm",
+    "eac-rg11unorm",
+    "eac-rg11snorm",
+
+    // ASTC compressed formats usable if "texture-compression-astc" is both
+    // supported by the device/user agent and enabled in requestDevice.
+    "astc-4x4-unorm",
+    "astc-4x4-unorm-srgb",
+    "astc-5x4-unorm",
+    "astc-5x4-unorm-srgb",
+    "astc-5x5-unorm",
+    "astc-5x5-unorm-srgb",
+    "astc-6x5-unorm",
+    "astc-6x5-unorm-srgb",
+    "astc-6x6-unorm",
+    "astc-6x6-unorm-srgb",
+    "astc-8x5-unorm",
+    "astc-8x5-unorm-srgb",
+    "astc-8x6-unorm",
+    "astc-8x6-unorm-srgb",
+    "astc-8x8-unorm",
+    "astc-8x8-unorm-srgb",
+    "astc-10x5-unorm",
+    "astc-10x5-unorm-srgb",
+    "astc-10x6-unorm",
+    "astc-10x6-unorm-srgb",
+    "astc-10x8-unorm",
+    "astc-10x8-unorm-srgb",
+    "astc-10x10-unorm",
+    "astc-10x10-unorm-srgb",
+    "astc-12x10-unorm",
+    "astc-12x10-unorm-srgb",
+    "astc-12x12-unorm",
+    "astc-12x12-unorm-srgb",
+
     // "depth24unorm-stencil8" feature
     "depth24unorm-stencil8",
 
@@ -2952,18 +3015,11 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
                 the color space |descriptor|.{{GPUExternalTextureDescriptor/colorSpace}}
                 with unpremultiplied alpha.
 
+                This [[#color-space-conversions|may result]] in values outside of the range [0, 1].
+                If clamping is desired, it may be performed after sampling.
+
                 Note: This is described like a copy, but may be implemented as a reference to
                 read-only underlying data plus appropriate metadata to perform conversion later.
-
-                Issue: It is currently undetermined whether the default colorSpace, "srgb", is
-                extended-srgb or clamped-srgb.
-                This will be determined upstream as the semantics around super-srgb image sources
-                get defined. Unfortunately we can't sidestep it for now because video sources
-                can go already go outside the srgb range.
-                The upstream determination will change whether using the default colorSpace
-                option can result in sampling values greater than 1.0 or not.
-                If upstream decides to make "srgb" mean clamped-srgb, we also have the option
-                of changing our default to `"extended-srgb"`.
 
             1. Let |result| be a new {{GPUExternalTexture}} object wrapping |data|.
 
@@ -3475,11 +3531,11 @@ dictionary GPUSamplerBindingLayout {
 
 <script type=idl>
 enum GPUTextureSampleType {
-  "float",
-  "unfilterable-float",
-  "depth",
-  "sint",
-  "uint",
+    "float",
+    "unfilterable-float",
+    "depth",
+    "sint",
+    "uint",
 };
 
 dictionary GPUTextureBindingLayout {
@@ -3804,13 +3860,11 @@ A {{GPUBindGroup}} object has the following internal slots:
                                             - |resource|.{{GPUBufferBinding/buffer}} is [$valid to use with$] |this|.
                                             - The bound part designated by |resource|.{{GPUBufferBinding/offset}} and
                                                 |resource|.{{GPUBufferBinding/size}} resides inside the buffer.
-                                            - If |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}}
-                                                is not `undefined`:
-                                                - The effective binding size, that is either explict in
-                                                    |resource|.{{GPUBufferBinding/size}} or derived from
-                                                    |resource|.{{GPUBufferBinding/offset}} and the full
-                                                    size of the buffer, is greater than or equal to
-                                                    |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}}.
+                                            - The effective binding size, that is either explict in
+                                                |resource|.{{GPUBufferBinding/size}} or derived from
+                                                |resource|.{{GPUBufferBinding/offset}} and the full
+                                                size of the buffer, is greater than or equal to
+                                                |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}}.
 
                                             - If |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/type}} is
                                                 <dl class="switch">
@@ -5391,38 +5445,9 @@ setting state, drawing, copying resources, etc.
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUCommandBuffer {
-    readonly attribute Promise<double> executionTime;
 };
 GPUCommandBuffer includes GPUObjectBase;
 </script>
-
-{{GPUCommandBuffer}} has the following attributes:
-
-<dl dfn-type=attribute dfn-for="GPUCommandBuffer">
-    : <dfn>executionTime</dfn>
-    ::
-        The total time, in seconds, that the GPU took to execute this command buffer.
-
-        Note:
-        If {{GPUCommandEncoderDescriptor/measureExecutionTime}} is `true`,
-        this resolves after the command buffer executes.
-        Otherwise, this rejects with an {{OperationError}}.
-
-        <div class=issue>
-            Specify the creation and resolution of the promise.
-
-            In {{GPUCommandEncoder/finish()}}, it should be specified that a
-            new promise is created and stored in this attribute.
-            The promise starts rejected if {{GPUCommandEncoderDescriptor/measureExecutionTime}}
-            is `false`. If the finish() fails, then the promise resolves to 0.
-
-            In {{GPUQueue/submit()}}, it should be specified that (if
-            {{GPUCommandEncoderDescriptor/measureExecutionTime}} is set), work
-            is issued to read back the execution time, and, when that completes,
-            the promise is resolved with that value.
-            If the submit() fails, then the promise resolves to 0.
-        </div>
-</dl>
 
 {{GPUCommandBuffer}} has the following internal slots:
 
@@ -5472,6 +5497,11 @@ interface GPUCommandEncoder {
         GPUImageCopyTexture source,
         GPUImageCopyTexture destination,
         GPUExtent3D copySize);
+
+    undefined fillBuffer(
+        GPUBuffer destination,
+        GPUSize64 destinationOffset,
+        GPUSize64 size);
 
     undefined pushDebugGroup(USVString groupLabel);
     undefined popDebugGroup();
@@ -5545,15 +5575,8 @@ which may be one of the following:
 
 <script type=idl>
 dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
-    boolean measureExecutionTime = false;
 };
 </script>
-
-<dl dfn-type=dict-member dfn-for=GPUCommandEncoderDescriptor>
-    : <dfn>measureExecutionTime</dfn>
-    ::
-        Enable measurement of the GPU execution time of the entire command buffer.
-</dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createCommandEncoder(descriptor)</dfn>
@@ -5600,6 +5623,11 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
                         - |descriptor| meets the
                             [$GPURenderPassDescriptor/Valid Usage$] rules.
+                        - |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is empty, or
+                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} [=list/contain=]s
+                            {{GPUFeatureName/"timestamp-query"}}.
+                        - For each |timestampWrite| in |descriptor|.{{GPURenderPassDescriptor/timestampWrites}},
+                            - |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}} is [$valid to use with$] |this|.
                     </div>
                 1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/encoding a render pass}}.
                 1. For each |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
@@ -5618,6 +5646,14 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     1. Set |pass|.{{GPURenderEncoderBase/[[depthReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}}.
                     1. Set |pass|.{{GPURenderEncoderBase/[[stencilReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}}.
                 1. Set |pass|.{{GPURenderEncoderBase/[[layout]]}} to [$derive render targets layout from pass$](|descriptor|).
+                1. For each |timestampWrite| in |descriptor|.{{GPURenderPassDescriptor/timestampWrites}},
+                    1. If |timestampWrite|.{{GPURenderPassTimestampWrite/location}} is {{GPURenderPassTimestampLocation/"beginning"}},
+                        [=list/Append=] a [=GPU command=] to
+                        |pass|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                        that writes the GPU's timestamp value into the |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}}th
+                        index in |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.
+                    1. Otherwise, if |timestampWrite|.{{GPURenderPassTimestampWrite/location}} is {{GPURenderPassTimestampLocation/"end"}},
+                        [=list/Append=] |timestampWrite| to |pass|.{{GPURenderPassEncoder/[[endTimestampWrites]]}}.
                 1. Return |pass|.
             </div>
 
@@ -5645,9 +5681,22 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     error and stop.
                     <div class=validusage>
                         - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
+                        - |descriptor|.{{GPUComputePassDescriptor/timestampWrites}} is empty, or
+                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} [=list/contain=]s
+                            {{GPUFeatureName/"timestamp-query"}}.
+                        - For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}},
+                            - |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}} is [$valid to use with$] |this|.
                     </div>
                 1. Set |this|.{{GPUCommandEncoder/[[state]]}} to {{encoder state/encoding a compute pass}}.
                 1. Let |pass| be a new {{GPUComputePassEncoder}} object.
+                1. For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}},
+                    1. If |timestampWrite|.{{GPUComputePassTimestampWrite/location}} is {{GPUComputePassTimestampLocation/"beginning"}},
+                        [=list/Append=] a [=GPU command=] to
+                        |pass|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                        that writes the GPU's timestamp value into the |timestampWrite|.{{GPUComputePassTimestampWrite/queryIndex}}th
+                        index in |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.
+                    1. Otherwise, if |timestampWrite|.{{GPUComputePassTimestampWrite/location}} is {{GPUComputePassTimestampLocation/"end"}},
+                        [=list/Append=] |timestampWrite| to |pass|.{{GPUComputePassEncoder/[[endTimestampWrites]]}}.
                 1. Return |pass|.
             </div>
         </div>
@@ -5792,7 +5841,8 @@ However, {{GPUQueue/copyExternalImageToTexture()}} copies from sources that desc
 A {{GPUImageCopyTextureTagged}} is a {{GPUImageCopyTexture}} which is additionally tagged with
 color space/encoding and alpha-premultiplication metadata, so that semantic color data may be
 preserved during copies.
-This metadata only affects the semantics of the {{GPUQueue/copyExternalImageToTexture()}} call.
+This metadata only affects the semantics of the {{GPUQueue/copyExternalImageToTexture()}}
+operation, not the resulting data.
 
 <script type=idl>
 dictionary GPUImageCopyTextureTagged : GPUImageCopyTexture {
@@ -5805,6 +5855,10 @@ dictionary GPUImageCopyTextureTagged : GPUImageCopyTexture {
     : <dfn>colorSpace</dfn>
     ::
         Describes the color space and encoding used to encode data into the destination texture.
+
+        This [[#color-space-conversions|may result]] in values outside of the range [0, 1],
+        if the target texture format can represent them. Otherwise, the results are clamped
+        to the target texture format's range.
 
         Note:
         If {{GPUImageCopyTextureTagged/colorSpace}} matches the source image, no conversion occurs.
@@ -5894,6 +5948,38 @@ dictionary GPUImageCopyExternalImage {
             Issue(gpuweb/gpuweb#21): Define the state machine for GPUCommandEncoder.
 
             Issue(gpuweb/gpuweb#69): figure out how to handle overflows in the spec.
+        </div>
+</dl>
+
+### Buffer Fills ### {#buffer-fills}
+
+<dl dfn-type=method dfn-for=GPUCommandEncoder>
+    : <dfn>fillBuffer(destination, destinationOffset, size)</dfn>
+    ::
+        Encode a command into the {{GPUCommandEncoder}} that fills a sub-region of a
+        {{GPUBuffer}} with zeros.
+
+        <div algorithm=GPUCommandEncoder.fillBuffer>
+            **Called on:** {{GPUCommandEncoder}} |this|.
+
+            **Arguments:**
+            <pre class=argumentdef for="GPUCommandEncoder/fillBuffer(destination, destinationOffset, size)">
+                |destination|: The {{GPUBuffer}} to write to.
+                |destinationOffset|: Offset in bytes into |destination| to place the data.
+                |size|: Bytes to copy.
+            </pre>
+
+            **Returns:** {{undefined}}
+
+            If any of the following conditions are unsatisfied, generate a validation error and stop.
+            <div class=validusage>
+                - |this|.{{GPUCommandEncoder/[[state]]}} is {{encoder state/open}}.
+                - |destination| is [$valid to use with$] |this|.
+                - |destination|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/COPY_DST}}.
+                - |size| is a multiple of 4.
+                - |destinationOffset| is a multiple of 4.
+                - |destination|.{{GPUBuffer/[[size]]}} is greater than or equal to (|destinationOffset| + |size|).
+            </div>
         </div>
 </dl>
 
@@ -6254,7 +6340,7 @@ must be well nested.
 <dl dfn-type=method dfn-for=GPUCommandEncoder>
     : <dfn>writeTimestamp(querySet, queryIndex)</dfn>
     ::
-        Writes a timestamp value into |querySet| when all previous commands have completed executing.
+        Writes a timestamp value into a querySet when all previous commands have completed executing.
 
         <div algorithm=GPUCommandEncoder.writeTimestamp>
             **Called on:** {{GPUCommandEncoder}} |this|.
@@ -6600,8 +6686,6 @@ interface GPUComputePassEncoder {
     undefined beginPipelineStatisticsQuery(GPUQuerySet querySet, GPUSize32 queryIndex);
     undefined endPipelineStatisticsQuery();
 
-    undefined writeTimestamp(GPUQuerySet querySet, GPUSize32 queryIndex);
-
     undefined endPass();
 };
 GPUComputePassEncoder includes GPUObjectBase;
@@ -6614,14 +6698,50 @@ GPUComputePassEncoder includes GPUProgrammablePassEncoder;
     : <dfn>\[[pipeline]]</dfn>, of type {{GPUComputePipeline}}
     ::
         The current {{GPUComputePipeline}}, initially `null`.
+
+    : <dfn>\[[endTimestampWrites]]</dfn>, of type {{GPUComputePassTimestampWrites}}
+    ::
+        The timestamp attachments which need to be executed when the pass ends.
 </dl>
 
 ### Creation ### {#compute-pass-encoder-creation}
 
 <script type=idl>
+enum GPUComputePassTimestampLocation {
+    "beginning",
+    "end"
+};
+
+dictionary GPUComputePassTimestampWrite {
+    required GPUQuerySet querySet;
+    required GPUSize32 queryIndex;
+    required GPUComputePassTimestampLocation location;
+};
+
+typedef sequence<GPUComputePassTimestampWrite> GPUComputePassTimestampWrites;
+
 dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
+    GPUComputePassTimestampWrites timestampWrites = [];
 };
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPUComputePassDescriptor>
+    : <dfn>timestampWrites</dfn>
+    ::
+        A sequence of {{GPUComputePassTimestampWrite}} values define where and when timestamp values will be written for this pass.
+</dl>
+
+<div class=validusage dfn-for=GPUComputePassDescriptor>
+    <dfn abstract-op>Valid Usage</dfn>
+
+    Given a {{GPUComputePassDescriptor}} |this| the following validation rules apply:
+
+    1. For each |timestampWrite| in |this|.{{GPUComputePassDescriptor/timestampWrites}}:
+
+        1. |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/type}} is {{GPUQueryType/"timestamp"}}.
+
+        1. |timestampWrite|.{{GPUComputePassTimestampWrite/queryIndex}} &lt; |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/count}}.
+</div>
 
 ### Dispatch ### {#compute-pass-encoder-dispatch}
 
@@ -6772,33 +6892,6 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
 
             Issue: Describe {{GPUComputePassEncoder/endPipelineStatisticsQuery()}} algorithm steps.
         </div>
-
-    : <dfn>writeTimestamp(querySet, queryIndex)</dfn>
-    ::
-        Writes a timestamp value into |querySet| when all previous commands have completed executing.
-
-        <div algorithm="GPUComputePassEncoder.writeTimestamp">
-            **Called on:** {{GPUComputePassEncoder}} |this|.
-
-            **Arguments:**
-            <pre class=argumentdef for="GPUComputePassEncoder/writeTimestamp(querySet, queryIndex)">
-                |querySet|: The query set that will store the timestamp values.
-                |queryIndex|: The index of the query in the query set.
-            </pre>
-
-            **Returns:** {{undefined}}
-
-            1. If |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=]
-                {{GPUFeatureName/"timestamp-query"}}, throw a {{TypeError}}.
-            1. If any of the following conditions are unsatisfied, generate a validation error and stop.
-                <div class=validusage>
-                    - |querySet| is [$valid to use with$] |this|.
-                    - |querySet|.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/type}} is {{GPUQueryType/"timestamp"}}.
-                    - |queryIndex| &lt; |querySet|.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/count}}.
-                </div>
-
-            Issue: Describe {{GPUComputePassEncoder/writeTimestamp()}} algorithm steps.
-        </div>
 </dl>
 
 ### Finalization ### {#compute-pass-encoder-finalization}
@@ -6826,6 +6919,12 @@ called the compute pass encoder can no longer be used.
 
                         Issue: Add remaining validation.
                     </div>
+                1. For each |timestampWrite| in |this|.{{GPUComputePassEncoder/[[endTimestampWrites]]}},
+                    1. (|timestampWrite|.{{GPUComputePassTimestampWrite/location}} must equal {{GPUComputePassTimestampLocation/"end"}}.)
+                    1. [=list/Append=] a [=GPU command=] to
+                        |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                        that writes the GPU's timestamp value into the |timestampWrite|.{{GPUComputePassTimestampWrite/queryIndex}}th
+                        index in |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.
             </div>
         </div>
 </dl>
@@ -6869,8 +6968,6 @@ interface GPURenderPassEncoder {
 
     undefined beginPipelineStatisticsQuery(GPUQuerySet querySet, GPUSize32 queryIndex);
     undefined endPipelineStatisticsQuery();
-
-    undefined writeTimestamp(GPUQuerySet querySet, GPUSize32 queryIndex);
 
     undefined executeBundles(sequence<GPURenderBundle> bundles);
     undefined endPass();
@@ -6944,6 +7041,10 @@ GPURenderPassEncoder includes GPURenderEncoderBase;
 
     : <dfn>\[[viewport]]</dfn>
     ::  Current viewport rectangle and depth range.
+
+    : <dfn>\[[endTimestampWrites]]</dfn>, of type {{GPURenderPassTimestampWrites}}
+    ::
+        The timestamp attachments which need to be executed when the pass ends.
 </dl>
 
 When a {{GPURenderPassEncoder}} is created, it has the following default state:
@@ -6958,10 +7059,24 @@ When a {{GPURenderPassEncoder}} is created, it has the following default state:
 ### Creation ### {#render-pass-encoder-creation}
 
 <script type=idl>
+enum GPURenderPassTimestampLocation {
+    "beginning",
+    "end"
+};
+
+dictionary GPURenderPassTimestampWrite {
+    required GPUQuerySet querySet;
+    required GPUSize32 queryIndex;
+    required GPURenderPassTimestampLocation location;
+};
+
+typedef sequence<GPURenderPassTimestampWrite> GPURenderPassTimestampWrites;
+
 dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
     required sequence<GPURenderPassColorAttachment> colorAttachments;
     GPURenderPassDepthStencilAttachment depthStencilAttachment;
     GPUQuerySet occlusionQuerySet;
+    GPURenderPassTimestampWrites timestampWrites = [];
 };
 </script>
 
@@ -6979,6 +7094,10 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
     : <dfn>occlusionQuerySet</dfn>
     ::
         The {{GPUQuerySet}} value defines where the occlusion query results will be stored for this pass.
+
+    : <dfn>timestampWrites</dfn>
+    ::
+        A sequence of {{GPURenderPassTimestampWrite}} values defines where and when timestamp values will be written for this pass.
 </dl>
 
 <div class=validusage dfn-for=GPURenderPassDescriptor>
@@ -7009,6 +7128,12 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 
         1. |this|.{{GPURenderPassDescriptor/occlusionQuerySet}}.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/type}}
             must be {{GPUQueryType/occlusion}}.
+
+    1. For each |timestampWrite| in |this|.{{GPURenderPassDescriptor/timestampWrites}}:
+
+        1. |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/type}} is {{GPUQueryType/"timestamp"}}.
+
+        1. |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}} &lt; |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/count}}.
 
     Issue(gpuweb/gpuweb#503): support for no attachments
 </div>
@@ -7782,34 +7907,6 @@ attachments used by this encoder.
 
             Issue: Describe {{GPURenderPassEncoder/endPipelineStatisticsQuery()}} algorithm steps.
         </div>
-
-    : <dfn>writeTimestamp(querySet, queryIndex)</dfn>
-    ::
-        Writes a timestamp value into |querySet| when all previous commands have completed executing.
-
-        <div algorithm="GPURenderPassEncoder.writeTimestamp">
-            **Called on:** {{GPURenderPassEncoder}} |this|.
-
-            **Arguments:**
-            <pre class=argumentdef for="GPURenderPassEncoder/writeTimestamp(querySet, queryIndex)">
-                querySet: The query set that will store the timestamp values.
-                queryIndex: The index of the query in the query set.
-            </pre>
-
-            **Returns:** {{undefined}}
-
-            1. If |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=]
-                {{GPUFeatureName/"timestamp-query"}}, throw a {{TypeError}}.
-            1. If any of the following conditions are unsatisfied, generate a validation error and stop.
-                <div class=validusage>
-                    - |querySet| is [$valid to use with$] |this|.
-                    - |querySet|.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/type}} is {{GPUQueryType/"timestamp"}}.
-                    - |queryIndex| &lt; |querySet|.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/count}}.
-                    - The query in |querySet| at index |queryIndex| has not been written earlier in this render pass.
-                </div>
-
-            Issue: Describe {{GPURenderPassEncoder/writeTimestamp()}} algorithm steps.
-        </div>
 </dl>
 
 ### Bundles ### {#render-pass-encoder-bundles}
@@ -7866,6 +7963,12 @@ called the render pass encoder can no longer be used.
 
                         Issue: Add remaining validation.
                     </div>
+                1. For each |timestampWrite| in |this|.{{GPURenderPassEncoder/[[endTimestampWrites]]}},
+                    1. (|timestampWrite|.{{GPURenderPassTimestampWrite/location}} must equal {{GPURenderPassTimestampLocation/"end"}}.)
+                    1. [=list/Append=] a [=GPU command=] to
+                        |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                        that writes the GPU's timestamp value into the |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}}th
+                        index in |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.
 
                 Issue: Enqueue the attachment stores (with storeOp clear).
             </div>
@@ -7883,6 +7986,13 @@ interface GPURenderBundle {
 GPURenderBundle includes GPUObjectBase;
 </script>
 
+<dl dfn-type=attribute dfn-for="GPURenderBundle">
+    : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
+    ::
+        A [=list=] of [=GPU commands=] to be submitted to the {{GPURenderPassEncoder}} when the
+        {{GPURenderBundle}} is executed.
+</dl>
+
 ### Creation ### {#render-bundle-creation}
 
 <script type=idl>
@@ -7899,6 +8009,33 @@ GPURenderBundleEncoder includes GPUObjectBase;
 GPURenderBundleEncoder includes GPUProgrammablePassEncoder;
 GPURenderBundleEncoder includes GPURenderEncoderBase;
 </script>
+
+{{GPURenderBundleEncoder}} has the following internal slots:
+
+<dl dfn-type=attribute dfn-for="GPURenderBundleEncoder">
+    : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
+    ::
+        A [=list=] of [=GPU commands=] to be submitted to the {{GPURenderPassEncoder}} when the
+        {{GPURenderBundle}} this encoder produces is executed.
+
+    : <dfn>\[[state]]</dfn> of type [=render bundle state=].
+    ::
+        The current state of the {{GPURenderBundleEncoder}}, initially set to [=render bundle state/open=].
+</dl>
+
+Each {{GPURenderBundleEncoder}} has a current <dfn dfn>render bundle state</dfn> on the [=Content timeline=]
+which may be one of the following:
+
+<dl dfn-type=dfn dfn-for="render bundle state">
+    : <dfn>open</dfn>
+    ::
+        Indicates the {{GPURenderBundleEncoder}} is available to begin new operations.
+
+    : <dfn>closed</dfn>
+    ::
+        Indicates the {{GPURenderBundleEncoder}} is no longer available for any operations. The
+        {{GPURenderBundleEncoder/[[state]]}} becomes [=render bundle state/closed=] once {{GPURenderBundleEncoder/finish()}} is called.
+</dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createRenderBundleEncoder(descriptor)</dfn>
@@ -7920,12 +8057,23 @@ GPURenderBundleEncoder includes GPURenderEncoderBase;
                 1. If any of the following conditions are unsatisfied, generate a validation
                     error and stop.
                     <div class=validusage>
-                        Issue: Add remaining validation.
+                        - |descriptor|.{{GPURenderPassLayout/colorFormats}}.length must be less than or equal to 8.
+                        - |descriptor|.{{GPURenderPassLayout/colorFormats}}.length must be greater than `0` or
+                            |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} must not be `null`.
+                        - For each |colorFormat| in |descriptor|.{{GPURenderPassLayout/colorFormats}}:
+                            - |colorFormat| must be a [=color renderable format=].
+                        - Let |depthStencilFormat| be |descriptor|.{{GPURenderPassLayout/depthStencilFormat}}.
+                        - If |depthStencilFormat| is not `null`:
+                            - |depthStencilFormat| must be a [=depth or stencil renderable format=].
+                            - If |depthStencilFormat| contains both depth and stencil aspects (See [[#depth-formats|depth-stencil formats]]):
+                                - |descriptor|.{{GPURenderBundleEncoderDescriptor/depthReadOnly}} must be equal to
+                                    |descriptor|.{{GPURenderBundleEncoderDescriptor/stencilReadOnly}}
                     </div>
                 1. Let |e| be a new {{GPURenderBundleEncoder}} object.
                 1. Set |e|.{{GPURenderEncoderBase/[[layout]]}} to |descriptor|.{{GPURenderPassLayout}}.
                 1. Set |e|.{{GPURenderEncoderBase/[[depthReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/depthReadOnly}}.
                 1. Set |e|.{{GPURenderEncoderBase/[[stencilReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/stencilReadOnly}}.
+                1. Set |e|.{{GPURenderBundleEncoder/[[state]]}} to [=render bundle state/open=].
                 1. Return |e|.
 
                 Issue: Describe the reset of the steps for {{GPUDevice/createRenderBundleEncoder()}}.
@@ -7959,7 +8107,24 @@ dictionary GPURenderBundleEncoderDescriptor : GPURenderPassLayout {
 
             **Returns:** {{GPURenderBundle}}
 
-            Issue: Describe {{GPURenderBundleEncoder/finish()}} algorithm steps.
+            1. Let |renderBundle| be a new {{GPURenderBundle}}.
+            1. Issue the following steps on the [=Device timeline=] of |this|:
+                <div class=device-timeline>
+                    1. If any of the following conditions are unsatisfied, generate a validation
+                        error and stop.
+                        <div class=validusage>
+                            - |this| must be [=valid=].
+                            - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] must be 0.
+                            - |this|.{{GPURenderBundleEncoder/[[state]]}} must be [=render bundle state/open=].
+                            - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
+                        </div>
+
+                    1. Set |this|.{{GPURenderBundleEncoder/[[state]]}} to [=render bundle state/closed=].
+                    1. Set |renderBundle|.{{GPURenderBundle/[[command_list]]}} to
+                        |this|.{{GPURenderBundleEncoder/[[command_list]]}}.
+                </div>
+
+            1. Return |renderBundle|.
         </div>
 </dl>
 
@@ -8109,6 +8274,16 @@ GPUQueue includes GPUObjectBase;
         Issues a copy operation of the contents of a platform image/canvas
         into the destination texture.
 
+        This operation performs [[#color-space-conversions|color encoding]] into the destination
+        encoding according to the parameters of {{GPUImageCopyTextureTagged}}.
+
+        Copying into a `-srgb` texture results in the same texture bytes, not the same decoded
+        values, as copying into the corresponding non-`-srgb` format.
+        Thus, after a copy operation, sampling the destination texture has
+        different results depending on whether its format is `-srgb`, all else unchanged.
+
+        Issue: If an srgb-linear color space is added, explain here how it interacts.
+
         <div algorithm=GPUQueue.copyExternalImageToTexture>
             **Called on:** {{GPUQueue}} |this|.
 
@@ -8152,17 +8327,21 @@ GPUQueue includes GPUObjectBase;
                                 {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/COPY_DST}}.
                             - |textureDesc|.{{GPUTextureDescriptor/dimension}} must be {{GPUTextureDimension/"2d"}}.
                             - |textureDesc|.{{GPUTextureDescriptor/sampleCount}} must be 1.
-                            - |textureDesc|.{{GPUTextureDescriptor/format}} must be one of the following:
+                            - |textureDesc|.{{GPUTextureDescriptor/format}} must be one of the following
+                                formats (which all support {{GPUTextureUsage/RENDER_ATTACHMENT}} usage):
+                                - {{GPUTextureFormat/"r8unorm"}}
+                                - {{GPUTextureFormat/"r16float"}}
+                                - {{GPUTextureFormat/"r32float"}}
+                                - {{GPUTextureFormat/"rg8unorm"}}
+                                - {{GPUTextureFormat/"rg16float"}}
+                                - {{GPUTextureFormat/"rg32float"}}
                                 - {{GPUTextureFormat/"rgba8unorm"}}
                                 - {{GPUTextureFormat/"rgba8unorm-srgb"}}
                                 - {{GPUTextureFormat/"bgra8unorm"}}
                                 - {{GPUTextureFormat/"bgra8unorm-srgb"}}
                                 - {{GPUTextureFormat/"rgb10a2unorm"}}
-                                - {{GPUTextureFormat/"rg8unorm"}}
-
-                                Issue: Evaluate adding additional formats to this list.
-                                Note that any format that represents values outside of 0 to 1
-                                has interactions with color space (e.g. clamped-srgb vs extended-srgb).
+                                - {{GPUTextureFormat/"rgba16float"}}
+                                - {{GPUTextureFormat/"rgba32float"}}
                         </div>
                     1. Issue: Do the actual copy.
                 </div>
@@ -8383,13 +8562,13 @@ When resolving pipeline statistics query, each result is written into {{GPUSize6
 
 The {{GPURenderPassEncoder/beginPipelineStatisticsQuery()}} and {{GPURenderPassEncoder/endPipelineStatisticsQuery()}} (on both {{GPUComputePassEncoder}} and {{GPURenderPassEncoder}}) cannot be nested. A pipeline statistics query must be ended before beginning another one.
 
-Pipeline statistics query requires {{GPUFeatureName/pipeline-statistics-query}} is available on the device.
+Pipeline statistics query requires {{GPUFeatureName/"pipeline-statistics-query"}} is available on the device.
 
 ## Timestamp Query ## {#timestamp}
 
-Timestamp query allows application to write timestamp values to a {{GPUQuerySet}} by calling {{GPURenderPassEncoder/writeTimestamp()}} on {{GPUComputePassEncoder}} or {{GPURenderPassEncoder}} or {{GPUCommandEncoder}}, and then resolve timestamp values in **nanoseconds** (type of {{GPUSize64}}) to a {{GPUBuffer}} (using {{GPUCommandEncoder/resolveQuerySet()}}).
+Timestamp query allows application to write timestamp values to a {{GPUQuerySet}} by calling {{GPUCommandEncoder/writeTimestamp()}} on {{GPUCommandEncoder}}, and then resolve timestamp values in **nanoseconds** (type of {{GPUSize64}}) to a {{GPUBuffer}} (using {{GPUCommandEncoder/resolveQuerySet()}}).
 
-Timestamp query requires {{GPUFeatureName/timestamp-query}} is available on the device.
+Timestamp query requires {{GPUFeatureName/"timestamp-query"}} is available on the device.
 
 Note: The timestamp values may be zero if the physical device reset timestamp counter, please ignore it and the following values.
 
@@ -8684,10 +8863,18 @@ dictionary GPUCanvasConfiguration {
 };
 </script>
 
-Issue: For SDR, it doesn't matter whether the default colorSpace of "srgb" means extended-srgb
-or clamped-srgb. However, when we add HDR canvas output (representing pixel values > 1),
-we need to choose which of those two is the default. Currently the upstream specs haven't worked
-out this question just yet.
+### Canvas Color Space ### {#canvas-color-space}
+
+During presentation, the chrominance of color values outside of the [0, 1] range is not to be
+clamped to that range; extended values may be used to display colors outside of the gamut defined
+by the canvas' color space's primaries, when permitted by the configured
+{{GPUCanvasConfiguration/format}} and the user's display capabilities.
+This is in contrast with luminance, which is to be clamped to the maximum standard dynamic range
+luminance.
+
+Issue:
+[Unless](https://github.com/WICG/canvas-color-space/blob/6bc492d2564abec316e2c5663aec9f9fa523a6a2/CanvasColorSpaceProposal.md#compositing-of-the-htmlcanvaselement)
+high dynamic range is explicitly enabled for the canvas element.
 
 ### Canvas Context sizing ### {#context-sizing}
 
@@ -9505,7 +9692,7 @@ An <dfn dfn>Extent3D</dfn> is a {{GPUExtent3D}}.
 
 # Feature Index # {#feature-index}
 
-## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>depth-clip-control</dfn> ## {#depth-clip-control}
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"depth-clip-control"</dfn> ## {#depth-clip-control}
 
 Issue: Define functionality when the {{GPUFeatureName/"depth-clip-control"}} [=feature=] is enabled.
 
@@ -9520,7 +9707,7 @@ The following dictionary values are supported if and only if the {{GPUFeatureNam
         * {{GPUPrimitiveState/unclippedDepth}}
 </dl>
 
-## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>depth24unorm-stencil8</dfn> ## {#depth24unorm-stencil8}
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"depth24unorm-stencil8"</dfn> ## {#depth24unorm-stencil8}
 
 Allows for explicit creation of textures of format {{GPUTextureFormat/"depth24unorm-stencil8"}}.
 
@@ -9535,7 +9722,7 @@ The following enums are supported if and only if the {{GPUFeatureName/"depth24un
         * {{GPUTextureFormat/"depth24unorm-stencil8"}}
 </dl>
 
-## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>depth32float-stencil8</dfn> ## {#depth32float-stencil8}
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"depth32float-stencil8"</dfn> ## {#depth32float-stencil8}
 
 Allows for explicit creation of textures of format {{GPUTextureFormat/"depth32float-stencil8"}}.
 
@@ -9550,7 +9737,7 @@ The following enums are supported if and only if the {{GPUFeatureName/"depth32fl
         * {{GPUTextureFormat/"depth32float-stencil8"}}
 </dl>
 
-## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>pipeline-statistics-query</dfn> ## {#pipeline-statistics-query}
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"pipeline-statistics-query"</dfn> ## {#pipeline-statistics-query}
 
 Issue: Define functionality when the {{GPUFeatureName/"pipeline-statistics-query"}} [=feature=] is enabled.
 
@@ -9566,7 +9753,7 @@ The following enums are supported if and only if the {{GPUFeatureName/"pipeline-
 </dl>
 
 
-## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>texture-compression-bc</dfn> ## {#texture-compression-bc}
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"texture-compression-bc"</dfn> ## {#texture-compression-bc}
 
 Allows for explicit creation of textures of BC compressed formats.
 
@@ -9594,7 +9781,73 @@ The following enums are supported if and only if the {{GPUFeatureName/"texture-c
         * {{GPUTextureFormat/"bc7-rgba-unorm-srgb"}}
 </dl>
 
-## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>timestamp-query</dfn> ## {#timestamp-query}
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"texture-compression-etc2"</dfn> ## {#texture-compression-etc}
+
+Allows for explicit creation of textures of ETC2 compressed formats.
+
+**Feature Enums**
+
+The following enums are supported if and only if the {{GPUFeatureName/"texture-compression-etc2"}}
+[=feature=] is enabled:
+
+<dl>
+    : {{GPUTextureFormat}}
+    ::
+        * {{GPUTextureFormat/"etc2-rgb8unorm"}}
+        * {{GPUTextureFormat/"etc2-rgb8unorm-srgb"}}
+        * {{GPUTextureFormat/"etc2-rgb8a1unorm"}}
+        * {{GPUTextureFormat/"etc2-rgb8a1unorm-srgb"}}
+        * {{GPUTextureFormat/"etc2-rgba8unorm"}}
+        * {{GPUTextureFormat/"etc2-rgba8unorm-srgb"}}
+        * {{GPUTextureFormat/"eac-r11unorm"}}
+        * {{GPUTextureFormat/"eac-r11snorm"}}
+        * {{GPUTextureFormat/"eac-rg11unorm"}}
+        * {{GPUTextureFormat/"eac-rg11snorm"}}
+</dl>
+
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"texture-compression-astc"</dfn> ## {#texture-compression-astc}
+
+Allows for explicit creation of textures of ASTC compressed formats.
+
+**Feature Enums**
+
+The following enums are supported if and only if the {{GPUFeatureName/"texture-compression-astc"}}
+[=feature=] is enabled:
+
+<dl>
+    : {{GPUTextureFormat}}
+    ::
+        * {{GPUTextureFormat/"astc-4x4-unorm"}}
+        * {{GPUTextureFormat/"astc-4x4-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-5x4-unorm"}}
+        * {{GPUTextureFormat/"astc-5x4-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-5x5-unorm"}}
+        * {{GPUTextureFormat/"astc-5x5-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-6x5-unorm"}}
+        * {{GPUTextureFormat/"astc-6x5-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-6x6-unorm"}}
+        * {{GPUTextureFormat/"astc-6x6-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-8x5-unorm"}}
+        * {{GPUTextureFormat/"astc-8x5-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-8x6-unorm"}}
+        * {{GPUTextureFormat/"astc-8x6-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-8x8-unorm"}}
+        * {{GPUTextureFormat/"astc-8x8-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-10x5-unorm"}}
+        * {{GPUTextureFormat/"astc-10x5-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-10x6-unorm"}}
+        * {{GPUTextureFormat/"astc-10x6-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-10x8-unorm"}}
+        * {{GPUTextureFormat/"astc-10x8-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-10x10-unorm"}}
+        * {{GPUTextureFormat/"astc-10x10-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-12x10-unorm"}}
+        * {{GPUTextureFormat/"astc-12x10-unorm-srgb"}}
+        * {{GPUTextureFormat/"astc-12x12-unorm"}}
+        * {{GPUTextureFormat/"astc-12x12-unorm-srgb"}}
+</dl>
+
+## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"timestamp-query"</dfn> ## {#timestamp-query}
 
 Issue: Define functionality when the {{GPUFeatureName/"timestamp-query"}} [=feature=] is enabled.
 
@@ -9951,6 +10204,120 @@ All packed texture formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsa
         <td rowspan=2>16
     <tr>
         <td>{{GPUTextureFormat/bc7-rgba-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/etc2-rgb8unorm}}
+        <td rowspan=2>8
+        <td rowspan=10>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
+        <td rowspan=10>4 &times; 4
+        <td rowspan=10>{{GPUFeatureName/texture-compression-etc2}}
+    <tr>
+        <td>{{GPUTextureFormat/etc2-rgb8unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/etc2-rgb8a1unorm}}
+        <td rowspan=2>8
+    <tr>
+        <td>{{GPUTextureFormat/etc2-rgb8a1unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/etc2-rgba8unorm}}
+        <td rowspan=2>16
+    <tr>
+        <td>{{GPUTextureFormat/etc2-rgba8unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/eac-r11unorm}}
+        <td rowspan=2>8
+    <tr>
+        <td>{{GPUTextureFormat/eac-r11snorm}}
+    <tr>
+        <td>{{GPUTextureFormat/eac-rg11unorm}}
+        <td rowspan=2>16
+    <tr>
+        <td>{{GPUTextureFormat/eac-rg11snorm}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-4x4-unorm}}
+        <td rowspan=2>16
+        <td rowspan=28>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
+        <td rowspan=2>4 &times; 4
+        <td rowspan=28>{{GPUFeatureName/texture-compression-astc}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-4x4-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-5x4-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>5 &times; 4
+    <tr>
+        <td>{{GPUTextureFormat/astc-5x4-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-5x5-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>5 &times; 5
+    <tr>
+        <td>{{GPUTextureFormat/astc-5x5-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-6x5-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>6 &times; 5
+    <tr>
+        <td>{{GPUTextureFormat/astc-6x5-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-6x6-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>6 &times; 6
+    <tr>
+        <td>{{GPUTextureFormat/astc-6x6-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-8x5-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>8 &times; 5
+    <tr>
+        <td>{{GPUTextureFormat/astc-8x5-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-8x6-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>8 &times; 6
+    <tr>
+        <td>{{GPUTextureFormat/astc-8x6-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-8x8-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>8 &times; 8
+    <tr>
+        <td>{{GPUTextureFormat/astc-8x8-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-10x5-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>10 &times; 5
+    <tr>
+        <td>{{GPUTextureFormat/astc-10x5-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-10x6-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>10 &times; 6
+    <tr>
+        <td>{{GPUTextureFormat/astc-10x6-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-10x8-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>10 &times; 8
+    <tr>
+        <td>{{GPUTextureFormat/astc-10x8-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-10x10-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>10 &times; 10
+    <tr>
+        <td>{{GPUTextureFormat/astc-10x10-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-12x10-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>12 &times; 10
+    <tr>
+        <td>{{GPUTextureFormat/astc-12x10-unorm-srgb}}
+    <tr>
+        <td>{{GPUTextureFormat/astc-12x12-unorm}}
+        <td rowspan=2>16
+        <td rowspan=2>12 &times; 12
+    <tr>
+        <td>{{GPUTextureFormat/astc-12x12-unorm-srgb}}
 </table>
 
 ## Temporary usages of non-exported dfns ## {#temp-dfn-usages}
