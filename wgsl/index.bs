@@ -5716,31 +5716,32 @@ Note: If the function [=return value|returns a value=], that value is ignored.
 Some statements affecting control-flow are only valid in some contexts.
 For example, `fallthrough` is invalid outside of a switch, and `continue` is invalid outside of a loop.
 Additionally, the uniformity analysis (see [[#uniformity]]) needs to know when control flow can exit a statement in multiple different ways.
-Both of these goals are achieved by a simple type system applied to statements.
-To avoid confusion with the types of expressions, we call the type of a statement its <dfn export>behavior</dfn>.
 
-A [=behavior=] is simply a set, whose elements may be:
+Both goals are achieved by a system for summarizing execution behaviors of statements and expressions. Behavior analysis maps each statement and expression to the set of possible ways execution proceeds after evaluation of the statement or expression completes.
+As with type analysis for values and expressions, behavior analysis proceeds bottom up: first determine behaviors for certain basic statements, and then determine behavior for higher level constructs by applying combining rules.
+
+A <dfn expor>behavior</dfn> is a set, whose elements may be:
 - Return
 - Discard
 - Break
 - Continue
 - Fallthrough
-- Default
+- Next
 
-Each of those correspond to a way to exit a compound statement: either through a keyword, or by simply falling to the next statement ("Default").
+Each of those correspond to a way to exit a compound statement: either through a keyword, or by falling to the next statement ("Next").
 
 We note "*s*: *B*" to say that *s* respects the rules regarding behaviors, and has [=behavior=] *B*.
 
 For each function:
 - its body must be a valid statement by these rules
 - if it has a return type, its [=behavior=] must be one of {Return} or {Return, Discard}
-- otherwise, its [=behavior=] must be a subset of {Default, Return, Discard}
+- otherwise, its [=behavior=] must be a subset of {Next, Return, Discard}
 
-We assign a [=behavior=] to each function: it is its body's [=behavior=] (treating the body as a regular statement), with any "Return" replaced by "Default".
-As a consequence of the rules above, a function behavior is always one of {Default}, {Discard} or {Default, Discard}.
+We assign a [=behavior=] to each function: it is its body's [=behavior=] (treating the body as a regular statement), with any "Return" replaced by "Next".
+As a consequence of the rules above, a function behavior is always one of {Next}, {Discard} or {Next, Discard}.
 
 Similarly, we assign a [=behavior=] to each expression, since expressions can include function calls, which can discard.
-Like functions, expression behaviors are always one of {Default}, {Discard}, or {Default, Discard}.
+Like functions, expression behaviors are always one of {Next}, {Discard}, or {Next, Discard}.
 
 Note: There is currently no valid program with an expression that has a [=behavior=] of {Discard}.
 The reason is that only functions without a return type can have such a [=behavior=], and there is no compound expression in which such a function can be called.
@@ -5753,13 +5754,13 @@ The reason is that only functions without a return type can have such a [=behavi
   <tr>
     <td class="nowrap">*s1* ; *s2*
     <td class="nowrap">*s1*: *B1*<br>
-        Default in *B1*<br>
+        Next in *B1*<br>
         *s2*: *B2*
-    <td class="nowrap">*B1*&#x2216;{Default} &cup; *B2*
+    <td class="nowrap">*B1*&#x2216;{Next} &cup; *B2*
   <tr>
     <td class="nowrap">var x:T;
     <td>
-    <td>{Default}
+    <td>{Next}
   <tr>
     <td class="nowrap">let x = *e*;
     <td class="nowrap">*e*: *B*
@@ -5778,7 +5779,7 @@ The reason is that only functions without a return type can have such a [=behavi
         ...<br>
         *e_n*: *B_n*<br>
         *f*'s body has behavior *B*
-    <td class="nowrap">*B* &cup; (*B_1* &cup; ... &cup; *B_n*)&#x2216;{Default}
+    <td class="nowrap">*B* &cup; (*B_1* &cup; ... &cup; *B_n*)&#x2216;{Next}
   <tr>
     <td>return;
     <td>
@@ -5786,7 +5787,7 @@ The reason is that only functions without a return type can have such a [=behavi
   <tr>
     <td class="nowrap">return *e*;
     <td class="nowrap">*e*: *B*<br>
-    <td class="nowrap">*B*&#x2216;{Default} &cup; {Return}
+    <td class="nowrap">*B*&#x2216;{Next} &cup; {Return}
   <tr>
     <td>discard;
     <td>
@@ -5809,20 +5810,20 @@ The reason is that only functions without a return type can have such a [=behavi
         *s1*: *B1*<br>
         ...<br>
         *sn*: *Bn*
-    <td class="nowrap">*B*&#x2216;{Default} &cup; B1 &cup; ... &cup; Bn
+    <td class="nowrap">*B*&#x2216;{Next} &cup; B1 &cup; ... &cup; Bn
   <tr>
     <td class="nowrap">loop {*s*}
     <td class="nowrap">*s*: *B*
-    <td class="nowrap">let b = *B*&#x2216;{Default};<br>
-        if (Break in b) b = b&#x2216;{Break} &cup; {Default};<br>
+    <td class="nowrap">let b = *B*&#x2216;{Next};<br>
+        if (Break in b) b = b&#x2216;{Break} &cup; {Next};<br>
         b&#x2216;{Continue}
   <tr>
     <td class="nowrap">loop {*s1* continuing {*s2*}}
     <td class="nowrap">*s1*: *B1*<br>
         *s2*: *B2*<br>
         Neither Continue nor Return are in *B2*
-    <td class="nowrap">let b = (*B1* &cup; *B2*)&#x2216;{Default};<br>
-        if (Break in b) b = b&#x2216;{Break} &cup; {Default};<br>
+    <td class="nowrap">let b = (*B1* &cup; *B2*)&#x2216;{Next};<br>
+        if (Break in b) b = b&#x2216;{Break} &cup; {Next};<br>
         b&#x2216;{Continue}
   <tr>
     <td class="nowrap">switch(*e*) {case _: *s1* ... case _: *sn*}
@@ -5831,13 +5832,13 @@ The reason is that only functions without a return type can have such a [=behavi
         ...<br>
         *sn*: *Bn*<br>
         Fallthrough is not in *Bn*
-    <td class="nowrap">let b = *B*&#x2216;{Default} &cup; B1 &cup; ... &cup; Bn;<br>
-        if (Break in b) b = b&#x2216;{Break} &cup; {Default};<br>
+    <td class="nowrap">let b = *B*&#x2216;{Next} &cup; B1 &cup; ... &cup; Bn;<br>
+        if (Break in b) b = b&#x2216;{Break} &cup; {Next};<br>
         b&#x2216;{Fallthrough}
 </table>
 
 `for` loops get desugared before this analysis is performed, see [[#for-statement]].
-Similarly, if statements without an else branch are treated as if they had an empty else branch (which adds Default to their [=behavior=]).
+Similarly, if statements without an else branch are treated as if they had an empty else branch (which adds Next to their [=behavior=]).
 
 <table class='data'>
   <caption>Rules for analyzing and validating the behaviors of expressions</caption>
@@ -5850,15 +5851,15 @@ Similarly, if statements without an else branch are treated as if they had an em
         ...<br>
         *e_n*: *B_n*<br>
         *f*'s body has behavior *B*
-    <td class="nowrap">*B* &cup; (*B_1* &cup; ... &cup; *B_n*)&#x2216;{Default}
+    <td class="nowrap">*B* &cup; (*B_1* &cup; ... &cup; *B_n*)&#x2216;{Next}
   <tr>
     <td class="nowrap">Any literal
     <td>
-    <td class="nowrap">{Default}
+    <td class="nowrap">{Next}
   <tr>
     <td class="nowrap">Any variable reference
     <td>
-    <td class="nowrap">{Default}
+    <td class="nowrap">{Next}
   <tr>
     <td class="nowrap">e1[e2]
     <td class="nowrap">*e1*: *B1*<br>
@@ -5880,23 +5881,29 @@ Similarly, if statements without an else branch are treated as if they had an em
     <td class="nowrap">*B1* &cup; *B2*
 </table>
 
-All functions in the standard library have [=behavior=] {Default}.
-And all operators other than `||` and `&&` behave as function calls with [=behavior=] {Default}.
+Any other expression (not listed in the table above), and each [=built-in function=] has a [=behavior=] of {Next}.
 
-It is a [=shader-creation error=] if any of the rules for functions (above) are violated or if it contains a statement or expression where none of the rules above apply because of preconditions.
+A [=shader-creation error=] results if behavior analysis fails:
+- Behavior analysis must be able to determine a [=behavior=] for each statement, expression, and function.
+  This can only fail if preconditions are not met.
+- The function behaviors must satisfy the rules given above.
+- The behaviors of compute and vertex entry points must not contain Discard.
 
 ### Notes ### {#behaviors-notes}
 
 This section is informative, non-normative.
 
 Here is the full list of ways that these rules can cause a program to be rejected (this is just restating information already listed above):
-- The body of a function (treated as a regular statement) has a behavior not included in {Default, Return, Discard}.
+- The body of a function (treated as a regular statement) has a behavior not included in {Next, Return, Discard}.
 - The body of a function with a return type has a behavior which is neither {Return} nor {Return, Discard}
-- A statement without Default in its behavior is not the last in a sequence of statements
+- A statement without Next in its behavior is not the last in a sequence of statements
 - The behavior of a continuing block contains either Continue or Return
 - The behavior of the last case of a switch contains Fallthrough
+- The behavior of a compute or vertex entry point function contains Discard
 
 This analysis can be run in linear time, by analyzing the call-graph bottom-up (since the behavior of a function call can depend on the function's code).
+
+As a result of the rules above, no expression, statement, or function can have an empty [=behavior=].
 
 ### Examples ### {#behaviors-examples}
 
@@ -5906,7 +5913,7 @@ Here are some examples showing this analysis in action:
     fn simple() -> i32 {
       var a: i32;
       return 0;  // Behavior: {Return}
-      a = 1;     // Error: by the rule for sequences of statements, the previous statement should have a behavior that include "Default"
+      a = 1;     // Error: by the rule for sequences of statements, the previous statement should have a behavior that include "Next"
       return 2;
     }
    </xmp>
@@ -5917,10 +5924,10 @@ Here are some examples showing this analysis in action:
     fn nested() -> i32 {
       var a: i32;
       {             // The start of a compound statement.
-        a = 2;      // Behavior: {Default}
+        a = 2;      // Behavior: {Next}
         return 1;   // Behavior: {Return}
       }             // The compound statement as a whole has behavior {Return}
-      a = 1;        // Error: for the same reason as in the previous example, the previous statement is missing "Default" in its behavior
+      a = 1;        // Error: for the same reason as in the previous example, the previous statement is missing "Next" in its behavior
       return 2;
     }
    </xmp>
@@ -5933,8 +5940,8 @@ Here are some examples showing this analysis in action:
       loop {
         if (a == 5) {
           break;      // Behavior: {Break}
-        }             // Behavior of the whole if compound statement: {Break, Default}, as the if has an implicit empty else
-        a = a + 1;    // valid, as the previous statement had "Default" in its behavior
+        }             // Behavior of the whole if compound statement: {Break, Next}, as the if has an implicit empty else
+        a = a + 1;    // valid, as the previous statement had "Next" in its behavior
       }
     }
    </xmp>
@@ -5950,13 +5957,13 @@ Here are some examples showing this analysis in action:
         } else {
           continue;   // Behavior: {Continue}
         }             // Behavior of the whole if compound statement: {Break, Continue}
-        a = a + 1;    // Error: the previous statement is missing "Default" in its behavior
+        a = a + 1;    // Error: the previous statement is missing "Next" in its behavior
       }
     }
    </xmp>
 </div>
 
-<div class='example wgsl' heading='Break in switch becomes Default'>
+<div class='example wgsl' heading='Break in switch becomes Next'>
    <xmp highlight='rust'>
     fn switch_example() {
       var a: i32 = 0;
@@ -5964,8 +5971,8 @@ Here are some examples showing this analysis in action:
         default: {
           break;   // Behavior: {Break}
         }
-      }            // Behavior: {Default}, as switch replaces Break by Default
-      a = 5;       // valid, as the previous statement had Default in its behavior
+      }            // Behavior: {Next}, as switch replaces Break by Next
+      a = 5;       // valid, as the previous statement had Next in its behavior
     }
    </xmp>
 </div>
@@ -5975,15 +5982,15 @@ Here are some examples showing this analysis in action:
     fn conditional_continue() {
       var a: i32;
       loop {
-        if (a == 5) { break; } // Behavior: {Break, Default}
-        if (a % 2 == 1) {      // valid, as the previous statement has Default in its behavior
+        if (a == 5) { break; } // Behavior: {Break, Next}
+        if (a % 2 == 1) {      // valid, as the previous statement has Next in its behavior
           continue;            // Behavior: {Continue}
-        }                      // Behavior: {Continue, Default}
-        a = a * 2;             // valid, as the previous statement has Default in its behavior
-        continuing {           // valid as the continuing statement has behavior {Default} which does not include any of {Break, Continue, Discard, Return}
+        }                      // Behavior: {Continue, Next}
+        a = a * 2;             // valid, as the previous statement has Next in its behavior
+        continuing {           // valid as the continuing statement has behavior {Next} which does not include any of {Break, Continue, Discard, Return}
           a = a + 1;
         }
-      }                        // The loop as a whole has behavior {Default}, as it absorbs "Continue" and "Default", then replaces "Break" with "Default"
+      }                        // The loop as a whole has behavior {Next}, as it absorbs "Continue" and "Next", then replaces "Break" with "Next"
     }
    </xmp>
 </div>
@@ -6008,11 +6015,11 @@ Here are some examples showing this analysis in action:
     fn continue_end_of_loop_body() {
       for (var i: i32 = 0; i < 5; i = i + 1 ) {
         continue;   // Valid. This is redundant, branching to the end of the loop body.
-      }             // Behavior: {Default}, as loops absorb "Continue", and "for" loops always add "Default"
+      }             // Behavior: {Next}, as loops absorb "Continue", and "for" loops always add "Next"
     }
    </xmp>
 </div>
-`for` loops desugar to `loop` with a conditional break. As shown in a previous example, the conditional break has [=behavior=] {Break, Default}, which leads to adding "Default" to the loop's [=behavior=].
+`for` loops desugar to `loop` with a conditional break. As shown in a previous example, the conditional break has [=behavior=] {Break, Next}, which leads to adding "Next" to the loop's [=behavior=].
 
 <div class='example wgsl expect-error' heading='Effect of a function that discards unconditionally'>
    <xmp highlight='rust'>
@@ -6022,7 +6029,7 @@ Here are some examples showing this analysis in action:
     fn code_after_discard() {
       var a: i32;
       always_discard(); // Behavior: {Discard}
-      a = a + 1;        // Error: the previous statement is missing "Default" in its behavior
+      a = a + 1;        // Error: the previous statement is missing "Next" in its behavior
     }
    </xmp>
 </div>
@@ -6032,14 +6039,14 @@ Here are some examples showing this analysis in action:
     fn sometimes_discard(a: i32) {
       if (a) {
         discard;        // Behavior: {Discard}
-      }                 // Behavior: {Default, Discard}
-    }                   // The whole function has behavior {Default, Discard}
+      }                 // Behavior: {Next, Discard}
+    }                   // The whole function has behavior {Next, Discard}
     fn code_after_discard() {
       var a: i32;
       a = 42;
-      sometimes_discard(a);  // Behavior: {Default, Discard}
+      sometimes_discard(a);  // Behavior: {Next, Discard}
       a = a + 1;             // Valid
-    }                        // The whole function has behavior {Default, Discard}
+    }                        // The whole function has behavior {Next, Discard}
    </xmp>
 </div>
 
@@ -6049,8 +6056,8 @@ Here are some examples showing this analysis in action:
       var a: i32 = 0;
       if (42) {
         return a;       // Behavior: {Return}
-      }                 // Behavior: {Default, Return}
-    }                   // Error: Default is invalid in the body of a function with a return type
+      }                 // Behavior: {Next, Return}
+    }                   // Error: Next is invalid in the body of a function with a return type
    </xmp>
 </div>
 
@@ -6060,7 +6067,7 @@ Here are some examples showing this analysis in action:
       var a: i32 = 0;
       if (a) {
         continue;       // Behavior: {Continue}
-      }                 // Behavior: {Default, Continue}
+      }                 // Behavior: {Next, Continue}
     }                   // Error: Continue is invalid in the body of a function
    </xmp>
 </div>
