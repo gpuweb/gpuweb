@@ -434,8 +434,8 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
 subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
 subprocess.run(["npx", "tree-sitter", "generate"],
                cwd=grammar_path, check=True)
-subprocess.run(["npx", "tree-sitter", "build-wasm"],
-               cwd=grammar_path, check=True)
+# subprocess.run(["npx", "tree-sitter", "build-wasm"],
+#                cwd=grammar_path, check=True)
 
 Language.build_library(
     grammar_path + "/build/wgsl.so",
