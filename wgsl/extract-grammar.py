@@ -434,6 +434,7 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
 subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
 subprocess.run(["npx", "tree-sitter", "generate"],
                cwd=grammar_path, check=True)
+# Following are commented for future reference to expose playground
 # subprocess.run(["npx", "tree-sitter", "build-wasm"],
 #                cwd=grammar_path, check=True)
 
