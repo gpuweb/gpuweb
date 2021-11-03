@@ -8,7 +8,7 @@ The WGSL grammar in the specification is validated using [Tree-sitter](https://t
 To install both `Bikeshed` and `Tree-sitter`, type:
 
 ```bash
-pip3 install bikeshed==3.0.3 tree_sitter==0.19.0
+python3 -m pip install bikeshed==3.0.3 tree_sitter==0.19.0
 ```
 
 ## Generating both the specification and validating grammar (recommended)
