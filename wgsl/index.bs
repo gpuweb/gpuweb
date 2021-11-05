@@ -1390,8 +1390,6 @@ In [SHORTNAME], a value of [=storable=] type may be stored in memory, for later 
 This section describes the structure of memory, and how [SHORTNAME] types are used to
 describe the contents of memory.
 
-In general [SHORTNAME] follows the [[!VulkanMemoryModel|Vulkan Memory Model]].
-
 ### Memory Locations ### {#memory-locations-section}
 
 Memory consists of a set of distinct <dfn noexport>memory locations</dfn>.
@@ -6510,7 +6508,27 @@ TODO: *Stub*
 * Internal module-scope variables have backing storage
   * Initializers evaluated in textual order
 
-### Program order (within an invocation) TODO ### {#program-order}
+### Program order (within an invocation) ### {#program-order}
+
+Each statement in a [SHORTNAME] program may be executed zero or more times during
+execution.
+For a given invocation, each execution of a given statement represents a unique
+<dfn noexport>dynamic statement instance</dfn>.
+
+When a statement includes an expression, the statement’s semantics determines:
+* Whether the expression is evaluated as part of statement execution.
+* The relative ordering of evaluation between independent expressions in the statement.
+
+Expression nesting defines data dependencies which must be satisfied to
+complete evaluation.
+That is, a nested expression must be evaluated before the enclosing expression
+can be evaluated.
+The order of evaluation for operands of an expression is not defined by
+[SHORTNAME].
+For example, `foo() + bar()` may evaluate either `foo()` or `bar()` first.
+
+Statements in a [SHORTNAME] program are executed in control flow order.
+See [[#statements]] and [[#function-calls]].
 
 #### Function-scope variable lifetime and initialization TODO #### {#function-scope-variable-lifetime}
 
@@ -6835,7 +6853,146 @@ Issue: (dneto) Default rounding mode is an implementation choice.  Is that what 
 Issue: Check behaviour of the f32 to f16 conversion for numbers just beyond the max normal f16 values.
 I've written what an NVIDIA GPU does.  See https://github.com/google/amber/pull/918 for an executable test case.
 
-# Memory Model TODO # {#memory-model}
+# Memory Model # {#memory-model}
+
+In general, [SHORTNAME] follows the [[!VulkanMemoryModel|Vulkan Memory Model]].
+The remainder of this section describes how [SHORTNAME] programs map to the
+Vulkan Memory Model.
+
+Note: The Vulkan Memory Model is a textual version of a [formal Alloy
+model](https://github.com/KhronosGroup/Vulkan-MemoryModel/blob/master/alloy/spirv.als).
+
+## Memory Operation ## {#memory-operation}
+
+In [SHORTNAME], a [=read access=] is equivalent to a memory read operation in
+the Vulkan Memory Model.
+A [SHORTNAME], a [=write access=] is equivalent to a memory write operation in
+the Vulkan Memory Model.
+
+A [=read access=] occurs when an invocation executes one of the following:
+* An evaluation of the [=Load Rule=]
+* Any [[#texture-builtin-functions|texture builtin function]] except:
+    * [[#texturedimensions|textureDimensions]]
+    * [[#texturestore|textureStore]]
+    * [[#texturenumlayers|textureNumLayers]]
+    * [[#texturenumlevels|textureNumLevels]]
+    * [[#texturenumsamples|textureNumSamples]]
+* Any atomic built-in function except [[#atomic-store|atomicStore]]
+
+A [=write access=] occurs when an invocation executes one of the following:
+* An [=statement/assignment=] statement
+* A [[#texturestore|textureStore]] built-in function
+* Any atomic built-in function except [[#atomic-load|atomicLoad]]
+    * [[#atomic-rmw|atomicCompareExchangeWeak]] only performs a write if the
+        `exchanged` member of the returned result is `true`
+
+[[#atomic-rmw|Atomic read-modify-write]] built-in functions perform a single
+memory operation that is both a [=read access=] and a [=write access=].
+
+Read and write accesses do not occur under any other circumstances.
+Read and write accesses are collectively known as [memory
+operations](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-memory-operation)
+in the Vulkan Memory Model.
+
+A memory operation accesses exactly the set of [=memory location|locations=]
+associated with the particular [=memory view=] used in the operation.  For
+example, a memory read that accesses a [=u32=] from a struct containing
+multiple members, only reads the memory locations associated with that u32
+member.
+
+<div class='example memory locations accessed' heading="Accessing memory locations">
+  <xmp>
+    [[block]] struct S {
+      a : f32;
+      b : u32;
+      c : f32;
+    };
+
+    [[group(0), binding(0)]]
+    var<storage> v : S;
+
+    fn foo() {
+      let x = v.b; // Does not access memory locations for v.a or v.c.
+    }
+  </xmp>
+</div>
+
+## Memory Model Reference ## {#memory-model-reference}
+
+Each module-scope variable in [SHORTNAME] forms a unique [memory model
+reference](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-references)
+for the lifetime of a given entry point.
+Each function-scope variable in [SHORTNAME] forms a unique [memory model
+reference](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-references)
+for the lifetime of the variable.
+
+## Scoped Operations ## {#scoped-operations}
+
+[[#atomic-builtin-functions|Atomic built-in functions]] map to [atomic
+operations](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-atomic-operation)
+whose memory
+[scope](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-scope)
+is:
+* `Workgroup` if the atomic pointer is in the [=storage classes/workgroup=]
+    storage class
+* `QueueFamily` if the atomic pointer is in the [=storage
+    classes/storage=] storage class
+
+[[#sync-builtin-functions|Synchronization built-in functions]] map to control
+barriers whose execution
+[scope](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-scope)
+is `Workgroup` and whose memory
+[scope](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-scope)
+is:
+* `Workgroup` for `workgroupBarrier`
+* `QueueFamily` for `storageBarrier`
+
+Note: If a `workgroupBarrier` and a `storageBarrier` are combined, the
+resulting memory scope is `QueueFamily`.
+
+Note: When generating SPIR-V that does not enable the `Vulkan` memory model,
+`Device` scope should be used instead of `QueueFamily`.
+
+## Memory Semantics ## {#memory-semantics}
+
+All [[#atomic-builtin-functions|Atomic built-in functions]] use `Relaxed`
+[memory
+semantics](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-memory-semantics)
+and, thus, no storage class semantics.
+
+[[#sync-builtin-functions|workgroupBarrier]] uses `AcquireRelease` [memory
+semantics](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-memory-semantics)
+and `WorkgroupMemory` storage semantics.
+[[#sync-builtin-functions|storageBarrier]] uses `AcquireRelease` [memory
+semantics](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-memory-semantics)
+and `UniformMemory` storage semantics.
+
+Note: A combined `workgroupBarrier` and `storageBarrier` uses `AcquireRelease`
+ordering semantics and both `WorkgroupMemory` and `UniformMemory` memory
+semantics.
+
+Note: No atomic or synchronization built-in functions use `MakeAvailable` or
+`MakeVisible` semantics.
+
+## Private vs Non-Private ## {#private-vs-non-private}
+
+All non-atomic [=read accesses=] in the [=storage classes/storage=] or
+[=storage classes/workgroup=] storage classes are considered
+[non-private](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-non-private)
+and correspond to read operations with `NonPrivatePointer | MakePointerVisible`
+memory operands with the following scope:
+* `Workgroup` for the [=storage classes/workgroup=] storage class
+* `Device`/`QueueFamily` for the [=storage classes/storage=] storage class
+
+All non-atomic [=write accesses=] in the [=storage classes/storage=] or
+[=storage classes/workgroup=] storage classes are considered
+[non-private](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#memory-model-non-private)
+and correspond to write operations with `NonPrivatePointer |
+MakePointerAvailable` memory operands with the following scope:
+* `Workgroup` for the [=storage classes/workgroup=] storage class
+* `Device`/`QueueFamily` for the [=storage classes/storage=] storage class
+
+Issue: https://github.com/gpuweb/gpuweb/issues/1621
 
 # Keyword and Token Summary # {#grammar}
 
