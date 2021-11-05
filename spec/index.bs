@@ -557,8 +557,12 @@ Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web W
 A <dfn dfn>WebGPU interface</dfn> is an exposed interface which encapsulates an [=internal object=].
 It provides the interface through which the [=internal object=]'s state is changed.
 
-As a matter of convention, if a [=WebGPU interface=] is referred to as [=invalid=],
-it means that the [=internal object=] it encapsulates is [=invalid=].
+As a matter of convention, a [=WebGPU interface=] is considered [=invalid=]
+if and only if the [=internal object=] it encapsulates is [=invalid=].
+
+Issue: This convention can't really be used in formal contexts, because interfaces are
+content-timeline and internal objects are device-timeline.
+We can probably remove this convention eventually once other spec language is cleaned up.
 
 Any interface which includes {{GPUObjectBase}} is a [=WebGPU interface=].
 
@@ -610,36 +614,32 @@ dictionary GPUObjectDescriptorBase {
 
 ## Invalid Internal Objects &amp; Contagious Invalidity ## {#invalidity}
 
-If an object is successfully created, it is <dfn dfn>valid</dfn> at that moment.
-An [=internal object=] may be <dfn dfn>invalid</dfn>.
-It may become [=invalid=] during its lifetime, but it will never become valid again.
+Object creation operations in WebGPU are internally asynchronous, so they don't fail with exceptions.
+Instead, returned objects may refer to [=internal objects=] which are either
+<dfn dfn>valid</dfn> or <dfn dfn>invalid</dfn>.
+An object may become [=invalid=] during its lifetime, but it will never become [=valid=] again.
 
-Issue: Consider separating "invalid" from "destroyed".
-This would let validity be immutable, and only operations involving devices, buffers, and textures
-(e.g. submit, map) would check those objects' `[[destroyed]]` state (explicitly).
+Objects are invalid at creation if it wasn't possible to create them.
+This can happen, for example, if the [=object descriptor=] doesn't describe a valid
+object, or if there is not enough memory to allocate a resource.
 
-<div class=note>
-    [=Invalid=] objects result from a number of situations, including:
+Most [=internal objects=] won't become [=invalid=] after they are created, but still
+may become unusable, e.g. if the owning device is [=lose the device|lost=] or
+{{GPUDevice/destroy()|destroyed}}, or the object has a special internal state,
+like buffer state [=buffer state/destroyed=].
 
-      - If there is an error in the creation of an object, it is immediately invalid.
-        This can happen, for example, if the [=object descriptor=] doesn't describe a valid
-        object, or if there is not enough memory to allocate a resource.
-      - If an object is explicitly destroyed (e.g. {{GPUBuffer/destroy()|GPUBuffer.destroy()}}),
-        it becomes invalid.
-      - If the [=device=] that owns an object is lost, the object becomes invalid.
-</div>
+Some [=internal objects=] *can* become [=invalid=] after they are created; specifically:
+[=devices=] and command/pass/bundle encoders.
 
 <div algorithm>
-    To determine if a given {{GPUObjectBase}} |object| is <dfn abstract-op>valid to use with</dfn>
-    a |targetObject|, run the following steps:
+    A given {{GPUObjectBase}} |object| is <dfn abstract-op>valid to use with</dfn>
+    a |targetObject| if and only if the following requirements are met:
 
-        1. If any of the following conditions are unsatisfied return `false`:
-            <div class=validusage>
-                - |object| is [=valid=]
-                - |object|.{{GPUObjectBase/[[device]]}} is [=valid=].
-                - |object|.{{GPUObjectBase/[[device]]}} is |targetObject|.{{GPUObjectBase/[[device]]}}.
-            </div>
-        1. Return `true`.
+    <div class=validusage>
+        - |object| must be [=valid=].
+        - |object|.{{GPUObjectBase/[[device]]}} must be [=valid=].
+        - |object|.{{GPUObjectBase/[[device]]}} must equal |targetObject|.{{GPUObjectBase/[[device]]}}.
+    </div>
 </div>
 
 ## Coordinate Systems ## {#coordinate-systems}
@@ -992,9 +992,10 @@ through which [=internal objects=] are created.
 It can be shared across multiple [=agents=] (e.g. dedicated workers).
 
 A [=device=] is the exclusive owner of all [=internal objects=] created from it:
-when the [=device=] is [=lose the device|lost=], it and all objects created on it (directly, e.g.
+when the [=device=] is [=lose the device|lost=] or {{GPUDevice/destroy()|destroyed}},
+it and all objects created on it (directly, e.g.
 {{GPUDevice/createTexture()}}, or indirectly, e.g. {{GPUTexture/createView()}}) become
-[=invalid=].
+implicitly [$valid to use with|unusable$].
 
 Issue: Define "ownership".
 
@@ -1038,6 +1039,7 @@ Any time the user agent needs to revoke access to a device, it calls
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
 
     1. Set |device|.{{device/[[adapter]]}}.{{adapter/[[current]]}} to `false`.
+    1. Make |device| [=invalid=].
     1. Issue: explain how to get from |device| to its "primary" {{GPUDevice}}.
     1. Resolve {{GPUDevice/lost|GPUDevice.lost}} with a new {{GPUDeviceLostInfo}} with
         {{GPUDeviceLostInfo/reason}} set to |reason| and
@@ -2183,6 +2185,7 @@ namespace GPUMapMode {
             1. If any of the following conditions are unsatisfied:
                 <div class=validusage>
                     - |this| is a [=valid=] {{GPUBuffer}}.
+                        TODO: check destroyed state?
                     - |offset| is a multiple of 8.
                     - |rangeSize| is a multiple of 4.
                     - |offset| + |rangeSize| is less or equal to |this|.{{GPUBuffer/[[size]]}}
@@ -6280,14 +6283,12 @@ must be well nested.
 
             **Returns:** {{undefined}}
 
-            Issue the following steps on the [=Device timeline=] of |this|:
-            <div class=device-timeline>
-                - If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
-                    <div class=validusage>
-                        - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                    </div>
-                - [=stack/Push=] |groupLabel| onto |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.
-            </div>
+            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
+                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
+            1. Issue the following steps on the [=Device timeline=] of |this|:
+                <div class=device-timeline>
+                    1. [=stack/Push=] |groupLabel| onto |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.
+                </div>
         </div>
 
     : <dfn>popDebugGroup()</dfn>
@@ -6299,15 +6300,16 @@ must be well nested.
 
             **Returns:** {{undefined}}
 
-            Issue the following steps on the [=Device timeline=] of |this|:
-            <div class=device-timeline>
-                - If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
-                    <div class=validusage>
-                        - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                        - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}'s [=stack/size=] is greater than 0.
-                    </div>
-                - [=stack/Pop=] an entry off |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.
-            </div>
+            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
+                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
+            1. Issue the following steps on the [=Device timeline=] of |this|:
+                <div class=device-timeline>
+                    1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
+                        <div class=validusage>
+                            - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}'s [=stack/size=] must be &gt; 0.
+                        </div>
+                    1. [=stack/Pop=] an entry off |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.
+                </div>
         </div>
 
     : <dfn>insertDebugMarker(markerLabel)</dfn>
@@ -6324,13 +6326,8 @@ must be well nested.
 
             **Returns:** {{undefined}}
 
-            Issue the following steps on the [=Device timeline=] of |this|:
-            <div class=device-timeline>
-                - If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
-                    <div class=validusage>
-                        - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                    </div>
-            </div>
+            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
+                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
         </div>
 </dl>
 
@@ -6422,14 +6419,19 @@ command encoder can no longer be used.
             1. Let |commandBuffer| be a new {{GPUCommandBuffer}}.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
-                    1. If any of the following conditions are unsatisfied, generate a validation
-                        error and stop.
+                    1. If any of the following requirements are unmet:
                         <div class=validusage>
                             - |this| must be [=valid=].
                             - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}'s [=stack/size=] must be 0.
                             - |this|.{{GPUCommandEncoder/[[state]]}} must be [=encoder state/open=].
                             - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
                         </div>
+
+                        Then:
+
+                        1. Generate a {{GPUValidationError}} in the current scope with appropriate
+                            error message.
+                        1. Return a new [=invalid=] {{GPUCommandBuffer}}.
 
                     1. Set |this|.{{GPUCommandEncoder/[[state]]}} to [=encoder state/closed=].
                     1. Set |commandBuffer|.{{GPUCommandBuffer/[[command_list]]}} to
@@ -6911,9 +6913,10 @@ called the compute pass encoder can no longer be used.
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
-                1. If any of the following conditions are unsatisfied, generate a validation
-                    error and stop.
+                1. If any of the following conditions are unsatisfied, make
+                    |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}} [=invalid=] and stop.
                     <div class=validusage>
+                        - |this| must be [=valid=].
                         - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] is 0.
 
                         Issue: Add remaining validation.
@@ -7954,9 +7957,10 @@ called the render pass encoder can no longer be used.
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
-                1. If any of the following conditions are unsatisfied, generate a validation
-                    error and stop.
+                1. If any of the following conditions are unsatisfied, make
+                    |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}} [=invalid=] and stop.
                     <div class=validusage>
+                        - |this| must be [=valid=].
                         - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] is 0.
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} is `false`.
 
@@ -8109,14 +8113,19 @@ dictionary GPURenderBundleEncoderDescriptor : GPURenderPassLayout {
             1. Let |renderBundle| be a new {{GPURenderBundle}}.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
-                    1. If any of the following conditions are unsatisfied, generate a validation
-                        error and stop.
+                    1. If any of the following requirements are unmet:
                         <div class=validusage>
                             - |this| must be [=valid=].
                             - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] must be 0.
                             - |this|.{{GPURenderBundleEncoder/[[state]]}} must be [=render bundle state/open=].
                             - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
                         </div>
+
+                        Then:
+
+                        1. Generate a {{GPUValidationError}} in the current scope with appropriate
+                            error message.
+                        1. Return a new [=invalid=] {{GPURenderBundle}}.
 
                     1. Set |this|.{{GPURenderBundleEncoder/[[state]]}} to [=render bundle state/closed=].
                     1. Set |renderBundle|.{{GPURenderBundle/[[command_list]]}} to
@@ -8970,7 +8979,6 @@ partial interface GPUDevice {
     readonly attribute Promise<GPUDeviceLostInfo> lost;
 };
 </script>
-
 
 ## Error Scopes ## {#error-scopes}
 
