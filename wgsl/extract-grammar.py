@@ -235,7 +235,6 @@ module.exports = grammar({
     conflicts: $ => [
         [$.array_type_decl],
         [$.type_decl,$.primary_expression],
-        [$.type_decl,$.primary_expression,$.func_call_statement],
     ],
 
     word: $ => $.ident,
