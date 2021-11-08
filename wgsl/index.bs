@@ -5609,7 +5609,10 @@ control past a declaration used in the targeted [=statement/continuing=] stateme
 A <dfn dfn-for="statement">continuing</dfn> statement specifies a [=compound statement=] to be executed at the end of a loop [=iteration=].
 The construct is optional.
 
-The compound statement must not contain a [=statement/return=] or [=statement/discard=] statement, at any compound statement nesting level.
+The compound statement must not contain a [=statement/return=] at any compound statement nesting level.
+
+The compound statement must not contain a [=statement/discard=] at any compound statement nesting level nor through function calls.
+See [[#behaviors]] for a more formal description of this rule.
 
 ### Return Statement ### {#return-statement}
 
@@ -5726,6 +5729,411 @@ Note: If the function [=return value|returns a value=], that value is ignored.
     | [=syntax/compound_statement=]
 </div>
 
+
+## Statements Behavior Analysis ## {#behaviors}
+
+### Rules ### {#behaviors-rules}
+
+Some statements affecting control-flow are only valid in some contexts.
+For example, `fallthrough` is invalid outside of a switch, and `continue` is invalid outside of a loop.
+Additionally, the uniformity analysis (see [[#uniformity]]) needs to know when control flow can exit a statement in multiple different ways.
+
+Both goals are achieved by a system for summarizing execution behaviors of statements and expressions. Behavior analysis maps each statement and expression to the set of possible ways execution proceeds after evaluation of the statement or expression completes.
+As with type analysis for values and expressions, behavior analysis proceeds bottom up: first determine behaviors for certain basic statements, and then determine behavior for higher level constructs by applying combining rules.
+
+A <dfn export>behavior</dfn> is a set, whose elements may be:
+- Return
+- Discard
+- Break
+- Continue
+- Fallthrough
+- Next
+
+Each of those correspond to a way to exit a compound statement: either through a keyword, or by falling to the next statement ("Next").
+
+We note "*s*: *B*" to say that *s* respects the rules regarding behaviors, and has [=behavior=] *B*.
+
+For each function:
+- its body must be a valid statement by these rules
+- if it has a return type, its [=behavior=] must be one of {Return} or {Return, Discard}
+- otherwise, its [=behavior=] must be a subset of {Next, Return, Discard}
+
+We assign a [=behavior=] to each function: it is its body's [=behavior=] (treating the body as a regular statement), with any "Return" replaced by "Next".
+As a consequence of the rules above, a function behavior is always one of {}, {Next}, {Discard}, or {Next, Discard}.
+
+Similarly, we assign a [=behavior=] to each expression, since expressions can include function calls, which can discard.
+Like functions, expression behaviors are always one of {}, {Next}, {Discard}, or {Next, Discard}.
+
+Note: There is currently no valid program with an expression that does not have Next in its [=behavior=].
+The reason is that only functions without a return type can have such a [=behavior=], and there is no compound expression in which such a function can be called.
+
+<table class='data'>
+  <caption>Rules for analyzing and validating the behaviors of statements</caption>
+  <thead>
+    <tr><th>Statement<th>Preconditions<th>Resulting behavior
+  </thead>
+  <tr>
+    <td class="nowrap">{ }
+    <td>
+    <td class="nowrap">{Next}
+  <tr>
+    <td class="nowrap">{|s|}
+    <td>|s|: |B|
+    <td class="nowrap">B
+  <tr>
+    <td class="nowrap">|s1| ; |s2|
+    <td class="nowrap">|s1|: |B1|<br>
+        Next in |B1|<br>
+        |s2|: |B2|
+    <td class="nowrap">(|B1|&#x2216;{Next}) &cup; |B2|
+  <tr>
+    <td class="nowrap">var x:T;
+    <td>
+    <td>{Next}
+  <tr>
+    <td class="nowrap">let x = |e|;
+    <td class="nowrap">|e|: |B|
+    <td>|B|
+  <tr>
+    <td class="nowrap">var x = |e|;
+    <td class="nowrap">|e|: |B|
+    <td>|B|
+  <tr>
+    <td class="nowrap">|x| = |e|;
+    <td class="nowrap">|x|: |B1|<br>
+      |e|: |B2|<br>
+      |x| is not `_`
+    <td>|B1| &cup; |B2|
+  <tr>
+    <td class="nowrap">_ = |e|;
+    <td class="nowrap">|e|: |B|
+    <td>|B|
+  <tr>
+    <td class="nowrap">|f|(|e1|, ..., |en|);
+    <td class="nowrap">|e1|: |B1|<br>
+        ...<br>
+        |en|: |Bn|<br>
+        |f|'s has behavior |B|
+    <td class="nowrap">|B| &cup; ((|B1| &cup; ... &cup; |Bn|)&#x2216;{Next})
+  <tr>
+    <td>return;
+    <td>
+    <td>{Return}
+  <tr>
+    <td class="nowrap">return |e|;
+    <td class="nowrap">|e|: |B|<br>
+    <td class="nowrap">(|B|&#x2216;{Next}) &cup; {Return}
+  <tr>
+    <td>discard;
+    <td>
+    <td>{Discard}
+  <tr>
+    <td>break;
+    <td>
+    <td>{Break}
+  <tr>
+    <td>continue;
+    <td>
+    <td>{Continue}
+  <tr>
+    <td>fallthrough;
+    <td>
+    <td>{Fallthrough}
+  <tr>
+    <td class="nowrap">if (|e|) |s1| else |s2|
+    <td class="nowrap">|e|: |B|<br>
+        |s1|: |B1|<br>
+        |s2|: |B2|
+    <td class="nowrap">(|B|&#x2216;{Next}) &cup; |B1| &cup; |B2|
+  <tr>
+    <td class="nowrap" rowspan=2>loop {|s1| continuing {|s2|}}
+    <td class="nowrap">|s1|: |B1|<br>
+        |s2|: |B2|<br>
+        None of {Continue, Return, Discard} are in |B2|<br>
+        Break is not in (|B1| &cup; |B2|)
+    <td class="nowrap">(|B1|&#x2216;{Continue}) &cup; (|B2|&#x2216{Next})
+  <tr>
+    <td class="nowrap">|s1|: |B1|<br>
+        |s2|: |B2|<br>
+        None of {Continue, Return, Discard} are in |B2|<br/>
+        Break is in (|B1| &cup; |B2|)
+    <td class="nowrap">(|B1| &cup; |B2| &cup; {Next})&#x2216;{Break, Continue}
+  <tr>
+    <td class="nowrap" rowspan=2>switch(|e|) {case <var ignore>c1</var>: |s1| ... case <var ignore>cn</var>: |sn|}
+    <td class="nowrap">|e|: |B|<br>
+        |s1|: |B1|<br>
+        ...<br>
+        |sn|: |Bn|<br>
+        Fallthrough is not in |Bn|<br>
+        Break is not in (|B1| &cup; ... &cup; |Bn|)
+    <td class="nowrap">(|B| &cup; |B1| &cup; ... &cup; |Bn|)&#x2216;{Fallthrough}
+  <tr>
+    <td class="nowrap">|e|: |B|<br>
+        |s1|: |B1|<br>
+        ...<br>
+        |sn|: |Bn|<br>
+        Fallthrough is not in |Bn|<br>
+        Break is in (|B1| &cup; ... &cup; |Bn|)
+    <td class="nowrap">(|B| &cup; |B1| &cup; ... &cup; |Bn| &cup; {Next})&#x2216;{Break, Fallthrough}
+</table>
+
+For the purpose of this analysis:
+- `for` loops get desugared (see [[#for-statement]])
+- `loop {s}` is treated as `loop {s continuing {}}`
+- `if` statements without an `else` branch are treated as if they had an empty else branch (which adds Next to their [=behavior=])
+- `if` statements with `elseif` branches are treated as if they were nested simple `if/else` statements
+- a [=syntax/switch_body=] starting with `default` behaves just like a [=syntax/switch_body=] starting with `case _:`
+
+<table class='data'>
+  <caption>Rules for analyzing and validating the behaviors of expressions</caption>
+  <thead>
+    <tr><th>Expression<th>Preconditions<th>Resulting behavior
+  </thead>
+  <tr>
+    <td class="nowrap">|f|(|e1|, ..., |en|)
+    <td class="nowrap">|e1|: |B1|<br>
+        ...<br>
+        |en|: |Bn|<br>
+        |f|'s has behavior |B|
+    <td class="nowrap">|B| &cup; ((|B1| &cup; ... &cup; |Bn|)&#x2216;{Next})
+  <tr>
+    <td class="nowrap">Any literal
+    <td>
+    <td class="nowrap">{Next}
+  <tr>
+    <td class="nowrap">Any variable reference
+    <td>
+    <td class="nowrap">{Next}
+  <tr>
+    <td class="nowrap">|e1|[|e2|]
+    <td class="nowrap">|e1|: |B1|<br>
+        |e2|: |B2|
+    <td class="nowrap">|B1| &cup; |B2|
+  <tr>
+    <td class="nowrap">|e|.field
+    <td class="nowrap">|e|: |B|
+    <td class="nowrap">|B|
+  <tr>
+    <td class="nowrap">|e1| || |e2|
+    <td class="nowrap">|e1|: |B1|<br>
+        |e2|: |B2|
+    <td class="nowrap">|B1| &cup; |B2|
+  <tr>
+    <td class="nowrap">|e1| && |e2|
+    <td class="nowrap">|e1|: |B1|<br>
+        |e2|: |B2|
+    <td class="nowrap">|B1| &cup; |B2|
+</table>
+
+Each [=built-in function=] has a [=behavior=] of {Next}.
+And each operator application not listed in the table above has the same [=behavior=] as if it were a function call with the same operands and with a function's [=behavior=] of {Next}.
+
+A [=shader-creation error=] results if behavior analysis fails:
+- Behavior analysis must be able to determine a [=behavior=] for each statement, expression, and function. This can only fail if preconditions are not met.
+- The function behaviors must satisfy the rules given above.
+- The behaviors of compute and vertex entry points must not contain Discard.
+
+### Notes ### {#behaviors-notes}
+
+This section is informative, non-normative.
+
+Here is the full list of ways that these rules can cause a program to be rejected (this is just restating information already listed above):
+- The body of a function (treated as a regular statement) has a behavior not included in {Next, Return, Discard}.
+- The body of a function with a return type has a behavior which is neither {Return} nor {Return, Discard}
+- A statement without Next in its behavior is not the last in a sequence of statements
+- The behavior of a continuing block contains any of Continue, Return, or Discard
+- The behavior of the last case of a switch contains Fallthrough
+- The behavior of a compute or vertex entry point function contains Discard
+
+This analysis can be run in linear time, by analyzing the call-graph bottom-up (since the behavior of a function call can depend on the function's code).
+
+### Examples ### {#behaviors-examples}
+
+Here are some examples showing this analysis in action:
+<div class='example wgsl expect-error' heading='Trivially dead code is rejected'>
+   <xmp highlight='rust'>
+    fn simple() -> i32 {
+      var a: i32;
+      return 0;  // Behavior: {Return}
+      a = 1;     // Error: by the rule for sequences of statements, the previous statement should have a behavior that include "Next"
+      return 2;
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl expect-error' heading='Compound statements are supported'>
+   <xmp highlight='rust'>
+    fn nested() -> i32 {
+      var a: i32;
+      {             // The start of a compound statement.
+        a = 2;      // Behavior: {Next}
+        return 1;   // Behavior: {Return}
+      }             // The compound statement as a whole has behavior {Return}
+      a = 1;        // Error: for the same reason as in the previous example, the previous statement is missing "Next" in its behavior
+      return 2;
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='if/then behaves as if there is an empty else'>
+   <xmp highlight='rust'>
+    fn if_example() {
+      var a: i32 = 0;
+      loop {
+        if (a == 5) {
+          break;      // Behavior: {Break}
+        }             // Behavior of the whole if compound statement: {Break, Next}, as the if has an implicit empty else
+        a = a + 1;    // valid, as the previous statement had "Next" in its behavior
+      }
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl expect-error' heading='if/then/else has the behavior of both sides'>
+   <xmp highlight='rust'>
+    fn if_example() {
+      var a: i32 = 0;
+      loop {
+        if (a == 5) {
+          break;      // Behavior: {Break}
+        } else {
+          continue;   // Behavior: {Continue}
+        }             // Behavior of the whole if compound statement: {Break, Continue}
+        a = a + 1;    // Error: the previous statement is missing "Next" in its behavior
+      }
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='if/elseif/else behaves like a nested if/else'>
+   <xmp highlight='rust'>
+    fn if_example() {
+      var a: i32 = 0;
+      loop {
+        // if (e1) s1 elseif (e2) s2 else s3
+        // is identical to
+        // if (e1) else { if (e2) s2 else s3 }
+        if (a == 5) {
+          break;      // Behavior: {Break}
+        } elseif (a == 42) {
+          continue;   // Behavior: {Continue}
+        } else {
+          return;     // Behavior {Return}
+        }             // Behavior of the whole if compound statement {Break, Continue, Return}
+      }               // Behavior of the whole loop compound statement {Next, Return}
+    }                 // Behavior of the whole function {Next}
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='Break in switch becomes Next'>
+   <xmp highlight='rust'>
+    fn switch_example() {
+      var a: i32 = 0;
+      switch (a) {
+        default: {
+          break;   // Behavior: {Break}
+        }
+      }            // Behavior: {Next}, as switch replaces Break by Next
+      a = 5;       // valid, as the previous statement had Next in its behavior
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='A conditional continue with continuing statement'>
+   <xmp highlight='rust'>
+    fn conditional_continue() {
+      var a: i32;
+      loop {
+        if (a == 5) { break; } // Behavior: {Break, Next}
+        if (a % 2 == 1) {      // valid, as the previous statement has Next in its behavior
+          continue;            // Behavior: {Continue}
+        }                      // Behavior: {Continue, Next}
+        a = a * 2;             // valid, as the previous statement has Next in its behavior
+        continuing {           // valid as the continuing statement has behavior {Next} which does not include any of {Break, Continue, Discard, Return}
+          a = a + 1;
+        }
+      }                        // The loop as a whole has behavior {Next}, as it absorbs "Continue" and "Next", then replaces "Break" with "Next"
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='A redundant continue with continuing statement'>
+   <xmp highlight='rust'>
+    fn redundant_continue_with_continuing() {
+      var a: i32;
+      loop {
+        if (a == 5) { break; }
+        continue;   // Valid. This is redundant, branching to the next statement.
+        continuing {
+          a = a + 1;
+        }
+      }
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='A continue at the end of a loop body'>
+   <xmp highlight='rust'>
+    fn continue_end_of_loop_body() {
+      for (var i: i32 = 0; i < 5; i = i + 1 ) {
+        continue;   // Valid. This is redundant, branching to the end of the loop body.
+      }             // Behavior: {Next}, as loops absorb "Continue", and "for" loops always add "Next"
+    }
+   </xmp>
+</div>
+`for` loops desugar to `loop` with a conditional break. As shown in a previous example, the conditional break has [=behavior=] {Break, Next}, which leads to adding "Next" to the loop's [=behavior=].
+
+<div class='example wgsl expect-error' heading='Effect of a function that discards unconditionally'>
+   <xmp highlight='rust'>
+    fn always_discard() {
+      discard;
+    }                   // The whole function has behavior {Discard}
+    fn code_after_discard() {
+      var a: i32;
+      always_discard(); // Behavior: {Discard}
+      a = a + 1;        // Error: the previous statement is missing "Next" in its behavior
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='Effect of a function that discards conditionally'>
+   <xmp highlight='rust'>
+    fn sometimes_discard(a: i32) {
+      if (a) {
+        discard;        // Behavior: {Discard}
+      }                 // Behavior: {Next, Discard}
+    }                   // The whole function has behavior {Next, Discard}
+    fn code_after_discard() {
+      var a: i32;
+      a = 42;
+      sometimes_discard(a);  // Behavior: {Next, Discard}
+      a = a + 1;             // Valid
+    }                        // The whole function has behavior {Next, Discard}
+   </xmp>
+</div>
+
+<div class='example wgsl expect-error' heading='return required in functions that have a return type'>
+   <xmp highlight='rust'>
+    fn missing_return () -> i32 {
+      var a: i32 = 0;
+      if (42) {
+        return a;       // Behavior: {Return}
+      }                 // Behavior: {Next, Return}
+    }                   // Error: Next is invalid in the body of a function with a return type
+   </xmp>
+</div>
+
+<div class='example wgsl expect-error' heading='continue must be in a loop'>
+   <xmp highlight='rust'>
+    fn continue_out_of_loop () {
+      var a: i32 = 0;
+      if (a) {
+        continue;       // Behavior: {Continue}
+      }                 // Behavior: {Next, Continue}
+    }                   // Error: Continue is invalid in the body of a function
+   </xmp>
+</div>
+The same example would also be invalid for the same reason if continue was replaced by break or fallthrough.
 
 # Functions # {#functions}
 
@@ -6671,7 +7079,7 @@ the following exceptions:
 * No floating point exceptions are generated.
 * Signaling NaNs may not be generated.
     Any signaling NaN may be converted to a quiet NaN.
-* Implementations may assume that NaNs, inifinities are not present
+* Implementations may assume that NaNs, infinities are not present
     * Note: This means some functions (e.g. `isInf`, `isNan`, `min` and `max`)
         may not return the expected result due to optimizations about the presence
         of NaNs and infinities.
