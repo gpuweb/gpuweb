@@ -629,7 +629,7 @@ may become unusable, e.g. if the owning device is [=lose the device|lost=] or
 like buffer state [=buffer state/destroyed=].
 
 Some [=internal objects=] *can* become [=invalid=] after they are created; specifically:
-[=devices=] and command/pass/bundle encoders.
+[=devices=], [=adapters=], and command/pass/bundle encoders.
 
 <div algorithm>
     A given {{GPUObjectBase}} |object| is <dfn abstract-op>valid to use with</dfn>
@@ -924,25 +924,25 @@ generates a {{GPUValidationError}} in the current error scope.
 
 ### Adapters ### {#adapters}
 
-An <dfn dfn>adapter</dfn> represents an implementation of WebGPU on the system.
-Each adapter identifies both an instance of compute/rendering functionality on a
+An <dfn dfn>adapter</dfn> identifies an implementation of WebGPU on the system:
+both an instance of compute/rendering functionality on the
 platform underlying a browser, and an instance of a browser's implementation of
 WebGPU on top of that functionality.
 
-If an [=adapter=] becomes unavailable, it becomes [=invalid=].
-Once invalid, it never becomes valid again.
-Any [=devices=] on the adapter, and [=internal objects=] owned by those devices,
-also become invalid.
+[=Adapters=] do not uniquely represent underlying implementations:
+calling {{GPU/requestAdapter()}} multiple times returns a different [=adapter=]
+object each time.
+
+An [=adapter=] object may become [=invalid=] at any time.
+This happens inside "[=lose the device=]" and "[=mark adapters stale=]".
+An invalid adapter is unable to vend new [=devices=].
 
 Note:
-An [=adapter=] may be a physical display adapter (GPU), but it could also be
-a software renderer.
-A returned [=adapter=] could refer to different physical adapters, or to
-different browser codepaths or system drivers on the same physical adapters.
-Applications can hold onto multiple [=adapters=] at once (via {{GPUAdapter}})
-(even if some are [=invalid=]),
-and two of these could refer to different instances of the same physical
-configuration (e.g. if the GPU was reset or disconnected and reconnected).
+This mechanism ensures that various adapter-creation scenarios look similar to applications,
+so they can easily be robust to more scenarios with less testing: first initialization,
+reinitialization due to an unplugged adapter, reinitialization due to a test
+{{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc. It also ensures applications use
+the latest system state to make decisions about which adapter to use.
 
 An [=adapter=] may be considered a <dfn>fallback adapter</dfn> if it has significant performance
 caveats in exchange for some combination of wider compatibility, more predictable behavior, or
@@ -961,22 +961,6 @@ An [=adapter=] has the following internal slots:
 
         Each adapter limit must be the same or [=limit/better=] than its default value
         in [=supported limits=].
-
-    : <dfn>\[[current]]</dfn>, of type boolean
-    ::
-        Indicates whether the adapter is allowed to vend new devices at this time.
-        Its value may change at any time.
-
-        It is initially set to `true` inside {{GPU/requestAdapter()}}.
-        It becomes `false` inside "[=lose the device=]" and "[=mark adapters stale=]".
-        Once set to `false`, it cannot become `true` again.
-
-        Note:
-        This mechanism ensures that various adapter-creation scenarios look similar to applications,
-        so they can easily be robust to more scenarios with less testing: first initialization,
-        reinitialization due to an unplugged adapter, reinitialization due to a test
-        {{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc. It also ensures applications use
-        the latest system state to make decisions about which adapter to use.
 
     : <dfn>\[[fallback]]</dfn>, of type boolean
     ::
@@ -1038,7 +1022,7 @@ Any time the user agent needs to revoke access to a device, it calls
 <div algorithm>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
 
-    1. Set |device|.{{device/[[adapter]]}}.{{adapter/[[current]]}} to `false`.
+    1. Make |device|.{{device/[[adapter]]}} [=invalid=].
     1. Make |device| [=invalid=].
     1. Issue: explain how to get from |device| to its "primary" {{GPUDevice}}.
     1. Resolve {{GPUDevice/lost|GPUDevice.lost}} with a new {{GPUDeviceLostInfo}} with
@@ -1469,9 +1453,8 @@ interface GPU {
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
                     1. If the user agent chooses to return an adapter, it should:
-                        1. Create an [=adapter=] |adapter| with {{adapter/[[current]]}} set to
-                            `true`, chosen according to the rules in [[#adapter-selection]] and the
-                            criteria in |options|.
+                        1. Create a [=valid=] [=adapter=] |adapter|, chosen according to
+                            the rules in [[#adapter-selection]] and the criteria in |options|.
 
                         1. If |adapter| meets the criteria of a [=fallback adapter=] set
                             |adapter|.{{adapter/[[fallback]]}} to `true`.
@@ -1513,7 +1496,7 @@ calling {{GPUAdapter/requestDevice()}}.
     To <dfn dfn>mark adapters stale</dfn>:
 
     1. For each |adapter| in `navigator.gpu.`{{GPU/[[previously_returned_adapters]]}}:
-        1. Set |adapter|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[current]]}} to `false`.
+        1. Make |adapter|.{{GPUAdapter/[[adapter]]}} [=invalid=].
     1. [=list/Empty=] `navigator.gpu.`{{GPU/[[previously_returned_adapters]]}}.
 
     Issue: Update here if an `adaptersadded`/`adapterschanged` event is introduced.
@@ -1706,14 +1689,14 @@ interface GPUAdapter {
                                 |adapter|.{{adapter/[[limits]]}}.
                         </div>
 
-                    1. If |adapter|.{{adapter/[[current]]}} is `false`,
+                    1. If |adapter| is [=invalid=],
                         or the user agent otherwise cannot fulfill the request:
 
                         1. Let |device| be a new [=device=].
                         1. [=Lose the device=](|device|, `undefined`).
 
                             Note:
-                            This makes |adapter|.{{adapter/[[current]]}} `false`, if it wasn't already.
+                            This makes |adapter| [=invalid=], if it wasn't already.
 
                             Note:
                             User agents should consider issuing developer-visible warnings in
