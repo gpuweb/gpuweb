@@ -228,7 +228,7 @@ module.exports = grammar({
     ],
 
     inline: $ => [
-        $.global_decl_or_directive,
+        $.global_decl,
         $._reserved,
     ],
 
@@ -322,21 +322,10 @@ scanner_components[scanner_rule.name()]["_comment"] = [["`'//'`", '`/.*/`']]
 
 rule_skip = set()
 
-
-# Extract translation_unit
-
-
-grammar_source += grammar_from_rule(
-    "translation_unit", scanner_components[scanner_rule.name()]["translation_unit"]) + ",\n"
-rule_skip.add("translation_unit")
-
-
-# Extract global_decl_or_directive
-
-
-grammar_source += grammar_from_rule(
-    "global_decl_or_directive", scanner_components[scanner_rule.name()]["global_decl_or_directive"]) + ",\n"
-rule_skip.add("global_decl_or_directive")
+for rule in ["translation_unit", "global_directive", "global_decl"]:
+    grammar_source += grammar_from_rule(
+        rule, scanner_components[scanner_rule.name()][rule]) + ",\n"
+    rule_skip.add(rule)
 
 
 # Extract literals
