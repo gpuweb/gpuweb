@@ -426,7 +426,8 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
     grammar_package.write('}\n')
 
 # External scanner for nested block comments
-# See: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
+# See: https://tree-sitter.github.io/tree-sitter/creating-parsers#external-scanners
+# And: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
 
 os.makedirs(os.path.join(grammar_path, "src"), exist_ok=True)
 with open(os.path.join(grammar_path, "src", "scanner.c"), "w") as external_scanner:
