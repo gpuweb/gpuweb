@@ -6979,9 +6979,9 @@ See [[#statements]] and [[#function-calls]].
 
 TODO: *Stub*: Expression evaluation
 
-## Uniformity TODO ## {#uniformity}
+## Uniformity ## {#uniformity}
 
-### Terminology and concepts TODO ### {#uniformity-concepts}
+### Terminology and concepts ### {#uniformity-concepts}
 
 The following definitions are merely informative, trying to give an intuition for what the analysis in the next subsection is computing.
 The analysis is what actually defines these concepts, and when a program is valid or breaks the uniformity rules.
@@ -7008,7 +7008,7 @@ This means that the call graph must first be built, and functions must be analyz
 This way, whenever a function is analyzed, the metadata for all of its callees has already been computed.
 There is no risk of being trapped in a cycle, as recurrence is forbidden in the language.
 
-Note: another way of saying the same thing is that we do a topological sort of functions ordered by the "is a (possibly indirect) callee of" partial order, and analyze in that order.
+Note: another way of saying the same thing is that we do a topological sort of functions ordered by the "is a (possibly indirect) callee of" partial order, and analyze them in that order.
 
 ### Analyzing the uniformity requirements of a function ### {#uniformity-function}
 
@@ -7033,22 +7033,34 @@ The second phase explores that graph, resulting in either rejecting the program,
         A consequence of this interpretation is that every node reachable from MustBeUniform corresponds to something which must be uniform for the program to be valid, and every node from which cannotBeUniform is reachable corresponds to something whose uniformity we cannot guarantee. It follows that we have a uniformity violation (and thus reject the program) if there is any path from MustBeUniform to CannotBeUniform.
 </div>
 
-In more detail, here is the algorithm for analyzing a function:
+In more detail, here is what we compute for each function:
 
-* Create some nodes called "MustBeUniform", "CannotBeUniform", "CF_start", "CF_return" and if the function is non-void a node called "Value_return"
+* A tag about the control-flow in which the function can be called: one of {AlwaysMustBeUniform, MustBeUniformForControlFlowAfter}
+* A tag for each parameter of the function: one of {AlwaysMustBeUniform, MustBeUniformForControlFlowAfter, MustBeUniformForReturnValue, NoRestriction}
+* A tag for the function as a whole: one of {ControlFlowCannotBeUniformAfter, ReturnValueCannotBeUniform, NoRestriction}
+
+Here is the algorithm for computing this data for a given function:
+
+* Create nodes called "MustBeUniform", "CannotBeUniform", "CF_start", "CF_return", and if the function is non-void a node called "Value_return"
 * Create one node for each parameter of the function which we'll call "arg_i"
 * Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next section.
 * Look at which nodes are reachable from "MustBeUniform"
     * If this set includes the node "CannotBeUniform", then reject the program.
-    * Remember for later whether this set includes "CF_start" and/or any of the "arg_i"
-    * (optional, makes the analysis faster) Remove from the graph all nodes that have been visited
+    * If this set includes "CF_start", then the control-flow in which the function can be called is AlwaysMustBeUniform.
+    * Otherwise it is MustBeUniformForControlFlowAfter
+    * For each "arg_i" in this set, the corresponding parameter is AlwaysMustBeUniform
+    * Remove from the graph all nodes that have been visited
 * Look at which nodes are reachable from "CF_return"
-    * Remember for later whether this set includes "CannotBeUniform" and/or any of the "arg_i"
-    * (optional, makes the analysis faster) Remove from the graph all nodes that have been visited
+    * If this set includes "CannotBeUniform", then the function is ControlFlowCannotBeUniformAfter
+    * For each "arg_i" in this set, the corresponding parameter is MustBeUniformForControlFlowAfter
+    * Remove from the graph all nodes that have been visited
 * If "Value_return" exists, look at which nodes are reachable from it
-    * Remember for later whether this set includes "CannotBeUniform" and/or any of the "arg_i"
+    * If this set includes "CannotBeUniform", then the function is ReturnValueCannotBeUniform
+    * For each "arg_i" in this set, the corresponding parameter is MustBeUniformForReturnValue
+* If the function has not been assigned a tag, then it is NoRestriction.
+* For each parameter, if it has not been assigned a tag, then it is NoRestriction.
 
-Note: Anything which is not explicitly remembered, including the entire graph can be destroyed at this point. The little information that we do need to remember to analyze the caller is linear in the number of parameters of the function.
+Note: The entire graph can be destroyed at this point. The tags listed above are all that we need to remember to analyze callers of this function.
 
 ### Uniformity rules for statements ### {#uniformity-statements}
 
@@ -7078,7 +7090,7 @@ We have a similar set of rules for expressions in left-value positions, that we 
           (*CF1*, *s2*) -> *CF2*
       <td>*CF2*
       <td>
-  <tr><td class="nowrap">if (*e*) then *s1* else *s2*
+  <tr><td class="nowrap">if (*e*) *s1* else *s2*
       <td>*CFinside*, *CFend*
       <td class="nowrap">(*CF*, *e*) -> (*CF'*, *V*)<br>
           (*CFinside*, *s1*) -> *CF1*<br>
@@ -7143,18 +7155,17 @@ TODO: double check the rule for loop. I had verified the rules for "for" and "wh
 The most complex rule is for function calls:
 - For each argument, apply the corresponding expression rule, with the control flow at the exit of the previous argument (using the control flow at the beginning of the function call for the first argument). Name the corresponding value nodes "arg_i" and the corresponding control flow nodes "CF_i"
 - Create two new nodes, named "Result" and "CF_after"
-- Look at the data we decided to remember while analyzing the function:
-    - If there was a path from MustBeUniform to CF_start, add an edge from MustBeUniform to the last CF_i
-    - If there was a path from CF_return to CannotBeUniform, add an edge from CF_after to CannotBeUniform
-    - If there was a path from Value_return to CannotBeUniform, add an edge from Result to CannotBeUniform
-- Similarly for each argument *i*:
-    - If there was a path from MustBeUniform to arg_i, add an edge from MustBeUniform to arg_i
-    - If there was a path from CF_return to arg_i, add an edge from CF_after to arg_i
-    - If there was a path from Value_return to arg_i, add an edge from Result to arg_i
-- Add an edge from Result to CF_after, and an edge from CF_after to the last CF_i
-- Finally return the nodes "CF_after" and "Result"
+- If the control-flow at the start of the function was tagged AlwaysMustBeUniform, then add an edge from MustBeUniform to the last CF_i
+- Otherwise add an edge from CF_after to the last CF_i
+- If the function was tagged ControlFlowCannotBeUniformAfter, then add an edge from CF_after to CannotBeUniform
+- Else if it was tagged ReturnValueCannotBeUniform, then add an edge from Result to CannotBeUniform
+- Add an edge from Result to CF_after
+- For each argument *i*:
+    - If the corresponding parameter was tagged AlwaysMustBeUniform, then add an edge from MustBeUniform to arg_i
+    - Else if it was tagged MustBeUniformForControlFlowAfter, then add an edge from CF_after to arg_i
+    - Else if it was tagged MustBeUniformForReturnValue, then add an edge from Result to arg_i
 
-Note: Notice that this rule only requires adding a number of edges bounded by 1 + the number of parameters of the functions, independently of how complex the implementation of the function might be. This is key to the linear complexity of the overall algorithm.
+Note: Notice that this rule only requires adding a number of edges bounded by 3 + the number of parameters of the functions, independently of how complex the implementation of the function might be. This is key to the linear complexity of the overall algorithm.
 
 Functions in the standard library count as having a path from "Value_return" to all their "arg_i" and no other relevant paths to remember. Here is the list of exceptions to this rule:
 - The `||` and `&&` operators. Their rules are given in the next section (they cannot be treated like function calls because of short-circuiting)
