@@ -899,7 +899,6 @@ is a type assertion meaning *T* is the static type of [SHORTNAME] expression *e*
 Note: A type assertion is a statement of fact about the text of a program.
 It is not a runtime check.
 
-Finding static types for expressions can be performed by recursively applying type rules.
 A <dfn noexport>type rule</dfn> has two parts:
 * A conclusion, stated as a type assertion for an expression.
     The expression in the type assertion is specified schematically,
@@ -929,18 +928,101 @@ A <dfn noexport>type rule applies to an expression</dfn> when:
 
 TODO: write an example such as `1+2`, or `3 - a`, where `a` is in-scope of a let declaration with `i32` type.
 
-The type rules are designed so that if parsing succeeds, at most one type rule will apply to each expression.
-If a type rule applies to an expression, then the conclusion is asserted, and therefore determines the static type of the expression.
+A <dfn noexport>literal type</dfn> is not an actual type, it is only a temporary placeholder for a type, used in describing the type checking algorithm.
+
+Finding static types for expressions is done in two steps, the first of which is bottom-up and the second of which is top-down:
+* For each expression, either assign it a [=static type=] or mark it as a [=literal type=] purely based on its subexpressions.
+    * First, recursively apply this part of the algorithm to all of its subexpressions
+    * Then compute the set of [=overloads=] of the type rules that apply for this expression, treating any subexpression with a [=literal type=] as if it were all of [=i32=], [=u32=], and [=f32=].
+    * If there is no such overload, the source program is not a valid [SHORTNAME] program.
+    * If there is all such overloads have the same conclusion, then the expression's [=static type=] is given by this conclusion
+    * Otherwise mark the expression as a literal type
+* For each expression with a literal type:
+    * First, apply this part of the algorithm to its parent expression if it has one with a literal type.
+    * Choose a static type for the expression:
+        * If its parent expression can be typed by a single overload, taking into account its conclusion (see next step), then it gives a static type to this expression
+        * Else if it has no parent expression, and the statement this expression is part of requires one of i32, u32, or f32, then it is this expression's type
+        * Else if it has no parent expression, and the statement this expression is part of requires a different type, then the source program is not a valid [SHORTNAME] program.
+        * Else it is of type [=i32=]
+    * Compute the set of [=overloads=] of the type rules that apply for this expression, taking into account both the preconditions (treating any subexpression with a literal type as if it were all of [=i32=], [=u32=], and [=f32=]) and the conclusion (which must match the type picked at the previous step)
+    * If there is either 0 or more than 1 such overload, then the source program is not a valid [SHORTNAME] program.
 
 A [SHORTNAME] source program is <dfn noexport>well-typed</dfn> when:
-* The static type can be determined for each expression in the program by applying the type rules, and
+* The algorithm above successfully assigns a static type to each expression, and
 * The type requirements for each statement are satisfied.
 
 Otherwise there is a <dfn noexport>type error</dfn> and the source program is not a valid [SHORTNAME] program.
 
+Note: If the procedure above succeeded, then adding an `i`, `u`, or `f` suffix to every non-suffixed integer literal in the program based on its type does not change the program's semantics.
+
+Note: If there is no non-suffixed integer-literal in a [SHORTNAME] program, then the first phase of the algorithm above will never give a [=literal type=] to any expression, and the second phase is redundant.
+
 [SHORTNAME] is a <dfn noexport>statically typed language</dfn>
 because type checking a [SHORTNAME] program will either succeed or
 discover a type error, while only having to inspect the program source text.
+
+<div class='example wgsl function-scope' heading='Literal type forced by a statement'>
+  <xmp highlight='rust'>
+    let x : f32 = 42;
+    // '42' is marked as having a literal type by the first half of the algorithm
+    // The second half requires its type to match what is expected by the statement, so it becomes f32
+  </xmp>
+</div>
+
+<div class='example wgsl function-scope' heading='Literal type in an invalid context'>
+  <xmp highlight='rust'>
+    let x : bool = 42;
+    // '42' is marked as having a literal type by the first half of the algorithm
+    // 'bool' is not one of the types that a literal type can match, so this program will give a type error
+  </xmp>
+</div>
+
+<div class='example wgsl function-scope' heading='Literal type in a generic context'>
+  <xmp highlight='rust'>
+    let x = 42;
+    // '42' is marked as having a literal type by the first half of the algorithm
+    // The immediate context puts no requirement on its static type, so it defaults to i32
+  </xmp>
+</div>
+
+<div class='example wgsl function-scope' heading='Typing a comparison with literals'>
+  <xmp highlight='rust'>
+    let x = (1 + 2) < (3 + 4u);
+    // First phase:
+    // 1 has a literal type (since it can be multiple types)
+    // 2 has a literal type (since it can be multiple types)
+    // (1 + 2) has multiple type rule overloads that apply: i32+i32:i32, u32+u32:u32, and f32+f32:f32
+    // They don't share a conclusion, so (1 + 2) has a literal type
+    // 3 has a literal type
+    // 4u is of type u32
+    // (3 + 4u) has a single type rule overload that applies: u32+u32:u32, so it is of type u32
+    // (1 + 2) < (3 + 4u) has a single type rule overload that applies: u32<u32:bool, so it is of type bool
+    // Second phase:
+    // The single type rule overload of the top-level overload forces (1 + 2) to be of type u32
+    // So it now has a single type rule overload that applies when taking into account the conclusion
+    // So 1 and 2 are also of type u32.
+  </xmp>
+</div>
+
+<div class='example wgsl function-scope' heading='Typing a chain of additions with literals'>
+  <xmp highlight='rust'>
+    let x = ((1 + 2) + 3) + 4u;
+    // First phase:
+    // 1 has a literal type
+    // 2 has a literal type
+    // (1 + 2) has multiple type rule overloads that apply: i32+i32:i32, u32+u32:u32, and f32+f32:f32
+    // They don't share a conclusion, so (1 + 2) has a literal type
+    // 3 has a literal type
+    // By the same reasoning as before, ((1 + 2) + 3) has a literal type
+    // 4u is of type u32
+    // So the top-level expression is of type u32 since u32+u32: is the only type rule overload that applies
+    // Second phase:
+    // The single type rule overload of the top-level overload forces ((1 + 2)+ 3) to be of type u32
+    // So it now has a single type rule overload that applies when taking into account the conclusion
+    // So (1 + 2) and 3 are both also of type u32.
+    // And finally (1 + 2) having type u32 ensures that 1 and 2 both have type u32.
+  </xmp>
+</div>
 
 ### Type rule tables ### {#typing-tables-section}
 
@@ -1225,8 +1307,6 @@ Restrictions on runtime-sized arrays:
   <dfn for=syntax>element_count_expression</dfn> :
 
     | [=syntax/int_literal=]
-
-    | [=syntax/uint_literal=]
 
     | [=syntax/ident=]
 </div>
