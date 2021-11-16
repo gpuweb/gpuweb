@@ -426,6 +426,7 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
     grammar_package.write('}\n')
 
 # External scanner for nested block comments
+# For the API, see https://tree-sitter.github.io/tree-sitter/creating-parsers#external-scanners
 # See: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
 
 os.makedirs(os.path.join(grammar_path, "src"), exist_ok=True)
@@ -461,6 +462,11 @@ bool tree_sitter_wgsl_external_scanner_scan(void *payload, TSLexer *lexer,
     for (;;) {
       switch (lexer->lookahead) {
         case '\0':
+          /* This signals the end of input. Since nesting depth is
+           * greater than zero, the scanner is in the middle of
+           * a block comment. Block comments must be affirmatively
+           * terminated.
+           */
           return false;
         case '*':
           advance(lexer);
