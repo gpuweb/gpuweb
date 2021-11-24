@@ -1,6 +1,6 @@
 # Pipeline Statistics Queries
 
-**Status:** Draft not intended for standardization. Do not expose by default.
+**Roadmap:** This draft extension is **not on the standards track**. It is currently intended to be used only in non-Web-compliant contexts, such as by Web developers who enable a command line flag or other non-default option in order to profile the performance of their application.
 
 **GPUFeatureName(s):** `"pipeline-statistics-query"`
 
