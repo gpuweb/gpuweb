@@ -277,7 +277,7 @@ The <dfn noexport>transpose</dfn> of an |n|-column |m|-row matrix |A| is the |m|
 The transpose of a column vector is defined by interpreting the column vector as a 1-row matrix.
 Similarly, the transpose of a row vector is defined by interpreting the row vector as a 1-column matrix.
 
-# Shader Lifecycle # {#program-lifecycle}
+# Shader Lifecycle # {#shader-lifecycle}
 
 There are four key events in the lifecycle of a [SHORTNAME] program and the shaders it may contain.
 The first two correspond to the WebGPU API methods used to prepare a [SHORTNAME] program
@@ -1184,18 +1184,18 @@ See [[#array-access-expr]].
 An expression must not evaluate to a runtime-sized array type.
 
 The element count expression |N| of a fixed-size array must:
-* be a literal, or the name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=], and
+* be a literal, or the name of a [[#module-constants|module-scope constant]] (possibly [=pipeline-overridable=]), and
 * evaluate to an [=integer scalar=] with value greater than zero.
 
-Note:  The element count value is fully determined at [=shader module creation=] time.
+Note:  The element count value is fully determined at [=pipeline creation=] time.
 
 An array element type must be one of:
 * a [=scalar=] type
-* a vector type
-* a matrix type
+* a [=vector=] type
+* a [=matrix=] type
 * an [=atomic type|atomic=] type
-* an array type having a [=fixed footprint=]
-* a [=structure=] type having a [=fixed footprint=].
+* an array type having a [=creation-fixed footprint=]
+* a [=structure=] type having a [=creation-fixed footprint=].
 
 Note: The element type must be a [=plain type=].
 
@@ -1204,17 +1204,19 @@ Note: The element type must be a [=plain type=].
 
 Two array types are the same if and only if all of the following are true:
 * They have the same element type.
-* Their element count specifications match, i.e. either of the following is true:
+* Their element count specifications match, i.e. one of the following is true:
     * They are both runtime-sized.
-    * They are both fixed-sized with equal-valued element counts,
-        even if one is signed and the other is unsigned.
+    * They are both fixed-sized with [=creation-fixed footprint=], and 
+        equal-valued element counts, even if one is signed and the other is unsigned.
         (Signed and unsigned values are comparable in this case because element counts must
         be greater than zero.)
+    * They are both fixed-sized with element count specified as the same
+        [=pipeline-overridable=] [=module scope|module-scope-=] constant.
 
 Issue: Array types should differ if they have different element strides.
 See https://github.com/gpuweb/gpuweb/issues/1534
 
-<div class='example fixed-size array types' heading='Example fixed-size array types'>
+<div class='example fixed-size array types' heading='Example fixed-size array types, non-overridable element count'>
   <xmp highlight='rust'>
     // array<f32,8> and array<i32,8> are different types:
     // different element types
@@ -1234,6 +1236,27 @@ See https://github.com/gpuweb/gpuweb/issues/1534
     var<private> f: array<i32,height>;
   </xmp>
 </div>
+
+Note: The valid use of an array sized by an overridable constant is as the store type
+of a variable in [=storage classes/workgroup=] storage.
+
+<div class='example wgsl global-scope' heading="Workgroup variables sized by overridable constants">
+  <xmp>
+    [[override]] let blockSize = 16;
+
+    var<workgroup> odds: array<i32,blockSize>;
+    var<workgroup> evens: array<i32,blockSize>;
+
+    // An invalid example, because the overridable element count may only occur
+    // at the outer level.
+    // var<workgroup> both: array<array<i32,blockSize>,2>;
+
+    // An invalid example, because the overridable element count is only
+    // valid for workgroup variables.
+    // var<private> bad_storage_class: array<i32,blockSize>;
+  </xmp>
+</div>
+
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>array_type_decl</dfn> :
@@ -1271,9 +1294,9 @@ A structure member type must be one of:
 * a vector type
 * a matrix type
 * an [=atomic type|atomic=] type
-* a [=fixed-size array=] type
+* a [=fixed-size array=] type with [=creation-fixed footprint=]
 * a [=runtime-sized=] array type, but only if it is the last member of the structure
-* a [=structure=] type that has a [=fixed footprint=]
+* a [=structure=] type that has a [=creation-fixed footprint=]
 
 Note: Each member type must be a [=plain type=].
 
@@ -1399,28 +1422,50 @@ A type is <dfn>constructible</dfn> if it is one of:
 * a [=scalar=] type
 * a [=vector=] type
 * a [=matrix=] type
-* a [=fixed-size array=] type, if its element type is constructible.
+* a [=fixed-size array=] type, if it has [=creation-fixed footprint=] and its element type is constructible.
 * a [=structure=] type, if all its members are constructible.
 
-Note: All constructible types are [=plain types|plain=].
+Note: All constructible types are [=plain types|plain=] and have [=creation-fixed footprint=].
 
 Note: Atomic types and runtime-sized array types are not constructible.
 Composite types containing atomics and runtime-sized arrays are not constructible.
 
 ### Fixed-Footprint Types ### {#fixed-footprint-types}
 
+The <dfn noexport>memory footprint</dfn> of a variable is the number of [=memory locations=]
+used to store the contents of the variable.
+The memory footprint of a variable depends on its [=store type=] and becomes finalized at some point
+in the [[#shader-lifecycle|shader lifecycle]].
+Most variables are sized very early, at [=Shader module creation|shader creation=] time.
+Some variables may be sized later, at [=pipeline creation=] time,
+and others as late as the [=shader execution start|start of shader execution=].
+
+A [=plain type=] has a <dfn>creation-fixed footprint</dfn> if its size is fully determined
+at [=shader module creation|shader creation=] time.
+
 A [=plain type=] has a <dfn>fixed footprint</dfn> if its size is fully determined
 at [=pipeline creation=] time.
 
-The plain types with fixed footprint are:
+Note: Pipeline creation depends on shader creation, so a type with [=creation-fixed footprint=] also has [=fixed footprint=].
+
+The plain types with [=creation-fixed footprint=] are:
 * a [=scalar=] type
 * a [=vector=] type
 * a [=matrix=] type
 * an [=atomic type|atomic=] type
-* a [=fixed-size array=] type, if its element type has fixed footprint.
-* a [=structure=] type, if all its members have fixed footprint.
+* a [=fixed-size array=] type, when:
+     * its [=element count=] is a literal, or the name of a [[#module-constants|module-scope constant]]
+        that is not [=pipeline-overridable=].
+* a [=structure=] type, if all its members have [=creation-fixed footprint=].
 
-Note: A [=constructible=] type has fixed-footprint.
+Note: A [=constructible=] type has [=creation-fixed footprint=].
+
+The plain types with [=fixed footprint=] are any of:
+* a type with [=creation-fixed footprint=]
+* a [=fixed-size array=] type, where its [=element count=] is a [=pipeline-overridable=] [[#module-constants|module-scope constant]].
+
+Note: The only valid use of a fixed-size array with an element count that is a pipeline-overridable constant is
+as the [=store type=] for a [=storage classes/workgroup=] variable.
 
 Note: A fixed-footprint type may contain an [=atomic type|atomic=] type, either directly or
 indirectly, while a [=constructible=] type must not.
@@ -1532,7 +1577,7 @@ A type is <dfn dfn noexport>host-shareable</dfn> if it is one of:
 * a [=numeric vector=] type
 * a [=matrix=] type
 * an [=atomic type|atomic=] type
-* a [=fixed-size array=] type, if its element type is host-shareable
+* a [=fixed-size array=] type, if it has [=creation-fixed footprint=] and its element type is host-shareable
 * a [=runtime-sized=] array type, if its element type is host-shareable
 * a [=structure=] type, if all its members are host-shareable
 
@@ -1583,7 +1628,7 @@ and how to use variables with it.
       <td>[=access/read_write=]
       <td>[=Module scope=]
       <td>[=Plain type=] with [=fixed footprint=]
-      <td>
+      <td>The [=element count=] of an outermost array may be a [=pipeline-overridable=] constant.
   <tr><td><dfn noexport dfn-for="storage classes">uniform</dfn>
       <td>Invocations in the same [=shader stage=]
       <td>[=access/read=]
@@ -3293,7 +3338,9 @@ When a variable is created, its memory contains an initial value as follows:
     * The [=zero value=] for the store type, if the variable declaration has no initializer.
     * Otherwise, it is the result of evaluating the initializer expression at that point in the program execution.
 * For variables in the [=storage classes/workgroup=] storage class:
-    * The [=zero value=] for the store type.
+    * When the store type is [=constructible=], the [=zero value=] for the store type.
+    * Otherwise, the store type is an array of construcible elements, and each element
+        is initialized to its zero value.
 * Variables in other storage classes are [=resources=]
     set by bindings in the [=draw command=] or [=dispatch command=].
 
@@ -3361,6 +3408,11 @@ uniform buffers, storage buffers, textures, and samplers form the
 [=resource interface of a shader=].
 Such variables are declared with [=attribute/group=] and [=attribute/binding=] decorations.
 
+
+[SHORTNAME] defines the following attributes that can be applied to global variables:
+ * [=attribute/binding=]
+ * [=attribute/group=]
+
 <div class='example wgsl global-scope' heading="Module scope variable declarations">
   <xmp>
     var<private> decibels: f32;
@@ -3400,10 +3452,6 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
        OpDecorate %variable Binding 3
   </xmp>
 </div>
-
-[SHORTNAME] defines the following attributes that can be applied to global variables:
- * [=attribute/binding=]
- * [=attribute/group=]
 
 ## Module Constants ## {#module-constants}
 
@@ -3584,8 +3632,8 @@ Expressions specify how values are computed.
 
 ## Type Constructor Expressions ## {#type-constructor-expr}
 
+Type constructor expressions explicitly create a value of a given [=constructible=] type.
 Type constructor expressions explicitly create a value of a given type.
-The expression lists the type, then provides the contents as a parenthesized, comma-separated list of expressions.
 
 The scalar forms are redundant, but provide symmetry with scalar [[#conversion-expr|conversion expressions]],
 and can be used to enhance readability.
@@ -3783,9 +3831,13 @@ See also [[#zero-value-expr]] and [[#conversion-expr]].
     <td>|e1|: |T|<br>
         ...<br>
         |eN|: |T|,<br>
-        |T| is a [=constructible=] type.
-    <td>`array<`|T|,|N|`>(`|e1|,...,|eN|`)` : array&lt;|T|,|N|&gt;
+        |T| is [=constructible=]<br>
+    <td class="nowrap">`array<`|T|,|N|`>(`|e1|,...,|eN|`)` : array&lt;|T|,|N|&gt;
     <td>Construction of an array from elements.
+
+        Note: array&lt;|T|,|N|&gt; is [=constructible=] because its [=element count=]
+        is equal to the number of arguments to the constructor, and hence
+        fully determined at [=shader module creation|shader-creation=] time.
 </table>
 
 <table class='data'>
@@ -3799,7 +3851,7 @@ See also [[#zero-value-expr]] and [[#conversion-expr]].
         |eN|: |TN|,<br>
         |S| is a [=constructible=] structure type with members having types |T1| ... |TN|.<br>
         The expression is in the scope of declaration of |S|.
-    <td>|S|`(`|e1|,...,|eN|`)`: |S|
+    <td class="nowrap">|S|`(`|e1|,...,|eN|`)`: |S|
     <td>Construction of a structure from members.
 </table>
 
@@ -3816,7 +3868,7 @@ The zero values are as follows:
 * `f32()` is 0.0
 * The zero value for an *N*-element vector of type *T* is the *N*-element vector of the zero value for *T*.
 * The zero value for an *N*-column *M*-row matrix of `f32` is the matrix of those dimensions filled with 0.0 entries.
-* The zero value for an *N*-element array with [=constructible=] element type *E* is an array of *N* elements of the zero value for *E*.
+* The zero value for a [=constructible=] *N*-element array with element type *E* is an array of *N* elements of the zero value for *E*.
 * The zero value for a [=constructible=] structure type *S* is the structure value *S* with zero-valued members.
 
 Note: WGSL does not have zero expression for [=atomic types=],
