@@ -597,21 +597,6 @@ An attribute must not be specified more than once per object or type.
     Specifies the binding number of the resource in a bind [=attribute/group=].
     See [[#resource-interface]].
 
-  <tr><td><dfn noexport dfn-for="attribute">`block`</dfn>
-    <td>*None*
-    <td>Must only be applied to a [=structure=] type.
-
-    Indicates this structure type represents the contents of a buffer
-    resource occupying a single binding slot in the [=resource interface of a
-    shader|shader's resource interface=].
-
-    The `block` attribute must be applied to a structure type used as the
-    [=store type=] of a [=uniform buffer=] or [=storage buffer=] variable.
-
-    A structure type with the block attribute must not be:
-    * the element type of an [=array=] type
-    * the member type in another structure
-
   <tr><td><dfn noexport dfn-for="attribute">`builtin`
     <td>a builtin variable identifier
     <td>Must only be applied to an entry point function parameter, entry point
@@ -1124,7 +1109,7 @@ TODO: Add links the eventual memory model descriptions.
 
 <div class='example storage atomic' heading='Mapping atomics in a storage variable to SPIR-V'>
   <xmp>
-    [[block]] struct S {
+    struct S {
       a: atomic<i32>;
       b: atomic<u32>;
     };
@@ -1179,11 +1164,29 @@ An <dfn noexport>array</dfn> is an indexable grouping of element values.
           These may only appear in specific contexts.<br>
 </table>
 
-When specified, an element count expression |N| must:
+The first element in an array is at index 0, and each successive element is at the next integer index.
+See [[#array-access-expr]].
+
+An expression must not evaluate to a runtime-sized array type.
+
+The element count expression |N| of a fixed-size array must:
 * be a literal, or the name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=], and
 * evaluate to an [=integer scalar=] with value greater than zero.
 
 Note:  The element count value is fully determined at [=shader module creation=] time.
+
+An array element type must be one of:
+* a [=scalar=] type
+* a vector type
+* a matrix type
+* an [=atomic type|atomic=] type
+* an array type having a [=fixed footprint=]
+* a [=structure=] type having a [=fixed footprint=].
+
+Note: The element type must be a [=plain type=].
+
+[SHORTNAME] defines the following attributes that can be applied to array types:
+* [=attribute/stride=]
 
 Two array types are the same if and only if all of the following are true:
 * They have the same element type.
@@ -1198,7 +1201,7 @@ Issue: Array types should differ if they have different element strides.
 See https://github.com/gpuweb/gpuweb/issues/1534
 
 <div class='example fixed-size array types' heading='Example fixed-size array types'>
-  <xmp>
+  <xmp highlight='rust'>
     // array<f32,8> and array<i32,8> are different types:
     // different element types
     var<private> a: array<f32,8>;
@@ -1217,29 +1220,6 @@ See https://github.com/gpuweb/gpuweb/issues/1534
     var<private> f: array<i32,height>;
   </xmp>
 </div>
-
-The first element in an array is at index 0, and each successive element is at the next integer index.
-See [[#array-access-expr]].
-
-An array element type must be one of:
-* a [=scalar=] type
-* a vector type
-* a matrix type
-* an [=atomic type|atomic=] type
-* an array type
-* a [=structure=] type
-
-Note: That is, the element type must be a [=plain type=].
-
-[SHORTNAME] defines the following attributes that can be applied to array types:
-* [=attribute/stride=]
-
-Restrictions on runtime-sized arrays:
-* The last member of the structure type defining the [=store type=]
-    for a variable in the [=storage classes/storage=] storage class may be a runtime-sized array.
-* A runtime-sized array must not be used as the store type or contained within
-    a store type in any other cases.
-* An expression must not evaluate to a runtime-sized array type.
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>array_type_decl</dfn> :
@@ -1277,16 +1257,16 @@ A structure member type must be one of:
 * a vector type
 * a matrix type
 * an [=atomic type|atomic=] type
-* an array type
-* a [=structure=] type
+* a [=fixed-size array=] type
+* a [=runtime-sized=] array type, but only if it is the last member of the structure
+* a [=structure=] type that has a [=fixed footprint=]
 
-Note: That is, each member type must be a [=plain type=].
+Note: Each member type must be a [=plain type=].
 
-Note: The structure member type restriction and the array element type restriction are
-mutually reinforcing.
-Combined, they imply that a pointer may not appear in any level
-of nesting within either an array or structure.
-Similarly, the same limitations apply to textures and samplers.
+Some consequences of the restrictions structure member and array element types are:
+* A pointer, texture, or sampler must not appear in any level of nesting within an array or structure.
+* A [=runtime-sized=] array must only appear as the last element of a structure, which itself
+    cannot be part of an enclosing array or structure.
 
 <div class='example wgsl global-scope' heading="Structure">
   <xmp highlight='rust'>
@@ -1301,7 +1281,7 @@ Similarly, the same limitations apply to textures and samplers.
 <div class='syntax' noexport='true'>
   <dfn for=syntax>struct_decl</dfn> :
 
-    | [=syntax/attribute_list=] * [=syntax/struct=] [=syntax/ident=] [=syntax/struct_body_decl=]
+    | [=syntax/struct=] [=syntax/ident=] [=syntax/struct_body_decl=]
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>struct_body_decl</dfn> :
@@ -1313,9 +1293,6 @@ Similarly, the same limitations apply to textures and samplers.
 
     | [=syntax/attribute_list=] * [=syntax/variable_ident_decl=] [=syntax/semicolon=]
 </div>
-
-[SHORTNAME] defines the following attributes that can be applied to structure types:
- * [=attribute/block=]
 
 [SHORTNAME] defines the following attributes that can be applied to structure members:
  * [=attribute/builtin=]
@@ -1349,13 +1326,15 @@ to define a [=uniform buffer=] or a [=storage buffer=]. See [[#memory-layouts]].
 
 <div class='example wgsl global-scope' heading='Structure WGSL'>
   <xmp>
+    // TODO: runtime-sized array syntax may have changed
     // Runtime Array
     type RTArr = [[stride(16)]] array<vec4<f32>>;
-    [[block]] struct S {
+    struct S {
       a: f32;
       b: f32;
       data: RTArr;
     };
+    [[group(0),binding(0)]] var<storage> buffer: S;
   </xmp>
 </div>
 
@@ -1413,6 +1392,27 @@ Note: All constructible types are [=plain types|plain=].
 
 Note: Atomic types and runtime-sized array types are not constructible.
 Composite types containing atomics and runtime-sized arrays are not constructible.
+
+### Fixed-Footprint Types ### {#fixed-footprint-types}
+
+A [=plain type=] has a <dfn>fixed footprint</dfn> if its size is fully determined
+at [=pipeline creation=] time.
+
+The plain types with fixed footprint are:
+* a [=scalar=] type
+* a [=vector=] type
+* a [=matrix=] type
+* an [=atomic type|atomic=] type
+* a [=fixed-size array=] type, if its element type has fixed footprint.
+* a [=structure=] type, if all its members have fixed footprint.
+
+Note: A [=constructible=] type has fixed-footprint.
+
+Note: A fixed-footprint type may contain an [=atomic type|atomic=] type, either directly or
+indirectly, while a [=constructible=] type must not.
+
+Note: Fixed-footprint types exclude [=runtime-sized=] arrays, and any structures or arrays
+that contain [=runtime-sized=] arrays, recursively.
 
 ## Memory ## {#memory}
 
@@ -1568,8 +1568,7 @@ and how to use variables with it.
       <td>Invocations in the same [=compute shader stage|compute shader=] [=compute shader stage/workgroup=]
       <td>[=access/read_write=]
       <td>[=Module scope=]
-      <td>[=Plain type=],
-          excluding [=runtime-sized=] arrays, or [=composite=] types containing runtime-sized arrays
+      <td>[=Plain type=] with [=fixed footprint=]
       <td>
   <tr><td><dfn noexport dfn-for="storage classes">uniform</dfn>
       <td>Invocations in the same [=shader stage=]
@@ -1813,7 +1812,7 @@ rounded to the next multiple of the structure's alignment:
         // -- implicit struct size padding --      // offset(20)            size(4)
     };
 
-    [[block]] struct B {                           //             align(16) size(160)
+    struct B {                                     //             align(16) size(160)
         a: vec2<f32>;                              // offset(0)   align(8)  size(8)
         // -- implicit member alignment padding -- // offset(8)             size(8)
         b: vec3<f32>;                              // offset(16)  align(16) size(12)
@@ -1842,7 +1841,7 @@ rounded to the next multiple of the structure's alignment:
         [[size(16)]] x: f32;                       // offset(16)  align(4)  size(16)
     };
 
-    [[block]] struct B {                           //             align(16) size(208)
+    struct B {                                     //             align(16) size(208)
         a: vec2<f32>;                              // offset(0)   align(8)  size(8)
         // -- implicit member alignment padding -- // offset(8)             size(8)
         b: vec3<f32>;                              // offset(16)  align(16) size(12)
@@ -2281,7 +2280,7 @@ Note: The following examples use [SHORTNAME] features explained later in this sp
       position: vec3<f32>;
       velocity: vec3<f32>;
     };
-    [[block]] struct System {
+    struct System {
       active_index: i32;
       timestep: f32;
       particles: array<Particle,100>;
@@ -3301,13 +3300,13 @@ Variables at [=module scope=] are restricted as follows:
     have a storage class decoration.  The storage class will always be [=storage classes/handle=].
 
 A variable in the [=storage classes/uniform=] storage class is a <dfn noexport>uniform buffer</dfn> variable.
-Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
-satisfying the [storage class layout constraints](#storage-class-layout-constraints).
+Its [=store type=] must be a [=host-shareable=] [=constructible=] structure type,
+and must satisfy [storage class layout constraints](#storage-class-layout-constraints).
 
 A variable in the [=storage classes/storage=] storage class is a <dfn noexport>storage buffer</dfn> variable.
-Its [=store type=] must be a [=host-shareable=] structure type with [=attribute/block=] attribute,
-satisfying the [storage class layout constraints](#storage-class-layout-constraints).
-It may be declared with a [=access/read=] or [=access/read_write=] access mode; the default is [=access/read=].
+Its [=store type=] must be a [=host-shareable=] structure type
+and must satisfy [storage class layout constraints](#storage-class-layout-constraints).
+The variable may be declared with a [=access/read=] or [=access/read_write=] access mode; the default is [=access/read=].
 
 As described in [[#resource-interface]],
 uniform buffers, storage buffers, textures, and samplers form the
@@ -3319,14 +3318,15 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
     var<private> decibels: f32;
     var<workgroup> worklist: array<i32,10>;
 
-    [[block]] struct Params {
+    struct Params {
       specular: f32;
       count: i32;
     };
     [[group(0), binding(2)]]
     var<uniform> param: Params;    // A uniform buffer
 
-    [[block]] struct PositionsBuffer {
+    struct PositionsBuffer {
+      // TODO: runtime-sized array syntax may have changed
       pos: array<vec2<f32>>;
     };
     // A storage buffer, for reading and writing
@@ -5254,7 +5254,7 @@ A phony-assignment is useful for:
 
 <div class='example wgsl global-scope' heading='Using phony-assignment to occupy bindings without using them'>
   <xmp highlight=rust>
-    [[block]] struct BufferContents {
+    struct BufferContents {
         counter: atomic<u32>;
         data: array<vec4<f32>>;
     };
@@ -7380,7 +7380,7 @@ member.
 
 <div class='example memory locations accessed' heading="Accessing memory locations">
   <xmp>
-    [[block]] struct S {
+    struct S {
       a : f32;
       b : u32;
       c : f32;
@@ -7677,11 +7677,6 @@ Issue: https://github.com/gpuweb/gpuweb/issues/1621
   <dfn for=syntax>bitcast</dfn> :
 
     | `/bitcast/`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>block</dfn> :
-
-    | `/block/`
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>break</dfn> :
