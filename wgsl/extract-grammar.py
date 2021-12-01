@@ -506,7 +506,8 @@ subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
 subprocess.run(["npx", "tree-sitter", "generate"],
                cwd=grammar_path, check=True)
 # Following are commented for future reference to expose playground
-# subprocess.run(["npx", "tree-sitter", "build-wasm"],
+# Remove "--docker" if local environment matches with the container
+# subprocess.run(["npx", "tree-sitter", "build-wasm", "--docker"],
 #                cwd=grammar_path, check=True)
 
 Language.build_library(
