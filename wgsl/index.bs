@@ -2574,7 +2574,7 @@ A texture has the following features:
 :: The extent of grid coordinates along each dimension
 : mip level count
 :: The mip level count is at least 1 for sampled textures, and equal to 1 for storage textures.<br>
-    Mip level 0 contains a full size version of the texture.
+    <dfn>Mip level</dfn> 0 contains a full size version of the texture.
     Each successive mip level contains a filtered version of the previous mip level
     at half the size (within rounding) of the previous mip level.<br>
     When sampling a texture, an explicit or implicitly-computed level-of-detail is used
@@ -9371,6 +9371,177 @@ Cube faces are square, so the x and y components of the result are equal.
 
 If `level` is outside the range `[0, textureNumLevels(t))` then any valid value
 for the return type may be returned.
+
+### `textureGather` ### {#texturegather}
+
+A <dfn noexport>texture gather</dfn> operation reads from a 2D, 2D array, cube, or cube array texture,
+computing a four-element vector as follows:
+* Find the four texels that would be used in a sampling operation with linear filtering,
+    from [=mip level=] 0:
+    * Use the specified coordinate, array index (when present), and offset (when present).
+    * The texels are adjacent, forming a square, when considering their texture space coordinates (*u*,*v*).
+    * Selected texels at the texture edge, cube face edge, or cube corners are handled
+        as in ordinary texture sampling.
+* For each texel, read one channel and convert it into a scalar value.
+    * For non-depth textures, a zero-based `component` parameter specifies the channel to use.
+        * If the texture format supports the specified channel, i.e. has more than `component` channels:
+             * Yield scalar value `v[component]` when the texel value is `v`.
+        * Otherwise:
+             * Yield 0.0 when `component` is 1 or 2.
+             * Yield 1.0 when `component` is 3 (the alpha channel).
+    * For depth textures, yield the texel value. (Depth textures only have one channel.)
+* Yield the four-element vector, arranging scalars produced by the previous step into components
+    according to the relative coordinates of the texels, as follows:
+    * <table>
+        <thead class='data'><td>Result component<td>Relative texel coordinate</thead>
+        <tr><td>x<td>(*u*<sub>min</sub>,*v*<sub>max</sub>)
+        <tr><td>y<td>(*u*<sub>max</sub>,*v*<sub>max</sub>)
+        <tr><td>z<td>(*u*<sub>max</sub>,*v*<sub>min</sub>)
+        <tr><td>w<td>(*u*<sub>min</sub>,*v*<sub>min</sub>)
+        </table>
+
+TODO: The four texels are the "sample footprint" that should be described by the WebGPU spec.
+https://github.com/gpuweb/gpuweb/issues/2343
+
+```rust
+textureGather(component: i32, t: texture_2d<T>, s: sampler, coords: vec2<f32>) -> vec4<T>
+textureGather(component: i32, t: texture_2d<T>, s: sampler, coords: vec2<f32>, offset: vec2<i32>) -> vec4<T>
+textureGather(component: i32, t: texture_2d_array<T>, s: sampler, coords: vec2<f32>, array_index: i32) -> vec4<T>
+textureGather(component: i32, t: texture_2d_array<T>, s: sampler, coords: vec2<f32>, array_index: i32, offset: vec2<i32>) -> vec4<T>
+textureGather(component: i32, t: texture_cube<T>, s: sampler, coords: vec3<f32>) -> vec4<T>
+textureGather(component: i32, t: texture_cube_array<T>, s: sampler, coords: vec3<f32>, array_index: i32) -> vec4<T>
+textureGather(t: texture_depth_2d, s: sampler, coords: vec2<f32>) -> vec4<f32>
+textureGather(t: texture_depth_2d, s: sampler, coords: vec2<f32>, offset: vec2<i32>) -> vec4<f32>
+textureGather(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: i32) -> vec4<f32>
+textureGather(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: i32, offset: vec2<i32>) -> vec4<f32>
+textureGather(t: texture_depth_cube, s: sampler, coords: vec3<f32>) -> vec4<f32>
+textureGather(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_index: i32) -> vec4<f32>
+```
+
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`component`<td>
+  Only applies to non-depth textures.
+  <br>The index of the channel to read from the selected texels.
+  <br>When provided, the `component` expression must be either:
+    * a `const_expression` expression (e.g. `1`).<br>
+    * a name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=]
+  Its value must be at least 0 and at most 3.
+  Values outside of this range will result in a [=shader-creation error=].
+  <tr><td>`t`<td>
+  The [sampled](#sampled-texture-type) or [depth](#texture-depth) texture to read from.
+  <tr><td>`s`<td>
+  The [sampler type](#sampler-type).
+  <tr><td>`coords`<td>
+  The texture coordinates.
+  <tr><td>`array_index`<td>
+  The 0-based texture array index.
+  <tr><td>`offset`<td>
+  The optional texel offset applied to the unnormalized texture coordinate
+  before sampling the texture. This offset is applied before applying any
+  texture wrapping modes.<br>
+  The `offset` expression must be either:
+    * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+    * a name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=]
+  Each `offset` component must be at least `-8` and at most `7`. Values outside
+  of this range will result in a [=shader-creation error=].
+</table>
+
+**Returns:**
+
+A four element vector with components extracted from the specified channel from the selected texels, as described above.
+
+<div class='example wgsl global-scope' heading="Gather components from texels in 2D texture">
+  <xmp>
+    [[group(0),binding(0)]] var t: texture_2d<f32>;
+    [[group(0),binding(1)]] var dt: texture_depth_2d;
+    [[group(0),binding(2)]] var s: sampler;
+
+    fn gather_x_components(c: vec2<f32>) -> vec4<f32> {
+      return textureGather(0,t,s,c);
+    }
+    fn gather_y_components(c: vec2<f32>) -> vec4<f32> {
+      return textureGather(1,t,s,c);
+    }
+    fn gather_z_components(c: vec2<f32>) -> vec4<f32> {
+      return textureGather(2,t,s,c);
+    }
+    fn gather_depth_components(c: vec2<f32>) -> vec4<f32> {
+      return textureGather(dt,s,c);
+    }
+  </xmp>
+</div>
+
+### `textureGatherCompare` ### {#texturegathercompare}
+
+A <dfn noexport>texture gather compare</dfn> operation performs a depth comparison on four texels in a depth
+texture and collects the results into a single vector, as follows:
+
+* Find the four texels that would be used in a depth sampling operation with linear filtering,
+    from [=mip level=] 0:
+    * Use the specified coordinate, array index (when present), and offset (when present).
+    * The texels are adjacent, forming a square, when considering their texture space coordinates (*u*,*v*).
+    * Selected texels at the texture edge, cube face edge, or cube corners are handled
+        as in ordinary texture sampling.
+* For each texel, perform a comparison against the depth reference value,
+    yielding a 0.0 or 1.0 value, as controlled by the comparison sampler parameters.
+* Yield the four-element vector where the components are the comparison results with the texels with
+       relative texel coordinates as follows:
+    * <table>
+        <thead class='data'><td>Result component<td>Relative texel coordinate</thead>
+        <tr><td>x<td>(*u*<sub>min</sub>,*v*<sub>max</sub>)
+        <tr><td>y<td>(*u*<sub>max</sub>,*v*<sub>max</sub>)
+        <tr><td>z<td>(*u*<sub>max</sub>,*v*<sub>min</sub>)
+        <tr><td>w<td>(*u*<sub>min</sub>,*v*<sub>min</sub>)
+        </table>
+
+```rust
+textureGatherCompare(t: texture_depth_2d, s: sampler_comparison, coords: vec2<f32>, depth_ref: f32) -> vec4<f32>
+textureGatherCompare(t: texture_depth_2d, s: sampler_comparison, coords: vec2<f32>, depth_ref: f32, offset: vec2<i32>) -> vec4<f32>
+textureGatherCompare(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: i32, depth_ref: f32) -> vec4<f32>
+textureGatherCompare(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: i32, depth_ref: f32, offset: vec2<i32>) -> vec4<f32>
+textureGatherCompare(t: texture_depth_cube, s: sampler_comparison, coords: vec3<f32>, depth_ref: f32) -> vec4<f32>
+textureGatherCompare(t: texture_depth_cube_array, s: sampler_comparison, coords: vec3<f32>, array_index: i32, depth_ref: f32) -> vec4<f32>
+```
+**Parameters:**
+
+<table class='data'>
+  <tr><td>`t`<td>
+  The [depth](#texture-depth) texture to read from.
+  <tr><td>`s`<td>
+  The [sampler comparison](#sampler-type).
+  <tr><td>`coords`<td>
+  The texture coordinates.
+  <tr><td>`array_index`<td>
+  The 0-based texture array index.
+  <tr><td>`depth_ref`<td>
+  The reference value to compare the sampled depth value against.
+  <tr><td>`offset`<td>
+  The optional texel offset applied to the unnormalized texture coordinate
+  before sampling the texture. This offset is applied before applying any
+  texture wrapping modes.<br>
+  The `offset` expression must be either:
+    * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+    * a name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=]
+  Each `offset` component must be at least `-8` and at most `7`. Values outside
+  of this range will result in a [=shader-creation error=].
+</table>
+
+**Returns:**
+
+A four element vector with comparison result for the selected texels, as described above.
+
+<div class='example wgsl global-scope' heading="Gather depth comparison">
+  <xmp>
+    [[group(0),binding(0)]] var dt: texture_depth_2d;
+    [[group(0),binding(1)]] var s: sampler;
+
+    fn gather_depth_compare(c: vec2<f32>, depth_ref: f32) -> vec4<f32> {
+      return textureGatherCompare(dt,s,c,depth_ref);
+    }
+  </xmp>
+</div>
 
 ### `textureLoad` ### {#textureload}
 
