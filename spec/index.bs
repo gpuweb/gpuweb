@@ -9395,10 +9395,8 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
     : <dfn dfn>primitiveVertices</dfn>
     :: refers to the list of vertex outputs forming the primitive
     : <dfn dfn>barycentricCoordinates</dfn>
-    :: refers to barycentric coordinates
+    :: refers to [[#barycentric-coordinates]]
 </dl>
-
-Issue: define barycentric coordinates
 
 Issue: define the depth computation algorithm
 
@@ -9474,61 +9472,114 @@ The coverage mask depends on multi-sampling mode:
 
 Issue: fill out this section
 
+#### Barycentric coordinates #### {#barycentric-coordinates}
+
+Barycentric coordinates is a list of |n| numbers |b|<sub>|i|</sub>,
+defined for a point |p| inside a convex polygon with |n| vertices |v|<sub>|i|</sub> in [=framebuffer=] space.
+Each |b|<sub>|i|</sub> is in range 0 to 1, inclusive, and represents the proximity to vertex |v|<sub>|i|</sub>.
+Their sum is always constant:
+
+&sum; (|b|<sub>|i|</sub>) = 1
+
+These coordinates uniquely specify any point |p| within the polygon (or on its boundary) as:
+
+|p| = &sum; (|b|<sub>|i|</sub> &times; |p|<sub>|i|</sub>)
+
+For a polygon with 3 vertices - a triangle,
+barycentric coordinates of any point |p| can be computed as follows:
+
+|A|<sub>polygon</sub> = A(|v|<sub>|1|</sub>, |v|<sub>|2|</sub>, |v|<sub>|3|</sub>)
+|b|<sub>|1|</sub> = A(|p|, |b|<sub>|2|</sub>, |b|<sub>|3|</sub>) &divide; |A|<sub>polygon</sub>
+|b|<sub>|2|</sub> = A(|b|<sub>|1|</sub>, |p|, |b|<sub>|3|</sub>) &divide; |A|<sub>polygon</sub>
+|b|<sub>|3|</sub> = A(|b|<sub>|1|</sub>, |b|<sub>|2|</sub>, |p|) &divide; |A|<sub>polygon</sub>
+
+Where A(list of points) is the area of the polygon with the given set of vertices.
+
+For polygons with more than 3 vertices, the exact algorithm is implementation-dependent.
+One of the possible implementations is to triangulate the polygon and compute the barycentrics
+of a point based on the triangle it falls into.
+
 #### Polygon Rasterization #### {#polygon-rasterization}
 
-Let |v|(|i|) be the [=framebuffer=] coordinates for the clipped vertex number |i| (starting with 1)
-in a rasterized polygon of |n| vertices.
+A polygon is <dfn dfn>front-facing</dfn> if it's oriented towards the projection.
+Otherwise, the polygon is <dfn dfn>back-facing</dfn>.
 
-Note: this section uses the term "polygon" instead of a "triangle",
-since [[#primitive-clipping]] stage may have introduced additional vertices.
-This is non-observable by the application.
+<div algorithm>
+    <dfn abstract-op>rasterize polygon</dfn>()
 
-The first step of polygon rasterization is determining if the polygon is <dfn dfn>front-facing</dfn> or <dfn dfn>back-facing</dfn>.
-This depends on the sign of the |area| occupied by the polygon in [=framebuffer=] coordinates:
+    **Arguments:**
 
-|area| = 0.5 &times; ((|v|<sub>1</sub>.x &times; |v|<sub>|n|</sub>.y &minus; |v|<sub>|n|</sub>.x &times; |v|<sub>1</sub>.y) &plus; &sum; (|v|<sub>|i|&plus;1</sub>.x &times; |v|<sub>|i|</sub>.y &minus; |v|<sub>|i|</sub>.x &times; |v|<sub>|i|&plus;1</sub>.y))
+    **Returns:** list of [=RasterizationPoint=].
 
-The sign of |area| is interpreted based on the {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/frontFace}}:
-<dl class="switch">
-    : {{GPUFrontFace/"ccw"}}
-    :: |area| &gt; 0 is considered [=front-facing=], otherwise [=back-facing=]
-    : {{GPUFrontFace/"cw"}}
-    :: |area| &lt; 0 is considered [=front-facing=], otherwise [=back-facing=]
-    : "linear"
-    ::
-</dl>
+    1. Let |rasterizationPoints| be an empty list.
+    1. Let |v|(|i|) be the [=framebuffer=] coordinates for the clipped vertex number |i| (starting with 1)
+        in a rasterized polygon of |n| vertices.
 
-The polygon can be culled by {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/cullMode}}:
-<dl class="switch">
-    : {{GPUCullMode/"none"}}
-    :: All polygons pass this test.
-    : {{GPUCullMode/"front"}}
-    :: The [=front-facing=] polygons are discarded,
-        and do not process in later stages of the render pipeline.
-    : {{GPUCullMode/"back"}}
-    :: The [=back-facing=] polygons are discarded.
-</dl>
+        Note: this section uses the term "polygon" instead of a "triangle",
+        since [[#primitive-clipping]] stage may have introduced additional vertices.
+        This is non-observable by the application.
 
-The next step is determining a set of [=fragments=] inside the polygon in framebuffer space -
-these are locations scheduled for the per-fragment operations.
-The determination is based on |descriptor|.{{GPURenderPipelineDescriptor/multisample}}:
-<dl class="switch">
-    : disabled
-    :: [=Fragment=]s are associated with pixel centers. That is, all the points with coordinates |C|, where
-        fract(|C|) = vector2(0.5, 0.5) in the [=framebuffer=] space, enclosed into the polygon, are included.
-        If a pixel center is on the edge of the polygon, whether or not it's included is not defined.
+    1. Determine if the polygon is front-facing,
+        which depends on the sign of the |area| occupied by the polygon in [=framebuffer=] coordinates:
 
-        Note: this becomes a subject of precision for the rasterizer.
+        |area| = 0.5 &times; ((|v|<sub>1</sub>.x &times; |v|<sub>|n|</sub>.y &minus; |v|<sub>|n|</sub>.x &times; |v|<sub>1</sub>.y) &plus; &sum; (|v|<sub>|i|&plus;1</sub>.x &times; |v|<sub>|i|</sub>.y &minus; |v|<sub>|i|</sub>.x &times; |v|<sub>|i|&plus;1</sub>.y))
 
-    : enabled
-    :: Each pixel is associated with |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}
-        locations, which are implementation-defined.
-        The locations are ordered, and the list is the same for each pixel of the [=framebuffer=].
-        Each location corresponds to one fragment in the multisampled [=framebuffer=].
+        The sign of |area| is interpreted based on the {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/frontFace}}:
+        <dl class="switch">
+            : {{GPUFrontFace/"ccw"}}
+            :: |area| &gt; 0 is considered [=front-facing=], otherwise [=back-facing=]
+            : {{GPUFrontFace/"cw"}}
+            :: |area| &lt; 0 is considered [=front-facing=], otherwise [=back-facing=]
+        </dl>
 
-        The rasterizer builds a mask of locations being hit inside each pixel and provides is as "sample-mask"
-        built-in to the fragment shader.
-</dl>
+    1. Cull based on {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/cullMode}}:
+        <dl class="switch">
+            : {{GPUCullMode/"none"}}
+            :: All polygons pass this test.
+            : {{GPUCullMode/"front"}}
+            :: The [=front-facing=] polygons are discarded,
+                and do not process in later stages of the render pipeline.
+            : {{GPUCullMode/"back"}}
+            :: The [=back-facing=] polygons are discarded.
+        </dl>
+
+    1. Determine a set of [=fragments=] inside the polygon in [=framebuffer=] space -
+        these are locations scheduled for the per-fragment operations.
+        This operation is known as "point sampling".
+        The logic is based on |descriptor|.{{GPURenderPipelineDescriptor/multisample}}:
+        <dl class="switch">
+            : disabled
+            :: [=Fragment=]s are associated with pixel centers. That is, all the points with coordinates |C|, where
+                fract(|C|) = vector2(0.5, 0.5) in the [=framebuffer=] space, enclosed into the polygon, are included.
+                If a pixel center is on the edge of the polygon, whether or not it's included is not defined.
+
+                Note: this becomes a subject of precision for the rasterizer.
+
+            : enabled
+            :: Each pixel is associated with |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}
+                locations, which are implementation-defined.
+                The locations are ordered, and the list is the same for each pixel of the [=framebuffer=].
+                Each location corresponds to one fragment in the multisampled [=framebuffer=].
+
+                The rasterizer builds a mask of locations being hit inside each pixel and provides is as "sample-mask"
+                built-in to the fragment shader.
+        </dl>
+
+    1. For each produced fragment of type [=FragmentDestination=]:
+        
+        1. Let |rp| be be a new [=RasterizationPoint=] object
+        1. Compute the list |b| as [[#barycentric-coordinates]] of that fragment.
+            Set |rp|.[=RasterizationPoint/barycentricCoordinates=] to |b|.
+
+        1. Let |d|<sub>|i|</sub> be the depth value of |v|<sub>|i|</sub>.
+
+            Issue: define how this value is constructed.
+        1. Set |rp|.[=RasterizationPoint/depth=] to &sum; (|b|<sub>|i|</sub> &times; |d|<sub>|i|</sub>)
+        1. Append |rp| to |rasterizationPoints|.
+
+    1. Return |rasterizationPoints|.
+
+</div>
 
 ### Fragment Processing ### {#fragment-processing}
 
