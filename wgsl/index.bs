@@ -610,6 +610,16 @@ An attribute must not be specified more than once per object or type.
     Specifies the binding group of the resource.
     See [[#resource-interface]].
 
+  <tr><td><dfn noexport dfn-for="attribute">`id`
+    <td>non-negative i32 literal
+    <td>Must only be applied to [=override declaration=] of [=scalar=] type.
+
+    Specifies a [=pipeline-overridable=] constant.
+    In the WebGPU API, pipeline overridable constants are specified by the identifier
+    of the constant the attribute is applied to.
+    The pipeline overridable constant is referred to by the numeric id
+    specified instead.
+
   <tr><td><dfn noexport dfn-for="attribute">`interpolate`
     <td>One or two parameters.
 
@@ -648,16 +658,6 @@ An attribute must not be specified more than once per object or type.
 
     Specifies a part of the user-defined IO of an entry point.
     See [[#input-output-locations]].
-
-  <tr><td><dfn noexport dfn-for="attribute">`override`
-    <td>An optional, non-negative i32 literal
-    <td>Must only be applied to module scope constant declaration of [=scalar=] type.
-
-    Specifies a [=pipeline-overridable=] constant.
-    In the WebGPU API, pipeline overridable constants are specified by the identifier
-    of the constant the attribute is applied to.
-    If the optional parameter is specified, the pipeline overridable constant
-    is referred to by the numeric id specified instead.
 
   <tr><td><dfn noexport dfn-for="attribute">`size`</dfn>
     <td>positive i32 literal
@@ -1195,7 +1195,7 @@ Two array types are the same if and only if all of the following are true:
         (Signed and unsigned values are comparable in this case because element counts must
         be greater than zero.)
     * They are both fixed-sized with element count specified as the same
-        [=pipeline-overridable=] [=module scope|module-scope-=] constant.
+        [=pipeline-overridable=] constant.
 
 <div class='example wgsl fixed-size array types' heading='Example fixed-size array types, non-overridable element count'>
   <xmp highlight='rust'>
@@ -1223,7 +1223,7 @@ of a variable in [=storage classes/workgroup=] storage.
 
 <div class='example wgsl global-scope' heading="Workgroup variables sized by overridable constants">
   <xmp>
-    @override let blockSize = 16;
+    override blockSize = 16;
 
     var<workgroup> odds: array<i32,blockSize>;
     var<workgroup> evens: array<i32,blockSize>;
@@ -1436,15 +1436,15 @@ The plain types with [=creation-fixed footprint=] are:
 * a [=matrix=] type
 * an [=atomic type|atomic=] type
 * a [=fixed-size array=] type, when:
-     * its [=element count=] is a literal, or the name of a [[#module-constants|module-scope constant]]
-        that is not [=pipeline-overridable=].
+     * its [=element count=] is a literal, or the name of a [[#module-constants|module-scope]]
+        [=let declaration=]
 * a [=structure=] type, if all its members have [=creation-fixed footprint=].
 
 Note: A [=constructible=] type has [=creation-fixed footprint=].
 
 The plain types with [=fixed footprint=] are any of:
 * a type with [=creation-fixed footprint=]
-* a [=fixed-size array=] type, where its [=element count=] is a [=pipeline-overridable=] [[#module-constants|module-scope constant]].
+* a [=fixed-size array=] type, where its [=element count=] is a [=pipeline-overridable=]  constant.
 
 Note: The only valid use of a fixed-size array with an element count that is a pipeline-overridable constant is
 as the [=store type=] for a [=storage classes/workgroup=] variable.
@@ -3178,7 +3178,19 @@ When the type declaration is an [=identifier=], then the expression must be in s
   </xmp>
 </div>
 
-# `var` and `let` # {#var-and-let}
+# Variable and Value Declarations # {#var-and-value}
+
+## Value Declarations ## {#value-decls}
+
+[SHORTNAME] authors can declare names for immutable values using one of the following methods:
+
+  * [=let declarations=]
+  * [=override declarations=]
+
+Value declarations do not have any associated storage.
+That is, there are no [=memory locations=] associated with the declaration.
+
+### `let` Declarations ### {#let-decls}
 
 A <dfn noexport>let declaration</dfn> specifies a name for a value.
 Once the value for a let-declaration is computed, it is immutable.
@@ -3200,6 +3212,57 @@ See [[#module-constants]] and [[#function-scope-variables]].
     let row_size = 16u;
   </xmp>
 </div>
+
+### `override` Declarations ### {#override-decls}
+
+A <dfn noexport>override declaration</dfn> specifies a name for a
+[=pipeline-overridable=] constant value.
+A <dfn noexport>pipeline-overridable</dfn> constant is whose value is not fixed
+until pipeline-creation time.
+When an [=identifier=] use [=resolves=] to a override-declaration, the identifier denotes that value.
+`override`-declarations must meet the following restrictions:
+
+  * The declaration must only occur at [=module scope=].
+  * The type is optional, but it must be one of the [=scalar=] types.
+  * The initializer expression is optional.
+  * If the initializer expression is present, it must be composed only of
+    [=syntax/const_expression|const_expressions=] or expressions where all
+    identifiers [=resolve=] to overridable constants.
+  * If the initializer expression is not present, the type must be specified.
+  * If the declaration has the [=attribute/id=] applied, the literal operand is
+      known as the <dfn noexport>pipeline constant ID</dfn>, and must be an
+      integer value between 0 and 65535.
+  * Pipeline constant IDs must be unique within the [SHORTNAME] program: Two `override`-declarations
+    must not use the same pipeline constant ID.
+  * The application can specify its own value for the constant at pipeline-creation time.
+    The pipeline creation API accepts a mapping from overridable constant to a
+    value of the constant's type.
+    The constant is identified by a <dfn export>pipeline-overridable constant identifier string</dfn>,
+    which is the base-10 representation of the [=pipeline constant ID=] if specified, and otherwise
+    the declared [=name=] of the constant.
+  * The <dfn export>pipeline-overridable constant has a default value</dfn> if
+    its declaration has an initializer expression.
+    If it doesn't, a value must be provided at pipeline-creation time.
+
+<div class='example wgsl global-scope' heading='Module constants, pipeline-overrideable'>
+  <xmp>
+    @id(0)    override has_point_light: bool = true;  // Algorithmic control
+    @id(1200) override specular_param: f32 = 2.3;     // Numeric control
+    @id(1300) override gain: f32;                     // Must be overridden
+              override width: f32 = 0.0;              // Specified at the API level using
+                                                      // the name "width".
+              override depth: f32;                    // Specified at the API level using
+                                                      // the name "depth".
+                                                      // Must be overridden.
+              override height = 2 * depth;            // The default value
+                                                      // (if not set at the API level),
+                                                      // depends on another
+                                                      // overridable constant.
+
+  </xmp>
+</div>
+
+## `var` Declarations ## {#var-decls}
 
 A <dfn dfn noexport>variable</dfn> is a named reference to memory that can contain a value of a
 particular [=storable=] type.
@@ -3231,31 +3294,6 @@ and when the storage class decoration is required, optional, or forbidden.
 
 The access mode always has a default, and except for variables in the [=storage classes/storage=] storage class,
 must not be written in [SHORTNAME] source text. See [[#access-mode-defaults]].
-
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>variable_statement</dfn> :
-
-    | [=syntax/variable_decl=]
-
-    | [=syntax/variable_decl=] [=syntax/equal=] [=syntax/expression=]
-
-    | [=syntax/let=] ( [=syntax/ident=] | [=syntax/variable_ident_decl=] ) [=syntax/equal=] [=syntax/expression=]
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>variable_decl</dfn> :
-
-    | [=syntax/var=] [=syntax/variable_qualifier=] ? ( [=syntax/ident=] | [=syntax/variable_ident_decl=] )
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>variable_ident_decl</dfn> :
-
-    | [=syntax/ident=] [=syntax/colon=] [=syntax/type_decl=]
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>variable_qualifier</dfn> :
-
-    | [=syntax/less_than=] [=syntax/storage_class=] ( [=syntax/comma=] [=syntax/access_mode=] ) ? [=syntax/greater_than=]
-</div>
 
 The <dfn noexport>lifetime</dfn> of a variable is the period during shader
 execution for which the variable exists.
@@ -3375,12 +3413,6 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
   </xmp>
 </div>
 
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>global_variable_decl</dfn> :
-
-    | [=syntax/attribute=] * [=syntax/variable_decl=] ( [=syntax/equal=] ( [=syntax/const_expression=] | [=syntax/ident=] ) ) ?
-</div>
-
 <div class='example' heading="Variable Decorations">
   <xmp>
     @group(4) @binding(3)
@@ -3391,15 +3423,17 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
 
 ## Module Constants ## {#module-constants}
 
-A `let`-declaration appearing outside all functions declares a
+A [[#value-decls|value declaration]] appearing outside all functions declares a
 [=module scope|module-scope=] constant.
-The name is available for use after the end of the declaration,
-until the end of the [SHORTNAME] program.
+The name is [=in scope=] for the entire program.
 
-A module-scope let-declared constant must be of [=constructible=] type.
-
-When the declaration has no attributes, an initializer expression must be present,
+A module-scope [=let declaration|let-declared=] constant must be of
+[=constructible=] type.
+An initializer expression must be present for a module-scope `let`-declaration
 and the name denotes the value of that expression.
+
+A [=pipeline-overridable=] constant must be one of the [=scalar=] types.
+An initializer expression is optional for pipeline-overridable constants.
 
 <div class='example wgsl global-scope' heading='Module constants'>
   <xmp>
@@ -3411,61 +3445,11 @@ and the name denotes the value of that expression.
   </xmp>
 </div>
 
-When the declaration uses the [=attribute/override=] attribute,
-the constant is <dfn noexport>pipeline-overridable</dfn>. In this case:
-
-  * The type must be one of the [=scalar=] types.
-  * The initializer expression is optional.
-  * The attribute's literal operand, if present, is known as the <dfn noexport>pipeline constant ID</dfn>,
-    and must be an integer value between 0 and 65535.
-  * Pipeline constant IDs must be unique within the [SHORTNAME] program: Two module constants
-    must not use the same pipeline constant ID.
-  * The application can specify its own value for the constant at pipeline-creation time.
-    The pipeline creation API accepts a mapping from overridable constant to a
-    value of the constant's type.
-    The constant is identified by a <dfn export>pipeline-overridable constant identifier string</dfn>,
-    which is the base-10 representation of the [=pipeline constant ID=] if specified, and otherwise
-    the declared [=name=] of the constant.
-  * The <dfn export>pipeline-overridable constant has a default value</dfn> if
-    its declaration has an initializer expression.
-    If it doesn't, a value must be provided at pipeline-creation time.
-
-<div class='example wgsl global-scope' heading='Module constants, pipeline-overrideable'>
-  <xmp>
-    @override(0)    let has_point_light: bool = true;  // Algorithmic control
-    @override(1200) let specular_param: f32 = 2.3;     // Numeric control
-    @override(1300) let gain: f32;                     // Must be overridden
-    @override       let width: f32 = 0.0;              // Specified at the API level using
-                                                       // the name "width".
-    @override       let depth: f32;                    // Specified at the API level using
-                                                       // the name "depth".
-                                                       // Must be overridden.
-  </xmp>
-</div>
-
 When a variable or feature is used within control flow that depends on the
 value of a constant, then that variable or feature is considered to be used by the
 program.
 This is true regardless of the value of the constant, whether that value
 is the one from the constant's declaration or from a pipeline override.
-
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>global_constant_decl</dfn> :
-
-    | [=syntax/attribute=] * [=syntax/let=] ( [=syntax/ident=] | [=syntax/variable_ident_decl=] ) [=syntax/global_const_initializer=] ?
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>global_const_initializer</dfn> :
-
-    | [=syntax/equal=] ( [=syntax/const_expression=] | [=syntax/ident=] )
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>const_expression</dfn> :
-
-    | [=syntax/type_decl=] [=syntax/paren_left=] ( ( [=syntax/const_expression=] [=syntax/comma=] ) * [=syntax/const_expression=] [=syntax/comma=] ? ) ? [=syntax/paren_right=]
-
-    | [=syntax/const_literal=]
-</div>
 
 <div class='example' heading='Constants'>
   <xmp>
@@ -3503,7 +3487,8 @@ A variable or constant declared in a declaration statement in a function body is
 The name is available for use immediately after its declaration statement,
 and until the end of the brace-delimited list of statements immediately enclosing the declaration.
 
-A function-scope let-declared constant must be of [=constructible=] type, or of [=pointer type=].
+A function-scope [=let declaration|let-declared=] constant must be of
+[=constructible=] type, or of [=pointer type=].
 
 For a variable declared in function scope:
 * The variable is always in the [=storage classes/function=] storage class.
@@ -3533,6 +3518,61 @@ Each variable that is [=in scope=] for some invocation has an overlapping
 Variables with non-overlapping lifetimes may reuse the memory of previous
 variables; however, new instances of the same variable are not guaranteed to
 use the same memory.
+
+## Variable and Value Declaration Grammar Summary ## {#var-and-value-decl-grammar}
+
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>variable_statement</dfn> :
+
+    | [=syntax/variable_decl=]
+
+    | [=syntax/variable_decl=] [=syntax/equal=] [=syntax/expression=]
+
+    | [=syntax/let=] ( [=syntax/ident=] | [=syntax/variable_ident_decl=] ) [=syntax/equal=] [=syntax/expression=]
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>variable_decl</dfn> :
+
+    | [=syntax/var=] [=syntax/variable_qualifier=] ? ( [=syntax/ident=] | [=syntax/variable_ident_decl=] )
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>variable_ident_decl</dfn> :
+
+    | [=syntax/ident=] [=syntax/colon=] [=syntax/type_decl=]
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>variable_qualifier</dfn> :
+
+    | [=syntax/less_than=] [=syntax/storage_class=] ( [=syntax/comma=] [=syntax/access_mode=] ) ? [=syntax/greater_than=]
+</div>
+
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>global_variable_decl</dfn> :
+
+    | [=syntax/attribute=] * [=syntax/variable_decl=] ( [=syntax/equal=] [=syntax/const_expression=] ) ?
+</div>
+
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>global_constant_decl</dfn> :
+
+    | [=syntax/let=] ( [=syntax/ident=] | [=syntax/variable_ident_decl=] ) [=syntax/global_const_initializer=] ?
+
+    | [=syntax/attribute=] * [=syntax/override=] [=syntax/ident=] [=syntax/equal=] [=syntax/expression=]
+
+    | [=syntax/attribute=] * [=syntax/override=] [=syntax/variable_ident_decl=] ( [=syntax/equal=] [=syntax/expression=] ) ?
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>global_const_initializer</dfn> :
+
+    | [=syntax/equal=] [=syntax/const_expression=]
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>const_expression</dfn> :
+
+    | [=syntax/type_decl=] [=syntax/paren_left=] ( ( [=syntax/const_expression=] [=syntax/comma=] ) * [=syntax/const_expression=] [=syntax/comma=] ? ) ? [=syntax/paren_right=]
+
+    | [=syntax/const_literal=]
+</div>
 
 # Expressions # {#expressions}
 
@@ -4997,7 +5037,7 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
   <tr algorithm="pipeline-overridable constant value">
        <td>
           |c| is an [=identifier=] [=resolves|resolving=] to
-          an [=in scope|in-scope=] [=pipeline-overridable=] `let` declaration with type |T|
+          an [=in scope|in-scope=] [=override declaration=] with type |T|
        <td class="nowrap">
           |c|: |T|
        <td>If pipeline creation specified a value for the [=pipeline constant ID|constant ID=],
@@ -5011,8 +5051,7 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
   <tr algorithm="constant value">
        <td>
           |c| is an [=identifier=] [=resolves|resolving=] to
-          an [=in scope|in-scope=] `let` declaration with type |T|,
-          and is not pipeline-overridable
+          an [=in scope|in-scope=] `let` declaration with type |T|
        <td class="nowrap">
           |c|: |T|
        <td>Result is the value computed for the initializer expression.<br>
@@ -6602,7 +6641,7 @@ In detail, when a function call is executed the following steps occur:
     All [=function scope=] variables and constants maintain their current values.
 3. If the called function is [=user-defined function|user-defined=],
     storage is allocated for each function scope variable in the called function.
-    * Initialization occurs as described in [[#var-and-let]].
+    * Initialization occurs as described in [[#var-and-value]].
 4. Values for the formal parameters of the called function are determined
     by matching the function call argument values by position.
     For example, in the body of the called function the first formal parameter will denote
@@ -6787,7 +6826,7 @@ ISSUE: Can we query upper bounds on workgroup size dimensions?  Is it independen
        // OpExecutionMode %reverser LocalSize 8 1 1
 
     // Using an pipeline-overridable constant.
-    @override(42) let block_width = 12u;
+    @id(42) override block_width = 12u;
     @stage(compute) @workgroup_size(block_width)
     fn shuffler() { }
        // The SPIR-V translation uses a WorkgroupSize-decorated constant,
@@ -7816,6 +7855,11 @@ Issue: https://github.com/gpuweb/gpuweb/issues/1621
   <dfn for=syntax>mat4x4</dfn> :
 
     | `'mat4x4'`
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>override</dfn> :
+
+    | `'override'`
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>pointer</dfn> :
@@ -9435,7 +9479,7 @@ textureGather(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_
   <br>The index of the channel to read from the selected texels.
   <br>When provided, the `component` expression must be either:
     * a `const_expression` expression (e.g. `1`).<br>
-    * a name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=]
+    * a name of a [=module scope|module-scope=] [=let declaration=]
   Its value must be at least 0 and at most 3.
   Values outside of this range will result in a [=shader-creation error=].
   <tr><td>`t`<td>
@@ -9452,7 +9496,7 @@ textureGather(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_
   texture wrapping modes.<br>
   The `offset` expression must be either:
     * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
-    * a name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=]
+    * a name of a [=module scope|module-scope=] [=let declaration=]
   Each `offset` component must be at least `-8` and at most `7`. Values outside
   of this range will result in a [=shader-creation error=].
 </table>
@@ -9532,7 +9576,7 @@ textureGatherCompare(t: texture_depth_cube_array, s: sampler_comparison, coords:
   texture wrapping modes.<br>
   The `offset` expression must be either:
     * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
-    * a name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=]
+    * a name of a [=module scope|module-scope=] [=let declaration=]
   Each `offset` component must be at least `-8` and at most `7`. Values outside
   of this range will result in a [=shader-creation error=].
 </table>
@@ -9720,7 +9764,7 @@ textureSample(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_
   texture wrapping modes.<br>
   The `offset` expression must be either:
     * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
-    * a name of a [[#module-constants|module-scope constant]] that is not [=pipeline-overridable=]
+    * a name of a [=module scope|module-scope=] [=let declaration=]
   Each `offset` component must be at least `-8` and at most `7`. Values outside
   of this range will result in a [=shader-creation error=].
 </table>
@@ -9765,7 +9809,9 @@ textureSampleBias(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, arr
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be either:
+    * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+    * a name of a [=module scope|module-scope=] [=let declaration=]
   Each `offset` component must be at least `-8` and at most `7`. Values outside
   of this range will result in a [=shader-creation error=].
 </table>
@@ -9808,7 +9854,9 @@ textureSampleCompare(t: texture_depth_cube_array, s: sampler_comparison, coords:
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be either:
+    * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+    * a name of a [=module scope|module-scope=] [=let declaration=]
   Each `offset` component must be at least `-8` and at most `7`. Values outside
   of this range will result in a [=shader-creation error=].
 </table>
@@ -9880,7 +9928,9 @@ textureSampleGrad(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, arr
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be either:
+    * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+    * a name of a [=module scope|module-scope=] [=let declaration=]
   Each `offset` component must be at least `-8` and at most `7`. Values outside
   of this range will result in a [=shader-creation error=].
 </table>
@@ -9934,7 +9984,9 @@ textureSampleLevel(t: texture_external, s: sampler, coords: vec2<f32>) -> vec4<f
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
   texture wrapping modes.<br>
-  The `offset` expression must be a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+  The `offset` expression must be either:
+    * a `const_expression` expression (e.g. `vec2<i32>(1, 2)`).<br>
+    * a name of a [=module scope|module-scope=] [=let declaration=]
   Each `offset` component must be at least `-8` and at most `7`. Values outside
   of this range will result in a [=shader-creation error=].
 </table>
