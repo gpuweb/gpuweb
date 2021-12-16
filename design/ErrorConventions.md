@@ -54,26 +54,39 @@ passed into `o.f`.
     * This is explicitly made more strict than the usual WebIDL dictionary
       binding rules.
 
-* If any object in `A` is missing a required key (given current features): Error **must** be synchronous.
+* If any object in `A` contains any key that is not known to the browser (is not
+  present in its WebIDL code): No error.
+    * This is how WebIDL works.
+    * If possible browsers could choose to issue warnings for unrecognized keys.
+
+* If any object in `A` sets any key that is known to the browser, but part of a
+  non-enabled feature, is set to any value other than its default:
+  Error **must not** be synchronous.
+
+* If any object in `A` is missing a required key: Error **must** be synchronous
+  (per WebIDL).
+    * Dictionary members added to existing dictionaries by optional device
+      features **must** be optional.
+
+* Validation which affects content-timeline behavior:
+  Error **should** be synchronous. E.g.:
+    * Two arrays must match in length, but don't.
+    * Offset/size parameters into a `ArrayBuffer`/`TypedArray` are
+      out of bounds. (Avoids copying the whole ArrayBuffer across processes.)
 
 * Validation which depends only on individual primitives (e.g. `Number`s) in
   `A`, `device.limits`, and `device.features`:
-  Error **should (but may not)** be synchronous.
-  E.g.:
+  Error **should not** be synchronous. E.g.:
     * A `Number` exceeds the associated entry in `limits`.
-    * Two arrays must match in length, but don't.
     * A bitflag has two incompatible bits.
 
 * Validation which depends on state which *can be tracked* on the client-side:
-  Error **may (but usually won't)** be synchronous.
-  E.g.:
+  Error **may (but usually won't)** be synchronous. E.g.:
     * `queue.signalFence(fence, 3); queue.signalFence(fence, 2);`
     * Building an invalid command buffers (e.g. resource used in conflicting
       ways inside a pass): Probably will not be synchronous.
 
-* Validation which depends on state which is *not synchronously known* on the client-side:
-  Error **must not** be synchronous.
-  E.g.:
-    * A WebGPU interface object argument is internally null.
+* Validation which depends on state which is *not synchronously known* on the
+  client-side: Error **must not** be synchronous. E.g.:
+    * A WebGPU interface object argument is invalid (due to validation or OOM).
     * The device is lost.
-    * There is an out-of-memory condition.
