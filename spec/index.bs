@@ -9059,26 +9059,20 @@ interface GPUCanvasContext {
 {{GPUCanvasContext}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUCanvasContext">
-    : <dfn>\[[validConfiguration]]</dfn> of type boolean, initially `false`.
-    ::
-        Indicates if the context currently has a valid configuration.
-
-    : <dfn>\[[configuration]]</dfn> of type {{GPUCanvasConfiguration}}, initially `null`.
+    : <dfn>\[[configuration]]</dfn> of type {{GPUCanvasConfiguration}}?, initially `null`.
     ::
         The options this context is configured with. `null` if the context has not been configured
-        or the configuration has been removed.
-
-    : <dfn>\[[size]]</dfn> of type {{GPUExtent3D}}
-    ::
-        The size of {{GPUTexture}}s returned from this context.
-        [=Extent3D/depthOrArrayLayers=] is always `1`.
+        or has been {{GPUCanvasContext/unconfigure()|unconfigured}}.
 
     : <dfn>\[[currentTexture]]</dfn> of type {{GPUTexture}}?, initially `null`
     ::
         The current texture that will be returned by the context when calling
         {{GPUCanvasContext/getCurrentTexture()}}, and the next one to be composited to the
-        document. Initially set to the result of [$allocating a new context texture$] for this
-        context.
+        document.
+
+        When non-`null`, this texture's size always matches the current
+        {{GPUCanvasContext/[[configuration]]}}'s size. Calling {{GPUCanvasContext/configure()}}
+        [$Invalidate the current texture|invalidates$] it.
 </dl>
 
 {{GPUCanvasContext}} has the following methods:
@@ -9099,41 +9093,10 @@ interface GPUCanvasContext {
 
             **Returns:** undefined
 
-            1. Set |this|.{{GPUCanvasContext/[[validConfiguration]]}} to `false`.
+            1. [$Invalidate the current texture$] of |this|.
+            1. If |configuration|.{{GPUCanvasConfiguration/size}} is `undefined`,
+                set it to [|canvas|.width, |canvas|.height, 1].
             1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to |configuration|.
-            1. If |this|.{{GPUCanvasContext/[[currentTexture]]}} is not `null` call
-                {{GPUTexture/destroy()}} on |this|.{{GPUCanvasContext/[[currentTexture]]}}.
-            1. Set |this|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
-            1. Let |device| be |configuration|.{{GPUCanvasConfiguration/device}}.
-            1. Let |canvas| be |this|.{{GPUCanvasContext/canvas}}.
-            1. If |configuration|.{{GPUCanvasConfiguration/size}} is `undefined` set
-                |this|.{{GPUCanvasContext/[[size]]}} to [|canvas|.width, |canvas|.height, 1],
-                otherwise set |this|.{{GPUCanvasContext/[[size]]}} to
-                |configuration|.{{GPUCanvasConfiguration/size}}.
-
-            1. Issue the following steps on the [=Device timeline=] of |device|:
-                <div class=device-timeline>
-                    1. If any of the following conditions are unsatisfied:
-                        <div class=validusage>
-                            - |device| is a [=valid=] {{GPUDevice}}.
-                            - [=Supported context formats=] [=set/contains=]
-                                |configuration|.{{GPUCanvasConfiguration/format}}.
-                            - |this|.{{GPUCanvasContext/[[size]]}}.[=Extent3D/width=] &gt; 0.
-                            - |this|.{{GPUCanvasContext/[[size]]}}.[=Extent3D/width=] &le;
-                                |device|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension2D}}.
-                            - |this|.{{GPUCanvasContext/[[size]]}}.[=Extent3D/height=] &gt; 0.
-                            - |this|.{{GPUCanvasContext/[[size]]}}.[=Extent3D/height=] &le;
-                                |device|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension2D}}.
-                            - |this|.{{GPUCanvasContext/[[size]]}}.[=Extent3D/depthOrArrayLayers=]
-                                is 1;
-                        </div>
-
-                        Then:
-                            1. Generate a {{GPUValidationError}} in the current scope with appropriate
-                                error message.
-                            1. Return.
-                </div>
-            1. Set |this|.{{GPUCanvasContext/[[validConfiguration]]}} to `true`.
         </div>
 
     : <dfn>unconfigure()</dfn>
@@ -9145,11 +9108,8 @@ interface GPUCanvasContext {
 
             **Returns:** undefined
 
-            1. Set |this|.{{GPUCanvasContext/[[validConfiguration]]}} to `false`.
+            1. [$Invalidate the current texture$] of |this|.
             1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to `null`.
-            1. If |this|.{{GPUCanvasContext/[[currentTexture]]}} is not `null` call
-                {{GPUTexture/destroy()}} on |this|.{{GPUCanvasContext/[[currentTexture]]}}.
-            1. Set |this|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
         </div>
 
     : <dfn>getPreferredFormat(adapter)</dfn>
@@ -9183,8 +9143,7 @@ interface GPUCanvasContext {
 
             **Returns:** {{GPUTexture}}
 
-            1. If |this|.{{GPUCanvasContext/[[configuration]]}} is `null`:
-                1. Throw an {{OperationError}} and stop.
+            1. If |this|.{{GPUCanvasContext/[[configuration]]}} is `null`, throw an {{InvalidStateError}}.
             1. If |this|.{{GPUCanvasContext/[[currentTexture]]}} is `null` or
                 |this|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/[[destroyed]]}} is true:
                 1. Set |this|.{{GPUCanvasContext/[[currentTexture]]}} to the result of [$allocating
@@ -9194,7 +9153,8 @@ interface GPUCanvasContext {
 
         Note: Developers can expect that the same {{GPUTexture}} object will be returned by every
         call to {{GPUCanvasContext/getCurrentTexture()}} made within the same frame (i.e. between
-        invocations of [=Update the rendering=]) unless {{GPUCanvasContext/configure()}} is called.
+        invocations of [=Update the rendering=]) unless the current texture has been
+        [$Invalidate the current texture|invalidated$].
 </dl>
 
 <div algorithm>
@@ -9232,21 +9192,23 @@ interface GPUCanvasContext {
     they <dfn abstract-op>get a copy of the image contents of a context</dfn>:
 
     **Arguments:**
-    |context|: the {{GPUCanvasContext}}
+    - |context|: the {{GPUCanvasContext}}
 
     **Returns:** image contents
 
     1. Let |texture| be |context|.{{GPUCanvasContext/[[currentTexture]]}}.
-    1. If any of the following requirements is unmet, return a transparent black image of size
-        |context|.{{GPUCanvasContext/[[size]]}} and stop.
+    1. If any of the following requirements is unmet:
+
         <div class=validusage>
             - |texture| must not be `null`.
             - |texture|.{{GPUTexture/[[destroyed]]}} must be false.
             - If |context|.{{GPUCanvasContext/canvas}} is an {{OffscreenCanvas}},
                 it must not be linked to a [=placeholder canvas element=].
 
-                Issue: If added, canvas must also not be `desynchronized`.
+            Issue: Canvas must also not be desynchronized, if such an option is added.
         </div>
+
+        Then return a transparent black image with the size of the |context|.{{GPUCanvasContext/canvas}}.
     1. Ensure that all submitted work items (e.g. queue submissions) have
         completed writing to |texture|.
     1. Return the contents of |texture|, tagged as having alpha premultiplied, and with the color space
@@ -9259,22 +9221,34 @@ interface GPUCanvasContext {
     To <dfn abstract-op lt='allocating a new context texture'>allocate a new context texture</dfn>
     for {{GPUCanvasContext}} |context| run the following steps:
 
-        1. Let |device| be |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/device}}.
-        1. If |context|.{{GPUCanvasContext/[[validConfiguration]]}} is `false`:
-            1. Generate a {{GPUValidationError}} in the current scope of |device| with an appropriate error message.
-            1. Return a new [=invalid=] {{GPUTexture}}.
-        1. Let |textureDescriptor| be a new {{GPUTextureDescriptor}}.
-        1. Set |textureDescriptor|.{{GPUTextureDescriptor/size}} to |context|.{{GPUCanvasContext/[[size]]}}.
-        1. Set |textureDescriptor|.{{GPUTextureDescriptor/format}} to
-            |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/format}}.
-        1. Set |textureDescriptor|.{{GPUTextureDescriptor/usage}} to
-            |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/usage}}.
-        1. Let |texture| be a new {{GPUTexture}} created as if |device|.{{GPUDevice/createTexture()}}
-            were called with |textureDescriptor|.
-            <div class='note'>If a previously presented texture from |context| matches the required criteria,
-            its GPU memory may be re-used.</div>
-        1. Ensure |texture| is cleared to `(0, 0, 0, 0)`.
-        1. Return |texture|.
+    1. [=Assert=]: |context|.{{GPUCanvasContext/[[configuration]]}} is not `null`.
+    1. Let |device| be |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/device}}.
+    1. Let |textureDescriptor| be a new {{GPUTextureDescriptor}}.
+    1. Set |textureDescriptor|.{{GPUTextureDescriptor/size}} to
+        |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/size}}.
+    1. Set |textureDescriptor|.{{GPUTextureDescriptor/format}} to
+        |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/format}}.
+    1. Set |textureDescriptor|.{{GPUTextureDescriptor/usage}} to
+        |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/usage}}.
+    1. Let |texture| be a new {{GPUTexture}} created as if |device|.{{GPUDevice/createTexture()}}
+        were called with |textureDescriptor|.
+
+        Note: This results in an [=invalid=] {{GPUTexture}} and generates an error if the
+        texture can't be created (e.g. the texture size is larger than the device's
+        {{GPUSupportedLimits/maxTextureDimension2D}}.
+
+        Note: If a previously presented texture from |context| matches the required criteria,
+        its GPU memory may be re-used.
+    1. Ensure |texture| is cleared to `(0, 0, 0, 0)`.
+    1. Return |texture|.
+</div>
+
+<div algorithm>
+    To <dfn abstract-op>Invalidate the current texture</dfn> of a {{GPUCanvasContext}} |context|:
+
+    1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`, call its
+        {{GPUTexture/destroy()}} method.
+    1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
 </div>
 
 ## GPUCanvasConfiguration ## {#canvas-configuration}
@@ -9286,7 +9260,6 @@ initially set to: &laquo;{{GPUTextureFormat/"bgra8unorm"}}, {{GPUTextureFormat/"
 {{GPUTextureFormat/"rgba8unorm"}}, {{GPUTextureFormat/"rgba8unorm-srgb"}}&raquo;.
 
 <script type=idl>
-
 enum GPUCanvasCompositingAlphaMode {
     "opaque",
     "premultiplied",
@@ -9331,13 +9304,12 @@ high dynamic range is explicitly enabled for the canvas element.
 
 ### Canvas Context sizing ### {#context-sizing}
 
-A {{GPUCanvasContext}}'s {{GPUCanvasContext/[[size]]}} is set by the {{GPUCanvasConfiguration}}
+The size of the image used to present a WebGPU canvas is set by the {{GPUCanvasConfiguration}}
 passed to {{GPUCanvasContext/configure()}}, and remains the same until {{GPUCanvasContext/configure()}}
 is called again with a new size. If a {{GPUCanvasConfiguration/size}} is not specified then the
 width and height attributes of the {{GPUCanvasContext}}.{{GPUCanvasContext/canvas}}
-at the time {{GPUCanvasContext/configure()}} is called will be used. If
-{{GPUCanvasContext}}.{{GPUCanvasContext/[[size]]}} does not match the dimensions of the canvas
-the textures produced by the {{GPUCanvasContext}} will be scaled to fit the canvas element.
+at the time {{GPUCanvasContext/configure()}} is called will be used.
+The image will be scaled to fit the displayed size of the canvas element.
 
 <div class="note">
     Note: Unlike `'webgl'` or `'2d'` contexts, `width` and `height` attributes of canvases with a
@@ -9393,16 +9365,16 @@ This enum selects how the contents of the canvas' context will paint onto the pa
         <td>{{GPUCanvasCompositingAlphaMode/opaque}}
         <td>Paint RGB as opaque and ignore alpha values.
             If the content is not already opaque, implementations may need to clear alpha to opaque during presentation.
-        <td>|dst.rgb = src.rgb|
-        <td>|dst.a = 1|
+        <td>`dst.rgb = src.rgb`
+        <td>`dst.a = 1`
     <tr>
         <td>{{GPUCanvasCompositingAlphaMode/premultiplied}}
         <td>Composite assuming color values are premultiplied by their alpha value.
             100% red 50% opaque is [0.5, 0, 0, 0.5].
             Color values must be less than or equal to their alpha value.
             [1.0, 0, 0, 0.5] is "super-luminant" and cannot reliably be displayed.
-        <td>|dst.rgb = src.rgb + dst.rgb*(1-src.a)|
-        <td>|dst.a = src.a + dst.a*(1-src.a)|
+        <td>`dst.rgb = src.rgb + dst.rgb * (1 - src.a)`
+        <td>`dst.a = src.a + dst.a * (1 - src.a)`
 </table>
 
 # Errors &amp; Debugging # {#errors-and-debugging}
