@@ -61,7 +61,7 @@ passed into `o.f`.
 
 * If any object in `A` sets any key that is known to the browser, but part of a
   non-enabled feature, is set to any value other than its default:
-  Error **must not** be synchronous.
+  Must be an error and the error **must not** be synchronous.
 
 * If any object in `A` is missing a required key: Error **must** be synchronous
   (per WebIDL).
@@ -83,8 +83,8 @@ passed into `o.f`.
 * Validation which depends on state which *can be tracked* on the client-side:
   Error **may (but usually won't)** be synchronous. E.g.:
     * `queue.signalFence(fence, 3); queue.signalFence(fence, 2);`
-    * Building an invalid command buffers (e.g. resource used in conflicting
-      ways inside a pass): Probably will not be synchronous.
+    * Building an invalid command buffer (e.g. resource used in conflicting
+      ways inside a pass): Not synchronous.
 
 * Validation which depends on state which is *not synchronously known* on the
   client-side: Error **must not** be synchronous. E.g.:
