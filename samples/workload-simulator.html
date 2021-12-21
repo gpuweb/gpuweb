@@ -170,8 +170,8 @@ input[type="range"] {
     <label for=separateHighPowerContext><input type=checkbox id=separateHighPowerContext>Activate high power GPU (by creating a separate high power context)</label>
   </details>
   </pre>
-  <details id=swapChainOptions>
-    <summary>WebGPU swap chain options</summary>
+  <details id=webgpuCanvasOptions>
+    <summary>WebGPU canvas context options</summary>
       <label for=multisampling><input type=checkbox name=multisampling id=multisampling checked>4x Multisampling</label>
   </details>
   <details id=contextAttributes>
@@ -298,7 +298,7 @@ function updateControls() {
   finish.parentElement.style.display = useGl.checked ? '' : 'none';
   readPixels.parentElement.style.display = useGl.checked ? '' : 'none';
   offscreenCanvasOptions.style.display = useGl.checked || use2D.checked ? '' : 'none';
-  swapChainOptions.style.display = useWebGPU.checked ? '' : 'none';
+  webgpuCanvasOptions.style.display = useWebGPU.checked ? '' : 'none';
   adapterInfo.style.display = useWebGPU.checked ? '' : 'none';
   fpsOptions.style.display =
       animate.checked && (useSetTimeout.checked || useSetInterval.checked) ? '' : 'none';
@@ -405,7 +405,7 @@ let ctx;
 let deviceRequested = false;
 let device;
 let gpuPresent;
-let swapChain;
+let canvasContext;
 let multisampleRenderAttachment;
 let sampleCount = 4;
 let pipeline;
@@ -426,7 +426,7 @@ let mapAsyncTargetBuffer;
 let mapAsyncBufferSize = 0;
 let mapAsyncReady = [];
 let mapAsyncBuffersOutstanding = 0;
-const swapChainFormat = 'bgra8unorm';
+const canvasFormat = 'bgra8unorm';
 
 let bitmapRenderer;
 let offscreenCanvas;
@@ -602,11 +602,10 @@ async function render(fromRaf, fromPostMessage) {
           nonGuaranteedFeatures: useTimestampQueries ? ['timestamp-query'] : [],
         });
         device.addEventListener('uncapturederror', (e)=>{
-          console.log(e);
           if (!errorMessage.textContent) errorMessage.textContent = 'Uncaptured error: ' + e.error.message;
         });
-        gpuPresent = webGPUCanvas.getContext('gpupresent');
-        swapChain = gpuPresent.configureSwapChain({device, format: swapChainFormat});
+        canvasContext = webGPUCanvas.getContext('webgpu');
+        canvasContext.configure({device, format: canvasFormat});
         const bindGroupLayout = device.createBindGroupLayout({
           entries: [
             {
@@ -635,14 +634,14 @@ async function render(fromRaf, fromPostMessage) {
           multisampleRenderAttachment = device.createTexture({
             size: { width: size, height: size },
             sampleCount,
-            format: swapChainFormat,
+            format: canvasFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
           })
           if (!multisampleRenderAttachment)
             errorMessage.textContent = 'Failed to allocate multisample render attachment.';
         }
         let shaderModule = device.createShaderModule({ code: `
-          let pos : array<vec2<f32>, 6> = array<vec2<f32>, 6>(
+          var<private> pos : array<vec2<f32>, 6> = array<vec2<f32>, 6>(
               vec2<f32>(-1., 1.),
               vec2<f32>(-1., -1.),
               vec2<f32>(1., -1.),
@@ -677,7 +676,6 @@ async function render(fromRaf, fromPostMessage) {
           `, });
 
         if (shaderModule.compilationInfo)
-          shaderModule.compilationInfo().then((e)=>console.log(e));
         pipeline = device.createRenderPipeline({
           primitive: { topology: 'triangle-list' },
           layout: pipelineLayout,
@@ -688,7 +686,7 @@ async function render(fromRaf, fromPostMessage) {
           },
           fragment: {
             entryPoint: 'fs',
-            targets: [ { format: swapChainFormat, }, ],
+            targets: [ { format: canvasFormat, }, ],
             module: shaderModule,
           },
         });
@@ -699,12 +697,12 @@ async function render(fromRaf, fromPostMessage) {
         const texture = device.createTexture({
           size: [256, 256, 1],
           format: 'rgba8unorm',
-          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
         });
         const loadImage = async () => {
           const imageBitmap = await createImageBitmap(img);
-          device.queue.copyImageBitmapToTexture(
-            { imageBitmap }, { texture }, [256, 256, 1]);
+          device.queue.copyExternalImageToTexture(
+            { source: imageBitmap }, { texture }, [256, 256, 1]);
           render();
         };
         if (img.complete) loadImage(); else img.addEventListener('load', loadImage);
@@ -741,7 +739,7 @@ async function render(fromRaf, fromPostMessage) {
       return;
     }
     try {
-      const swapChainView = swapChain.getCurrentTexture().createView();
+      const canvasView = canvasContext.getCurrentTexture().createView();
       const commandBuffers = [];
       device.queue.writeBuffer(uniformBuffer, 0, new Float32Array([position[0]/size*2 - 0.5, -position[1]*2/size + 0.5]));
       let buffer = null;
@@ -814,14 +812,14 @@ async function render(fromRaf, fromPostMessage) {
 
       // Record command buffer.
       const commandEncoder = device.createCommandEncoder();
-      let renderAttachment = swapChainView;
+      let renderAttachment = canvasView;
       if (multisampling.checked) {
         renderAttachment = multisampleRenderAttachment.createView();
       }
       const passEncoder = commandEncoder.beginRenderPass({
         colorAttachments: [ {
           view: renderAttachment,
-          resolveTarget: multisampling.checked ? swapChainView : undefined,
+          resolveTarget: multisampling.checked ? canvasView : undefined,
           loadValue: { r: 1, g: 1, b: 1, a: 1 },
           storeOp: multisampling.checked ? 'clear' : 'store',
         }, ],
@@ -847,7 +845,7 @@ async function render(fromRaf, fromPostMessage) {
           renderBundleInstances = instances;
           renderBundleNumDrawCalls = numDrawCalls;
           passOrBundleEncoder = device.createRenderBundleEncoder({
-            colorFormats: [swapChainFormat],
+            colorFormats: [canvasFormat],
             sampleCount,
           });
         }
@@ -869,7 +867,7 @@ async function render(fromRaf, fromPostMessage) {
               // one.
               renderBundle = passOrBundleEncoder.finish();
               passOrBundleEncoder = device.createRenderBundleEncoder({
-                colorFormats: [swapChainFormat],
+                colorFormats: [canvasFormat],
                 sampleCount,
               });
               passOrBundleEncoder.setPipeline(pipeline);

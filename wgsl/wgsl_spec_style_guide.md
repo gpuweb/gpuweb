@@ -1,5 +1,7 @@
 # WSGL spec writing style guide
 
+## Style
+
 Goal:  Avoid possibly being misunderstood.
 *   Tradeoff: The text might read as stilted.  **Precision is better than flair.**
 
@@ -80,3 +82,91 @@ Use the [serial comma](https://en.wikipedia.org/wiki/Serial_comma), also known a
 
 In Markdown, no two sentences (or parts of sentences) should be on the same text line.
 This makes it easier to edit and review changes.
+
+The WGSL grammar's syntactic rules are presented as a set of cross-referenced Bikeshed
+definitions. There is one Bikeshed definition for each grammar token or non-terminal.
+These definitions are contained in `` div `` elements in the `` syntax `` class.
+
+Authoring syntactic rules:
+* Each syntactic rule should start with a line which only contains `` <div class='syntax' noexport='true'> ``
+and end with a line which only contains `` </div> ``. There must be only one
+syntactic rule between these lines.
+* Each syntactic rule must define itself for Bikeshed. Each syntactic rule definition must start with two spaces
+and then place the rule name between `` <dfn for=syntax> `` and `` </dfn> : `` on the same line.
+* Each syntactic rule item must start with four spaces and then list members after `` | `` followed by a space.
+    * Syntactic rule items can be split to multiple lines. For this, start the next line with six spaces.
+* Each syntactic rule item must be surrounded by only a space before and after,
+trailing space at the end of the line being redundant.
+* Members of syntactic rules items can be references to existing rules. These must be placed between
+`` [=syntax/ `` and `` =] ``.
+* Members of syntactic rules can contain groups which should contain the group members between `` ( `` and `` ) ``.
+* Members of syntactic rule items which denote a string should start with `` `' ``
+and end with `` '` `` and not contain any space character or line break between these two.
+* Members of syntactic rule items which denote a regular expression should start with `` `/ ``
+and end with `` /` `` and not contain any space character or line break between these two.
+* If a member is optional, then it must be followed by a `` ? `` member token.
+* If a member can repeat and must appear at least once, then it must be followed by a `` + `` member token.
+* If a member can repeat and does not have to appear, then it must be followed by a `` * `` member token.
+
+## Tagging conventions
+
+Several tools process the specification source, extracting things for further processing.
+Those tools rely on attributes on certain elements, as described here.
+
+### Algorithms
+
+In [Bikeshed][] source, an [algorithm](https://tabatkins.github.io/bikeshed/#algorithms)
+attribute on an element does two things:
+
+1. It specifies a unique human-readable name for the thing being defined by the element.
+1. It scopes variables to that element. In a browser, clicking on one use of a variable
+    will highlight all the uses of that variable in the same scope.
+
+For example, the definition of a matrix type has two parameters: _N_ and _M_.
+The uses of `|N|` and `|M|` are scoped to the `tr` element having the `algorithm` attribute:
+
+    <tr algorithm="matrix type">
+      <td>mat|N|x|M|&lt;f32&gt;
+      <td>Matrix of |N| columns and |M| rows, where |N| and |M| are both in {2, 3, 4}.
+          Equivalently, it can be viewed as |N| column vectors of type vec|M|&lt;f32&gt;.
+
+The following kinds of document elements should have `algorithm` attribute:
+
+* Types:  Tag the `tr` element in the table describing the type.
+* Each row (`tr` element) in a [type rule table](https://w3.org/TR/WGSL#typing-tables-section):
+    * This applies to the tables describing expressions and built-in functions.
+* Parameterized definitions, equations, or rules that have variables:
+    * These use `p`, `blockquote`, or `div` elements.
+
+### Code samples
+
+Code samples should have a `class` attribute starting with `example`.
+
+For WGSL code samples, specify a `class` tag whose value is three space-separated words:
+* `example` indicating this is a code example
+* `wgsl` indicating the code is in WGSL
+* a word indicating what kind of code snippet it is, or where it should appear, one of:
+   * `expect-error`: The code snippet is invalid
+   * `global-scope`: The code snippet is assumed to appear at module-scope, i.e. outside all other declarations.
+   * `type-scope`: The code snippet shows the WGSL spelling of a type, independent of other context.
+   * `function-scope`: The code snippet is assumed to appear inside a function body, but the function declaration
+         and surrounding braces are not shown.
+
+For example:
+
+    <div class='example wgsl global-scope' heading='Trivial fragment shader'>
+      <xmp highlight='rust'>
+        [[stage(fragment)]]
+        fn main() -> [[location(0)]] vec4<f32> {
+          return vec4<f32>(0.4,0.4,0.8,1.0);
+        }
+      </xmp>
+    <div>
+
+
+Code samples in languages other than WGSL should name the language, for example:
+
+    <div class='example spirv barrier mapping' heading="Mapping workgroupBarrier to SPIR-V">
+
+
+[Bikeshed]: https://tabatkins.github.io/bikeshed "Bikeshed"
