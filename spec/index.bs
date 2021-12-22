@@ -5556,10 +5556,6 @@ interface GPUCommandEncoder {
         optional GPUSize64 offset = 0,
         optional GPUSize64 size);
 
-    undefined pushDebugGroup(USVString groupLabel);
-    undefined popDebugGroup();
-    undefined insertDebugMarker(USVString markerLabel);
-
     undefined writeTimestamp(GPUQuerySet querySet, GPUSize32 queryIndex);
 
     undefined resolveQuerySet(
@@ -5572,6 +5568,7 @@ interface GPUCommandEncoder {
     GPUCommandBuffer finish(optional GPUCommandBufferDescriptor descriptor = {});
 };
 GPUCommandEncoder includes GPUObjectBase;
+GPUCommandEncoder includes GPUDebugCommandsMixin;
 </script>
 
 {{GPUCommandEncoder}} has the following internal slots:
@@ -5585,10 +5582,6 @@ GPUCommandEncoder includes GPUObjectBase;
     : <dfn>\[[state]]</dfn> of type [=encoder state=].
     ::
         The current state of the {{GPUCommandEncoder}}, initially set to [=encoder state/open=].
-
-    : <dfn>\[[debug_group_stack]]</dfn> of type [=stack=]&lt;{{USVString}}&gt;.
-    ::
-        A stack of active debug group labels.
 </dl>
 
 Each {{GPUCommandEncoder}} has a current <dfn dfn>encoder state</dfn> on the [=Content timeline=]
@@ -6330,80 +6323,6 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
             [=mipmap level=] |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}}.
 </div>
 
-## Debug Markers ## {#command-encoder-debug-markers}
-
-Both command encoders and programmable pass encoders provide methods to apply debug labels to groups
-of commands or insert a single label into the command sequence. Debug groups can be nested to create
-a hierarchy of labeled commands. These labels may be passed to the native API backends for tooling,
-may be used by the user agent's internal tooling, or may be a no-op when such tooling is not
-available or applicable.
-
-Debug groups in a {{GPUCommandEncoder}} or {{GPUProgrammablePassEncoder}}
-must be well nested.
-
-<dl dfn-type=method dfn-for=GPUCommandEncoder>
-    : <dfn>pushDebugGroup(groupLabel)</dfn>
-    ::
-        Marks the beginning of a labeled group of commands for the {{GPUCommandEncoder}}.
-
-        <div algorithm=GPUCommandEncoder.pushDebugGroup>
-            **Called on:** {{GPUCommandEncoder}} |this|.
-
-            **Arguments:**
-            <pre class=argumentdef for="GPUCommandEncoder/pushDebugGroup(groupLabel)">
-                |groupLabel|: The label for the command group.
-            </pre>
-
-            **Returns:** {{undefined}}
-
-            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
-                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
-            1. Issue the following steps on the [=Device timeline=] of |this|:
-                <div class=device-timeline>
-                    1. [=stack/Push=] |groupLabel| onto |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.
-                </div>
-        </div>
-
-    : <dfn>popDebugGroup()</dfn>
-    ::
-        Marks the end of a labeled group of commands for the {{GPUCommandEncoder}}.
-
-        <div algorithm=GPUCommandEncoder.popDebugGroup>
-            **Called on:** {{GPUCommandEncoder}} |this|.
-
-            **Returns:** {{undefined}}
-
-            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
-                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
-            1. Issue the following steps on the [=Device timeline=] of |this|:
-                <div class=device-timeline>
-                    1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
-                        <div class=validusage>
-                            - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}'s [=stack/size=] must be &gt; 0.
-                        </div>
-                    1. [=stack/Pop=] an entry off |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.
-                </div>
-        </div>
-
-    : <dfn>insertDebugMarker(markerLabel)</dfn>
-    ::
-        Marks a point in a stream of commands with a label string.
-
-        <div algorithm=GPUCommandEncoder.insertDebugMarker>
-            **Called on:** {{GPUCommandEncoder}} |this|.
-
-            **Arguments:**
-            <pre class=argumentdef for="GPUCommandEncoder/insertDebugMarker(markerLabel)">
-                markerLabel: The label to insert.
-            </pre>
-
-            **Returns:** {{undefined}}
-
-            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
-                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
-        </div>
-</dl>
-
 ## Queries ## {#command-encoder-queries}
 
 <dl dfn-type=method dfn-for=GPUCommandEncoder>
@@ -6527,10 +6446,6 @@ interface mixin GPUProgrammablePassEncoder {
                       Uint32Array dynamicOffsetsData,
                       GPUSize64 dynamicOffsetsDataStart,
                       GPUSize32 dynamicOffsetsDataLength);
-
-    undefined pushDebugGroup(USVString groupLabel);
-    undefined popDebugGroup();
-    undefined insertDebugMarker(USVString markerLabel);
 };
 </script>
 
@@ -6540,10 +6455,6 @@ interface mixin GPUProgrammablePassEncoder {
     : <dfn>\[[command_encoder]]</dfn> of type {{GPUCommandEncoder}}.
     ::
         The {{GPUCommandEncoder}} that created this programmable pass.
-
-    : <dfn>\[[debug_group_stack]]</dfn> of type [=stack=]&lt;{{USVString}}&gt;.
-    ::
-        A stack of active debug group labels.
 
     : <dfn>\[[bind_groups]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, {{GPUBindGroup}}&gt;
     ::
@@ -6685,22 +6596,44 @@ interface mixin GPUProgrammablePassEncoder {
     Otherwise return `true`.
 </div>
 
-## Debug Markers ## {#programmable-passes-debug-markers}
+# Debug Markers # {#debug-markers}
 
-Debug marker methods for programmable pass encoders provide the same functionality as
-[[#command-encoder-debug-markers|command encoder debug markers]] while recording a programmable
-pass.
+<dfn interface>GPUDebugCommandsMixin</dfn> provides methods to apply debug labels to groups
+of commands or insert a single label into the command sequence.
 
-<dl dfn-type=method dfn-for=GPUProgrammablePassEncoder>
+Debug groups can be nested to create a hierarchy of labeled commands, and must be well-balanced.
+
+Like {{GPUObjectBase/label|object labels}}, these labels have no required behavior, but may be shown
+in error messages and browser developer tools, and may be passed to native API backends.
+
+<script type=idl>
+interface mixin GPUDebugCommandsMixin {
+    undefined pushDebugGroup(USVString groupLabel);
+    undefined popDebugGroup();
+    undefined insertDebugMarker(USVString markerLabel);
+};
+</script>
+
+{{GPUDebugCommandsMixin}} adds the following internal slots to interfaces which include it:
+
+<dl dfn-type=attribute dfn-for=GPUDebugCommandsMixin>
+    : <dfn>\[[debug_group_stack]]</dfn> of type [=stack=]&lt;{{USVString}}&gt;.
+    ::
+        A stack of active debug group labels.
+</dl>
+
+{{GPUDebugCommandsMixin}} adds the following methods to interfaces which include it:
+
+<dl dfn-type=method dfn-for=GPUDebugCommandsMixin>
     : <dfn>pushDebugGroup(groupLabel)</dfn>
     ::
-        Marks the beginning of a labeled group of commands for the {{GPUProgrammablePassEncoder}}.
+        Begins a labeled debug group containing subsequent commands.
 
-        <div algorithm=GPUProgrammablePassEncoder.pushDebugGroup>
-            **Called on:** {{GPUProgrammablePassEncoder}} |this|.
+        <div algorithm=GPUDebugCommandsMixin.pushDebugGroup>
+            **Called on:** {{GPUDebugCommandsMixin}} |this|.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUProgrammablePassEncoder/pushDebugGroup(groupLabel)">
+            <pre class=argumentdef for="GPUDebugCommandsMixin/pushDebugGroup(groupLabel)">
                 |groupLabel|: The label for the command group.
             </pre>
 
@@ -6708,43 +6641,50 @@ pass.
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
-                1. [=stack/Push=] |groupLabel| onto |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}.
+                1. FIXME: check the state of the encoder
+                1. [=stack/Push=] |groupLabel| onto |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}}.
             </div>
         </div>
 
     : <dfn>popDebugGroup()</dfn>
     ::
-        Marks the end of a labeled group of commands for the {{GPUProgrammablePassEncoder}}.
+        Ends the labeled debug group most recently started by {{GPUDebugCommandsMixin/pushDebugGroup()}}.
 
-        <div algorithm=GPUProgrammablePassEncoder.popDebugGroup>
-            **Called on:** {{GPUProgrammablePassEncoder}} |this|.
+        <div algorithm=GPUDebugCommandsMixin.popDebugGroup>
+            **Called on:** {{GPUDebugCommandsMixin}} |this|.
 
             **Returns:** {{undefined}}
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
+                1. FIXME: check the state of the encoder
                 1. If any of the following conditions are unsatisfied, generate a validation
                     error and stop.
                     <div class=validusage>
-                        - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] is greater than 0.
+                        - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}}'s [=stack/size=] is greater than 0.
                     </div>
-                1. [=stack/Pop=] an entry off of |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}.
+                1. [=stack/Pop=] an entry off of |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}}.
             </div>
         </div>
 
     : <dfn>insertDebugMarker(markerLabel)</dfn>
     ::
-        Inserts a single debug marker label into the {{GPUProgrammablePassEncoder}}'s commands sequence.
+        Marks a point in a stream of commands with a label.
 
-        <div algorithm=GPUProgrammablePassEncoder.insertDebugMarker>
-            **Called on:** {{GPUProgrammablePassEncoder}} this.
+        <div algorithm=GPUDebugCommandsMixin.insertDebugMarker>
+            **Called on:** {{GPUDebugCommandsMixin}} this.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUProgrammablePassEncoder/insertDebugMarker(markerLabel)">
+            <pre class=argumentdef for="GPUDebugCommandsMixin/insertDebugMarker(markerLabel)">
                 markerLabel: The label to insert.
             </pre>
 
             **Returns:** {{undefined}}
+
+            Issue the following steps on the [=Device timeline=] of |this|:
+            <div class=device-timeline>
+                1. FIXME: check the state of the encoder
+            </div>
         </div>
 </dl>
 
@@ -6763,6 +6703,7 @@ interface GPUComputePassEncoder {
 };
 GPUComputePassEncoder includes GPUObjectBase;
 GPUComputePassEncoder includes GPUProgrammablePassEncoder;
+GPUComputePassEncoder includes GPUDebugCommandsMixin;
 </script>
 
 {{GPUComputePassEncoder}} has the following internal slots:
@@ -7009,6 +6950,7 @@ interface GPURenderPassEncoder {
 };
 GPURenderPassEncoder includes GPUObjectBase;
 GPURenderPassEncoder includes GPUProgrammablePassEncoder;
+GPURenderPassEncoder includes GPUDebugCommandsMixin;
 GPURenderPassEncoder includes GPURenderEncoderBase;
 </script>
 
@@ -8034,6 +7976,7 @@ interface GPURenderBundleEncoder {
 };
 GPURenderBundleEncoder includes GPUObjectBase;
 GPURenderBundleEncoder includes GPUProgrammablePassEncoder;
+GPURenderBundleEncoder includes GPUDebugCommandsMixin;
 GPURenderBundleEncoder includes GPURenderEncoderBase;
 </script>
 
