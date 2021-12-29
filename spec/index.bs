@@ -5618,6 +5618,67 @@ dictionary GPUCommandBufferDescriptor : GPUObjectDescriptorBase {
 
 # Command Encoding # {#command-encoding}
 
+## <dfn interface>GPUCommandsMixin</dfn> ## {#commands-mixin}
+
+{{GPUCommandsMixin}} defines state common to all interfaces which encode commands.
+It has no methods.
+
+<script type=idl>
+interface mixin GPUCommandsMixin {
+};
+</script>
+
+{{GPUCommandsMixin}} adds the following internal slots to interfaces which include it:
+
+<dl dfn-type=attribute dfn-for=GPUCommandsMixin>
+    : <dfn>\[[state]]</dfn>, of type [=encoder state=]
+    ::
+        The current state of the encoder, initially set to "[=encoder state/open=]".
+
+    : <dfn>\[[commands]]</dfn>, of type [=list=]&lt;[=GPU command=]&gt;
+    ::
+        A [=list=] of [=GPU commands=] to be executed on the [=Queue timeline=] when a
+        {{GPUCommandBuffer}} containing these commands is submitted.
+</dl>
+
+The <dfn dfn>encoder state</dfn> may be one of the following:
+
+<dl dfn-type=dfn dfn-for="encoder state">
+    : "<dfn>open</dfn>"
+    ::
+        The encoder is available to encode new commands.
+
+    : "<dfn>locked</dfn>"
+    ::
+        The encoder cannot be used, because it is locked by a child encoder: it is a
+        {{GPUCommandEncoder}}, and a {{GPURenderPassEncoder}} or {{GPUComputePassEncoder}} is active.
+        The encoder becomes "[=encoder state/open=]" again when the pass is ended.
+
+        Any command issued in this state makes the encoder [=invalid=].
+
+    : "<dfn>ended</dfn>"
+    ::
+        The encoder has been ended and new commands can no longer be encoded.
+
+        Any command issued in this state generates a {{GPUValidationError}}.
+</dl>
+
+<div algorithm>
+    To <dfn abstract-op>Prepare the encoder state</dfn> of {{GPUCommandsMixin}} |encoder|:
+
+    If |encoder|.{{GPUCommandsMixin/[[state]]}} is:
+    <dl class=switch>
+        : "[=encoder state/open=]"
+        :: Return `true`.
+
+        : "[=encoder state/locked=]"
+        :: Make |encoder| [=invalid=], and return `false`.
+
+        : "[=encoder state/ended=]"
+        :: Generate a {{GPUValidationError}} in the current scope, and return `false`.
+    </dl>
+</div>
+
 ## <dfn interface>GPUCommandEncoder</dfn> ## {#command-encoder}
 
 <script type=idl>
@@ -5653,10 +5714,6 @@ interface GPUCommandEncoder {
         optional GPUSize64 offset = 0,
         optional GPUSize64 size);
 
-    undefined pushDebugGroup(USVString groupLabel);
-    undefined popDebugGroup();
-    undefined insertDebugMarker(USVString markerLabel);
-
     undefined writeTimestamp(GPUQuerySet querySet, GPUSize32 queryIndex);
 
     undefined resolveQuerySet(
@@ -5669,56 +5726,9 @@ interface GPUCommandEncoder {
     GPUCommandBuffer finish(optional GPUCommandBufferDescriptor descriptor = {});
 };
 GPUCommandEncoder includes GPUObjectBase;
+GPUCommandEncoder includes GPUCommandsMixin;
+GPUCommandEncoder includes GPUDebugCommandsMixin;
 </script>
-
-{{GPUCommandEncoder}} has the following internal slots:
-
-<dl dfn-type=attribute dfn-for="GPUCommandEncoder">
-    : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
-    ::
-        A [=list=] of [=GPU commands=] to be executed on the [=Queue timeline=] when the
-        {{GPUCommandBuffer}} this encoder produces is submitted.
-
-    : <dfn>\[[state]]</dfn> of type [=encoder state=].
-    ::
-        The current state of the {{GPUCommandEncoder}}, initially set to [=encoder state/open=].
-
-    : <dfn>\[[debug_group_stack]]</dfn> of type [=stack=]&lt;{{USVString}}&gt;.
-    ::
-        A stack of active debug group labels.
-</dl>
-
-Each {{GPUCommandEncoder}} has a current <dfn dfn>encoder state</dfn> on the [=Content timeline=]
-which may be one of the following:
-
-<dl dfn-type=dfn dfn-for="encoder state">
-    : <dfn>open</dfn>
-    ::
-        Indicates the {{GPUCommandEncoder}} is available to begin new operations. The {{GPUCommandEncoder/[[state]]}} is
-        [=encoder state/open=] any time the {{GPUCommandEncoder}} is [=valid=] and has no active
-        {{GPURenderPassEncoder}} or {{GPUComputePassEncoder}}.
-
-    : <dfn>encoding a render pass</dfn>
-    ::
-        Indicates the {{GPUCommandEncoder}} has an active {{GPURenderPassEncoder}}. The
-        {{GPUCommandEncoder/[[state]]}} becomes [=encoder state/encoding a render pass=] once
-        {{GPUCommandEncoder/beginRenderPass()}} is called successfully until {{GPURenderPassEncoder/endPass()}} is called
-        on the returned {{GPURenderPassEncoder}}, at which point the {{GPUCommandEncoder/[[state]]}}
-        (if the encoder is still valid) reverts to [=encoder state/open=].
-
-    : <dfn>encoding a compute pass</dfn>
-    ::
-        Indicates the {{GPUCommandEncoder}} has an active {{GPUComputePassEncoder}}.  The
-        {{GPUCommandEncoder/[[state]]}} becomes [=encoder state/encoding a compute pass=] once
-        {{GPUCommandEncoder/beginComputePass()}} is called successfully until {{GPUComputePassEncoder/endPass()}} is
-        called on the returned {{GPUComputePassEncoder}}, at which point the {{GPUCommandEncoder/[[state]]}}
-        (if the encoder is still valid) reverts to [=encoder state/open=].
-
-    : <dfn>closed</dfn>
-    ::
-        Indicates the {{GPUCommandEncoder}} is no longer available for any operations. The
-        {{GPUCommandEncoder/[[state]]}} becomes [=encoder state/closed=] once {{GPUCommandEncoder/finish()}} is called.
-</dl>
 
 ### Creation ### {#command-encoder-creation}
 
@@ -5769,7 +5779,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                 1. If any of the following conditions are unsatisfied, generate a validation
                     error and stop.
                     <div class=validusage>
-                        - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
+                        - |this|.{{GPUCommandsMixin/[[state]]}} is "[=encoder state/open=]".
                         - |descriptor| meets the
                             [$GPURenderPassDescriptor/Valid Usage$] rules.
                         - |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is empty, or
@@ -5778,7 +5788,7 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         - For each |timestampWrite| in |descriptor|.{{GPURenderPassDescriptor/timestampWrites}},
                             - |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}} is [$valid to use with$] |this|.
                     </div>
-                1. Set |this|.{{GPUCommandEncoder/[[state]]}} to [=encoder state/encoding a render pass=].
+                1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
                 1. For each |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
                     1. The [=texture subresource=] seen by |colorAttachment|.{{GPURenderPassColorAttachment/view}}
                         is considered to be used as [=internal usage/attachment=] for the
@@ -5798,16 +5808,16 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                 1. For each |timestampWrite| in |descriptor|.{{GPURenderPassDescriptor/timestampWrites}},
                     1. If |timestampWrite|.{{GPURenderPassTimestampWrite/location}} is {{GPURenderPassTimestampLocation/"beginning"}},
                         [=list/Append=] a [=GPU command=] to
-                        |pass|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                        |pass|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[commands]]}}
                         that writes the GPU's timestamp value into the |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}}th
                         index in |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.
                     1. Otherwise, if |timestampWrite|.{{GPURenderPassTimestampWrite/location}} is {{GPURenderPassTimestampLocation/"end"}},
                         [=list/Append=] |timestampWrite| to |pass|.{{GPURenderPassEncoder/[[endTimestampWrites]]}}.
+                1. Issue: Enqueue attachment loads/clears.
                 1. Return |pass|.
             </div>
 
             Issue: specify the behavior of read-only depth/stencil
-            Issue: Enqueue attachment loads (with loadOp clear).
         </div>
 
     : <dfn>beginComputePass(descriptor)</dfn>
@@ -5829,19 +5839,19 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                 1. If any of the following conditions are unsatisfied, generate a validation
                     error and stop.
                     <div class=validusage>
-                        - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open}}.
+                        - |this|.{{GPUCommandsMixin/[[state]]}} is "[=encoder state/open=]".
                         - |descriptor|.{{GPUComputePassDescriptor/timestampWrites}} is empty, or
                             |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} [=list/contain=]s
                             {{GPUFeatureName/"timestamp-query"}}.
                         - For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}},
                             - |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}} is [$valid to use with$] |this|.
                     </div>
-                1. Set |this|.{{GPUCommandEncoder/[[state]]}} to [=encoder state/encoding a compute pass}}.
+                1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
                 1. Let |pass| be a new {{GPUComputePassEncoder}} object.
                 1. For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}},
                     1. If |timestampWrite|.{{GPUComputePassTimestampWrite/location}} is {{GPUComputePassTimestampLocation/"beginning"}},
                         [=list/Append=] a [=GPU command=] to
-                        |pass|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                        |pass|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[commands]]}}
                         that writes the GPU's timestamp value into the |timestampWrite|.{{GPUComputePassTimestampWrite/queryIndex}}th
                         index in |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.
                     1. Otherwise, if |timestampWrite|.{{GPUComputePassTimestampWrite/location}} is {{GPUComputePassTimestampLocation/"end"}},
@@ -6094,26 +6104,28 @@ dictionary GPUImageCopyExternalImage {
 
             **Returns:** {{undefined}}
 
-            If any of the following conditions are unsatisfied, generate a validation error and stop.
-            <div class=validusage>
-                - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                - |source| is [$valid to use with$] |this|.
-                - |destination| is [$valid to use with$] |this|.
-                - |source|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/COPY_SRC}}.
-                - |destination|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/COPY_DST}}.
-                - |size| is a multiple of 4.
-                - |sourceOffset| is a multiple of 4.
-                - |destinationOffset| is a multiple of 4.
-                - (|sourceOffset| + |size|) does not overflow a {{GPUSize64}}.
-                - (|destinationOffset| + |size|) does not overflow a {{GPUSize64}}.
-                - |source|.{{GPUBuffer/[[size]]}} is greater than or equal to (|sourceOffset| + |size|).
-                - |destination|.{{GPUBuffer/[[size]]}} is greater than or equal to (|destinationOffset| + |size|).
-                - |source| and |destination| are not the same {{GPUBuffer}}.
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+            <div class=device-timeline>
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. If any of the following conditions are unsatisfied, generate a validation error and stop.
+                    <div class=validusage>
+                        - |source| is [$valid to use with$] |this|.
+                        - |destination| is [$valid to use with$] |this|.
+                        - |source|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/COPY_SRC}}.
+                        - |destination|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/COPY_DST}}.
+                        - |size| is a multiple of 4.
+                        - |sourceOffset| is a multiple of 4.
+                        - |destinationOffset| is a multiple of 4.
+                        - (|sourceOffset| + |size|) does not overflow a {{GPUSize64}}.
+                        - (|destinationOffset| + |size|) does not overflow a {{GPUSize64}}.
+                        - |source|.{{GPUBuffer/[[size]]}} is greater than or equal to (|sourceOffset| + |size|).
+                        - |destination|.{{GPUBuffer/[[size]]}} is greater than or equal to (|destinationOffset| + |size|).
+                        - |source| and |destination| are not the same {{GPUBuffer}}.
+
+                        Issue(gpuweb/gpuweb#69): figure out how to handle overflows in the spec.
+                    </div>
+                1. Issue: Describe and enqueue the GPU command.
             </div>
-
-            Issue(gpuweb/gpuweb#21): Define the state machine for GPUCommandEncoder.
-
-            Issue(gpuweb/gpuweb#69): figure out how to handle overflows in the spec.
         </div>
 </dl>
 
@@ -6139,10 +6151,10 @@ dictionary GPUImageCopyExternalImage {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
                 1. If |size| is missing, set |size| to `max(0, |buffer|.{{GPUBuffer/[[size]]}} - |offset|)`.
                 1. If any of the following conditions are unsatisfied, generate a validation error and stop.
                     <div class=validusage>
-                        - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
                         - |buffer| is [$valid to use with$] |this|.
                         - |buffer|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/COPY_DST}}.
                         - |size| is a multiple of 4.
@@ -6302,29 +6314,32 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
 
             **Returns:** {{undefined}}
 
-            If any of the following conditions are unsatisfied, generate a validation error and stop.
-            <div class=validusage>
-                - Let |dstTextureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
-                - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                - [$validating GPUImageCopyBuffer$](|source|) returns `true`.
-                - |source|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/COPY_SRC}}.
-                - [$validating GPUImageCopyTexture$](|destination|, |copySize|) returns `true`.
-                - |dstTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_DST}}.
-                - |dstTextureDesc|.{{GPUTextureDescriptor/sampleCount}} is 1.
-                - If |dstTextureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=]:
-                    - |destination|.{{GPUImageCopyTexture/aspect}} must refer to a single aspect of
-                        |dstTextureDesc|.{{GPUTextureDescriptor/format}}, and that aspect must be
-                        a valid image copy destination according to [[#depth-formats]].
-                - [=Valid Texture Copy Range=] applies to |destination| and |copySize|.
-                - If |dstTextureDesc|.{{GPUTextureDescriptor/format}} is not a [=depth-or-stencil format=]:
-                    - |source|.{{GPUImageDataLayout/offset}} is a multiple of the [=texel block size=] of
-                        |dstTextureDesc|.{{GPUTextureDescriptor/format}}.
-                - If |dstTextureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=]:
-                    - |source|.{{GPUImageDataLayout/offset}} is a multiple of 4.
-                - [$validating linear texture data$](|source|,
-                    |source|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[size]]}},
-                    |dstTextureDesc|.{{GPUTextureDescriptor/format}},
-                    |copySize|) succeeds.
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+            <div class=device-timeline>
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. If any of the following conditions are unsatisfied, generate a validation error and stop.
+                    <div class=validusage>
+                        - Let |dstTextureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
+                        - [$validating GPUImageCopyBuffer$](|source|) returns `true`.
+                        - |source|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/COPY_SRC}}.
+                        - [$validating GPUImageCopyTexture$](|destination|, |copySize|) returns `true`.
+                        - |dstTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_DST}}.
+                        - |dstTextureDesc|.{{GPUTextureDescriptor/sampleCount}} is 1.
+                        - If |dstTextureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=]:
+                            - |destination|.{{GPUImageCopyTexture/aspect}} must refer to a single aspect of
+                                |dstTextureDesc|.{{GPUTextureDescriptor/format}}, and that aspect must be
+                                a valid image copy destination according to [[#depth-formats]].
+                        - [=Valid Texture Copy Range=] applies to |destination| and |copySize|.
+                        - If |dstTextureDesc|.{{GPUTextureDescriptor/format}} is not a [=depth-or-stencil format=]:
+                            - |source|.{{GPUImageDataLayout/offset}} is a multiple of the [=texel block size=] of
+                                |dstTextureDesc|.{{GPUTextureDescriptor/format}}.
+                        - If |dstTextureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=]:
+                            - |source|.{{GPUImageDataLayout/offset}} is a multiple of 4.
+                        - [$validating linear texture data$](|source|,
+                            |source|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[size]]}},
+                            |dstTextureDesc|.{{GPUTextureDescriptor/format}},
+                            |copySize|) succeeds.
+                    </div>
             </div>
         </div>
 
@@ -6345,30 +6360,33 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
 
             **Returns:** {{undefined}}
 
-            If any of the following conditions are unsatisfied, generate a validation error and stop.
-            <div class=validusage>
-                - Let |srcTextureDesc| be |source|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
-                - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                - [$validating GPUImageCopyTexture$](|source|, |copySize|) returns `true`.
-                - |srcTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_SRC}}.
-                - |srcTextureDesc|.{{GPUTextureDescriptor/sampleCount}} is 1.
-                - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is a depth-stencil format:
-                    - |destination|.{{GPUImageCopyTexture/aspect}} must refer to a single aspect of
-                        |srcTextureDesc|.{{GPUTextureDescriptor/format}}, and that aspect must be
-                        a valid image copy source according to [[#depth-formats]].
-                - [$validating GPUImageCopyBuffer$](|destination|) returns `true`.
-                - |destination|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[usage]]}} contains
-                    {{GPUBufferUsage/COPY_DST}}.
-                - [=Valid Texture Copy Range=] applies to |source| and |copySize|.
-                - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is not a [=depth-or-stencil format=]:
-                    - |destination|.{{GPUImageDataLayout/offset}} is a multiple of the [=texel block size=] of
-                        |srcTextureDesc|.{{GPUTextureDescriptor/format}}.
-                - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=]:
-                    - |destination|.{{GPUImageDataLayout/offset}} is a multiple of 4.
-                - [$validating linear texture data$](|destination|,
-                    |destination|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[size]]}},
-                    |srcTextureDesc|.{{GPUTextureDescriptor/format}},
-                    |copySize|) succeeds.
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+            <div class=device-timeline>
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. If any of the following conditions are unsatisfied, generate a validation error and stop.
+                    <div class=validusage>
+                        - Let |srcTextureDesc| be |source|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
+                        - [$validating GPUImageCopyTexture$](|source|, |copySize|) returns `true`.
+                        - |srcTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_SRC}}.
+                        - |srcTextureDesc|.{{GPUTextureDescriptor/sampleCount}} is 1.
+                        - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is a depth-stencil format:
+                            - |destination|.{{GPUImageCopyTexture/aspect}} must refer to a single aspect of
+                                |srcTextureDesc|.{{GPUTextureDescriptor/format}}, and that aspect must be
+                                a valid image copy source according to [[#depth-formats]].
+                        - [$validating GPUImageCopyBuffer$](|destination|) returns `true`.
+                        - |destination|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[usage]]}} contains
+                            {{GPUBufferUsage/COPY_DST}}.
+                        - [=Valid Texture Copy Range=] applies to |source| and |copySize|.
+                        - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is not a [=depth-or-stencil format=]:
+                            - |destination|.{{GPUImageDataLayout/offset}} is a multiple of the [=texel block size=] of
+                                |srcTextureDesc|.{{GPUTextureDescriptor/format}}.
+                        - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=]:
+                            - |destination|.{{GPUImageDataLayout/offset}} is a multiple of 4.
+                        - [$validating linear texture data$](|destination|,
+                            |destination|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[size]]}},
+                            |srcTextureDesc|.{{GPUTextureDescriptor/format}},
+                            |copySize|) succeeds.
+                    </div>
             </div>
         </div>
 
@@ -6390,27 +6408,30 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
 
             **Returns:** {{undefined}}
 
-            1. If any of the following conditions are unsatisfied, generate a validation error and stop.
-                <div class=validusage>
-                    - Let |srcTextureDesc| be |source|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
-                    - Let |dstTextureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
-                    - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                    - [$validating GPUImageCopyTexture$](|source|, |copySize|) returns `true`.
-                    - |srcTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_SRC}}.
-                    - [$validating GPUImageCopyTexture$](|destination|, |copySize|) returns `true`.
-                    - |dstTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_DST}}.
-                    - |srcTextureDesc|.{{GPUTextureDescriptor/sampleCount}} is equal to |dstTextureDesc|.{{GPUTextureDescriptor/sampleCount}}.
-                    - |srcTextureDesc|.{{GPUTextureDescriptor/format}} and |dstTextureDesc|.{{GPUTextureDescriptor/format}}
-                        must be [=copy-compatible=].
-                    - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is a depth-stencil format:
-                        - |source|.{{GPUImageCopyTexture/aspect}} and |destination|.{{GPUImageCopyTexture/aspect}}
-                            must both refer to all aspects of |srcTextureDesc|.{{GPUTextureDescriptor/format}}
-                            and |dstTextureDesc|.{{GPUTextureDescriptor/format}}, respectively.
-                    - [=Valid Texture Copy Range=] applies to |source| and |copySize|.
-                    - [=Valid Texture Copy Range=] applies to |destination| and |copySize|.
-                    - The [$set of subresources for texture copy$](|source|, |copySize|) and
-                        the [$set of subresources for texture copy$](|destination|, |copySize|) is disjoint.
-                </div>
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+            <div class=device-timeline>
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. If any of the following conditions are unsatisfied, generate a validation error and stop.
+                    <div class=validusage>
+                        - Let |srcTextureDesc| be |source|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
+                        - Let |dstTextureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
+                        - [$validating GPUImageCopyTexture$](|source|, |copySize|) returns `true`.
+                        - |srcTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_SRC}}.
+                        - [$validating GPUImageCopyTexture$](|destination|, |copySize|) returns `true`.
+                        - |dstTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_DST}}.
+                        - |srcTextureDesc|.{{GPUTextureDescriptor/sampleCount}} is equal to |dstTextureDesc|.{{GPUTextureDescriptor/sampleCount}}.
+                        - |srcTextureDesc|.{{GPUTextureDescriptor/format}} and |dstTextureDesc|.{{GPUTextureDescriptor/format}}
+                            must be [=copy-compatible=].
+                        - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is a depth-stencil format:
+                            - |source|.{{GPUImageCopyTexture/aspect}} and |destination|.{{GPUImageCopyTexture/aspect}}
+                                must both refer to all aspects of |srcTextureDesc|.{{GPUTextureDescriptor/format}}
+                                and |dstTextureDesc|.{{GPUTextureDescriptor/format}}, respectively.
+                        - [=Valid Texture Copy Range=] applies to |source| and |copySize|.
+                        - [=Valid Texture Copy Range=] applies to |destination| and |copySize|.
+                        - The [$set of subresources for texture copy$](|source|, |copySize|) and
+                            the [$set of subresources for texture copy$](|destination|, |copySize|) is disjoint.
+                    </div>
+            </div>
         </div>
 </dl>
 
@@ -6437,80 +6458,6 @@ Issue: convert "Valid Texture Copy Range" into an algorithm with parameters, sim
             [=mipmap level=] |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}}.
 </div>
 
-## Debug Markers ## {#command-encoder-debug-markers}
-
-Both command encoders and programmable pass encoders provide methods to apply debug labels to groups
-of commands or insert a single label into the command sequence. Debug groups can be nested to create
-a hierarchy of labeled commands. These labels may be passed to the native API backends for tooling,
-may be used by the user agent's internal tooling, or may be a no-op when such tooling is not
-available or applicable.
-
-Debug groups in a {{GPUCommandEncoder}} or {{GPUProgrammablePassEncoder}}
-must be well nested.
-
-<dl dfn-type=method dfn-for=GPUCommandEncoder>
-    : <dfn>pushDebugGroup(groupLabel)</dfn>
-    ::
-        Marks the beginning of a labeled group of commands for the {{GPUCommandEncoder}}.
-
-        <div algorithm=GPUCommandEncoder.pushDebugGroup>
-            **Called on:** {{GPUCommandEncoder}} |this|.
-
-            **Arguments:**
-            <pre class=argumentdef for="GPUCommandEncoder/pushDebugGroup(groupLabel)">
-                |groupLabel|: The label for the command group.
-            </pre>
-
-            **Returns:** {{undefined}}
-
-            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
-                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
-            1. Issue the following steps on the [=Device timeline=] of |this|:
-                <div class=device-timeline>
-                    1. [=stack/Push=] |groupLabel| onto |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.
-                </div>
-        </div>
-
-    : <dfn>popDebugGroup()</dfn>
-    ::
-        Marks the end of a labeled group of commands for the {{GPUCommandEncoder}}.
-
-        <div algorithm=GPUCommandEncoder.popDebugGroup>
-            **Called on:** {{GPUCommandEncoder}} |this|.
-
-            **Returns:** {{undefined}}
-
-            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
-                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
-            1. Issue the following steps on the [=Device timeline=] of |this|:
-                <div class=device-timeline>
-                    1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
-                        <div class=validusage>
-                            - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}'s [=stack/size=] must be &gt; 0.
-                        </div>
-                    1. [=stack/Pop=] an entry off |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}.
-                </div>
-        </div>
-
-    : <dfn>insertDebugMarker(markerLabel)</dfn>
-    ::
-        Marks a point in a stream of commands with a label string.
-
-        <div algorithm=GPUCommandEncoder.insertDebugMarker>
-            **Called on:** {{GPUCommandEncoder}} |this|.
-
-            **Arguments:**
-            <pre class=argumentdef for="GPUCommandEncoder/insertDebugMarker(markerLabel)">
-                markerLabel: The label to insert.
-            </pre>
-
-            **Returns:** {{undefined}}
-
-            1. If |this|.{{GPUCommandEncoder/[[state]]}} is not [=encoder state/open=]:
-                1. Issue(gpuweb/gpuweb#2264): Figure out what to do in this case.
-        </div>
-</dl>
-
 ## Queries ## {#command-encoder-queries}
 
 <dl dfn-type=method dfn-for=GPUCommandEncoder>
@@ -6531,19 +6478,23 @@ must be well nested.
 
             1. If |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=]
                 {{GPUFeatureName/"timestamp-query"}}, throw a {{TypeError}}.
-            1. If any of the following conditions are unsatisfied, generate a validation error and stop.
-                <div class=validusage>
-                    - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                    - |querySet| is [$valid to use with$] |this|.
-                    - |querySet|.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/type}} is {{GPUQueryType/"timestamp"}}.
-                    - |queryIndex| &lt; |querySet|.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/count}}.
-                </div>
+            1. Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+                <div class=device-timeline>
+                    1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                    1. If any of the following conditions are unsatisfied, generate a validation error and stop.
+                        <div class=validusage>
+                            - |querySet| is [$valid to use with$] |this|.
+                            - |querySet|.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/type}} is {{GPUQueryType/"timestamp"}}.
+                            - |queryIndex| &lt; |querySet|.{{GPUQuerySet/[[descriptor]]}}.{{GPUQuerySetDescriptor/count}}.
+                        </div>
 
-            Issue: Describe {{GPUCommandEncoder/writeTimestamp()}} algorithm steps.
+                    Issue: Describe {{GPUCommandEncoder/writeTimestamp()}} algorithm steps.
+                </div>
         </div>
 
     : <dfn>resolveQuerySet(querySet, firstQuery, queryCount, destination, destinationOffset)</dfn>
     ::
+        Resolves query results from a {{GPUQuerySet}} out into a range of a {{GPUBuffer}}.
 
         <div algorithm=GPUCommandEncoder.resolveQuerySet>
             **Called on:** {{GPUCommandEncoder}} this.
@@ -6559,19 +6510,22 @@ must be well nested.
 
             **Returns:** {{undefined}}
 
-            If any of the following conditions are unsatisfied, generate a {{GPUValidationError}} and stop.
-            <div class=validusage>
-                - |this|.{{GPUCommandEncoder/[[state]]}} is [=encoder state/open=].
-                - |querySet| is [$valid to use with$] |this|.
-                - |destination| is [$valid to use with$] |this|.
-                - |destination|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/QUERY_RESOLVE}}.
-                - |firstQuery| is less than the number of queries in |querySet|.
-                - (|firstQuery| + |queryCount|) is less than or equal to the number of queries in |querySet|.
-                - |destinationOffset| is a multiple of 256.
-                - |destinationOffset| + 8 &times; |queryCount| &le; |destination|.{{GPUBuffer/[[size]]}}.
-            </div>
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+            <div class=device-timeline>
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. If any of the following conditions are unsatisfied, generate a {{GPUValidationError}} and stop.
+                    <div class=validusage>
+                        - |querySet| is [$valid to use with$] |this|.
+                        - |destination| is [$valid to use with$] |this|.
+                        - |destination|.{{GPUBuffer/[[usage]]}} contains {{GPUBufferUsage/QUERY_RESOLVE}}.
+                        - |firstQuery| is less than the number of queries in |querySet|.
+                        - (|firstQuery| + |queryCount|) is less than or equal to the number of queries in |querySet|.
+                        - |destinationOffset| is a multiple of 256.
+                        - |destinationOffset| + 8 &times; |queryCount| &le; |destination|.{{GPUBuffer/[[size]]}}.
+                    </div>
 
-            Issue: Describe {{GPUCommandEncoder/resolveQuerySet()}} algorithm steps.
+                Issue: Describe {{GPUCommandEncoder/resolveQuerySet()}} algorithm steps.
+            </div>
         </div>
 </dl>
 
@@ -6599,23 +6553,20 @@ command encoder can no longer be used.
             1. Let |commandBuffer| be a new {{GPUCommandBuffer}}.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
-                    1. If any of the following requirements are unmet:
+                    1. Let |validationFailed| be `true` if all of the following requirements are met, and `false` otherwise.
                         <div class=validusage>
                             - |this| must be [=valid=].
-                            - |this|.{{GPUCommandEncoder/[[debug_group_stack]]}}'s [=stack/size=] must be 0.
-                            - |this|.{{GPUCommandEncoder/[[state]]}} must be [=encoder state/open=].
+                            - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
+                            - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
                             - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
                         </div>
-
-                        Then:
-
+                    1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
+                    1. If |validationFailed|, then:
                         1. Generate a {{GPUValidationError}} in the current scope with appropriate
                             error message.
                         1. Return a new [=invalid=] {{GPUCommandBuffer}}.
-
-                    1. Set |this|.{{GPUCommandEncoder/[[state]]}} to [=encoder state/closed=].
                     1. Set |commandBuffer|.{{GPUCommandBuffer/[[command_list]]}} to
-                        |this|.{{GPUCommandEncoder/[[command_list]]}}.
+                        |this|.{{GPUCommandsMixin/[[commands]]}}.
                 </div>
 
             1. Return |commandBuffer|.
@@ -6634,10 +6585,6 @@ interface mixin GPUProgrammablePassEncoder {
                       Uint32Array dynamicOffsetsData,
                       GPUSize64 dynamicOffsetsDataStart,
                       GPUSize32 dynamicOffsetsDataLength);
-
-    undefined pushDebugGroup(USVString groupLabel);
-    undefined popDebugGroup();
-    undefined insertDebugMarker(USVString markerLabel);
 };
 </script>
 
@@ -6647,10 +6594,6 @@ interface mixin GPUProgrammablePassEncoder {
     : <dfn>\[[command_encoder]]</dfn> of type {{GPUCommandEncoder}}.
     ::
         The {{GPUCommandEncoder}} that created this programmable pass.
-
-    : <dfn>\[[debug_group_stack]]</dfn> of type [=stack=]&lt;{{USVString}}&gt;.
-    ::
-        A stack of active debug group labels.
 
     : <dfn>\[[bind_groups]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, {{GPUBindGroup}}&gt;
     ::
@@ -6792,66 +6735,97 @@ interface mixin GPUProgrammablePassEncoder {
     Otherwise return `true`.
 </div>
 
-## Debug Markers ## {#programmable-passes-debug-markers}
+# Debug Markers # {#debug-markers}
 
-Debug marker methods for programmable pass encoders provide the same functionality as
-[[#command-encoder-debug-markers|command encoder debug markers]] while recording a programmable
-pass.
+<dfn interface>GPUDebugCommandsMixin</dfn> provides methods to apply debug labels to groups
+of commands or insert a single label into the command sequence.
 
-<dl dfn-type=method dfn-for=GPUProgrammablePassEncoder>
+Debug groups can be nested to create a hierarchy of labeled commands, and must be well-balanced.
+
+Like {{GPUObjectBase/label|object labels}}, these labels have no required behavior, but may be shown
+in error messages and browser developer tools, and may be passed to native API backends.
+
+<script type=idl>
+interface mixin GPUDebugCommandsMixin {
+    undefined pushDebugGroup(USVString groupLabel);
+    undefined popDebugGroup();
+    undefined insertDebugMarker(USVString markerLabel);
+};
+</script>
+
+{{GPUDebugCommandsMixin}} is only included by interfaces which include
+{{GPUObjectBase}} and {{GPUCommandsMixin}}.
+
+{{GPUDebugCommandsMixin}} adds the following internal slots to interfaces which include it:
+
+<dl dfn-type=attribute dfn-for=GPUDebugCommandsMixin>
+    : <dfn>\[[debug_group_stack]]</dfn> of type [=stack=]&lt;{{USVString}}&gt;.
+    ::
+        A stack of active debug group labels.
+</dl>
+
+{{GPUDebugCommandsMixin}} adds the following methods to interfaces which include it:
+
+<dl dfn-type=method dfn-for=GPUDebugCommandsMixin>
     : <dfn>pushDebugGroup(groupLabel)</dfn>
     ::
-        Marks the beginning of a labeled group of commands for the {{GPUProgrammablePassEncoder}}.
+        Begins a labeled debug group containing subsequent commands.
 
-        <div algorithm=GPUProgrammablePassEncoder.pushDebugGroup>
-            **Called on:** {{GPUProgrammablePassEncoder}} |this|.
+        <div algorithm=GPUDebugCommandsMixin.pushDebugGroup>
+            **Called on:** {{GPUDebugCommandsMixin}} |this|.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUProgrammablePassEncoder/pushDebugGroup(groupLabel)">
+            <pre class=argumentdef for="GPUDebugCommandsMixin/pushDebugGroup(groupLabel)">
                 |groupLabel|: The label for the command group.
             </pre>
 
             **Returns:** {{undefined}}
 
-            Issue the following steps on the [=Device timeline=] of |this|:
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [=stack/Push=] |groupLabel| onto |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}.
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [=stack/Push=] |groupLabel| onto |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}}.
             </div>
         </div>
 
     : <dfn>popDebugGroup()</dfn>
     ::
-        Marks the end of a labeled group of commands for the {{GPUProgrammablePassEncoder}}.
+        Ends the labeled debug group most recently started by {{GPUDebugCommandsMixin/pushDebugGroup()}}.
 
-        <div algorithm=GPUProgrammablePassEncoder.popDebugGroup>
-            **Called on:** {{GPUProgrammablePassEncoder}} |this|.
+        <div algorithm=GPUDebugCommandsMixin.popDebugGroup>
+            **Called on:** {{GPUDebugCommandsMixin}} |this|.
 
             **Returns:** {{undefined}}
 
-            Issue the following steps on the [=Device timeline=] of |this|:
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. If any of the following conditions are unsatisfied, generate a validation
-                    error and stop.
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. If any of the following requirements are unmet, make |this| [=invalid=], and stop.
                     <div class=validusage>
-                        - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] is greater than 0.
+                        - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must not [=list/is empty|be empty=].
                     </div>
-                1. [=stack/Pop=] an entry off of |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}.
+                1. [=stack/Pop=] an entry off of |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}}.
             </div>
         </div>
 
     : <dfn>insertDebugMarker(markerLabel)</dfn>
     ::
-        Inserts a single debug marker label into the {{GPUProgrammablePassEncoder}}'s commands sequence.
+        Marks a point in a stream of commands with a label.
 
-        <div algorithm=GPUProgrammablePassEncoder.insertDebugMarker>
-            **Called on:** {{GPUProgrammablePassEncoder}} this.
+        <div algorithm=GPUDebugCommandsMixin.insertDebugMarker>
+            **Called on:** {{GPUDebugCommandsMixin}} this.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUProgrammablePassEncoder/insertDebugMarker(markerLabel)">
+            <pre class=argumentdef for="GPUDebugCommandsMixin/insertDebugMarker(markerLabel)">
                 markerLabel: The label to insert.
             </pre>
 
             **Returns:** {{undefined}}
+
+            Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
+            <div class=device-timeline>
+                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+            </div>
         </div>
 </dl>
 
@@ -6869,6 +6843,8 @@ interface GPUComputePassEncoder {
     undefined endPass();
 };
 GPUComputePassEncoder includes GPUObjectBase;
+GPUComputePassEncoder includes GPUCommandsMixin;
+GPUComputePassEncoder includes GPUDebugCommandsMixin;
 GPUComputePassEncoder includes GPUProgrammablePassEncoder;
 </script>
 
@@ -6977,10 +6953,9 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                             |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}}.
                     </div>
 
-                1. [=list/Append=] a [=GPU command=] to
-                    |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
-                    that captures the {{GPUComputePassEncoder}} state of |this| as |passState| and,
-                    when executed, issues the following steps on the appropriate [=Queue timeline=]:
+                1. Let |passState| be a snapshot of |this|'s current state.
+                1. [=list/Append=] a [=GPU command=] to |this|.{{GPUCommandsMixin/[[commands]]}}
+                    executing the following [=queue timeline=] steps:
                     <div class=queue-timeline>
                         1. Dispatch a grid of workgroups with dimensions [|x|, |y|, |z|] with
                             |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
@@ -7056,18 +7031,26 @@ called the compute pass encoder can no longer be used.
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
-                1. If any of the following conditions are unsatisfied, make
+                1. If any of the following requirements are unmet,
+                    generate a {{GPUValidationError}} and stop.
+                    <div class=validusage>
+                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]",
+                    </div>
+                1. [=Assert=]: |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[state]]}} is "[=encoder state/locked=]".
+                1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
+                1. Set |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/open=]".
+                1. If any of the following requirements are unmet, make
                     |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}} [=invalid=] and stop.
                     <div class=validusage>
                         - |this| must be [=valid=].
-                        - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] is 0.
-
-                        Issue: Add remaining validation.
+                        - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must be [=list/is empty|be empty=].
                     </div>
-                1. For each |timestampWrite| in |this|.{{GPUComputePassEncoder/[[endTimestampWrites]]}},
-                    1. (|timestampWrite|.{{GPUComputePassTimestampWrite/location}} must equal {{GPUComputePassTimestampLocation/"end"}}.)
+                1. [=list/Extend=] |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[commands]]}}
+                    with |this|.{{GPUCommandsMixin/[[commands]]}}.
+                1. For each |timestampWrite| in |this|.{{GPUComputePassEncoder/[[endTimestampWrites]]}}:
+                    1. [=Assert=]: |timestampWrite|.{{GPUComputePassTimestampWrite/location}} is {{GPUComputePassTimestampLocation/"end"}}.
                     1. [=list/Append=] a [=GPU command=] to
-                        |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                        |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[commands]]}}
                         that writes the GPU's timestamp value into the |timestampWrite|.{{GPUComputePassTimestampWrite/queryIndex}}th
                         index in |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.
             </div>
@@ -7115,6 +7098,8 @@ interface GPURenderPassEncoder {
     undefined endPass();
 };
 GPURenderPassEncoder includes GPUObjectBase;
+GPURenderPassEncoder includes GPUCommandsMixin;
+GPURenderPassEncoder includes GPUDebugCommandsMixin;
 GPURenderPassEncoder includes GPUProgrammablePassEncoder;
 GPURenderPassEncoder includes GPURenderEncoderBase;
 </script>
@@ -8082,23 +8067,30 @@ called the render pass encoder can no longer be used.
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
-                1. If any of the following conditions are unsatisfied, make
+                1. If any of the following requirements are unmet,
+                    generate a {{GPUValidationError}} and stop.
+                    <div class=validusage>
+                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]",
+                    </div>
+                1. [=Assert=]: |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[state]]}} is "[=encoder state/locked=]".
+                1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
+                1. Set |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/open=]".
+                1. If any of the following requirements are unmet, make
                     |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}} [=invalid=] and stop.
                     <div class=validusage>
                         - |this| must be [=valid=].
-                        - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] is 0.
-                        - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} is `false`.
-
-                        Issue: Add remaining validation.
+                        - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must be [=list/is empty|be empty=].
+                        - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} must be `false`.
                     </div>
-                1. For each |timestampWrite| in |this|.{{GPURenderPassEncoder/[[endTimestampWrites]]}},
-                    1. (|timestampWrite|.{{GPURenderPassTimestampWrite/location}} must equal {{GPURenderPassTimestampLocation/"end"}}.)
+                1. [=list/Extend=] |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[commands]]}}
+                    with |this|.{{GPUCommandsMixin/[[commands]]}}.
+                1. For each |timestampWrite| in |this|.{{GPURenderPassEncoder/[[endTimestampWrites]]}}:
+                    1. [=Assert=]: |timestampWrite|.{{GPURenderPassTimestampWrite/location}} is {{GPURenderPassTimestampLocation/"end"}}.
                     1. [=list/Append=] a [=GPU command=] to
-                        |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandEncoder/[[command_list]]}}
+                        |this|.{{GPUProgrammablePassEncoder/[[command_encoder]]}}.{{GPUCommandsMixin/[[commands]]}}
                         that writes the GPU's timestamp value into the |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}}th
                         index in |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.
-
-                Issue: Enqueue the attachment stores (with storeOp clear).
+                1. Issue: Enqueue the attachment stores/discards.
             </div>
         </div>
 </dl>
@@ -8146,36 +8138,11 @@ interface GPURenderBundleEncoder {
     GPURenderBundle finish(optional GPURenderBundleDescriptor descriptor = {});
 };
 GPURenderBundleEncoder includes GPUObjectBase;
+GPURenderBundleEncoder includes GPUCommandsMixin;
+GPURenderBundleEncoder includes GPUDebugCommandsMixin;
 GPURenderBundleEncoder includes GPUProgrammablePassEncoder;
 GPURenderBundleEncoder includes GPURenderEncoderBase;
 </script>
-
-{{GPURenderBundleEncoder}} has the following internal slots:
-
-<dl dfn-type=attribute dfn-for="GPURenderBundleEncoder">
-    : <dfn>\[[command_list]]</dfn> of type [=list=]&lt;[=GPU command=]&gt;.
-    ::
-        A [=list=] of [=GPU commands=] to be submitted to the {{GPURenderPassEncoder}} when the
-        {{GPURenderBundle}} this encoder produces is executed.
-
-    : <dfn>\[[state]]</dfn> of type [=render bundle state=].
-    ::
-        The current state of the {{GPURenderBundleEncoder}}, initially set to [=render bundle state/open=].
-</dl>
-
-Each {{GPURenderBundleEncoder}} has a current <dfn dfn>render bundle state</dfn> on the [=Content timeline=]
-which may be one of the following:
-
-<dl dfn-type=dfn dfn-for="render bundle state">
-    : <dfn>open</dfn>
-    ::
-        Indicates the {{GPURenderBundleEncoder}} is available to begin new operations.
-
-    : <dfn>closed</dfn>
-    ::
-        Indicates the {{GPURenderBundleEncoder}} is no longer available for any operations. The
-        {{GPURenderBundleEncoder/[[state]]}} becomes [=render bundle state/closed=] once {{GPURenderBundleEncoder/finish()}} is called.
-</dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createRenderBundleEncoder(descriptor)</dfn>
@@ -8213,7 +8180,7 @@ which may be one of the following:
                 1. Set |e|.{{GPURenderEncoderBase/[[layout]]}} to |descriptor|.{{GPURenderPassLayout}}.
                 1. Set |e|.{{GPURenderEncoderBase/[[depthReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/depthReadOnly}}.
                 1. Set |e|.{{GPURenderEncoderBase/[[stencilReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/stencilReadOnly}}.
-                1. Set |e|.{{GPURenderBundleEncoder/[[state]]}} to [=render bundle state/open=].
+                1. Set |e|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/open=]".
                 1. Return |e|.
 
                 Issue: Describe the reset of the steps for {{GPUDevice/createRenderBundleEncoder()}}.
@@ -8250,23 +8217,20 @@ dictionary GPURenderBundleEncoderDescriptor : GPURenderPassLayout {
             1. Let |renderBundle| be a new {{GPURenderBundle}}.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
-                    1. If any of the following requirements are unmet:
+                    1. Let |validationFailed| be `true` if all of the following requirements are met, and `false` otherwise.
                         <div class=validusage>
                             - |this| must be [=valid=].
-                            - |this|.{{GPUProgrammablePassEncoder/[[debug_group_stack]]}}'s [=stack/size=] must be 0.
-                            - |this|.{{GPURenderBundleEncoder/[[state]]}} must be [=render bundle state/open=].
+                            - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
+                            - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
                             - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
                         </div>
-
-                        Then:
-
+                    1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
+                    1. If |validationFailed|, then:
                         1. Generate a {{GPUValidationError}} in the current scope with appropriate
                             error message.
                         1. Return a new [=invalid=] {{GPURenderBundle}}.
-
-                    1. Set |this|.{{GPURenderBundleEncoder/[[state]]}} to [=render bundle state/closed=].
                     1. Set |renderBundle|.{{GPURenderBundle/[[command_list]]}} to
-                        |this|.{{GPURenderBundleEncoder/[[command_list]]}}.
+                        |this|.{{GPUCommandsMixin/[[commands]]}}.
                 </div>
 
             1. Return |renderBundle|.
