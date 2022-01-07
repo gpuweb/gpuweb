@@ -1439,12 +1439,6 @@ of the destination color space's gamut (e.g. if a Display P3 image is converted 
 
 # Initialization # {#initialization}
 
-## Examples ## {#initialization-examples}
-
-Issue:
-Need a robust example like the one in ErrorHandling.md, which handles all situations.
-Possibly also include a simple example with no handling.
-
 ## navigator.gpu ## {#navigator-gpu}
 
 A {{GPU}} object is available in the {{Window}} and {{DedicatedWorkerGlobalScope}} contexts through the {{Navigator}}
@@ -1542,11 +1536,9 @@ calling {{GPUAdapter/requestDevice()}}.
 </div>
 
 <div class="example">
-    Request a {{GPUAdapter}}:
+    Requesting a {{GPUAdapter}} with no hints:
     <pre highlight="js">
-        const adapter = await navigator.gpu.requestAdapter(/* ... */);
-        const features = adapter.features;
-        // ...
+        const gpuAdapter = await navigator.gpu.requestAdapter();
     </pre>
 </div>
 
@@ -1637,6 +1629,15 @@ enum GPUPowerPreference {
         [=fallback adapters=] should check the {{GPUAdapter}}.{{GPUAdapter/isFallbackAdapter}}
         attribute prior to requesting a {{GPUDevice}}.
 </dl>
+
+<div class="example">
+    Requesting a {{GPUPowerPreference/"high-performance"}} {{GPUAdapter}}:
+    <pre highlight="js">
+        const gpuAdapter = await navigator.gpu.requestAdapter({
+            powerPreference: 'high-performance'
+        });
+    </pre>
+</div>
 
 ## <dfn interface>GPUAdapter</dfn> ## {#gpu-adapter}
 
@@ -1760,6 +1761,14 @@ interface GPUAdapter {
         </div>
 </dl>
 
+<div class="example">
+    Requesting a {{GPUDevice}} with default features and limits:
+    <pre highlight="js">
+        const gpuAdapter = await navigator.gpu.requestAdapter();
+        const gpuDevice = await gpuAdapter.requestDevice();
+    </pre>
+</div>
+
 ### <dfn dictionary>GPUDeviceDescriptor</dfn> ### {#gpudevicedescriptor}
 
 {{GPUDeviceDescriptor}} describes a device request.
@@ -1796,6 +1805,22 @@ dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
         reference to WebIDL spec). Or change the entire type to `any` and add back a `dictionary
         GPULimits` and define the conversion of the whole object by reference to WebIDL. -->
 </dl>
+
+<div class="example">
+    Requesting a {{GPUDevice}} with the {{GPUFeatureName/"texture-compression-astc"}} feature if supported:
+    <pre highlight="js">
+        const gpuAdapter = await navigator.gpu.requestAdapter();
+
+        const requiredFeatures = [];
+        if (gpuAdapter.features.has('texture-compression-astc')) {
+            requiredFeatures.push('texture-compression-astc')
+        }
+
+        const gpuDevice = await gpuAdapter.requestDevice({
+            requiredFeatures
+        });
+    </pre>
+</div>
 
 #### <dfn enum>GPUFeatureName</dfn> #### {#gpufeaturename}
 
@@ -1922,6 +1947,67 @@ Issue(gpuweb/gpuweb#354): Finish defining multithreading API and add `[Serializa
 Issue: `GPUDevice` doesn't really need the cross-origin policy restriction.
 It should be usable from multiple agents regardless. Once we describe the serialization
 of buffers, textures, and queues - the COOP+COEP logic should be moved in there.
+
+## Example ## {#initialization-examples}
+
+<div class="example">
+    A more robust example of requesting a {{GPUAdapter}} and {{GPUDevice}} with error handling:
+    <pre highlight="js">
+        let gpuAdapter = null;
+        let gpuDevice = null;
+
+        async function initializeWebGPU() {
+            try {
+                // Check for WebGPU support.
+                if (!('gpu' in navigator)) {
+                    throw new Error('WebGPU not supported by this user agent.');
+                }
+
+                // Request an adapter.
+                gpuAdapter = await navigator.gpu.requestAdapter();
+
+                // requestAdapter may resolve with null if no suitable adapters are found.
+                if (!gpuAdapter) {
+                    throw new Error('No suitable adapter found.');
+                }
+
+                // Request a device.
+                // The promise will reject if invalid options are passed to the optional dictionary.
+                gpuDevice = await gpuAdapter.requestDevice();
+
+                // requestDevice should never return null, but if a valid device request can't be
+                // fulfilled for some reason it may resolve to a device which has already been lost.
+                gpuDevice.lost.then((info) => {
+                    console.error(\`WebGPU device was lost: ${info.message}\`);
+
+                    gpuAdapter = null;
+                    gpuDevice = null;
+
+                    // Devices may be lost for a variety of reasons, and many are recoverable. It's
+                    // reasonable to try getting a new device once a previous one has been lost.
+                    // Note that any WebGPU resources created with the previous device (buffers,
+                    // textures, etc) will need to be re-created with the new one.
+                    initializeWebGPU();
+                });
+            } catch (error) {
+                console.error(\`WebGPU initialization failed: ${error.message}\`);
+
+                gpuAdapter = null;
+                gpuDevice = null;
+
+                throw error;
+            }
+
+            onWebGPUInitialized();
+        }
+
+        function onWebGPUInitialized() {
+            // Begin creating WebGPU resources here...
+        }
+
+        initializeWebGPU();
+    </pre>
+</div>
 
 # Buffers # {#buffers}
 
@@ -2135,6 +2221,16 @@ namespace GPUBufferUsage {
         </div>
 
 </dl>
+
+<div class="example">
+    Creating a 128 byte uniform buffer that can be written into:
+    <pre highlight="js">
+        const buffer = gpuDevice.createBuffer({
+            size: 128,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+    </pre>
+</div>
 
 ## Buffer Destruction ## {#buffer-destruction}
 
@@ -2547,6 +2643,17 @@ namespace GPUTextureUsage {
                 </div>
         </div>
 </dl>
+
+<div class="example">
+    Creating a 16x16, RGBA, 2D texture:
+    <pre highlight="js">
+        const texture = gpuDevice.createTexture({
+            size: { width: 16, height: 16 },
+            format: 'rgba8unorm',
+            usage: GPUTextureUsage.TEXTURE_BINDING,
+        });
+    </pre>
+</div>
 
 ### Texture Destruction ### {#texture-destruction}
 
@@ -3131,6 +3238,16 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
         </div>
 </dl>
 
+<div class="example">
+    Creating an external texture from a video element:
+    <pre highlight="js">
+        const videoElement = document.querySelector('video');
+        const externalTexture = gpuDevice.importExternalTexture({
+            source: videoElement
+        });
+    </pre>
+</div>
+
 ### Sampling External Textures ### {#external-texture-sampling}
 
 External textures are represented in WGSL with `texture_external` and may be read using
@@ -3374,6 +3491,19 @@ enum GPUCompareFunction {
             </div>
         </div>
 </dl>
+
+<div class="example">
+    Creating a {{GPUSampler}} that does trilinear filtering and repeats texture coordinates:
+    <pre highlight="js">
+        const sampler = gpuDevice.createSampler({
+            addressModeU = "repeat";
+            addressModeV = "repeat";
+            magFilter = "linear";
+            minFilter = "linear";
+            mipmapFilter = "linear";
+        });
+    </pre>
+</div>
 
 # Resource Binding # {#bindings}
 
@@ -4139,6 +4269,48 @@ Note: two {{GPUPipelineLayout}} objects are considered equivalent for any usage
 if their internal {{GPUPipelineLayout/[[bindGroupLayouts]]}} sequences contain
 {{GPUBindGroupLayout}} objects that are [=group-equivalent=].
 
+## Example ## {#bindgroup-examples}
+
+<div class="example">
+    Create a {{GPUBindGroupLayout}} that describes a binding with a uniform buffer, a texture, and a sampler.
+    Then create a {{GPUBindGroup}} and a {{GPUPipelineLayout}} using the {{GPUBindGroupLayout}}.
+    <pre highlight="js">
+        const bindGroupLayout = gpuDevice.createBindGroupLayout({
+            entries: [{
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                buffer: {}
+            }, {
+                binding: 1,
+                visibility: GPUShaderStage.FRAGMENT,
+                texture: {}
+            }, {
+                binding: 2,
+                visibility: GPUShaderStage.FRAGMENT,
+                sampler: {}
+            }]
+        });
+
+        const bindGroup = gpuDevice.createBindGroup({
+            layout: bindGroupLayout,
+            entries: [{
+                binding: 0,
+                resource: { buffer: buffer },
+            }, {
+                binding: 1,
+                resource: texture
+            }, {
+                binding: 2,
+                resource: sampler
+            }]
+        });
+
+        const pipelineLayout = gpuDevice.createPipelineLayout({
+            bindGroupLayouts : [ bindGroupLayout ]
+        });
+    </pre>
+</div>
+
 # Shader Modules # {#shader-modules}
 
 ## <dfn interface>GPUShaderModule</dfn> ## {#shader-module}
@@ -4225,6 +4397,22 @@ same module, they should avoid passing that information to
             Issue: Describe {{GPUDevice/createShaderModule()}} algorithm steps.
         </div>
 </dl>
+
+<div class="example">
+    Create a {{GPUShaderModule}} from WGSL code:
+    <pre highlight="js">
+        const fragmentSource = \`
+            [[stage(fragment)]]
+            fn fragmentMain() -> [[location(0)]] vec4&lt;f32&gt; {
+                return vec4(1.0, 0.0, 0.0, 1.0);
+            }
+        \`;
+
+        const framgmentShaderModule = gpuDevice.createShaderModule({
+            code: fragmentSource,
+        });
+    </pre>
+</div>
 
 ### Shader Module Compilation Information ### {#shader-module-compilation-information}
 
@@ -4909,6 +5097,19 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
         </div>
 </dl>
 
+<div class="example">
+    Creating a simple {{GPUComputePipeline}}:
+    <pre highlight="js">
+        const computePipeline = gpuDevice.createComputePipeline({
+            layout: pipelineLayout,
+            compute: {
+                module: computeShaderModule,
+                entryPoint: 'computeMain',
+            }
+        });
+    </pre>
+</div>
+
 ## <dfn interface>GPURenderPipeline</dfn> ## {#render-pipeline}
 
 A {{GPURenderPipeline}} is a kind of [=pipeline=] that controls the vertex
@@ -5130,6 +5331,26 @@ Issue: should we validate that `cullMode` is none for points and lines?
 Issue: define what "compatible" means for render target formats.
 
 Issue: need a proper limit for the maximum number of color targets.
+
+<div class="example">
+    Creating a simple {{GPURenderPipeline}}:
+    <pre highlight="js">
+        const renderPipeline = gpuDevice.createRenderPipeline({
+            layout: pipelineLayout,
+            vertex: {
+                module: vertexShaderModule,
+                entryPoint: 'vertexMain'
+            },
+            fragment: {
+                module: fragmentShaderModule,
+                entryPoint: 'fragmentMain',
+                targets: [{
+                    format: 'bgra8unorm',
+                }],
+            }
+        });
+    </pre>
+</div>
 
 ### Primitive State ### {#primitive-state}
 
@@ -5757,6 +5978,17 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
         </div>
 </dl>
 
+<div class="example">
+    Creating a {{GPUCommandEncoder}}, encoding a command to clear a buffer, finishing the
+    encoder to get a {{GPUCommandBuffer}}, then submitting it to the {{GPUQueue}}.
+    <pre highlight="js">
+        const commandEncoder = gpuDevice.createCommandEncoder();
+        commandEncoder.clearBuffer(buffer);
+        const commandBuffer = commandEncoder.finish();
+        gpuDevice.queue.submit([commandBuffer]);
+    </pre>
+</div>
+
 ## Pass Encoding ## {#command-encoder-pass-encoding}
 
 <dl dfn-type=method dfn-for=GPUCommandEncoder>
@@ -6072,11 +6304,11 @@ dictionary GPUImageCopyExternalImage {
     ::
         Defines the origin of the copy - the minimum (top-left) corner of the source sub-region to copy from.
         Together with `copySize`, defines the full copy sub-region.
-    
+
     : <dfn>flipY</dfn>
     ::
         Describes whether the source image is vertically flipped, or not.
-       
+
         If this option is set to `true`, the copy is flipped vertically: the bottom row of the source
         region is copied into the first row of the destination region, and so on.
         The {{GPUImageCopyExternalImage/origin}} option is still relative to the top-left corner
@@ -8606,6 +8838,16 @@ dictionary GPUQuerySetDescriptor : GPUObjectDescriptorBase {
         </div>
 </dl>
 
+<div class="example">
+    Creating a {{GPUQuerySet}} which holds 32 occlusion query results.
+    <pre highlight="js">
+        const querySet = gpuDevice.createQuerySet({
+            type: 'occlusion',
+            count: 32
+        });
+    </pre>
+</div>
+
 ### QuerySet Destruction ### {#queryset-destruction}
 
 An application that no longer requires a {{GPUQuerySet}} can choose to lose access to it before
@@ -8672,8 +8914,6 @@ method of an {{HTMLCanvasElement}} instance by passing the string literal `'webg
     <pre highlight="js">
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('webgpu');
-        context.configure(/* ... */);
-        // ...
     </pre>
 </div>
 
@@ -8946,6 +9186,20 @@ dictionary GPUCanvasConfiguration {
 };
 </script>
 
+<div class="example">
+    Configure a {{GPUCanvasContext}} to be used with a specific {{GPUDevice}}, using the preferred
+    format for this context:
+    <pre highlight="js">
+        const canvas = document.createElement('canvas');
+        const context =  canvas.getContext('webgpu');
+
+        context.configure({
+            device: gpuDevice,
+            format: context.getPreferredFormat(gpuAdapter),
+        });
+    </pre>
+</div>
+
 ### Canvas Color Space ### {#canvas-color-space}
 
 During presentation, the chrominance of color values outside of the [0, 1] range is not to be
@@ -8993,8 +9247,8 @@ must be reconfigured by calling {{GPUCanvasContext/configure()}} again with the 
             for (const entry of entries) {
                 if (entry != canvas) { continue; }
                 context.configure({
-                    device: someDevice,
-                    format: context.getPreferredFormat(someDevice.adapter),
+                    device: gpuDevice,
+                    format: context.getPreferredFormat(gpuAdapter),
                     size: {
                         // This reports the size of the canvas element in pixels
                         width: entry.devicePixelContentBoxSize[0].inlineSize,
@@ -9113,6 +9367,24 @@ partial interface GPUDevice {
         - There are no error scopes on the stack.
 </dl>
 
+<div class="example">
+    Using error scopes to capture errors from a {{GPUDevice}} operation that may fail:
+    <pre highlight="js">
+        gpuDevice.pushErrorScope('validation');
+
+        let shadermodule = gpuDevice.createShaderModule({
+            code: 'Invalid WGSL',
+        });
+
+        gpuDevice.popErrorScope().then((error) => {
+            if (error) {
+                shadermodule = null;
+                console.error(\`An error occured while creating shader module: ${error.message}\`);
+            }
+        });
+    </pre>
+</div>
+
 ## Telemetry ## {#telemetry}
 
 <script type=idl>
@@ -9150,6 +9422,17 @@ partial interface GPUDevice {
     attribute EventHandler onuncapturederror;
 };
 </script>
+
+<div class="example">
+    Listening for uncaptured errors from a {{GPUDevice}}:
+    <pre highlight="js">
+        gpuDevice.addEventListener('uncapturederror', (event) => {
+            if (event.error instanceof GPUValidationError) {
+                console.error(\`An uncaught WebGPU error was raised: ${event.error.message}\`);
+            }
+        });
+    </pre>
+</div>
 
 # Detailed Operations # {#detailed-operations}
 
