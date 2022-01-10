@@ -1953,52 +1953,53 @@ of buffers, textures, and queues - the COOP+COEP logic should be moved in there.
 <div class="example">
     A more robust example of requesting a {{GPUAdapter}} and {{GPUDevice}} with error handling:
     <pre highlight="js">
-        let gpuAdapter = null;
         let gpuDevice = null;
 
         async function initializeWebGPU() {
-            try {
-                // Check for WebGPU support.
-                if (!('gpu' in navigator)) {
-                    throw new Error('WebGPU not supported by this user agent.');
-                }
-
-                // Request an adapter.
-                gpuAdapter = await navigator.gpu.requestAdapter();
-
-                // requestAdapter may resolve with null if no suitable adapters are found.
-                if (!gpuAdapter) {
-                    throw new Error('No suitable adapter found.');
-                }
-
-                // Request a device.
-                // The promise will reject if invalid options are passed to the optional dictionary.
-                gpuDevice = await gpuAdapter.requestDevice();
-
-                // requestDevice should never return null, but if a valid device request can't be
-                // fulfilled for some reason it may resolve to a device which has already been lost.
-                gpuDevice.lost.then((info) => {
-                    console.error(\`WebGPU device was lost: ${info.message}\`);
-
-                    gpuAdapter = null;
-                    gpuDevice = null;
-
-                    // Devices may be lost for a variety of reasons, and many are recoverable. It's
-                    // reasonable to try getting a new device once a previous one has been lost.
-                    // Note that any WebGPU resources created with the previous device (buffers,
-                    // textures, etc) will need to be re-created with the new one.
-                    initializeWebGPU();
-                });
-            } catch (error) {
-                console.error(\`WebGPU initialization failed: ${error.message}\`);
-
-                gpuAdapter = null;
-                gpuDevice = null;
-
-                throw error;
+            // Check to ensure the user agent supports WebGPU.
+            if (!('gpu' in navigator)) {
+                console.error('User agent doesn't support WebGPU.');
+                return false;
             }
 
+            // Request an adapter.
+            const gpuAdapter = await navigator.gpu.requestAdapter();
+
+            // requestAdapter may resolve with null if no suitable adapters are found.
+            if (!gpuAdapter) {
+                console.error('No WebGPU adapters found.');
+                return false;
+            }
+
+            // Request a device.
+            // Note that the promise will reject if invalid options are passed to the optional
+            // dictionary. To avoid the promise rejecting always check any features and limits
+            // against the adapters features and limits prior to calling requestDevice().
+            gpuDevice = await gpuAdapter.requestDevice();
+
+            // requestDevice will never return null, but if a valid device request can't be
+            // fulfilled for some reason it may resolve to a device which has already been lost.
+            // Additionally, devices can be lost at any time after creation, usually for external
+            // reasons (ie: driver updates), so it's a good idea to always handle lost devices
+            // gracefully.
+            gpuDevice.lost.then((info) => {
+                console.error(\`WebGPU device was lost: ${info.message}\`);
+
+                gpuDevice = null;
+
+                // Many causes for lost devices are transient, so applications should try getting a
+                // new device once a previous one has been lost unless the loss was caused by the
+                // application intentionally destroying the device. Note that any WebGPU resources
+                // created with the previous device (buffers, textures, etc) will need to be
+                // re-created with the new one.
+                if (info.reason != 'destroyed') {
+                    initializeWebGPU();
+                }
+            });
+
             onWebGPUInitialized();
+
+            return true;
         }
 
         function onWebGPUInitialized() {
@@ -2645,7 +2646,7 @@ namespace GPUTextureUsage {
 </dl>
 
 <div class="example">
-    Creating a 16x16, RGBA, 2D texture:
+    Creating a 16x16, RGBA, 2D texture with one array layer and one mip level:
     <pre highlight="js">
         const texture = gpuDevice.createTexture({
             size: { width: 16, height: 16 },
@@ -3496,11 +3497,11 @@ enum GPUCompareFunction {
     Creating a {{GPUSampler}} that does trilinear filtering and repeats texture coordinates:
     <pre highlight="js">
         const sampler = gpuDevice.createSampler({
-            addressModeU = "repeat";
-            addressModeV = "repeat";
-            magFilter = "linear";
-            minFilter = "linear";
-            mipmapFilter = "linear";
+            addressModeU: 'repeat',
+            addressModeV: 'repeat',
+            magFilter: 'linear',
+            minFilter: 'linear',
+            mipmapFilter: 'linear',
         });
     </pre>
 </div>
@@ -4306,7 +4307,7 @@ if their internal {{GPUPipelineLayout/[[bindGroupLayouts]]}} sequences contain
         });
 
         const pipelineLayout = gpuDevice.createPipelineLayout({
-            bindGroupLayouts : [ bindGroupLayout ]
+            bindGroupLayouts: [bindGroupLayout]
         });
     </pre>
 </div>
@@ -4401,15 +4402,24 @@ same module, they should avoid passing that information to
 <div class="example">
     Create a {{GPUShaderModule}} from WGSL code:
     <pre highlight="js">
-        const fragmentSource = \`
+        // A simple vertex and fragment shader pair that will fill the viewport with red.
+        const shaderSource = \`
+            var&lt;private&gt; pos : array&lt;vec2&lt;f32&gt;, 3&gt; = array&lt;vec2&lt;f32&gt;, 3&gt;(
+                vec2(-1.0, -1.0), vec2(-1.0, 3.0), vec2(3.0, -1.0));
+
+            [[stage(vertex)]]
+            fn vertexMain([[builtin(vertex_index)]] vertexIndex : u32) -&gt; [[builtin(position)]] vec4&lt;f32&gt; {
+                return vec4(pos[input.vertexIndex], 1.0, 1.0);
+            }
+
             [[stage(fragment)]]
-            fn fragmentMain() -> [[location(0)]] vec4&lt;f32&gt; {
+            fn fragmentMain() -&gt; [[location(0)]] vec4&lt;f32&gt; {
                 return vec4(1.0, 0.0, 0.0, 1.0);
             }
         \`;
 
-        const framgmentShaderModule = gpuDevice.createShaderModule({
-            code: fragmentSource,
+        const shaderModule = gpuDevice.createShaderModule({
+            code: shaderSource,
         });
     </pre>
 </div>
@@ -5338,11 +5348,11 @@ Issue: need a proper limit for the maximum number of color targets.
         const renderPipeline = gpuDevice.createRenderPipeline({
             layout: pipelineLayout,
             vertex: {
-                module: vertexShaderModule,
+                module: shaderModule,
                 entryPoint: 'vertexMain'
             },
             fragment: {
-                module: fragmentShaderModule,
+                module: shaderModule,
                 entryPoint: 'fragmentMain',
                 targets: [{
                     format: 'bgra8unorm',
@@ -9368,18 +9378,19 @@ partial interface GPUDevice {
 </dl>
 
 <div class="example">
-    Using error scopes to capture errors from a {{GPUDevice}} operation that may fail:
+    Using error scopes to capture validation errors from a {{GPUDevice}} operation that may fail:
     <pre highlight="js">
         gpuDevice.pushErrorScope('validation');
 
-        let shadermodule = gpuDevice.createShaderModule({
-            code: 'Invalid WGSL',
+        let sampler = gpuDevice.createSampler({
+            maxAnisotropy: 0, // Invalid, maxAnisotropy must be at least 1.
         });
 
         gpuDevice.popErrorScope().then((error) => {
             if (error) {
-                shadermodule = null;
-                console.error(\`An error occured while creating shader module: ${error.message}\`);
+                // There was an error creating the sampler, so discard it.
+                sampler = null;
+                console.error(\`An error occured while creating sampler: ${error.message}\`);
             }
         });
     </pre>
@@ -9428,7 +9439,7 @@ partial interface GPUDevice {
     <pre highlight="js">
         gpuDevice.addEventListener('uncapturederror', (event) => {
             if (event.error instanceof GPUValidationError) {
-                console.error(\`An uncaught WebGPU error was raised: ${event.error.message}\`);
+                console.error(\`An uncaught WebGPU validation error was raised: ${event.error.message}\`);
             }
         });
     </pre>
