@@ -7003,7 +7003,7 @@ In this section we specify an analysis that verifies that functions which are on
       - Sound (meaning that it rejects every program that would break the uniformity requirements of builtins)
       - Linear time complexity (in the number of tokens in the program)
       - Refactoring a piece of code into a function cannot make it invalid if it was valid before
-      - If the analysis refuses a program, it provides a straightforward chain of implications that can be used to craft a good error message
+      - If the analysis rejects a program, it provides a straightforward chain of implications that can be used to craft a good error message
 </div>
 
 The analysis analyzes each function in turn, verifying that there is a context where it is safe to call this function. It rejects the program as invalid if there is no such context.
@@ -7014,6 +7014,9 @@ This way, whenever a function is analyzed, the metadata for all of its callees h
 There is no risk of being trapped in a cycle, as recurrence is forbidden in the language.
 
 Note: another way of saying the same thing is that we do a topological sort of functions ordered by the "is a (possibly indirect) callee of" partial order, and analyze them in that order.
+
+The core of the analysis is the construction and use of a dependency graph over nodes corresponding to statements, expressions, and a handful of additional bookkeeping nodes.
+An arc from X to Y models that X induces a unformity requirement on Y.
 
 ### Analyzing the uniformity requirements of a function ### {#uniformity-function}
 
@@ -7041,7 +7044,7 @@ The second phase explores that graph, resulting in either rejecting the program,
 In more detail, here is what we compute for each function *F*:
 
 * A <dfn>call-site-uniformity requirement</dfn>, a tag summarizing the control flow uniformity requirements at the function's call sites, one of:
-    * RequiresUniform: The function must be called when control flow is uniform.
+    * RequiresUniform: The function must be called only when control flow is uniform.
     * PropagatesFlowUniformity: The function does not induce a uniformity requirement at the call site,
          but the call site may carry a uniformity requirement from code that executes after the call.
 * A <dfn>argument-uniformity requirement</dfn>, for each formal parameter to *F*, a tag summarizing the uniformity requirement on the
@@ -7059,50 +7062,79 @@ In more detail, here is what we compute for each function *F*:
     * AssumeNonUniformValue: The return value of this function is assumed to be non-uniform.
     * NoRestriction: Calling this function has no effect on uniformity. (??)
 
-Here is the algorithm for computing this data for a given function *F*:
+The uniformity analysis of a function *F* proceeds as follows:
 
-1. Create nodes "RequiresUniform", "AssumeNonUniform", "CF_start", "CF_return", and if the function is non-void, a node called "Value_return"
-2. Create one node for each parameter of the function which we'll call "arg_i"
-3. Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next section.
-4. If AssumeNonUniform is reachable from RequiresUniform, the program is invalid,
+1. Create source nodes "RequiresUniform" and "CF_return".
+2. If the function has a [=return type=], create a source node called "Value_return".
+3. Create sink nodes "AssumeNonUniform" and "CF_start".
+4. Create one sink node for each parameter of the function which we'll call "arg_i"
+5. Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next section.
+6. If AssumeNonUniform is reachable from RequiresUniform, the program is invalid,
      resulting in a [=shader-creation error=].
-5. The [=call-site-uniformity requirement=] for *F* is:
+7. The [=call-site-uniformity requirement=] for *F* is:
     * RequiresUniform if CF_start is reachable from RequiresUniform
     * PropagatesFlowUniformity otherwise.
-6. The [=argument-uniformity requirement=] for the formal parameter identified with "arg_i" is:
+8. The [=argument-uniformity requirement=] for the formal parameter identified with "arg_i" is:
     * RequiresUniform if arg_i is reachable from RequiresUniform
     * Otherwise, PropagatesFlowUniformity if arg_i is reachable from CF_return
     * Otherwise, PropagatesValueUniformity if arg_i is reachable from Value_return
+    * TODO(dneto): the previous two steps should probably be swapped, because an expression being uniform subsumes a requirement that control flow be uniform.
     * Otherwise, NoRestriction
-7. The [=call-site-uniformity effect=] for *F* is:
-    * AssumeNonUniformFlow if CF_return is reachable from AssumeNonUniform
-    * Otherwise, AssumeNonUniformValue if Value_return is reachable from AssumeNonUniform
+9. The [=call-site-uniformity effect=] for *F* is:
+    * AssumeNonUniformFlow if AssumeNonUniform is reachable from CF_return
+    * Otherwise, AssumeNonUniformValue if AssumeNonUniform is reachable from Value_return
+    * TODO(dneto): the previous two steps should probably be swapped, because an expression being uniform subsumes a requirement that control flow be uniform.
     * Otherwise, NoRestriction
 
 Note: The entire graph for the function can be destroyed at this point. The tags listed above are all that we need to remember to analyze callers of this function.
 
 ### Uniformity rules for statements ### {#uniformity-statements}
 
-In order to properly deal with reconvergence we must know when there is a single way for control to flow out of a statement.
-This is achieved by following the behaviors analysis (see [[#behaviors]]).
+Uniformity analysis of a function body proceeds recursively, associating two nodes with each statement or expression in the function:
+* a <dfn noexport>uniformity precondition</dfn>: The uniformity requirement prior to evaluating the expression or executing the statement.
+* a <dfn noexport>uniformity postcondition</dfn>: The uniformity effect of evaluating the expression or executing the statement.
 
-If the set of behaviors for a statement has a single element, this means that we either did not diverge within the statement, or we reconverged, and we pick the node corresponding to control flow at the start of the statement as the node corresponding to control flow at the exit of the statement, overriding the other rules below.
+This is used to support the the function-level analysis described in [[#uniformity-function]].
 
-The rules for analyzing statements take as argument both the statement itself and the node corresponding to control flow at the beginning of it (which we'll note "CF" below) and return both of the following:
+When analyzing a statement, we must know when there is a single way for control to flow out of that statement.
+The behaviors analysis gives us this information. See see [[#behaviors]].
 
-* A node corresponding to control flow at the exit of it
-* A set of new nodes and edges to add to the graph
+When the set of [=behaviors=] for a statement *S* has a single element, it means that either:
+* control flow does not diverge within *S*, or
+* if control flow diverges during execution of *S*, that divergence is resolved (i.e. reconvergence occurs) by the time *S* completes.
+
+In this case, the post-condition for *S* is the same as the precondition for *S*.
+(Alternately, add an edge from the uniformity precondition for *S* to the uniformity postcondition for *S*.)
+
+When statement *S* has more than one [=behavior=], apply the rules in the table below.
+The rule for analyzing a statement take as argument both the statement itself and the statement's [=uniformity precondition=] (which we'll note "CF" below),
+and returns both of the following:
+
+* A node corresponding to control flow at the exit of the statement, i.e. the uniformity postcondition.
+* A set of new nodes and edges to add to the graph.
 
 In the table below, `(CF1, S) -> CF2` means "run the analysis on S starting with control flow CF1, apply the required changes to the graph, and name the resulting control flow CF2".
-Similarly, `(CF1, E) -> (CF2, V)` means "run the analysis on expression E, starting with control flow CF1, apply the required changes to the graph, and name the resulting control flow node CF2 and the resulting value node V" (see next section for the analysis of expressions).
+Similarly, `(CF1, E) -> (CF2, V)` means "run the analysis on expression E, starting with control flow CF1,
+apply the required changes to the graph, and name the resulting control flow node CF2 and the resulting value node V"
+See next section for the analysis of expressions.
 
 We have a similar set of rules for expressions in left-value positions, that we denote by `(CF, E) => (CF, L)`. Instead of computing the node which corresponds to the uniformity of the value, it computes the node which corresponds to the uniformity of the variable we are adressing.
 
 <table class='data'>
   <caption>Uniformity rules for statements</caption>
   <thead>
-    <tr><th>Statement<th>New nodes<th>Recursive analyses<th>Resulting control flow node<th>New edges
+    <tr><th>Statement *s* with uniformity precondition *CF*<th>New nodes<th>Recursive analyses<th>Uniformity postcondition for *s*<th>New edges
   </thead>
+  <tr><td class="nowrap">{ }
+      <td>
+      <td>
+      <td>*CF*
+      <td>
+  <tr><td class="nowrap">{ *s1* }
+      <td>
+      <td class = "nowrap">(*CF*, *s1*) -> *CF1*<br>
+      <td>*CF1*
+      <td>
   <tr><td class="nowrap">*s1*; *s2*
       <td>
       <td class = "nowrap">(*CF*, *s1*) -> *CF1*<br>
