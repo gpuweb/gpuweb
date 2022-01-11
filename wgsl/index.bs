@@ -180,6 +180,7 @@ A shader comprises:
 * The set of types used to define or analyze all those functions, variables, and constants.
 
 When executing a shader stage, the implementation:
+* Computes the values of constants declared at [=module scope|module-scope=].
 * Binds [=resources=] to variables in the shader's [=resource interface of a shader|resource interface=],
     making the contents of those resources available to the shader during execution.
 * Allocates memory for other [=module scope|module-scope=] variables,
@@ -356,21 +357,6 @@ results in a shader-creation, pipeline-creation, or dynamic error.
 
 The WebGPU specification describes the consequences of each kind of error.
 
-## Limits ## {#limits}
-
-A program must satisfy the following limits:
-
-<table class='data'>
-  <caption>Quantifiable shader complexity limits</caption>
-  <thead>
-    <tr><th>Limit<th>Maximum value
-  </thead>
-    <tr><td>Number of members in a [=structure=] type<td>16383
-    <tr><td>[=Nesting depth=] of a [=composite=] type<td>255
-    <tr><td>Number of [=formal parameter|parameters=] for a function<td>255
-    <tr><td>Number of case selector values in a [=statement/switch=] statement<td>16383
-</table>
-
 # Textual structure # {#textual-structure}
 
 A [SHORTNAME] program is text.
@@ -480,17 +466,17 @@ The form of a [=numeric literal=] is defined via pattern-matching:
 <div class='syntax' noexport='true'>
   <dfn for=syntax>hex_float_literal</dfn> :
 
-    | `/-?0x((([0-9a-fA-F]*\.[0-9a-fA-F]+|[0-9a-fA-F]+\.[0-9a-fA-F]*)((p|P)(\+|-)?[0-9]+f?)?)|([0-9a-fA-F]+(p|P)(\+|-)?[0-9]+f?))/`
+    | `/-?0[xX]((([0-9a-fA-F]*\.[0-9a-fA-F]+|[0-9a-fA-F]+\.[0-9a-fA-F]*)((p|P)(\+|-)?[0-9]+f?)?)|([0-9a-fA-F]+(p|P)(\+|-)?[0-9]+f?))/`
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>int_literal</dfn> :
 
-    | `/-?0x[0-9a-fA-F]+|0|-?[1-9][0-9]*/`
+    | `/-?0[xX][0-9a-fA-F]+|0|-?[1-9][0-9]*/`
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>uint_literal</dfn> :
 
-    | `/0x[0-9a-fA-F]+u|0u|[1-9][0-9]*u/`
+    | `/0[xX][0-9a-fA-F]+u|0u|[1-9][0-9]*u/`
 </div>
 
 Note: literals are parsed greedily. This means that for statements like `a -5`
@@ -606,12 +592,12 @@ An attribute must not be specified more than once per object or type.
     See [[#resource-interface]].
 
   <tr><td><dfn noexport dfn-for="attribute">`builtin`
-    <td>a builtin variable identifier
+    <td>identifier name for a built-in value
     <td>Must only be applied to an entry point function parameter, entry point
     return type, or member of a [=structure=].
 
-    Declares a builtin variable.
-    See [[#builtin-variables]].
+    Declares a built-in value.
+    See [[#builtin-values]].
 
   <tr><td><dfn noexport dfn-for="attribute">`group`
     <td>non-negative i32 literal
@@ -635,15 +621,15 @@ An attribute must not be specified more than once per object or type.
 
   <tr><td><dfn noexport dfn-for="attribute">`invariant`
     <td>*None*
-    <td>Must only be applied to the `position` built-in variable.
+    <td>Must only be applied to the `position` built-in value.
 
-    When applied to the `position` [=built-in output variable=] of a vertex
+    When applied to the `position` [=built-in output value=] of a vertex
     shader, the computation of the result is invariant across different
     programs and different invocations of the same entry point.
     That is, if the data and control flow match for two `position` outputs in
     different entry points, then the result values are guaranteed to be the
     same.
-    There is no affect on a `position` [=built-in input variable=].
+    There is no affect on a `position` [=built-in input value=].
 
     Note: this attribute maps to the `Invariant` decoration in SPIR-V, the
     `precise` qualifier in HLSL, and the `invariant` qualifier in GLSL.
@@ -677,9 +663,9 @@ An attribute must not be specified more than once per object or type.
 
   <tr><td><dfn noexport dfn-for="attribute">`stage`</dfn>
     <td>`compute`, `vertex`, or `fragment`
-    <td>Must only be applied to a function declaration.
+    <td>Must only be applied to a [=function declaration=].
 
-    Declares an entry point by specifying its pipeline stage.
+    Declares an [=entry point=] by specifying its [[#shader-stages-sec|pipeline stage]].
 
   <tr><td><dfn noexport dfn-for="attribute">`stride`</dfn>
     <td>positive i32 literal
@@ -733,7 +719,6 @@ the following kinds of objects:
 * a formal parameter
 
 In other words, a declaration introduces a <dfn noexport>name</dfn> for an object.
-A name cannot be used before it is declared.
 
 The <dfn noexport>scope</dfn> of a declaration is the set of
 program locations where a use of the declared identifier potentially denotes
@@ -741,9 +726,19 @@ its associated object.
 We say the identifier is <dfn noexport>in scope</dfn>
 (of the declaration) at those source locations.
 
-Each kind of declaration has its own rule for determining its scope.
-In general, the scope is a span of text beginning immediately after the end of
+When an identifier is used, it must be [=in scope=] for some declaration, or as part of a directive.
+When an identifier is used in scope of one or more declarations for that name,
+the identifier will denote the object of the non-[=module scope|module-scope=] declaration appearing closest to
+that use, or the module-scope declaration if no other declaration is in scope.
+We say the identifier use <dfn noexport>resolves</dfn> to that declaration.
+
+Where a declaration appears determines its scope.
+Generally, the scope is a span of text beginning immediately after the end of
 the declaration.
+Declarations at [=module scope=] are the exception, described below.
+
+A declaration must not introduce a name when that identifier is
+already in scope with the same end of scope as another instance of that name.
 
 Certain objects are provided by the WebGPU implementation, and are treated as
 if they have been declared by every [SHORTNAME] program.
@@ -753,23 +748,11 @@ Examples of predeclared objects are:
 * [=built-in functions=], and
 * built-in types.
 
-A declaration must not introduce a name when that identifier is
-already in scope with the same end scope as another instance of that name.
-When an identifier is used in scope of one or more declarations for that name,
-the identifier will denote the object of the declaration appearing closest to
-that use.
-We say the identifier use <dfn noexport>resolves</dfn> to that declaration.
-
-There are multiple levels of scoping depending on how and where things are
-declared.
-
-When an identifier is used, it must be in scope for some declaration, or as part of a directive.
-
 A declaration is at <dfn noexport>module scope</dfn> if the declaration appears outside
 the text of any other declaration.
 Module scope declarations are [=in scope=] for the entire program.
-That is, declarations at module scope may be referenced by statements and
-expressions that precede that declaration textually.
+That is, a declaration at module scope may be referenced by source text
+that follows *or precedes* that declaration.
 
 It is a [=shader-creation error=] if any module scope declaration is recursive.
 That is, there must be no cycles among the declarations:
@@ -791,7 +774,7 @@ referenced out of order in the text.
 
 Note: Only a [=function declaration=] can contain other declarations.
 
-<div class='example' heading='Valid and invalid declarations'>
+<div class='example wgsl' heading='Valid and invalid declarations'>
   <xmp>
     // Invalid, cannot reuse built-in function names.
     var<private> modf: f32 = 0.0;
@@ -1041,7 +1024,7 @@ result vector is formed by operating on each component independently.
   </xmp>
 </div>
 
-<div class='example component-wise addition' heading='Component-wise addition'>
+<div class='example wgsl function-scope component-wise addition' heading='Component-wise addition'>
   <xmp highlight='rust'>
     let x : vec3<f32> = a + b; // a and b are vec3<f32>
     // x[0] = a[0] + b[0]
@@ -1121,7 +1104,7 @@ Note that variables in [=storage classes/workgroup=] storage are shared within a
 [=compute shader stage/workgroup=], but are not shared between different
 workgroups.
 
-<div class='example storage atomic' heading='Mapping atomics in a storage variable to SPIR-V'>
+<div class='example wgsl storage atomic' heading='Mapping atomics in a storage variable to SPIR-V'>
   <xmp>
     struct S {
       a: atomic<i32>;
@@ -1146,7 +1129,7 @@ workgroups.
   </xmp>
 </div>
 
-<div class='example workgroup atomic' heading='Mapping atomics in a workgroup variable to SPIR-V'>
+<div class='example wgsl workgroup atomic' heading='Mapping atomics in a workgroup variable to SPIR-V'>
   <xmp>
     var<workgroup> x: atomic<u32>;
 
@@ -1216,7 +1199,7 @@ Two array types are the same if and only if all of the following are true:
 Issue: Array types should differ if they have different element strides.
 See https://github.com/gpuweb/gpuweb/issues/1534
 
-<div class='example fixed-size array types' heading='Example fixed-size array types, non-overridable element count'>
+<div class='example wgsl fixed-size array types' heading='Example fixed-size array types, non-overridable element count'>
   <xmp highlight='rust'>
     // array<f32,8> and array<i32,8> are different types:
     // different element types
@@ -1515,11 +1498,11 @@ as the memory's <dfn noexport>access mode</dfn>:
 <div class='syntax' noexport='true'>
   <dfn for=syntax>access_mode</dfn> :
 
-    | [=syntax/read=]
+    | `'read'`
 
-    | [=syntax/write=]
+    | `'write'`
 
-    | [=syntax/read_write=]
+    | `'read_write'`
 </div>
 
 ### Storable Types ### {#storable-types}
@@ -1554,7 +1537,7 @@ A type is <dfn dfn noexport>IO-shareable</dfn> if it is one of:
 
 The following kinds of values must be of IO-shareable type:
 
-* Values read from or written to built-in variables.
+* Values read from or written to built-in values.
 * Values accepted as inputs from an upstream pipeline stage.
 * Values written as output for downstream processing in the pipeline, or to an output attachment.
 
@@ -3036,75 +3019,37 @@ TODO: Add texture usage validation rules.
 <div class='syntax' noexport='true'>
   <dfn for=syntax>texel_format</dfn> :
 
-    | [=syntax/r8unorm=]
+    | `'rgba8unorm'`
 
-    | [=syntax/r8snorm=]
+    | `'rgba8snorm'`
 
-    | [=syntax/r8uint=]
+    | `'rgba8uint'`
 
-    | [=syntax/r8sint=]
+    | `'rgba8sint'`
 
-    | [=syntax/r16uint=]
+    | `'rgba16uint'`
 
-    | [=syntax/r16sint=]
+    | `'rgba16sint'`
 
-    | [=syntax/r16float=]
+    | `'rgba16float'`
 
-    | [=syntax/rg8unorm=]
+    | `'r32uint'`
 
-    | [=syntax/rg8snorm=]
+    | `'r32sint'`
 
-    | [=syntax/rg8uint=]
+    | `'r32float'`
 
-    | [=syntax/rg8sint=]
+    | `'rg32uint'`
 
-    | [=syntax/r32uint=]
+    | `'rg32sint'`
 
-    | [=syntax/r32sint=]
+    | `'rg32float'`
 
-    | [=syntax/r32float=]
+    | `'rgba32uint'`
 
-    | [=syntax/rg16uint=]
+    | `'rgba32sint'`
 
-    | [=syntax/rg16sint=]
-
-    | [=syntax/rg16float=]
-
-    | [=syntax/rgba8unorm=]
-
-    | [=syntax/rgba8unorm_srgb=]
-
-    | [=syntax/rgba8snorm=]
-
-    | [=syntax/rgba8uint=]
-
-    | [=syntax/rgba8sint=]
-
-    | [=syntax/bgra8unorm=]
-
-    | [=syntax/bgra8unorm_srgb=]
-
-    | [=syntax/rgb10a2unorm=]
-
-    | [=syntax/rg11b10float=]
-
-    | [=syntax/rg32uint=]
-
-    | [=syntax/rg32sint=]
-
-    | [=syntax/rg32float=]
-
-    | [=syntax/rgba16uint=]
-
-    | [=syntax/rgba16sint=]
-
-    | [=syntax/rgba16float=]
-
-    | [=syntax/rgba32uint=]
-
-    | [=syntax/rgba32sint=]
-
-    | [=syntax/rgba32float=]
+    | `'rgba32float'`
 </div>
 
 ## Type Aliases ## {#type-aliases}
@@ -3251,7 +3196,7 @@ When the type is specified, e.g `let foo: i32 = 4`, the initializer expression m
 Some rules about `let`-declarations depend on where the declaration appears.
 See [[#module-constants]] and [[#function-scope-variables]].
 
-<div class='example let declaration at module-scope' heading='let-declared constants at module scope'>
+<div class='example wgsl let declaration at module-scope' heading='let-declared constants at module scope'>
   <xmp highlight='rust'>
     // 'blockSize' denotes the i32 value 1024.
     let blockSize: i32 = 1024;
@@ -3442,7 +3387,7 @@ Such variables are declared with [=attribute/group=] and [=attribute/binding=] d
 <div class='syntax' noexport='true'>
   <dfn for=syntax>global_variable_decl</dfn> :
 
-    | [=syntax/attribute_list=] * [=syntax/variable_decl=] ( [=syntax/equal=] [=syntax/const_expression=] ) ?
+    | [=syntax/attribute_list=] * [=syntax/variable_decl=] ( [=syntax/equal=] ( [=syntax/const_expression=] | [=syntax/ident=] ) ) ?
 </div>
 
 <div class='example' heading="Variable Decorations">
@@ -3521,7 +3466,7 @@ is the one from the constant's declaration or from a pipeline override.
 <div class='syntax' noexport='true'>
   <dfn for=syntax>global_const_initializer</dfn> :
 
-    | [=syntax/equal=] [=syntax/const_expression=]
+    | [=syntax/equal=] ( [=syntax/const_expression=] | [=syntax/ident=] )
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>const_expression</dfn> :
@@ -4419,13 +4364,13 @@ See [[#sync-builtin-functions]].
   <tr algorithm="matrix indexed column vector selection">
        <td class="nowrap">
           |e|: mat|N|x|M|&lt;|T|&gt;<br>
-          |i|: [INT]<br>
-          |i| is a `const_expression` expression
+          |i|: [INT]
        <td class="nowrap">
            |e|[|i|]: vec|M|&lt;|T|&gt;
-       <td>The result is the |i|'<sup>th</sup> column vector of |e|.<br>
+       <td>The result is the |i|'<sup>th</sup> column vector of |e|.
+
            If |i| is outside the range [0,|N|-1], then any valid value for
-           vec|M|&lt;|T|&gt; may be returned.
+           vec|M|&lt;|T|&gt; may be returned.<br>
            (OpCompositeExtract)
 </table>
 
@@ -4469,14 +4414,13 @@ the variable's value, as required.
   <tr algorithm="fixed-size array indexed element selection">
        <td class="nowrap">
           |e|: array&lt;|T|,|N|&gt;<br>
-          |i|: [INT]<br>
-          |i| is a `const_expression` expression
+          |i|: [INT]
        <td class="nowrap">
            |e|[|i|] : |T|
        <td>The result is the value of the |i|'<sup>th</sup> element of the array value |e|.
 
            If |i| is outside the range [0,|N|-1], then any valid value for |T|
-           may be returned.
+           may be returned.<br>
            (OpCompositeExtract)
 </table>
 
@@ -4935,14 +4879,14 @@ references to arrays. An array not behind a reference may only be indexed by a
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
 
-  <tr algorithm="shift left">
+  <tr algorithm="logical shift left">
     <td>|e1|: |T|<br>
     |e2|: |TS|<br>
     |T| is [INTEGRAL]<br>
     |TS| is u32 if |e1| is a scalar, or<br>
     vec|N|&lt;u32&gt;.
     <td class="nowrap">|e1| `<<` |e2|: |T|
-    <td>Shift left:<br>
+    <td>Logical shift left:<br>
         Shift |e1| left, inserting zero bits at the least significant positions,
         and discarding the most significant bits.
         The number of bits to shift is the value of |e2| modulo the bit width of |e1|.<br>
@@ -6063,7 +6007,7 @@ duration of the entry point.
 
 Issue: [[#uniform-control-flow]] needs to state whether all invocations being discarded maintains uniform control flow.
 
-<div class='example' heading='Using the discard statement to throw away a fragment'>
+<div class='example wgsl' heading='Using the discard statement to throw away a fragment'>
   <xmp>
   var<private> will_emit_color: bool = false;
 
@@ -6182,7 +6126,7 @@ The reason is that only functions without a return type can have such a [=behavi
     <tr><th>Statement<th>Preconditions<th>Resulting behavior
   </thead>
   <tr>
-    <td class="nowrap">{ }
+    <td class="nowrap">*empty statement*
     <td>
     <td class="nowrap">{Next}
   <tr algorithm="braced statement behavior">
@@ -6289,6 +6233,8 @@ The reason is that only functions without a return type can have such a [=behavi
     <td class="nowrap">(|B| &cup; |B1| &cup; ... &cup; |Bn| &cup; {Next})&#x2216;{Break, Fallthrough}
 </table>
 
+Note: The empty statement case occurs when a `loop` has an empty body, or when a `for` loop lacks an initialization or update statement.
+
 For the purpose of this analysis:
 - `for` loops get desugared (see [[#for-statement]])
 - `loop {s}` is treated as `loop {s continuing {}}`
@@ -6341,7 +6287,7 @@ Each [=built-in function=] has a [=behavior=] of {Next}.
 And each operator application not listed in the table above has the same [=behavior=] as if it were a function call with the same operands and with a function's [=behavior=] of {Next}.
 
 A [=shader-creation error=] results if behavior analysis fails:
-- Behavior analysis must be able to determine a [=behavior=] for each statement, expression, and function. This can only fail if preconditions are not met.
+- Behavior analysis must be able to determine a non-empty [=behavior=] for each statement, expression, and function.
 - The function behaviors must satisfy the rules given above.
 - The behaviors of compute and vertex entry points must not contain Discard.
 
@@ -6356,6 +6302,7 @@ Here is the full list of ways that these rules can cause a program to be rejecte
 - The behavior of a continuing block contains any of Continue, Return, or Discard
 - The behavior of the last case of a switch contains Fallthrough
 - The behavior of a compute or vertex entry point function contains Discard
+- Some obviously infinite loops have an empty behaviour set, and are therefore invalid.
 
 This analysis can be run in linear time, by analyzing the call-graph bottom-up (since the behavior of a function call can depend on the function's code).
 
@@ -6447,6 +6394,14 @@ Here are some examples showing this analysis in action:
         }
       }            // Behavior: {Next}, as switch replaces Break by Next
       a = 5;       // valid, as the previous statement had Next in its behavior
+    }
+   </xmp>
+</div>
+
+<div class='example wgsl' heading='Obviously infinite loops'>
+   <xmp highlight='rust'>
+    fn invalid_infinite_loop() {
+      loop { }     // Behavior: { }.  Invalid because it's empty.
     }
    </xmp>
 </div>
@@ -6618,7 +6573,7 @@ parameters and return types:
  * [=attribute/builtin=]
  * [=attribute/location=]
 
-<div class='example' heading='Simple functions'>
+<div class='example wgsl' heading='Simple functions'>
   <xmp>
     // Declare the add_two function.
     // It has two formal paramters, i and b.
@@ -6694,8 +6649,8 @@ As such, the same textual location may represent multiple call sites.
 
 ## Restrictions on functions ## {#function-restriction}
 
-* A [=vertex=] shader must return the `position` [=built-in output variable|built-in variable=].
-    See [[#builtin-variables]].
+* A [=vertex=] shader must return the `position` [=built-in output value=].
+    See [[#builtin-values]].
 * An entry point must never be the target of a [=function call=].
 * If a function has a return type, it must be a [=constructible=] type.
 * A [=formal parameter|function parameter=] must one the following types:
@@ -6738,7 +6693,10 @@ of declarations.
 
 Issue: Revisit aliasing rules for clarity.
 
-# Entry Points TODO # {#entry-points}
+# Entry Points # {#entry-points}
+
+An <dfn noexport>entry point</dfn> is a [=user-defined function=] that performs
+the work for a particular [=shader stage=].
 
 ## Shader Stages ## {#shader-stages-sec}
 
@@ -6746,7 +6704,7 @@ WebGPU issues work to the GPU in the form of [=draw command|draw=] or [=dispatch
 These commands execute a pipeline in the context of a set of
 [=pipeline input|inputs=], [=pipeline output|outputs=], and attached [=resources=].
 
-A <dfn noexport>pipeline</dfn> describes the behaviour to be performed on the GPU, as a sequence
+A <dfn noexport>pipeline</dfn> describes the work to be performed on the GPU, as a sequence
 of stages, some of which are programmable.
 In WebGPU, a pipeline is created before scheduling a draw or dispatch command for execution.
 There are two kinds of pipelines: GPUComputePipeline, and GPURenderPipeline.
@@ -6781,19 +6739,17 @@ Each shader stage has its own set of features and constraints, described elsewhe
 
 ## Entry point declaration ## {#entry-point-decl}
 
-An <dfn noexport>entry point</dfn> is a [=user-defined function=] that is invoked to perform
-the work for a particular [=shader stage=].
+To create an [=entry point=], declare a [=user-defined function=] with a [=attribute/stage=] attribute.
 
-Specify a `stage` attribute on a [=function declaration=] to declare that function
-as an entry point.
+When configuring a [=pipeline=] in the WebGPU API,
+the entry point's function name maps to the `entryPoint` attribute of the
+[[WebGPU#GPUProgrammableStage]] object.
 
-When configuring the stage in the pipeline, the entry point is specified by providing
-the [SHORTNAME] module and the entry point's function name.
+The entry point's [=formal parameters=] form the stage's [=pipeline inputs=].
+The entry point's [=return type=], if specified, forms the stage's [=pipeline output=].
+Each input and output must be an [=entry point IO type=].
 
-The parameters of an entry point have to be within [=Entry point IO type=]s.
-The return type of an entry point has to be of an [=Entry point IO type=], if specified.
-
-Note: compute entry points never have a return type.
+Note: [=Compute=] entry points never have a return type.
 
 <div class='example wgsl global-scope' heading='Entry Point'>
   <xmp>
@@ -6899,10 +6855,10 @@ More precisely, the <dfn noexport>interface of a shader stage</dfn> consists of:
 
 ### Pipeline Input and Output Interface ### {#pipeline-inputs-outputs}
 
-The <dfn dfn>Entry point IO type</dfn>s include the following:
-  - Built-in variables. See [[#builtin-inputs-outputs]].
+The <dfn dfn>entry point IO type</dfn>s include the following:
+  - Built-in values. See [[#builtin-inputs-outputs]].
   - User-defined IO. See [[#user-defined-inputs-outputs]]
-  - Structures containing only built-in variables and user-defined IO.
+  - Structures containing only built-in values and user-defined IO.
     The structure must not contain a nested structure.
 
 A <dfn noexport>pipeline input</dfn> is data provided to the shader stage from upstream in the pipeline.
@@ -6913,46 +6869,39 @@ A pipeline output is denoted by the return type of the entry point.
 
 Each pipeline input or output is one of:
 
-* A built-in variable. See [[#builtin-inputs-outputs]].
+* A built-in value. See [[#builtin-inputs-outputs]].
 * A user-defined value. See [[#user-defined-inputs-outputs]].
 
 #### Built-in Inputs and Outputs #### {#builtin-inputs-outputs}
 
-A <dfn noexport>built-in input variable</dfn> provides access to system-generated control information.
-The set of built-in inputs are listed in [[#builtin-variables]].
+A <dfn noexport>built-in input value</dfn> provides access to system-generated control information.
+The set of built-in inputs are listed in [[#builtin-values]].
 
-To declare a variable for accessing a particular input built-in *X* from an entry point:
+A built-in input for stage *S* with name *X* and type *T*<sub>*X*</sub> is accessed via a
+[=formal parameter=] to an [=entry point=] for [=shader stage=] *S*, in one of two ways:
 
-* Declare a parameter of the entry point function,
-    where the [=store type=] is the listed store type for *X*.
-* Apply a `builtin(`*X*`)` attribute to the parameter.
+1. The parameter has attribute `builtin(`*X*`)` and is of type *T*<sub>*X*</sub>.
+2. The parameter has structure type, where one of the structure members has attribute `builtin(`*X*`)` and is of type *T*<sub>*X*</sub>.
 
-A <dfn noexport>built-in output variable</dfn> is used by the shader to convey
+Conversely, when a parameter or member of a parameter for an entry point has a `builtin` attribute,
+the corresponding builtin must be an input for the entry point's shader stage.
+
+A <dfn noexport>built-in output value</dfn> is used by the shader to convey
 control information to later processing steps in the pipeline.
-The set of built-in outputs are listed in [[#builtin-variables]].
+The set of built-in outputs are listed in [[#builtin-values]].
 
-To declare a variable for accessing a particular output built-in *Y* from an entry point:
+A built-in output for stage *S* with name *Y* and type *T*<sub>*Y*</sub> is set via the [=return value=] for an
+[=entry point=] for [=shader stage=] *S*, in one of two ways:
 
-* Add a variable to the result of the entry point, where [=store type=] is the listed store type for *Y*:
-  * If there is no result type for the entry point, change it to the variable type.
-  * Otherwise, make the result type to be a structure, where one of the fields is the new variable.
-* Apply a `builtin(`*Y*`)` attribute to the result variable.
+1. The entry point [=return type=] has attribute `builtin(`*Y*`)` and is of type *T*<sub>*Y*</sub>.
+2. The entry point [=return type=] has structure type, where one of the structure members has attribute `builtin(`*Y*`)` and is of type *T*<sub>*Y*</sub>.
 
-Both input and output built-in variables may also be declared as members of
-structures that are either entry point function parameters (for inputs) or the
-return type of an entry point (for outputs).
-The type of the structure member must match the type specified for the built-in variable.
+Conversely, when the return type or member of a return type for an entry point has a `builtin` attribute,
+the corresponding builtin must be an output for the entry point's shader stage.
 
-The `builtin` attribute must not be applied to a variables in [=module scope=],
-or the local variables in the function scope.
+Note: The `position` built-in is both an output of a vertex shader, and an input to the fragement shader.
 
-A variable must not have more than one `builtin` attribute.
-
-Each built-in variable has an associated shader stage, as described in [[#builtin-variables]].
-If a built-in variable has stage *S* and is used by a function *F*, as either an argument or the
-result type, then *F* must be a [=functions in a shader stage|function in a shader=] for stage *S*.
-
-Issue: in Vulkan, builtin variables occupy I/O location slots counting toward limits.
+Issue: in Vulkan, built-in variables occupy I/O location slots counting toward limits.
 
 #### User-defined Inputs and Outputs #### {#user-defined-inputs-outputs}
 
@@ -7009,7 +6958,7 @@ Locations are specified via the [=attribute/location=] attribute.
 
 Every user-defined input and output must have a fully specified set of
 locations.
-Each structure member in the entry point IO must be one of either a builtin variable
+Each structure member in the entry point IO must be one of either a built-in value
 (see [[#builtin-inputs-outputs]]), or assigned a location.
 
 Locations must not overlap within each of the following sets:
@@ -7027,7 +6976,7 @@ Otherwise, the output is a scalar or a vector, and can have only a single locati
 
 Note: The number of available locations for an entry point is defined by the WebGPU API.
 
-<div class='example applying location attribute' heading='Applying location attributes'>
+<div class='example wgsl applying location attribute' heading='Applying location attributes'>
   <xmp>
     struct A {
       [[location(0)]] x: f32;
@@ -7045,9 +6994,9 @@ Note: The number of available locations for an entry point is defined by the Web
   </xmp>
 </div>
 
-User-defined IO can be mixed with builtin variables in the same structure. For example,
+User-defined IO can be mixed with built-in values in the same structure. For example,
 
-<div class='example mixing builtins and user-defined IO' heading='Mixing builtins and user-defined IO'>
+<div class='example wgsl mixing builtins and user-defined IO' heading='Mixing builtins and user-defined IO'>
   <xmp>
     // Mixed builtins and user-defined inputs.
     struct MyInputs {
@@ -7068,7 +7017,7 @@ User-defined IO can be mixed with builtin variables in the same structure. For e
   </xmp>
 </div>
 
-<div class='example invalid locations' heading='Invalid location assignments'>
+<div class='example wgsl invalid locations' heading='Invalid location assignments'>
   <xmp>
     struct A {
       [[location(0)]] x: f32;
@@ -7263,7 +7212,7 @@ Therefore any [SHORTNAME] implementation can parse the entire `enable` directive
 When an implementation encounters an enable directive for an unsupported extension,
 the implementation can issue a clear diagnostic.
 
-<div class='example using extensions' heading="Using hypothetical extensions">
+<div class='example wgsl using extensions' heading="Using hypothetical extensions">
   <xmp>
     // Enable a hypothetical IEEE-754 binary16 floating point extension.
     enable f16;
@@ -7316,20 +7265,28 @@ A [SHORTNAME] program is a sequence of optional [=directives=] followed by [=mod
     | [=syntax/function_decl=]
 </div>
 
-# Execution TODO # {#execution}
+## Limits ## {#limits}
 
-## Invocation of an entry point TODO ## {#invocation-of-an-entry-point}
+A program must satisfy the following limits:
 
-### Before an entry point begins TODO ### {#before-entry-point-begins}
+<table class='data'>
+  <caption>Quantifiable shader complexity limits</caption>
+  <thead>
+    <tr><th>Limit<th>Maximum value
+  </thead>
+    <tr><td>Number of members in a [=structure=] type<td>16383
+    <tr><td>[=Nesting depth=] of a [=composite=] type<td>255
+    <tr><td>Number of [=formal parameter|parameters=] for a function<td>255
+    <tr><td>Number of case selector values in a [=statement/switch=] statement<td>16383
+</table>
 
-TODO: *Stub*
+# Execution # {#execution}
 
-* Setting values of builtin variables
-* External-interface variables have initialized backing storage
-* Internal module-scope variables have backing storage
-  * Initializers evaluated in textual order
+[[#technical-overview]] describes how a shader is invoked and partitioned into [=invocations=].
+This section describes further constraints on how invocations execute,
+individually and collectively.
 
-### Program order (within an invocation) ### {#program-order}
+## Program order within an invocation ## {#program-order}
 
 Each statement in a [SHORTNAME] program may be executed zero or more times during
 execution.
@@ -7723,7 +7680,7 @@ example, a memory read that accesses a [=u32=] from a struct containing
 multiple members, only reads the memory locations associated with that u32
 member.
 
-<div class='example memory locations accessed' heading="Accessing memory locations">
+<div class='example wgsl memory locations accessed' heading="Accessing memory locations">
   <xmp>
     struct S {
       a : f32;
@@ -8101,16 +8058,6 @@ Issue: https://github.com/gpuweb/gpuweb/issues/1621
     | `'private'`
 </div>
 <div class='syntax' noexport='true'>
-  <dfn for=syntax>read</dfn> :
-
-    | `'read'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>read_write</dfn> :
-
-    | `'read_write'`
-</div>
-<div class='syntax' noexport='true'>
   <dfn for=syntax>return</dfn> :
 
     | `'return'`
@@ -8150,194 +8097,6 @@ Issue: https://github.com/gpuweb/gpuweb/issues/1621
 
     | `'workgroup'`
 </div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>write</dfn> :
-
-    | `'write'`
-</div>
-
-Issue: Should read, write, and read_write be not completely reserved?  They are only used in specific contexts.
-
-### Image Format Keywords ### {#image-format-keywords}
-
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r8unorm</dfn> :
-
-    | `'r8unorm'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r8snorm</dfn> :
-
-    | `'r8snorm'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r8uint</dfn> :
-
-    | `'r8uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r8sint</dfn> :
-
-    | `'r8sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r16uint</dfn> :
-
-    | `'r16uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r16sint</dfn> :
-
-    | `'r16sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r16float</dfn> :
-
-    | `'r16float'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg8unorm</dfn> :
-
-    | `'rg8unorm'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg8snorm</dfn> :
-
-    | `'rg8snorm'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg8uint</dfn> :
-
-    | `'rg8uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg8sint</dfn> :
-
-    | `'rg8sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r32uint</dfn> :
-
-    | `'r32uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r32sint</dfn> :
-
-    | `'r32sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>r32float</dfn> :
-
-    | `'r32float'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg16uint</dfn> :
-
-    | `'rg16uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg16sint</dfn> :
-
-    | `'rg16sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg16float</dfn> :
-
-    | `'rg16float'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba8unorm</dfn> :
-
-    | `'rgba8unorm'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba8unorm_srgb</dfn> :
-
-    | `'rgba8unorm_srgb'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba8snorm</dfn> :
-
-    | `'rgba8snorm'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba8uint</dfn> :
-
-    | `'rgba8uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba8sint</dfn> :
-
-    | `'rgba8sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>bgra8unorm</dfn> :
-
-    | `'bgra8unorm'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>bgra8unorm_srgb</dfn> :
-
-    | `'bgra8unorm_srgb'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgb10a2unorm</dfn> :
-
-    | `'rgb10a2unorm'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg11b10float</dfn> :
-
-    | `'rg11b10float'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg32uint</dfn> :
-
-    | `'rg32uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg32sint</dfn> :
-
-    | `'rg32sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rg32float</dfn> :
-
-    | `'rg32float'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba16uint</dfn> :
-
-    | `'rgba16uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba16sint</dfn> :
-
-    | `'rgba16sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba16float</dfn> :
-
-    | `'rgba16float'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba32uint</dfn> :
-
-    | `'rgba32uint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba32sint</dfn> :
-
-    | `'rgba32sint'`
-</div>
-<div class='syntax' noexport='true'>
-  <dfn for=syntax>rgba32float</dfn> :
-
-    | `'rgba32float'`
-</div>
-
-TODO(dneto): Eliminate the image formats that are not used in storage images.
-For example SRGB formats (bgra8unorm_srgb), mixed channel widths (rg11b10float), out-of-order channels (bgra8unorm)
 
 ## Reserved Words ## {#reserved-words}
 
@@ -8638,18 +8397,21 @@ A <dfn>syntactic token</dfn> is a sequence of special characters, used:
     | `'<<='`
 </div>
 
-# Built-in variables # {#builtin-variables}
+# Built-in values # {#builtin-values}
 
-See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
+The following table lists the available [=built-in input values=] and [=built-in output values=].
+
+See [[#builtin-inputs-outputs]] for how to declare a built-in value.
 
 <table class='data'>
+  <caption>Built-in input and output values</caption>
   <thead>
-    <tr><th>Built-in<th>Stage<th>Input or Output<th>Store type<th>Description
+    <tr><th>Name<th>Stage<th>Input or Output<th>Type<th>Description
   </thead>
 
   <tr><td>`vertex_index`
       <td>vertex
-      <td>in
+      <td>input
       <td>u32
       <td style="width:50%">Index of the current vertex within the current API-level draw command,
          independent of draw instancing.
@@ -8663,7 +8425,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
   <tr><td>`instance_index`
       <td>vertex
-      <td>in
+      <td>input
       <td>u32
       <td style="width:50%">Instance index of the current vertex within the current API-level draw command.
 
@@ -8673,7 +8435,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
   <tr><td>`position`
       <td>vertex
-      <td>out
+      <td>output
       <td>vec4&lt;f32&gt;
       <td style="width:50%">Output position of the current vertex, using homogeneous coordinates.
       After homogeneous normalization (where each of the *x*, *y*, and *z* components
@@ -8683,7 +8445,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
   <tr><td>`position`
       <td>fragment
-      <td>in
+      <td>input
       <td>vec4&lt;f32&gt;
       <td style="width:50%">Framebuffer position of the current fragment, using normalized homogeneous
       coordinates.
@@ -8692,7 +8454,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
   <tr><td>`front_facing`
       <td>fragment
-      <td>in
+      <td>input
       <td>bool
       <td style="width:50%">True when the current fragment is on a front-facing primitive.
          False otherwise.
@@ -8700,42 +8462,42 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
   <tr><td>`frag_depth`
       <td>fragment
-      <td>out
+      <td>output
       <td>f32
       <td style="width:50%">Updated depth of the fragment, in the viewport depth range.
       See [[WebGPU#coordinate-systems|WebGPU &sect; Coordinate Systems]].
 
   <tr><td>`local_invocation_id`
       <td>compute
-      <td>in
+      <td>input
       <td>vec3&lt;u32&gt;
       <td style="width:50%">The current invocation's [=local invocation ID=],
             i.e. its position in the [=workgroup grid=].
 
   <tr><td>`local_invocation_index`
       <td>compute
-      <td>in
+      <td>input
       <td>u32
       <td style="width:50%">The current invocation's [=local invocation index=], a linearized index of
           the invocation's position within the [=workgroup grid=].
 
   <tr><td>`global_invocation_id`
       <td>compute
-      <td>in
+      <td>input
       <td>vec3&lt;u32&gt;
       <td style="width:50%">The current invocation's [=global invocation ID=],
           i.e. its position in the [=compute shader grid=].
 
   <tr><td>`workgroup_id`
       <td>compute
-      <td>in
+      <td>input
       <td>vec3&lt;u32&gt;
       <td style="width:50%">The current invocation's [=workgroup ID=],
           i.e. the position of the workgroup in the [=workgroup grid=].
 
   <tr><td>`num_workgroups`
       <td>compute
-      <td>in
+      <td>input
       <td>vec3&lt;u32&gt;
       <td style="width:50%">The [=dispatch size=], `vec<u32>(group_count_x,
       group_count_y, group_count_z)`, of the compute shader
@@ -8743,7 +8505,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
   <tr><td>`sample_index`
       <td>fragment
-      <td>in
+      <td>input
       <td>u32
       <td style="width:50%">Sample index for the current fragment.
          The value is least 0 and at most `sampleCount`-1, where
@@ -8753,7 +8515,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
   <tr><td>`sample_mask`
       <td>fragment
-      <td>in
+      <td>input
       <td>u32
       <td style="width:50%">Sample coverage mask for the current fragment.
          It contains a bitmask indicating which samples in this fragment are covered
@@ -8762,7 +8524,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
 
   <tr><td>`sample_mask`
       <td>fragment
-      <td>out
+      <td>output
       <td>u32
       <td style="width:50%">Sample coverage mask control for the current fragment.
          The last value written to this variable becomes the
@@ -8772,7 +8534,7 @@ See [[#builtin-inputs-outputs]] for how to declare a built-in variable.
          <br>See [[WebGPU#sample-masking|WebGPU &sect; Sample Masking]].
 </table>
 
-<div class='example wgsl global-scope' heading="Declaring built-in variables">
+<div class='example wgsl global-scope' heading="Declaring built-in values">
   <xmp>
     struct VertexOutput {
       [[builtin(position)]] my_pos: vec4<f32>;
@@ -9029,7 +8791,7 @@ See [[#function-calls]].
   <tr algorithm="fract">
     <td>|T| is [FLOATING]
     <td class="nowrap">`fract(`|e|`:` |T| `) -> ` |T|
-    <td>Returns the fractional bits of |e| (e.g. |e| `- floor(`|e|`)`).
+    <td>Returns the fractional part of |e|, computed as |e| `- floor(`|e|`)`.<br>
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450Fract)
 
@@ -9342,6 +9104,14 @@ struct __modf_result_vecN {
     [=Component-wise=] when |T| is a vector.
     (GLSLstd450SClamp)
 
+  <tr algorithm="count leading zeroes">
+    <td>|T| is [INTEGRAL]
+    <td class="nowrap">`countLeadingZeros(`|e|`:` |T| `) ->` |T|
+    <td>The number of consectuive 0 bits starting from the most significant bit
+        of |e|, when |T| is a scalar type.<br>
+        [=Component-wise=] when |T| is a vector.<br>
+        Also known as "clz" in some languages.<br>
+
   <tr algorithm="count 1 bits">
     <td>|T| is [INTEGRAL]
     <td class="nowrap">`countOneBits(`|e|`:` |T| `) ->` |T|
@@ -9349,6 +9119,105 @@ struct __modf_result_vecN {
         Also known as "population count".<br>
         [=Component-wise=] when |T| is a vector.
         (SPIR-V OpBitCount)
+
+  <tr algorithm="count trailing zeroes">
+    <td>|T| is [INTEGRAL]
+    <td class="nowrap">`countTrailingZeros(`|e|`:` |T| `) ->` |T|
+    <td>The number of consecutive 0 bits starting from the least significant bit
+        of |e|, when |T| is a scalar type.<br>
+        [=Component-wise=] when |T| is a vector.<br>
+        Also known as "ctz" in some languages.<br>
+
+  <tr algorithm="signed find most significant one bit">
+    <td>|T| is [SIGNEDINTEGRAL]
+    <td class="nowrap">`firstBitHigh(`|e|`:` |T| `) ->` |T|
+    <td>For scalar |T|, the result is:
+        <ul>
+        <li>-1 if |e| is 0 or -1.
+        <li>Otherwise the position of the most signficant bit in
+            |e| that is different from |e|'s sign bit.
+        </ul>
+            
+        Note: Since signed integers use twos-complement representation,
+        the sign bit appears in the most significant bit position.
+
+        [=Component-wise=] when |T| is a vector.<br>
+
+  <tr algorithm="unsigned find most significant one bit">
+    <td>|T| is [UNSIGNEDINTEGRAL]
+    <td class="nowrap">`firstBitHigh(`|e|`:` |T| `) ->` |T|
+    <td>For scalar |T|, the result is:
+        <ul>
+        <li>|T|(-1) if |e| is zero.
+        <li>Otherwise the position of the most signficant 1
+            bit in |e|.
+        </ul>
+        [=Component-wise=] when |T| is a vector.<br>
+
+  <tr algorithm="find least significant one bit">
+    <td>|T| is [INTEGRAL]
+    <td class="nowrap">`firstBitLow(`|e|`:` |T| `) ->` |T|
+    <td>For scalar |T|, the result is:
+        <ul>
+        <li>|T|(-1) if |e| is zero.
+        <li>Otherwise the position of the least signficant 1
+            bit in |e|.
+        </ul>
+        [=Component-wise=] when |T| is a vector.
+
+  <tr algorithm="signed extract bits">
+    <td>|T| is [SIGNEDINTEGRAL]
+    <td class="nowrap">`extractBits(`<br>&nbsp;|e|`:` |T|`,`<br>&nbsp;|offset|`: u32,`<br>&nbsp;|count|` : u32) ->` |T|
+    <td>Reads bits from an integer, with sign extension.
+
+    When |T| is a scalar type, then:
+    <ul>
+    <li>|w| is the bit width of |T|
+    <li>|o| = min(|offset|,|w|)
+    <li>|c| = min(|count|, |w| - |o|)
+    <li>The result is 0 if |c| is 0.
+    <li>Otherwise, bits 0..|c|-1 of the result are copied from bits
+       |o|..|o|+|c|-1 of |e|.
+       Other bits of the result are the same as bit |c|-1 of the result.
+    </ul>
+    [=Component-wise=] when |T| is a vector.
+    <br>(OpBitFieldSExtract)
+
+  <tr algorithm="unsigned extract bits">
+    <td>|T| is [UNSIGNEDINTEGRAL]
+    <td class="nowrap">`extractBits(`<br>&nbsp;|e|`:` |T|`,`<br>&nbsp;|offset|`: u32,`<br>&nbsp;|count|` : u32) ->` |T|
+    <td>Reads bits from an integer, without sign extension.
+
+    When |T| is a scalar type, then:
+    <ul>
+    <li>|w| is the bit width of |T|
+    <li>|o| = min(|offset|,|w|)
+    <li>|c| = min(|count|, |w| - |o|)
+    <li>The result is 0 if |c| is 0.
+    <li>Otherwise, bits 0..|c|-1 of the result are copied from bits
+       |o|..|o|+|c|-1 of |e|.
+       Other bits of the result are 0.
+    </ul>
+    [=Component-wise=] when |T| is a vector.
+    <br>(OpBitFieldUExtract)
+
+  <tr algorithm="insert bits">
+    <td>|T| is [INTEGRAL]
+    <td class="nowrap">`insertBits(`<br>&nbsp;|e|`:` |T|`,`<br>&nbsp;|newbits|`:`|T|`,`<br>&nbsp;|offset|`: u32,`<br>&nbsp;|count|` : u32) ->` |T|
+    <td>Sets bits in an integer.
+
+    When |T| is a scalar type, then:
+    <ul>
+    <li>|w| is the bit width of |T|
+    <li>|o| = min(|offset|,|w|)
+    <li>|c| = min(|count|, |w| - |o|)
+    <li>The result is |e| if |c| is 0.
+    <li>Otherwise, 
+       bits |o|..|o|+|c|-1 of the result are copied from bits 0..|c|-1 of |newbits|.
+       Other bits of the result are copied from |e|.
+    </ul>
+    [=Component-wise=] when |T| is a vector.
+    <br>(OpBitFieldInsert)
 
   <tr algorithm="unsigned max">
     <td>|T| is [UNSIGNEDINTEGRAL]
