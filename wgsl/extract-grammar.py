@@ -530,7 +530,8 @@ for key, value in scanner_components[scanner_example.name()].items():
     if "function-scope" in key:
         value = ["fn function__scope____() {"] + value + ["}"]
     if "type-scope" in key:
-        value = ["let type_scope____: "] + value + [";"]
+        # Intiailize with zero-value expression.
+        value = ["let type_scope____: "] + value + ["="] + value + ["()"] + [";"]
     program = "\n".join(value)
     tree = parser.parse(bytes(program, "utf8"))
     if tree.root_node.has_error:
