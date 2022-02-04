@@ -29,7 +29,7 @@ The command buffer is expected to be in "recording" state, or otherwise a synchr
 No operations may be done on the `WebGPUCommandBuffer` if there is an open pass being encoded to it.
 Calling any methods on the command buffer with an open pass, or submitting it to the command queue, triggers a synchronous error.
 A pass encoding consists of state setting code and draw/dispatch calls, which are all methods on the corresponding encoder object.
-In order to close a pass, the user calls `WebGPUProgrammablePassEncoder::endPass`, which returns the owner `WebGPUCommandBuffer` object.
+In order to close a pass, the user calls `WebGPUProgrammablePassEncoder::end`, which returns the owner `WebGPUCommandBuffer` object.
 Passes cannot straddle command buffers, and a command buffer may contain multiple passes.
 
 In order to finish recording a command buffer, the user calls `WebGPUCommandBuffer::finish` method, which transitions it from "recording" to the "ready" state.
