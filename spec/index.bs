@@ -1622,6 +1622,7 @@ interface GPUAdapter {
     readonly attribute boolean isFallbackAdapter;
 
     Promise<GPUDevice> requestDevice(optional GPUDeviceDescriptor descriptor = {});
+    GPUTextureFormat getPreferredContextFormat(HTMLCanvasElement canvas);
 };
 </script>
 
@@ -1723,6 +1724,28 @@ interface GPUAdapter {
                 </div>
             1. Return |promise|.
 
+        </div>
+
+    : <dfn>getPreferredContextFormat(canvas)</dfn>
+    ::
+        Returns an optimal {{GPUTextureFormat}} to use with devices created from
+        this adapter and contexts created from the given canvas.
+
+        <div algorithm="GPUAdapter.getPreferredContextFormat">
+            **Called on:** {{GPUAdapter}} |this|.
+
+            **Arguments:**
+            <pre class=argumentdef for="GPUAdapter/getPreferredContextFormat(canvas)">
+                |canvas|: Canvas the format should be queried for.
+            </pre>
+
+            **Returns:** {{GPUTextureFormat}}
+
+            <div class=content-timeline>
+                1. Return an optimal {{GPUTextureFormat}} to use when calling
+                    |canvas|.{{HTMLCanvasElement/getContext()}} with a {{GPUDevice}} requested from
+                    |this|. Must be one of the [=supported context formats=].
+            </div>
         </div>
 </dl>
 
@@ -8567,18 +8590,50 @@ Issue: Because timestamp query provides high-resolution GPU timestamp, we need t
 
 ## {{HTMLCanvasElement/getContext()|HTMLCanvasElement.getContext()}} ## {#canvas-getcontext}
 
-A {{GPUCanvasContext}} object can be obtained via the {{HTMLCanvasElement/getContext()}}
-method of an {{HTMLCanvasElement}} instance by passing the string literal `'webgpu'` as its
-`contextType` argument.
+A {{GPUCanvasContext}} object can be obtained and reconfigured via the
+{{HTMLCanvasElement/getContext()}} method of an {{HTMLCanvasElement}} instance by passing the string
+literal `'webgpu'` as its `contextType` argument. Calling `getContext('webgl', configuration)` a
+second time will reconfigure the context with the new configuration options that were passed.
 
 <div class="example">
     Get a {{GPUCanvasContext}} from an offscreen {{HTMLCanvasElement}}:
     <pre highlight="js">
         const canvas = document.createElement('canvas');
-        const context = canvas.getContext('webgpu');
-        context.configure(/* ... */);
+        const context = canvas.getContext('webgpu', {
+            device: gpuDevice,
+            format: 'bgra8unorm'
+        });
         // ...
     </pre>
+</div>
+
+{{HTMLCanvasElement}} has the following new internal slots:
+
+<dl dfn-type=attribute dfn-for=GPUCanvasContext>
+    : <dfn>\[[gpu_context]]</dfn> of type {{GPUCanvasContext}}?
+    ::
+        The {{GPUCanvasContext}} associated with this canvas, if any. Initially set to `null`.
+</dl>
+
+<div algorithm>
+    When {{HTMLCanvasElement/getContext()|HTMLCanvasElement.getContext()}} is called on a
+    {{HTMLCanvasElement}} |canvas| with a `contextType` of `'webgpu'`, <dfn abstract-op>create or
+    reconfigure the context</dfn> by performing the following steps:
+
+    1. Let |configuration| be the second option argument {{HTMLCanvasElement/getContext()}} was
+        invoked with as a {{GPUCanvasConfiguration}}?.
+    1. If any of the following conditions are unsatisfied, return `null`.
+        <div class=validusage>
+            - |configuration| is not `null`.
+            - |configuration|.{{GPUCanvasConfiguration/device}} is [=map/exists|specified=].
+            - |configuration|.{{GPUCanvasConfiguration/format}} is [=map/exists|specified=].
+        </div>
+    1. If |canvas|.{{GPUCanvasContext/[[gpu_context]]}} is `null`:
+        1. Let |canvas|.{{GPUCanvasContext/[[gpu_context]]}} be a new {{GPUCanvasContext}}.
+    1. If |context| be |canvas|.{{GPUCanvasContext/[[gpu_context]]}}.
+    1. [$invalidate the current texture$] of |context|.
+    1. Set |context|.{{GPUCanvasContext/[[configuration]]}} to |configuration|.
+    1. Return |context|.
 </div>
 
 ## GPUCanvasContext ## {#canvas-context}
@@ -8588,10 +8643,8 @@ method of an {{HTMLCanvasElement}} instance by passing the string literal `'webg
 interface GPUCanvasContext {
     readonly attribute (HTMLCanvasElement or OffscreenCanvas) canvas;
 
-    undefined configure(GPUCanvasConfiguration configuration);
     undefined unconfigure();
 
-    GPUTextureFormat getPreferredFormat(GPUAdapter adapter);
     GPUTexture getCurrentTexture();
 };
 </script>
@@ -8612,11 +8665,6 @@ interface GPUCanvasContext {
         The options this context is configured with. `null` if the context has not been configured
         or has been {{GPUCanvasContext/unconfigure()|unconfigured}}.
 
-        Note: The optional {{GPUCanvasConfiguration/width}} and {{GPUCanvasConfiguration/height}}
-        members of this slot are not used. Instead, the size of the canvas
-        (which may be updated during {{GPUCanvasContext/configure()}} or by setting
-        the canvas's `width`/`height` properties) is used.
-
     : <dfn>\[[currentTexture]]</dfn> of type {{GPUTexture}}?, initially `null`
     ::
         The current texture that will be returned by the context when calling
@@ -8625,36 +8673,13 @@ interface GPUCanvasContext {
 
         When non-`null`, this always has the same dimensions as the canvas and matches the
         current {{GPUCanvasContext/[[configuration]]}}.
-        Resizing the canvas or calling {{GPUCanvasContext/configure()}}
+        Resizing the canvas or calling {{HTMLCanvasElement/getContext()|HTMLCanvasElement.getContext()}}
         [$invalidate the current texture|invalidates$] this texture.
 </dl>
 
 {{GPUCanvasContext}} has the following methods:
 
 <dl dfn-type=method dfn-for=GPUCanvasContext>
-    : <dfn>configure(configuration)</dfn>
-    ::
-        Configures the context for this canvas. Destroys any textures produced with a previous
-        configuration.
-
-        <div algorithm="GPUCanvasContext.configure">
-            **Called on:** {{GPUCanvasContext}} |this|.
-
-            **Arguments:**
-            <pre class=argumentdef for="GPUCanvasContext/configure(configuration)">
-                |configuration|: Desired configuration for the context.
-            </pre>
-
-            **Returns:** undefined
-
-            1. [$invalidate the current texture$] of |this|.
-            1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to |configuration|.
-            1. If |configuration|.{{GPUCanvasConfiguration/width}} is [=map/exists|specified=], set
-                |this|.{{GPUCanvasContext/canvas}}.`width` to |configuration|.{{GPUCanvasConfiguration/width}}.
-            1. If |configuration|.{{GPUCanvasConfiguration/height}} is [=map/exists|specified=], set
-                |this|.{{GPUCanvasContext/canvas}}.`height` to |configuration|.{{GPUCanvasConfiguration/height}}.
-        </div>
-
     : <dfn>unconfigure()</dfn>
     ::
         Removes the context configuration. Destroys any textures produced while configured.
@@ -8666,27 +8691,6 @@ interface GPUCanvasContext {
 
             1. [$invalidate the current texture$] of |this|.
             1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to `null`.
-        </div>
-
-    : <dfn>getPreferredFormat(adapter)</dfn>
-    ::
-        Returns an optimal {{GPUTextureFormat}} to use with this context and devices created from
-        the given adapter.
-
-        <div algorithm="GPUCanvasContext.getPreferredFormat">
-            **Called on:** {{GPUCanvasContext}} this.
-
-            **Arguments:**
-            <pre class=argumentdef for="GPUCanvasContext/getPreferredFormat(adapter)">
-                |adapter|: Adapter the format should be queried for.
-            </pre>
-
-            **Returns:** {{GPUTextureFormat}}
-
-            <div class=content-timeline>
-                1. Return an optimal {{GPUTextureFormat}} to use when calling {{GPUCanvasContext/configure()}}
-                    with the given |adapter|. Must be one of the [=supported context formats=].
-            </div>
         </div>
 
     : <dfn>getCurrentTexture()</dfn>
@@ -8827,8 +8831,6 @@ dictionary GPUCanvasConfiguration {
     GPUTextureUsageFlags usage = 0x10;  // GPUTextureUsage.RENDER_ATTACHMENT
     GPUPredefinedColorSpace colorSpace = "srgb";
     GPUCanvasCompositingAlphaMode compositingAlphaMode = "opaque";
-    GPUIntegerCoordinate width;
-    GPUIntegerCoordinate height;
 };
 </script>
 
@@ -8848,8 +8850,6 @@ high dynamic range is explicitly enabled for the canvas element.
 ### Canvas Context sizing ### {#context-sizing}
 
 A WebGPU canvas's size is set by the `width` and `height` properties of the canvas.
-Calling {{GPUCanvasContext/configure()}} with the optional {{GPUCanvasConfiguration/width}} and/or
-{{GPUCanvasConfiguration/height}} members also sets the `width`/`height` properties of the canvas.
 
 <div algorithm="resize a WebGPU canvas">
     When a canvas with a {{GPUCanvasContext}} |context| is resized (has its `width` or `height`
@@ -8865,15 +8865,17 @@ Calling {{GPUCanvasContext/configure()}} with the optional {{GPUCanvasConfigurat
 
     <pre highlight="js">
         const canvas = document.createElement('canvas');
-        const context = canvas.getContext('webgpu');
+        const context = canvas.getContext('webgpu', {
+            device: gpuDevice,
+            format: 'bgra8unorm'
+        });
 
         const resizeObserver = new ResizeObserver(entries => {
             for (const entry of entries) {
-                if (entry != canvas) { continue; }
+                if (entry.target != canvas) { continue; }
                 // This reports the size of the canvas element in pixels
                 canvas.width = entry.devicePixelContentBoxSize[0].inlineSize;
                 canvas.height = entry.devicePixelContentBoxSize[0].blockSize;
-                // (Alternatively, call context.configure() with the new width/height.)
             }
         });
         resizeObserver.observe(canvas);
@@ -9583,7 +9585,7 @@ Otherwise, the polygon is <dfn dfn>back-facing</dfn>.
         </dl>
 
     1. For each produced fragment of type [=FragmentDestination=]:
-        
+
         1. Let |rp| be be a new [=RasterizationPoint=] object
         1. Compute the list |b| as [[#barycentric-coordinates]] of that fragment.
             Set |rp|.[=RasterizationPoint/barycentricCoordinates=] to |b|.
@@ -9658,7 +9660,7 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
                 1. Set |fragment|.[=Fragment/depth=] to clamp(|value|, |vp|.`minDepth`, |vp|.`maxDepth`).
         1. If `sample_mask` [=builtin=] is produced by the shader as |value|:
             1. Set |fragment|.[=Fragment/coverageMask=] to |fragment|.[=Fragment/coverageMask=] &and; |value|.
-        
+
         Otherwise we are in [[#no-color-output]] mode, and |fragment|.[=Fragment/colors=] is empty.
     1. Return |fragment|.
 </div>
