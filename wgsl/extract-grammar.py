@@ -238,7 +238,6 @@ module.exports = grammar({
     ],
 
     conflicts: $ => [
-        [$.array_type_decl],
         [$.type_decl,$.primary_expression],
     ],
 
@@ -506,7 +505,8 @@ subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
 subprocess.run(["npx", "tree-sitter", "generate"],
                cwd=grammar_path, check=True)
 # Following are commented for future reference to expose playground
-# subprocess.run(["npx", "tree-sitter", "build-wasm"],
+# Remove "--docker" if local environment matches with the container
+# subprocess.run(["npx", "tree-sitter", "build-wasm", "--docker"],
 #                cwd=grammar_path, check=True)
 
 Language.build_library(
@@ -530,7 +530,8 @@ for key, value in scanner_components[scanner_example.name()].items():
     if "function-scope" in key:
         value = ["fn function__scope____() {"] + value + ["}"]
     if "type-scope" in key:
-        value = ["let type_scope____: "] + value + [";"]
+        # Initiailize with zero-value expression.
+        value = ["let type_scope____: "] + value + ["="] + value + ["()"] + [";"]
     program = "\n".join(value)
     tree = parser.parse(bytes(program, "utf8"))
     if tree.root_node.has_error:
