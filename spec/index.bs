@@ -3209,7 +3209,7 @@ All [=depth-or-stencil formats=] are renderable.
 ## <dfn interface>GPUExternalTexture</dfn> ## {#gpu-external-texture}
 
 A {{GPUExternalTexture}} is a sampleable texture wrapping an external video object.
-The contents of a {{GPUExternalTexture}} object may not change, either from inside WebGPU
+The contents of a {{GPUExternalTexture}} object are a snapshot and may not change, either from inside WebGPU
 (it is only sampleable) or from outside WebGPU (e.g. due to video frame advancement).
 
 Issue: Update this description with canvas.
@@ -3245,6 +3245,7 @@ External textures use several binding slots: see [=Exceeds the binding slot limi
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUExternalTexture {
+    readonly attribute boolean expired;
 };
 GPUExternalTexture includes GPUObjectBase;
 </script>
@@ -3258,6 +3259,28 @@ GPUExternalTexture includes GPUObjectBase;
         Initially set to `false`.
 
         <!-- Move this to an internal object if GPUExternalTexture becomes Serializable. -->
+
+    : <dfn>\[[descriptor]]</dfn>, of type {{GPUExternalTextureDescriptor}}
+    ::
+        The descriptor with which the texture was created.
+</dl>
+
+{{GPUExternalTexture}} has the following attributes:
+
+<dl dfn-type=attribute dfn-for=GPUExternalTexture>
+    : <dfn>expired</dfn>
+    ::
+        Returns the value of {{GPUExternalTexture/[[destroyed]]}}, which indicates
+        whether the texture has [$expire stale external textures|expired$] or not.
+</dl>
+
+The {{GPUExternalTexture}} interface object has the following "static" internal slots:
+
+<dl dfn-type=attribute dfn-for=GPUExternalTexture>
+    : <dfn>\[[active_imports]]</dfn>, of type [=list=]&lt;GPUExternalTexture&gt;
+    ::
+        A list of all imported textures which have not yet been closed.
+        The items in list are checked during each animation frame to determine whether to close them.
 </dl>
 
 ### Importing External Textures ### {#external-texture-creation}
@@ -3265,10 +3288,11 @@ GPUExternalTexture includes GPUObjectBase;
 An external texture is created from an external video object
 using {{GPUDevice/importExternalTexture()}}.
 
-Issue: Update this description with canvas.
-
-External textures are destroyed automatically, as a microtask,
-instead of manually or upon garbage collection like other resources.
+External textures created from {{HTMLVideoElement}}s are destroyed automatically after the imported
+frame is no longer current, instead of manually or upon garbage collection like other resources.
+When an external texture expires, its {{GPUExternalTexture/expired}} attribute changes to `true`.
+Applications can use this to determine whether to re-import or not, if their execution is not
+already scheduled to match the video's frame rate.
 
 <script type=idl>
 dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
@@ -3315,14 +3339,37 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
 
             1. Let |result| be a new {{GPUExternalTexture}} object wrapping |data|.
 
-            1. [=Queue a microtask=] to set |result|.{{GPUExternalTexture/[[destroyed]]}} to `true`,
-                releasing the underlying resource.
-
-                Issue: Is this too restrictive?
+            1. Add |result| to {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}.
 
             1. Return |result|.
         </div>
 </dl>
+
+<div algorithm="expire stale external textures">
+    Immediately before the "run the animation frame callbacks" step of the "[=Update the rendering=]"
+    step of the HTML processing model, run the following steps to
+    <dfn abstract-op>expire stale external textures</dfn>:
+
+    1. For each |texture| in {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}:
+        1. Let |video| be |texture|.{{GPUExternalTexture/[[descriptor]]}}.{{GPUExternalTextureDescriptor/source}}.
+        1. Assert |video| is an {{HTMLVideoElement}}.
+        1. If the latest presented frame of |video| is not the same frame from which |texture| was imported:
+            1. Remove |texture| from {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}.
+            1. Set |texture|.{{GPUExternalTexture/[[destroyed]]}} to `true`, releasing ownership of
+                the underlying resource.
+
+    Note:
+    The steps above occur before `requestVideoFrameCallback` callbacks, if any.
+    If `requestVideoFrameCallback` is implemented, stale {{GPUExternalTexture}}s could equivalently
+    be said to be destroyed in a "priority" `requestVideoFrameCallback` callback that occurs just
+    before user-specified callbacks.
+
+    Note:
+    An external video texture should be imported in the same task that samples the texture
+    (which should generally be scheduled using `requestVideoFrameCallback` or
+    {{AnimationFrameProvider/requestAnimationFrame()}} depending on the application).
+    Otherwise, a texture could get destroyed by these steps before it is used.
+</div>
 
 <div class="example">
     Creating an external texture from a video element:
