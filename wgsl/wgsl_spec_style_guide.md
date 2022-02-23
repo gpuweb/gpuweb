@@ -169,4 +169,11 @@ Code samples in languages other than WGSL should name the language, for example:
     <div class='example spirv barrier mapping' heading="Mapping workgroupBarrier to SPIR-V">
 
 
+## In-progress extensions are developed outside the main spec text
+
+Once a language extension is fully developed, it should be described in the WGSL specification.
+
+Before then, an extension is considered to be "in progress", and should not be discussed in the main WGSL specification.
+Extensions which require a lot of iteration can be freely developed in a branch or some other document.
+
 [Bikeshed]: https://tabatkins.github.io/bikeshed "Bikeshed"
