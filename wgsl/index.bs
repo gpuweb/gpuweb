@@ -486,6 +486,7 @@ or a hexadecimal floating point literal.
     * At least one of the hexadecimal point, or the exponent, or the `f` suffix must be present.
          If none are, then the token is instead an [=integer literal=].
     * The value of the literal is the value of the mantissa multiplied by 2 to the power of the exponent.
+         When no exponent is specified, an exponent of 0 is assumed.
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>float_literal</dfn> :
@@ -518,7 +519,7 @@ or a hexadecimal floating point literal.
 </div>
 
 When a [=numeric literal=] has a suffix, the literal denotes a value in a specific [=scalar=] type.
-Otherwise, the literal denotes a value one of the [=constexpr types=] defined below.
+Otherwise, the literal denotes a value one of the [=abstract numeric types=] defined below.
 
 <table class=data>
   <caption>Mapping literals to types</caption>
@@ -903,6 +904,7 @@ An <dfn noexport>expression</dfn> is a segment of source text
 parsed as one of the [SHORTNAME] grammar rules whose name ends with "`_expression`".
 An expression |E| can contain <dfn noexport>subexpressions</dfn> which are expressions properly contained
 in the outer expression |E|.
+A <dfn noexport>top-level expression</dfn> is an expression that is not a subexpression.
 See [[#expression-grammar]].
 
 The particular value produced by an expression evaluation depends on:
@@ -924,6 +926,7 @@ For example:
 <dfn noexport>Type checking</dfn> a successfully parsed WGSL program is the process of mapping
 each expression to its static type,
 and determining if the type requirements of each statement are satisfied.
+A <dfn noexport>type error</dfn> results if type checking fails.
 
 A <dfn noexport>type assertion</dfn> is a mapping from some WGSL source expression to a WGSL type.
 The notation
@@ -935,16 +938,24 @@ is a type assertion meaning *T* is the static type of WGSL expression *e*.
 Note: A type assertion is a statement of fact about the text of a program.
 It is not a runtime check.
 
-Finding static types for expressions can be performed by recursively applying type rules.
-A <dfn noexport>type rule</dfn> has two parts:
-* A <dfn noexport lt="type rule conclusion">conclusion</dfn>, stated as a [=type assertion=] for an expression.
-    The expression in the type assertion is specified schematically,
-    using *italicized* names to denote subexpressions
-    or other syntactically-determined parameters.
+Finding static types for expressions can be performed by recursively applying [=type rules=]
+to syntactic phrases, where a <dfn>syntactic phrase</dfn> is either an [=expression=] or a [[#statements|statement]].
+A <dfn noexport>type rule</dfn> describes how the [=static context=] for a syntactic phrase (an expression or statement)
+determines the static type for expressions contained within that phrase.
+A [=type rule=] has two parts:
+* A <dfn noexport lt="type rule conclusion">conclusion</dfn>.
+    * If the phrase is an expression, the conclusion is a [=type assertion=] for the expression.
+    * If the phrase is a statement, the conclusion is a set of [=type assertions=],
+        one for each of the statement's [=top-level expressions=].
+    * In both cases, expressions in the type assertions are specified schematically,
+        using *italicized* names to denote subexpressions
+        or other syntactically-determined parameters.
 * <dfn noexport lt="type rule preconditions">Preconditions</dfn>, consisting of:
-    * Type assertions for subexpressions, when there are subexpressions.
+    * For expressions:
+        * Type assertions for subexpressions, when it has subexpressions.
+        * How the expression is used in a statement.
+    * For statements, the syntactic form of the statement.
     * Conditions on the other schematic parameters, if any.
-    * How the expression is used in a statement.
     * Optionally, other static context.
 
 Each distinct type parameterization for a type rule is called an <dfn noexport>overload</dfn>.
@@ -965,15 +976,21 @@ A <dfn noexport>type rule applies to an expression</dfn> when:
 
 TODO: write an example such as `1+2`, or `3 - a`, where `a` is in-scope of a let declaration with `i32` type.
 
-The type rules are designed so that if parsing succeeds, at most one type rule will apply to each expression.
-If a type rule applies to an expression, then the conclusion is asserted, and therefore determines the static type of the expression.
+When analyzing an expression, three cases may occur:
+* No type rules apply to the expression.  This results in a [=type error=].
+* Exactly one type rule applies to the expression.
+    In this case, the rule's [=type rule conclusion|conclusion=] is asserted, determining the static type for the expression.
+* More than one type rule applies. That is, the preconditions for more than one [=overload=] are satisfied.
+    In this case the tie-breaking procedure described in [[#overload-resolution]] is used.
+    * If overload resolution succeeds, then it chooses a single overload to apply: the [=type rule conclusion|conclusion=] for
+        that overload determines the static type for the expression.
+    * A [=type error=] results if overload resolution fails.
 
 A WGSL source program is <dfn noexport>well-typed</dfn> when:
 * The static type can be determined for each expression in the program by applying the type rules, and
-* Each expression that is not a [=subexpression=] has a [=GPU-materialized=] type.
 * The type requirements for each statement are satisfied.
 
-Otherwise there is a <dfn noexport>type error</dfn> and the source program is not a valid WGSL program.
+Otherwise there is a [=type error=] and the source program is not a valid WGSL program.
 
 WGSL is a <dfn noexport>statically typed language</dfn>
 because type checking a WGSL program will either succeed or
@@ -981,7 +998,7 @@ discover a type error, while only having to inspect the program source text.
 
 ### Type Rule Tables ### {#typing-tables-section}
 
-The WGSL [=type rules=] are organized into <dfn noexport>type rule tables</dfn>,
+The WGSL [=type rules=] for expressions are organized into <dfn noexport>type rule tables</dfn>,
 with one row per type rule.
 
 The <dfn noexport>semantics of an expression</dfn> is the effect of evaluating that expression,
@@ -994,38 +1011,42 @@ a result value, such as the non-result-value effects of its subexpressions.
 
 TODO: example: non-result-value effect is any side effect of a function call subexpression.
 
-## Types For Unsuffixed Literals ## {#types-for-unsuffixed-literals}
+### Overload Resolution ### {#overload-resolution}
 
-Certain expressions over [=literals=] are evaluated at [=shader module creation|shader-creation time=],
+
+
+## Types for Creation-Time Constants ## {#types-for-creation-time-constants}
+
+Certain expressions are evaluated at [=shader module creation|shader-creation time=],
 and with a numeric range and precision that may be larger than directly implemented by the GPU.
 
 [SHORTNAME] defines two <dfn>abstract numeric types</dfn> for these evaluations:
-* The <dfn noexport>AbstractInt</dfn> type is the set of all integers |i|, with -2<sup>63</sup> &leq; |i| &lt; 2<sup>63</sup>.
-* The <dfn noexport>AbstractFloat</dfn> type is the set of all finite floating point numbers representable
+* The <dfn noexport>AbstractInt</dfn> type is the set of integers |i|, with -2<sup>63</sup> &leq; |i| &lt; 2<sup>63</sup>.
+* The <dfn noexport>AbstractFloat</dfn> type is the set of finite floating point numbers representable
     in the [[!IEEE-754|IEEE-754]] binary64 (double precision) format.
 
-These types cannot be spelled in...
+An evaluation of an expression in one of these types must not overflow or be a division by zero.
+Otherwise, the result is a [=shader-creation error=].
 
-TODO(FromReview): The AbstractInt and AbstractFloat names are bad because we expect user-defined constexpr functions
-that operate over GPU-materialized types.
+These types cannot be spelled in WGSL source. They are only used for by [=type checking=].
 
-A [=numeric literal=] without a suffix denotes a value in a constexpr type:
+A [=numeric literal=] without a suffix denotes a value in an [=abstract numeric type=]:
 * An [=integer literal=] without an `i` or `u` suffix denotes an [=AbstractInt=] value.
 * A [=floating point literal=] without an `f` suffix denotes a [=AbstractFloat=] value.
 
 ### Materialization and Promotion ### {#materialization-and-promotion}
 
-A numeric literal without a suffix has a [=constexpr type=],
+A numeric literal without a suffix has a [=abstract numeric type=],
 but a numeric value in memory, in pipeline I/O, or used in most
 computations will belong to one of the [=numeric scalar=] types.
 In general the GPU may only directly support <dfn>GPU-materialized</dfn> types,
-defined as any type other than a [=constexpr type=].
+defined as any type other than an [=abstract numeric type=].
 
-Converting a value from a [=constexpr type=] to a [=numeric scalar=] type is called <dfn noexport>materialization</dfn>.
+Converting a value from an [=abstract numeric type=] to a [=numeric scalar=] type is called <dfn noexport>materialization</dfn>.
 * A [=AbstractFloat=] value can only convert to [=f32=].
 * A [=AbstractInt=] value can only convert to one of the [=numeric scalar=] types.
 
-<dfn noexport>Materialization Rule</dfn>: An expression |E| of [=constexpr type=] is
+<dfn noexport>Materialization Rule</dfn>: An expression |E| of [=abstract numeric type=] is
 converted to a [=numeric scalar=] type |T| to satisfy type rules. This occurs when, and only when:
     * |E| is the initializer of a [=value declaration=] with explicit type |T|.
         * Example: In `let a: u32 = 1;`, the `1` expression materializes to the [=u32=] value `1u`.
@@ -1037,13 +1058,13 @@ converted to a [=numeric scalar=] type |T| to satisfy type rules. This occurs wh
     * |E| is a [=subexpression=] of an immediately containing expression |CE|,
         and
         * There is exactly one [=overload=] of the type rules for |CE| that is consistent with materializing
-            *all* immediate subexpressions of |CE| that have constexpr type, and
+            *all* immediate subexpressions of |CE| that have abstract numeric type, and
         * That overload requires |E| to be of type |T|.
         * Example: `1 + 1u` is of type [=u32=] because `1u` is of type [=u32=] and the only overload of
              an expression |a|+|b| with |a| of type [=u32=] requires |b| to also be of type [=u32=].
     * |E| is an argument value expression in a [=function call=], and
         * There is exactly one [=overload=] of the [=called function=] that is consistent with materializing
-             *all* its argument value expressions that are of constexpr type, and
+             *all* its argument value expressions that are of abstract numeric type, and
         * That overload requires |E| to be of type |T|.
     * |E| is the expression in a [=statement/return=] statement, and |T| is the [=return type=] for the function.
     * If the above rules don't apply, but type rules require |E| to be of [=GPU-materialized=] type:
@@ -1061,12 +1082,12 @@ TODO(FromReview): Examples for each row of rules.
 TODO(FromReview): Make `switch(1) { case 1u: { } }` valid.
 
 A [=shader-creation error=] results when materializing a value that is invalid for the target type, as follows:
-* When materializing a [=constexpr type=] expression |E| to a floating point type:
+* When materializing an[=abstract numeric type=] expression |E| to a floating point type:
     * The value of |E| must be within the finite range of the target type.
     * If every [=syntax/float_literal=] subexpression in |E| is a [=syntax/hex_float_literal=],
         then the literal-expression value of |E| must be exactly representable in the target type.
         * Example: `0x1.0000000001` is not exactly representable in [=f32=], and materialization results in an error.
-* When materializing a [=constexpr type=] expression |E| to an [=integer scalar=] type:
+* When materializing an [=abstract numeric type=] expression |E| to an [=integer scalar=] type:
     * The value of |E| must be exactly representable in the target type.
 
 <dfn noexport>Promotion Rule</dfn>: An expression |E| of [=AbstractInt=] type automatically converts to [=AbstractFloat=],
