@@ -8,9 +8,10 @@ The list is expected to grow (or maybe even shrink!) over time. This list repres
 
 ## Glossary
 
-- "Browser engine" means "(Blink and Dawn) / (Gecko and wgpu (and maybe more?)) / (WebKit and WebGPU.framework) / etc."
+- "Browser engine" means "(Blink and Dawn) / (Gecko and wgpu) / (WebKit and WebGPU.framework) / etc."
 - "Desktop GPU" means "a non-mobile GPU."
-- "Device vendor" means "Intel / Nvidia / AMD / Apple / Qualcomm / etc."
+- "Device vendor" means "Intel / Nvidia / AMD / Apple / Qualcomm / ARM / Imagination / VeriSilicon / etc."
+- "Implementable" is according to the maintainers of the project in question.
 - ("Mobile GPU" is intentionally undefined, for now.)
 - "Native API" means "D3D / Vulkan / Metal." (The proprietary 3D graphics APIs used in game consoles would probably count as "native APIs," too, if there was a browser engine implementing WebGPU using those APIs.)
 - "Standardization" means all/any of:
