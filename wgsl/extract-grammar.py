@@ -28,8 +28,11 @@ HEADER = """
 
 scanner_filename = sys.argv[1]
 scanner_file = open(scanner_filename, "r")
+# Break up the input into lines, and skip empty lines.
 scanner_lines = [j for i in [i.split("\n")
                              for i in scanner_file.readlines()] for j in i if len(j) > 0]
+# Replace comments in rule text
+scanner_lines = [re.sub('<!--.*-->', '', line) for line in scanner_lines]
 
 grammar_filename = sys.argv[2]
 grammar_path = os.path.dirname(grammar_filename)
