@@ -60,22 +60,27 @@ console.log(gpuAdapter.info);
 }
 ```
 
-Note that some values of the interface are `null`, because the UA deemed that they were too high-entropy to return without explicit user consent. If the UA wished, it would have the ability to return `null` or a reserved string like `"unknown"` for all values. This would be most commonly expected in "enhanced privacy" modes like [Edge's strict tracking prevention](https://support.microsoft.com/en-us/microsoft-edge/learn-about-tracking-prevention-in-microsoft-edge-5ac125e8-9b90-8d59-fa2c-7f2e9a44d869) or [Firefox's Enhanced Tracking Protection](https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop). Ideally returning little to no identifiers is common enough that browsers that wish to expose very little information by default can do so without severe compatibility concerns.
+Note that some values of the interface are `null`, because the UA deemed that they were too high-entropy to return without explicit user consent. If the UA wished, it would have the ability to return `null` for all values. This would be most commonly expected in "enhanced privacy" modes like [Edge's strict tracking prevention](https://support.microsoft.com/en-us/microsoft-edge/learn-about-tracking-prevention-in-microsoft-edge-5ac125e8-9b90-8d59-fa2c-7f2e9a44d869) or [Firefox's Enhanced Tracking Protection](https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop). Ideally returning little to no identifiers is common enough that user agents that wish to expose very little information by default can do so without severe compatibility concerns.
 
 The information that _is_ returned should be helpful in identifying broad buckets of adapters with similar capabilities and performance characteristics. For example, Nvidia's "Turing" architecture [covers a range of nearly 40 different GPUs](https://en.wikipedia.org/wiki/Turing_(microarchitecture)#Products_using_Turing) across a wide range of prices and form factors. Identifing the adapter as an Turing device is enough to allow developers to activate broad workarounds aimed at that family of hardware and make some assumptions about baseline performance, but is also broad enough to not give away too much identifiable information about the user.
 
+Additionally, in some cases the UA may find it beneficial to return a value that is not the most accurate one that could be reported but still gives developers a reasonable reference point with a lower amount of entropy.
+
+Finally, it may not always be possible or practical to detemine a value for some fields (like a GPU's architecture) and in those cases returning `null` is acceptible even if the user agent would have considered the information low-entropy.
+
 ### Unmasked adapter identifiers
 
-At some point during the lifetime of the application the developer may determine that they need more information about the user's specific adapter. A common scenario would be filing a bug report. The developer will be able to best respond to the user's issue if they know exactly what device is being used. In this case, they can request an "unmasked" version of the `GPUAdapter`:
+At some point during the lifetime of the application the developer may determine that they need more information about the user's specific adapter. A common scenario would be filing a bug report. The developer will be able to best respond to the user's issue if they know exactly what device is being used. In this case, they can request an "unmasked" version any fields of the `GPUAdapterInfo`:
 
 ```js
 feedbackButton.addEventListener('click', async ()=> {
-    const unmaskedAdapterInfo = await gpuAdapter.requestUnmaskedAdapterInfo();
+    const hints = ['architecture', 'deviceId', 'fullName'];
+    const unmaskedAdapterInfo = await gpuAdapter.requestUnmaskedAdapterInfo(hints);
     generateUserFeedback(unmaskedAdapterInfo);
 });
 ```
 
-The unmasked adapter is a new `GPUAdapterInfo` with identifying details that were omitted from the adapter info previously now be populated with the most accurate information the UA can deliver. For example:
+The resolved value is the adapter's `GPUAdapterInfo` with any fields specified by `hints` that were previously omitted or reported with a less accurate value now populated with the most accurate information the UA will deliver. For example:
 
 ```js
 console.log(unmaskedAdapterInfo);
@@ -89,9 +94,11 @@ console.log(unmaskedAdapterInfo);
 }
 ```
 
-Because the unmasked adapter contains much more identifying information, the bar for querying it is quite a bit higher. Calling `requestUnmaskedAdapterInfo()` requires user activation, and will reject the promise otherwise. It also requires that user consent be given before returning, and as such may display a prompt to the user asking if the page can access full GPU details before allowing the promise to resolve.
+Because the unmasked values may contain higher entropy identifying information, the bar for querying it is quite a bit higher. Calling `requestUnmaskedAdapterInfo()` requires user activation, and will reject the promise otherwise. If the `hints` array contains any previously masked value it also requires that user consent be given before returning, and as such may display a prompt to the user asking if the page can access the newly requested GPU details before allowing the promise to resolve.
 
-Once the user has given their consent, future instances of the `GPUAdapter` queried from `navigator.requestAdapter()` by that page may also contain unmasked data.
+Once the user has given their consent the `info` attribute of the `GPUAdapter` should be updated to reflect the newly unmasked fields and future instances of the `GPUAdapter` queried from `navigator.requestAdapter()` by that page should also contain unmasked data without requiring another call to `requestUnmaskedAdapterInfo()`.
+
+Even after `requestUnmaskedAdapterInfo()` is called the UA is still allowed to return `null` for attributes requested in the `hints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left as `null`.)
 
 ### Identifier formatting
 
@@ -121,12 +128,12 @@ This helps strike a balance between enabling powerful rendering and computation 
 
 ```webidl
 partial interface GPUAdapter {
-  [SameObject] readonly attribute GPUAdapterInfo info;
-  Promise<GPUAdapterInfo> requestUnmaskedAdapterInfo();
+  readonly attribute GPUAdapterInfo info;
+  Promise<GPUAdapterInfo> requestUnmaskedAdapterInfo(sequence<DOMString> hints);
 };
 
 interface GPUAdapterInfo {
-  DOMString vendor;
+  DOMString? vendor;
   DOMString? architecture;
   long? deviceId;
   DOMString? fullName;
