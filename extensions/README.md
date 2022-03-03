@@ -1,6 +1,6 @@
 # WebGPU Extensions
 
-Extensions defined in this directory are drafts and are **not part of the WebGPU specification**. Compliant implementations of WebGPU **must not** expose these extensions by default.
+Extensions defined in this directory are drafts and are **not part of the WebGPU specification**. Compliant implementations of WebGPU **must not** expose these extensions.
 
 Feature additions on the "standards track" may be initially proposed as extensions if they
 are not easily contained in a GitHub pull request.
