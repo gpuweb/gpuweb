@@ -96,7 +96,7 @@ console.log(unmaskedAdapterInfo);
 
 Because the unmasked values may contain higher entropy identifying information, the bar for querying it is quite a bit higher. Calling `requestUnmaskedAdapterInfo()` requires user activation, and will reject the promise otherwise. If the `hints` array contains any previously masked value it also requires that user consent be given before returning, and as such may display a prompt to the user asking if the page can access the newly requested GPU details before allowing the promise to resolve.
 
-Once the user has given their consent the `info` attribute of the `GPUAdapter` should be updated to reflect the newly unmasked fields and future instances of the `GPUAdapter` queried from `navigator.requestAdapter()` by that page should also contain unmasked data without requiring another call to `requestUnmaskedAdapterInfo()`.
+Once the user has given their consent the `info` attribute of the `GPUAdapter` should be updated to reflect the newly unmasked fields and future instances of the same underlying adapter returned from `navigator.requestAdapter()` on that page load should also contain unmasked data without requiring another call to `requestUnmaskedAdapterInfo()`.
 
 Even after `requestUnmaskedAdapterInfo()` is called the UA is still allowed to return `null` for attributes requested in the `hints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left as `null`.)
 
