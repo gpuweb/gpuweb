@@ -954,6 +954,7 @@ A [=type rule=] has two parts:
 * <dfn noexport lt="type rule preconditions">Preconditions</dfn>, consisting of:
     * For expressions:
         * Type assertions for subexpressions, when it has subexpressions.
+             Each may be satisfied directly, or via a [=feasible automatic conversion=] (as defined in [[#conversion-rank]]).
         * How the expression is used in a statement.
     * For statements, the syntactic form of the statement.
     * Conditions on the other schematic parameters, if any.
@@ -1020,15 +1021,27 @@ a result value, such as the non-result-value effects of its subexpressions.
 
 TODO: example: non-result-value effect is any side effect of a function call subexpression.
 
-### Overload Resolution ### {#overload-resolution-section}
+### Conversion Rank ### {#conversion-rank}
 
-When more than one [=type rule applies to a syntactic phrase=], a tie-breaking procedure is used
-to determine which one should take effect.
-This procedure is called <dfn noexport>overload resolution</dfn>.
+When a type assertion |e|:|T| is used as a [=type rule precondition=], it is satisfied when:
+* |e| is already of type |T|, or
+* the value of |e| can be automatically converted to a value of type |T|.
 
-The algorithm makes use of a <dfn noexport>ConversionRank</dfn> function over pairs of types, defined in the following table.
-The [=ConversionRank=] expresses the preference and feasibility of allowing the implementation to automatically convert a value of one type to another.
-Lower ranks are more desirable. An infinite rank is infeasible, i.e. not allowed.
+The rule is codified by the <dfn>ConversionRank</dfn> function over pairs of types, defined in the table below.
+The [=ConversionRank=] function expresses the preference and feasibility of automatically converting a value of one type (*Src*) to
+another type (*Dest*).
+Lower ranks are more desirable.
+
+A <dfn>feasible automatic conversion</dfn> converts a value from type *Src* to type *Dest*, and is allowed when [=ConversionRank=](*Src*,*Dest*) is finite.
+Such conversions are value-preserving, subject to limitations described in [[#floating-point-evaluation]].
+
+Note: Automatic conversions only occur in two kinds of situations.
+First, when converting a creation-time constant to its corresponding typed numeric value that can be used on the GPU.
+Second, when a load from a reference-to-memory occurs, yielding the value stored in that memory.
+
+Note: A conversion of infinite rank is infeasible, i.e. not allowed.
+
+Note: When no conversion is performed, the conversion rank is zero.
 
 <table class='data'>
   <caption>
@@ -1077,41 +1090,41 @@ Lower ranks are more desirable. An infinite rank is infeasible, i.e. not allowed
       <td>Behaves as [=AbstractInt=] to [=AbstractFloat=], and then [=AbstractFloat=] to f32
   <tr algorithm="conversion rank for non-convertible cases">
       <td>|S|
-      <td class="nowrap">|T|<br>where |S| is not |T|
+      <td>|T|<br>where above cases don't apply
       <td>infinity
       <td>There are no automatic conversions between other types.
 </table>
 
+### Overload Resolution ### {#overload-resolution-section}
+
+When more than one [=type rule applies to a syntactic phrase=], a tie-breaking procedure is used
+to determine which one should take effect.
+This procedure is called <dfn noexport>overload resolution</dfn>,
+and assumes type checking has already succeeded in finding static types for [=subexpressions=].
+
 Consider a [=syntactic phrase=] |P|, and all [=type rule applies to a syntactic phrase|type rules that apply=] to |P|.
 The overload resolution algorithm calls these type rules <dfn noexport>overload candidates</dfn>.
-For each candidate:
-* Its preconditions have been met, which may assign [=static types=] to subexpressions in |P|.
+For each candidates:
+* Its preconditions have been met.
 * Its [=type rule conclusion|conclusion=] has:
     * A syntactic form matching a valid parse of |P|, and
     * A [=type assertion=] corresponding to each [=top-level expression=] in |P|.
 
 Overload resolution for |P| proceeds as follows, with the goal of finding a single most preferable [=overload candidate=]:
 
-1. We assume type checking has been applied recursively.
-    * This determines static types for:
-        * Each subexpression of |P| if |P| is itself an expression.
-        * Each top-level expression of |P| if |P| is a statement.
-    * In general, these can be stated as type assertions |pi|:|PTi|, i.e. expression |pi| is of type |PTi|.
+1. For each candidate |C|, enumerate conversion ranks for subexpressions in the syntactic phrase.
+    The candidate's preconditions have been met, and so for the |i|'th subexpression in the |P|:
+    * Its static type has computed.
+    * There is a [=feasible automatic conversion=] from the expression's static type to the type required by the corresponding type assertion in the preconditions.
+        Let |C|.|R|(i) be the [=ConversionRank=] of that conversion.
 
-1. Filter candidates: For a given candidate |C|, consider the type assertions among its preconditions; these constrain
-     the permitted types for subexpressions in |P|.
-     In general these type assertions are the form |ei|:|CTi|.
-     A candidate is <dfn>viable</dfn> if and only if each of precondition can be satisfied by a feasible conversion:
-     for each |i|, the known type of expression |pi| can be converted to the corresponding |CTi|, i.e. [=ConversionRank=](|PTi|,|CTi|) is finite.
-     Discard the candidates which are not viable.
+1. Rank candidates: Given two overload candidates |C1| and |C2|, |C1| is <dfn>better</dfn> than |C2| if:
+    * For each expression position |i| in |P|, |C1|.|R|(i) &le; |C2|.|R|(i).
+         * That is, each expression conversion required to apply |C1| to |P| is at least as good as the conversion required to apply |C2| to |P|.
+    * There is at least one expression position |i| where |C1|.|R|(i) &lt; |C2|.|R|(i).
+         * That is, there is at least one expression conversion required to apply |C1| that is preferable to a conversion required to apply |C2|.
 
-1. Rank candidates: Given two [=viable=] overload candidates |C1| and |C2|, |C1| is <dfn>better</dfn> than |C2| if:
-    * For each expression position |i| in |P|, [=ConversionRank=](PTi,C1Ti) &ge; [=ConversionRank=](PTi,C2Ti).
-         That is, each expression conversion required to apply |C1| to |P| is no worse than the conversion required to apply |C2| to |P|.
-    * There is at least one expression position |i| where [=ConversionRank=](PTi,C1Ti) &lt; [=ConversionRank=](PTi,C2Ti).
-         That is, there is at least one expression conversion required to apply |C1| that is preferable to a conversion required to apply |C2|.
-
-1. If there is a single [=viable=] candidate |C| which is [=better=] than all the others, then overload resolution succeeds, yielding the candidate type rule |C|.
+1. If there is a single candidate |C| which is [=better=] than all the others, then overload resolution succeeds, yielding the candidate type rule |C|.
       Otherwise, overload resolution fails.
 
 TODO: Examples
