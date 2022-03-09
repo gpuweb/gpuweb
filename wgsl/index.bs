@@ -1144,7 +1144,7 @@ and with a numeric range and precision that may be larger than directly implemen
 * The <dfn noexport>AbstractFloat</dfn> type is the set of finite floating point numbers representable
     in the [[!IEEE-754|IEEE-754]] binary64 (double precision) format.
 
-An evaluation of an expression in one of these types must not overflow or be a division by zero.
+An evaluation of an expression in one of these types must not overflow or produce undefined results.
 Otherwise, the result is a [=shader-creation error=].
 
 These types cannot be spelled in WGSL source. They are only used by [=type checking=].
@@ -1225,16 +1225,23 @@ Example:  `let minint = -2147483648;` is analyzed as follows:
     // Explicitly-typed unsigned integer literal cannot be negated.
     var u32_neg = -1u; // invalid: unary minus does not support u32
 
-    // Default inferred signed integer literal.
-    var i32_default = 1; // variable is i32
-
-    // Promotion.
-    var f32_promotion : f32 = 1; // variable holds f32
-    var i32_demotion : i32 = 1.0; // invalid, real literals cannot be demoted to integral
+    // An integer literal without a suffix tends to be inferred as i32:
+    //   Initializer for a let-declaration must be constructible (or pointer).
+    //   The most preferred automatic conversion from AbstractInt to a constructible type
+    //   is AbstractInt to i32, with conversion rank 2.  So `1` is inferred as i32.
+    let some_i32 = 1; // like let some_i32: i32 = 1i;
 
     // Inferred from declaration type.
-    var u32_from_type : u32 = 1; // variable holds u32
-    var i32_from_type : i32 = 1; // variable holds i32
+    var i32_from_type : i32 = 1; // variable holds i32.  AbstractInt to i32, conversion rank 2
+    var u32_from_type : u32 = 1; // variable holds u32.  AbstractInt to u32, conversion rank 3
+
+    // Unsuffixed integer literal can convert to floating point when needed:
+    //   Automatically convert AbstractInt to f32, with conversion rank 5.
+    var f32_promotion : f32 = 1; // variable holds f32
+
+    // Invalid: no feasible conversion from floating point to integer
+    var i32_demotion : i32 = 1.0; // Invalid
+
 
     // Inferred from expression.
     var u32_from_expr = 1 + u32_1; // variable holds u32
@@ -1248,42 +1255,80 @@ Example:  `let minint = -2147483648;` is analyzed as follows:
     let f32_out_of_range1 = 0x1p500; // invalid, out of range
     let f32_hex_lost_bits = 0x1.0000000001p0; // invalid, not exactly representable in f32
 
-    // Minimum integer: unary negation over AbstractInt, then default materialization
-    // to i32.
+    // Minimum integer: unary negation over AbstractInt, then infer i32.
+    // Most preferred conversion from AbstractInt to a constructible type (with lowest
+    // conversion rank) is AbstractInt to i32.
     let i32_min = -2147483648;  // has type i32
-    let i32_too_large_2 = 2147483648; // invalid, cannot default-materialize to i32
 
-    // TODO: If AbstractInt gains support for addition, then these will become valid.
-    // For now they are invalid because the 1 terms default-materialize to i32,
-    // but addition does not support adding operands of different types.
-    var u32_expr1 = (1 + (1 + (1 + (1 + 1)))) + 1u; // invalid for now
-    var u32_expr2 = 1u + (1 + (1 + (1 + (1 + 1)))); // invalid for now
-    // The following are valid because the innermost expression materializes to
-    // `1u + 1u`, and the rest of the nested expressions materialize to type u32.
-    var u32_expr3 = (1 + (1 + (1 + (1u + 1)))) + 1; // valid, 
-    var u32_expr4 = 1 + (1 + (1 + (1 + (1u + 1)))); // valid.
+    // Invalid.  Select AbstractInt to i32 as above, but the value is out of
+    // range, producing shader-creation error.
+    let i32_too_large_2 = 2147483648; // Invalid.
+
+    // TODO: We expect to add support for many constexpr expressions over AbstractInt
+    // or AbstractFloat.  Then constexpr expressions over literals (and their combinations)
+    // will remain in that "abstract" numeric type.
+    // For example, add overloads for basic binary arithmetic operations:
+    //     AbstractInt + AbstractInt -> AbstractInt
+    //     AbstractInt - AbstractInt -> AbstractInt
+    //     AbstractInt * AbstractInt -> AbstractInt
+    //     AbstractInt / AbstractInt -> AbstractInt
+    // Any time the compiler is sees these kinds of expressions over
+    // AbstractInt operands, the most preferred overload will exist and be the one
+    // that keeps the result as AbstractInt. That's because
+    // ConversionRank(AbstractInt,AbstractInt) is 0, and therefore is the most
+    // preferred conversion in each position.
+    // Respectively, the same argument applies to AbstractFloat if we add similar
+    // overloads over AbstractFloat:
+    //     AbstractFloat + AbstractFloat -> AbstractFloat
+    //     AbstractFloat - AbstractFloat -> AbstractFloat
+    //     AbstractFloat * AbstractFloat -> AbstractFloat
+    //     AbstractFloat / AbstractFloat -> AbstractFloat
+    // All such evaluations occur at shader creation time.
+    // Ultimately a final rule somewhere will require a non-Abstract type, and force
+    // the value conversion to a specific numeric type that can be used directly
+    // on the GPU.
+    // TODO: When AbstractInt gains support for addition, then these will become valid,
+    // as follows:
+    // var u32_expr1 = (1 + (1 + (1 + (1 + 1)))) + 1u; // TODO: like var u32_expr1:u32=6u;
+    // var u32_expr2 = 1u + (1 + (1 + (1 + (1 + 1)))); // TODO: like var u32_expr2:u32=6u;
+    // var u32_expr3 = (1 + (1 + (1 + (1u + 1)))) + 1; // TODO: like var u32_expr3:u32=6u;
+    // var u32_expr4 = 1 + (1 + (1 + (1 + (1u + 1)))); // TODO: like var u32_expr4:u32=6u;
 
     // Inference based on built-in function parameters.
-    let u32_clamp = clamp(5, 0, u32_from_expr); // literals are u32
-    let i32_clamp = clamp(1, -5, 5); // literals default-materialized to i32
-    let f32_clamp = clamp(0, f32_1, 1); // literals promote AbstractFloat, then infer f32
 
-    // TODO: If AbstractFloat gains support for addition, then these will become valid,
+    // Most-preferred candidate is clamp(i32,i32,i32)->i32
+    let i32_clamp = clamp(1, -5, 5);
+    // Most preferred candidate is clamp(u32,u32,u32).
+    // Literals use automatic conversion AbstractInt to u32.
+    let u32_clamp = clamp(5, 0, u32_from_expr);
+    // Most preferred candidate is clamp(f32,f32,f32)->f32
+    // literals use automatic conversion AbstractInt to f32.
+    let f32_clamp = clamp(0, f32_1, 1);
+
+    // TODO: When AbstractFloat gains support for addition, then these will become valid,
     // via promotion.
-    let f32_promotion1 = 1.0 + 2 + 3 + 4; // invalid for now
-    let f32_promotion2 = 2 + 1.0 + 3 + 4; // invalid for now
-    let f32_promotion3 = 1f + ((2 + 3) + 4); // invalid for now
-    let f32_promotion4 = ((2 + (3 + 1f)) + 4); // invalid for now
+    // let f32_promotion1 = 1.0 + 2 + 3 + 4; // TODO: like let f32_promotion1:f32 = 10f;
+    // let f32_promotion2 = 2 + 1.0 + 3 + 4; // TODO: like let f32_promotion1:f32 = 10f;
+    // let f32_promotion3 = 1f + ((2 + 3) + 4); // TODO: like let f32_promotion1:f32 = 10f;
+    // let f32_promotion4 = ((2 + (3 + 1f)) + 4); // TODO: like let f32_promotion1:f32 = 10f;
 
     // Type rule violations.
-    let mismatch : u32 = 1.0; // invalid, the initializer can only resolve to f32
-    let ambiguous_clamp = clamp(1u, 0, 1i); // There is no overload of clamp that allows
-                                            // mixed sign parameters.
+
+    // Invalid, the initializer can only resolve to f32:
+    // No feasible automatic conversion from AbstractFloat to u32.
+    let mismatch : u32 = 1.0;
+
+    // Invalid. There is no overload of clamp that allows mixed sign parameters.
+    let ambiguous_clamp = clamp(1u, 0, 1i);
 
     // Inference completes at the statement level.
-    let some_i32 = 1; // 1 default materializes to i32 value 1. some_i32 is of type i32
-    let some_f32 : f32 = some_i32; // i32 cannot be assigned to f32
+    
+    // Initializer for a let-declaration must be constructible (or pointer).
+    // The most preferred automatic conversion from AbstractInt to a constructible type
+    // is AbstractInt to i32, with conversion rank 2.  So `1` is inferred as i32.
+    let some_i32 = 1; // like let some_i32: i32 = 1i;
 
+    let some_f32 : f32 = some_i32; // Type error: i32 cannot be assigned to f32
 
     // Another overflow case 
     let overflow_u32 = (1 -2) + 1u; // invalid, -1 is out of range of u32 
