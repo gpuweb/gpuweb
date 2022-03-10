@@ -2,7 +2,7 @@
 
 # FP16 usages support (PR0)
 
-**Roadmap:** This draft extension is **on the standards track**. It is currently intended to be used in Web-compliant contexts, any user with a capable device will be able to use this extension to acquire the FP16 ability. 
+**Roadmap:** This draft extension is **on the standards track**, but is a work in progress. User agents must not implement/expose these features until they are merged into the main specs.
 
 **GPUFeatureName:** `"fp16-in-shader-and-buffer"`
 
