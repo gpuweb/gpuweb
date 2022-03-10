@@ -597,12 +597,30 @@ coordinating with GPU vendors and implementing workarounds for known issues in t
 
 ### Adapter Identifiers ### {#privacy-adapter-identifiers}
 
-Issue: Describe considerations for exposing adapter info
+Past experience with WebGL has demonstrated that developers have a legitimate need to be able to
+identify the GPU their code is running on in order to create and maintain robust GPU-based content.
+For example, to identify adapters with known driver bugs in order to work around them or to avoid
+features that perform more poorly than expected on a given class of hardware.
 
-Note: It is expected that WebGPU will expose some level of information identifying the type of GPU
-Adapter in use. This is a potential source of fingerprinting information but past experience with
-WebGL has demonstrated that it is necessary to some degree in order to enable developers to create
-robust applications and respond effectively to user issues.
+But exposing adapter identifiers also naturally expands the amount of fingerprinting information
+available, so there's a desire to limit the precision with which we identify the adapter.
+
+There are several mitigations that can be applied to strike a balance between enabling robust
+content and preserving privacy. First is that user agents can reduce the burden on developers by
+identifying and working around known driver issues, as they have since browser began making use of
+GPUs.
+
+When adapter identifiers are exposed by default they should be as broad as possible while still
+being useful. Possibly identifying, for example, the adapter's vendor and general architecture
+without identifying the specific adapter in use. Similarly, in some cases identifiers for an adapter
+that is considered a reasonable proxy for the actual adapter may be reported.
+
+In cases where full and detailed information about the adapter is useful (for example: when filing
+bug reports) the user can be asked for consent to reveal additional information about their hardware
+to the page.
+
+Finally, the user agent will always have the discretion to not report adapter identifiers at all if
+if considers it appropriate, such as in enhanced privacy modes.
 
 # Fundamentals # {#fundamentals}
 
@@ -1111,6 +1129,12 @@ An [=adapter=] has the following internal slots:
     : <dfn>\[[fallback]]</dfn>, of type boolean
     ::
         If set to `true` indicates that the adapter is a [=fallback adapter=].
+
+    : <dfn>\[[unmaskedIdentifiers]]</dfn>, of type [=ordered set=]&lt;{{DOMString}}&gt;
+    ::
+        A list of names of {{GPUAdapterInfo}} fields the user agent has chosen to report for this
+        adapter. Initially populated with the names of any {{GPUAdapterInfo}} fields the user agent
+        has chosen to report without user consent.
 </dl>
 
 [=Adapters=] are exposed via {{GPUAdapter}}.
@@ -1521,6 +1545,97 @@ but which the user agent has not been updated to recognize yet. If the [=set ent
 </div>
 </div>
 
+#### <dfn interface>GPUAdapterInfo</dfn> #### {#gpu-adapterinfo}
+
+{{GPUAdapterInfo}} exposes various identifying information about an adapter.
+
+Note: None of the values in {{GPUAdapterInfo}} are guaranteed to be populated. It is at the user
+agent's discretion which values to reveal, and it is likely that on some devices none of the values
+will be populated. As such applications should not be dependent on any values from {{GPUAdapterInfo}}
+to function.
+
+<script type=idl>
+[Exposed=(Window, DedicatedWorker), SecureContext]
+interface GPUAdapterInfo {
+  readonly attribute DOMString vendor;
+  readonly attribute DOMString architecture;
+  readonly attribute long deviceId;
+  readonly attribute DOMString description;
+};
+</script>
+
+{{GPUAdapterInfo}} has the following attributes:
+
+<dl dfn-type=attribute dfn-for=GPUAdapterInfo>
+    : <dfn>vendor</dfn>
+    ::
+        The name of the vendor of the [=adapter=], if avaliable. Empty string otherwise.
+
+    : <dfn>architecture</dfn>
+    ::
+        The name of the family or class of GPUs the [=adapter=] belongs to, if avaliable. Empty
+        string otherwise.
+
+    : <dfn>deviceId</dfn>
+    ::
+        A vendor-specific ID for the [=adapter=], if available. `0` otherwise.
+
+        Note: This is a value that represents the type of adapter. For example, it may be a
+        [PCI device ID](https://pcisig.com/). It does not uniquely identify a given piece of
+        hardware like a serial number.
+
+    : <dfn>description</dfn>
+    ::
+        A human readable string describing the [=adapter=] as reported by the driver, if avaliable.
+        Empty string otherwise.
+
+        Note: Because no formatting is applied to {{GPUAdapterInfo/description}} attempting to parse
+        this value is not recommended. Applications which change their behavior based on the
+        {{GPUAdapterInfo}}, such as applying workarounds for known driver issues, should rely on the
+        other fields when possible.
+
+</dl>
+
+<div algorithm>
+    To create a <dfn abstract-op>new adapter info</dfn> for a given [=adapter=] |adapter|, run the
+    following steps:
+
+    1. Let |adapterInfo| be a new {{GPUAdapterInfo}}.
+    1. Let |unmaskedValues| be |adapter|.{{adapter/[[unmaskedIdentifiers]]}}
+    1. If |unmaskedValues| [=set/contains=] `"vendor"` and the vendor is known:
+        1. Set |adapterInfo|.{{GPUAdapterInfo/vendor}} to the name of |adapter|'s vendor as a
+            [$normalized identifier string$].
+        1. Otherwise set |adapterInfo|.{{GPUAdapterInfo/vendor}} to the empty string or a
+            reasonable approximation of the vendor as a [$normalized identifier string$].
+    1. If |unmaskedValues| [=set/contains=] `"architecture"` and the architecture is known:
+        1. Set |adapterInfo|.{{GPUAdapterInfo/architecture}} to a [$normalized identifier string$]
+            representing the family or class of adapters to which |adapter| belongs.
+        1. Otherwise set |adapterInfo|.{{GPUAdapterInfo/architecture}} to the empty string or a
+            reasonable approximation of the architecture as a [$normalized identifier string$].
+    1. If |unmaskedValues| [=set/contains=] `"deviceId"` and the deviceId is known:
+        1. Set |adapterInfo|.{{GPUAdapterInfo/deviceId}} to a vendor-specific numeric ID for
+            |adapter|.
+        1. Otherwise set |adapterInfo|.{{GPUAdapterInfo/deviceId}} to `0` or a reasonable
+            approximation of the vendor-specific numeric ID for |adapter|.
+    1. If |unmaskedValues| [=set/contains=] `"description"` and a description is known:
+        1. Set |adapterInfo|.{{GPUAdapterInfo/description}} to a description of the |adapter| as
+            reported by the driver.
+        1. Otherwise set |adapterInfo|.{{GPUAdapterInfo/vendor}} to the empty string or a
+            reasonable approximation of a description.
+    1. Return |adapterInfo|.
+</div>
+
+<div algorithm>
+    To generate a <dfn abstract-op>normalized identifier string</dfn> for a given {{DOMString}}
+    |identifier|, run the following steps:
+
+    1. Let |normalized| be a copy of |identifier|.
+    1. Remove any non-ASCII characters from |normalized|.
+    1. Convert |normalized| to lowercase.
+    1. Replace any spaces in |normalized| with a hyphen character. (`"-"`)
+    1. Return |normalized|.
+</div>
+
 ## Origin Restrictions ## {#origin-restrictions}
 
 WebGPU allows accessing image data stored in images, videos, and canvases.
@@ -1826,23 +1941,19 @@ To get a {{GPUAdapter}}, use {{GPU/requestAdapter()}}.
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUAdapter {
-    readonly attribute DOMString name;
     [SameObject] readonly attribute GPUSupportedFeatures features;
     [SameObject] readonly attribute GPUSupportedLimits limits;
     readonly attribute boolean isFallbackAdapter;
+    readonly attribute GPUAdapterInfo info;
 
     Promise<GPUDevice> requestDevice(optional GPUDeviceDescriptor descriptor = {});
+    Promise<GPUAdapterInfo> requestUnmaskedAdapterInfo(sequence<DOMString> hints);
 };
 </script>
 
 {{GPUAdapter}} has the following attributes:
 
 <dl dfn-type=attribute dfn-for=GPUAdapter>
-    : <dfn>name</dfn>
-    ::
-        A human-readable name identifying the adapter.
-        The contents are implementation-defined.
-
     : <dfn>features</dfn>
     ::
         The set of values in `this`.{{GPUAdapter/[[adapter]]}}.{{adapter/[[features]]}}.
@@ -1854,6 +1965,11 @@ interface GPUAdapter {
     : <dfn>isFallbackAdapter</dfn>
     ::
         Returns the value of {{GPUAdapter/[[adapter]]}}.{{adapter/[[fallback]]}}.
+
+    : <dfn>info</dfn>
+    ::
+        Returns a [$new adapter info$] for `this`.{{GPUAdapter/[[adapter]]}}.
+
 </dl>
 
 {{GPUAdapter}} has the following internal slots:
@@ -1933,6 +2049,39 @@ interface GPUAdapter {
                     1. [=Resolve=] |promise| with a new {{GPUDevice}} object encapsulating
                         [=a new device=] with the capabilities described by |descriptor|.
                 </div>
+            1. Return |promise|.
+
+        </div>
+
+    : <dfn>requestUnmaskedAdapterInfo(hints)</dfn>
+    ::
+        Requests additional {{GPUAdapterInfo}} detail.
+
+        Note: Unmasked adapter info values are returned with a Promise to give user agents an
+        opportunity to perform potentially long-running checks, such as asking for user consent,
+        before returning.
+
+        <div algorithm=GPUAdapter.requestUnmaskedAdapterInfo>
+            **Called on:** {{GPUAdapter}} |this|.
+
+            **Arguments:**
+            <pre class=argumentdef for="GPUAdapter/requestUnmaskedAdapterInfo(hints)">
+                |hints|: A list of {{GPUAdapterInfo}} attribute names to update.
+            </pre>
+
+            **Returns:** {{Promise}}&lt;{{GPUAdapterInfo}}&gt;
+
+            1. Let |promise| be [=a new promise=].
+            1. Let |adapter| be |this|.{{GPUAdapter/[[adapter]]}}.
+            1. Run the following steps [=in parallel=]:
+                1. Let |unmaskHints| be a [=list=] of the fields specified in |hints| which the user
+                    agent decides to unmask, if any.
+
+                    Note: The user agent is free to use any method it deems appropriate to decide
+                    which fields to unmask.
+                1. [=set/Append=] |unmaskHints| to |adapter|.{{adapter/[[unmaskedIdentifiers]]}}.
+                1. [=Resolve=] |promise| with a [$new adapter info$] for |adapter|.
+
             1. Return |promise|.
 
         </div>
