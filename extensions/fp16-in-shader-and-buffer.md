@@ -1,6 +1,4 @@
-<!-- PR0 -->
-
-# FP16 usages support (PR0)
+# FP16 usages support
 
 **Roadmap:** This draft extension is **on the standards track**, but is a work in progress. User agents must not implement/expose these features until they are merged into the main specs.
 
@@ -176,7 +174,6 @@ Add conversion expressions between f16 types and others. The conversions between
 	> | *e*: i32 | f16(*e*): f16 | Value conversion, including invalid cases. | 
 	> | *e*: u32 | f16(*e*): f16 | Value conversion, including invalid cases. | 
 	> | *e*: f32 | f16(*e*): f16 | Lossy value conversion. | 
-
 - Merge the following table into the *Vector conversion type rules* table:
 	> | Precondition | Conclusion | Notes |
 	> | - | - | - |
@@ -188,7 +185,6 @@ Add conversion expressions between f16 types and others. The conversions between
 	> | *e*: vec*N*\<i32\> | vec*N*\<f16\>(*e*): vec*N*\<f16\> | Component-wise value conversion, including invalid cases. |
 	> | *e*: vec*N*\<u32\> | vec*N*\<f16\>(*e*): vec*N*\<f16\> | Component-wise value conversion, including invalid cases. |
 	> | *e*: vec*N*\<f32\> | vec*N*\<f16\>(*e*): vec*N*\<f16\> | Component-wise lossy value conversion. |
-
 - Add the following table named *Matrix conversion type rules* at the end of this section:
 	> | Precondition | Conclusion | Notes |
 	> | - | - | - |
@@ -262,7 +258,10 @@ m-->
     - In the first (head) row, split the "Accuracy" cell into two columns, respectively "Accuracy for f32" and "Accuracy for f16"
     - In the 5th row ("`x / y`"), split the cell in second column into two two cloumns, respectively "2.5 ULP for `|y|` in the range \[2^-126, 2^126\]" and "2.5 ULP for `|y|` in the range \[2^-14, 2^14\]"
 - Modify the *Accuracy of built-in functions* table: 
-    - TBD.
+    - In the first (head) row, split the "Accuracy" cell into two columns, respectively "Accuracy for f32" and "Accuracy for f16"
+    - In both 5th and 6th rows ("`atan(x)`" and "`atan2(y,x)`"), split the cells in second columns into two cloumns, respectively "4096 ULP" and "5 ULP"
+    - In both 9th and 37th rows ("`cos(x)`" and "`sin(x)`"), split the cells in second columns into two cloumns, respectively "Absolute error ≤ 2^-11 inside the range of \[-π, π\]" and "Absolute error ≤ 2^-7 inside the range of \[-π, π\]"
+    - In both 14th and 15th rows ("`exp(x)`" and "`exp2(x)`"), split the cells in second columns into two cloumns, respectively "3 + 2 * |x| ULP" and "1 + 2 * |x| ULP"
 
 ### [12.5.2. Floating point conversion](https://www.w3.org/TR/WGSL/#floating-point-conversion)
 
@@ -288,23 +287,119 @@ Make `f16` a valid keyword.
 
 ### [16.3. Float built-in functions](https://www.w3.org/TR/WGSL/#float-builtin-functions)
 
-TBD.
+<!--
+Allow using f16 in all float built-in functions except for `quantizeToF16`, and define new built-in structure for the result of `frexp` and `modf` with f16 types.
+-->
+
+- Modify the table in this section by:
+    - In every row except 11th ("`cross`"), 16th ("`faceForward`"), 20th ("`frexp`" with f32), 21th ("`frexp`" with vec*N*\<f32\>), 30th ("`mix(e1: T ,e2: T ,e3: f32 ) -> T`"), 31th ("`modf`" for f32), 32th ("`modf`" for vec*N*\<f32\>), 33th ("`normalize`"), 35th ("`quantizeToF16`"), 37th ("`reflect`"), 38th ("`refract`"), replace "T is f32 or vec*N*\<f32\>" with "T is f32, f16, vec*N*\<f32\>, or vec*N*\<f16\>" in the cell of "Parameterization" column.
+    - In rows of 11th ("`cross`") and 33th ("`normalize`"), replace "T is f32" with "T is f32 or f16" in the cells of "Parameterization" column.
+    - In rows of 16th ("`faceForward`"), 37th ("`reflect`"), and 38th ("`refract`"), replace "T is vec*N*\<f32\>" with "T is vec*N*\<f32\> or vec*N*\<f16\>" in the cell of "Parameterization" column.
+    - In the 30th row ("`mix(e1: T ,e2: T ,e3: f32 ) -> T`"), modify the "Parameterization" cell into "*T1* is f32 or f16\<br/\>*T2* is vec*N*\<*T1*\>", modify the "Overload" cell into "`mix(e1: T2 ,e2: T2 ,e3: T1 ) -> T2`", replace "Same as mix(e1,e2,T(e3))" in the "Description" cell by "Same as mix(e1,e2,T2(e3))".
+- Merge the following table into the table in this section:
+    > <table>
+    <thead>
+    <tr><th>Parameterization</th><th>Overload</th><th>Description</th></tr>
+    </thead>
+    <tr>
+    <td> T is f16 </td>
+    <td> frexp(e:T) -> __frexp_result_f16 </td>
+    <td> 
+    
+    Splits *e* into a significand and exponent of the form significand * 2^exponent. Returns the __frexp_result_f16 built-in structure, defined as if as follows:
+    
+    ```rust
+    struct __frexp_result_f16 {
+      sig : f16; // significand part
+      exp : i32; // exponent part
+    }
+    ```
+    The magnitude of the significand is in the range of [0.5, 1.0) or 0.
+    </td>
+    </tr>
+    <tr>
+    <td> T is vecN&lt;f16&gt; </td>
+    <td> frexp(e:T) -> __frexp_result_vecN_f16 </td>
+    <td> 
+    
+    Splits the component of *e* into a significand and exponent of the form significand * 2^exponent. Returns the __frexp_result_vecN_f16 built-in structure, defined as if as follows:
+    
+    ```rust
+    struct __frexp_result_vecN_f16 {
+      sig : vecN<f16>; // significand part
+      exp : vecN<i32>; // exponent part
+    }
+    ```
+    The magnitude of each component of the significand is in the range of [0.5, 1.0) or 0.
+    </td>
+    </tr>
+    <tr>
+    <td> T is f16 </td>
+    <td> modf(e:T) -> __modf_result_f16 </td>
+    <td> 
+    
+    Splits *e* into fractional and whole number parts. Returns the __modf_result_f16 built-in structure, defined as if as follows:
+    
+    ```rust
+    struct __modf_result_f16 {
+      fract : f16; // fractional part
+      whole : f16; // whole part
+    }
+    ```
+    </td>
+    </tr>
+    <tr>
+    <td> T is vecN&lt;f16&gt; </td>
+    <td> modf(e:T) -> __modf_result_vecN_f16 </td>
+    <td> 
+    
+    Splits the component of *e* into fractional and whole number parts. Returns the __modf_result_vecN_f16 built-in structure, defined as if as follows:
+    
+    ```rust
+    struct __modf_result_vecN_f16 {
+      fract : vecN<f16>; // fractional part
+      whole : vecN<f16>; // whole part
+    }
+    ```
+    The magnitude of each component of the significand is in the range of [0.5, 1.0) or 0.
+    
+    </td></table>
+    
 
 ### [16.5. Matrix built-in functions](https://www.w3.org/TR/WGSL/#matrix-builtin-functions)
 
-TBD.
+<!--
+Allow using f16 matrix in matrix built-in functions.
+-->
+
+- Modify the table in this section by:
+    - In "Parameterization" column, replace all "T is f32" with "T is f32 or f16".
 
 ### [16.6. Vector built-in functions](https://www.w3.org/TR/WGSL/#vector-builtin-functions)
 
-TBD.
+<!--
+Allow using f16 vector in vector built-in functions.
+-->
+
+- Modify the table in this section by:
+    - In "Parameterization" column, replace the "T is f32" with "T is f32 or f16" in the second row.
 
 ### [16.10. Data packing built-in functions](https://www.w3.org/TR/WGSL/#pack-builtin-functions)
 
-TBD.
+<!--
+Allow using f16 along with f32 in all data packing built-in functions.
+-->
 
-### [16.11. Data unpacking built-in functions](https://www.w3.org/TR/WGSL/#unpack-builtin-functions)
+- Replace the table in this section by the following table:
+    > | Parameterization | Overload | Description |
+    > | - | - | - |
+    > | T is f32 or f16 | `pack4x8snorm(e: vec4<T>) -> u32` | Converts four normalized floating point values to 8-bit signed integers, and then combines them into one u32 value.<br />Component e[i] of the input is converted to an 8-bit twos complement integer value ⌊ 0.5 + 127 × min(1, max(-1, e[i])) ⌋ which is then placed in bits 8 × i through 8 × i + 7 of the result. |
+    > | T is f32 or f16 | `pack4x8unorm(e: vec4<T>) -> u32` | Converts four normalized floating point values to 8-bit unsigned integers, and then combines them into one u32 value.<br/>Component e[i] of the input is converted to an 8-bit unsigned integer value ⌊ 0.5 + 255 × min(1, max(0, e[i])) ⌋ which is then placed in bits 8 × i through 8 × i + 7 of the result. |
+    > | T is f32 or f16 | `pack2x16snorm(e: vec2<T>) -> u32` | 	Converts two normalized floating point values to 16-bit signed integers, and then combines them into one u32 value.<br/>Component e[i] of the input is converted to a 16-bit twos complement integer value ⌊ 0.5 + 32767 × min(1, max(-1, e[i])) ⌋ which is then placed in bits 16 × i through 16 × i + 15 of the result. |
+    > | T is f32 or f16 | `pack2x16unorm(e: vec2<T>) -> u32` | Converts two normalized floating point values to 16-bit unsigned integers, and then combines them into one u32 value.<br/>Component e[i] of the input is converted to a 16-bit unsigned integer value ⌊ 0.5 + 65535 × min(1, max(0, e[i])) ⌋ which is then placed in bits 16 × i through 16 × i + 15 of the result. |
+    > |  | `pack2x16float(e: vec2<f32>) -> u32` | Converts two floating point values to half-precision floating point numbers, and then combines them into one u32 value.<br/>Component e[i] of the input is converted to a IEEE-754 binary16 value, which is then placed in bits 16 × i through 16 × i + 15 of the result. See § 12.5.2 Floating point conversion. |
+    > |  | `pack2x16float(e: vec2<f16>) -> u32` | Combines two f16 floating point numbers into one u32 value. Component e[i] of the input is placed in bits 16 × i through 16 × i + 15 of the result. |
 
-TBD.
 
 ## References
 
