@@ -56,8 +56,10 @@ Define the f16 type along with other existing types, allow f16 matrix, and point
     > The **_f16_** type is the set of 16-bit floating point values of the IEEE-754 binary16 (half precision) format. 
         Using **_f16_** type is allowed if and only if the program has an "enable f16;" directive, otherwise there is a shader-creation error. The support for "enable f16;" directive is optional. See § 12.5 Floating Point Evaluation for details.
 - Modify the section [4.2.4. Scalar Types](https://www.w3.org/TR/WGSL/#scalar-types):
-	> The **_scalar_** types are bool, i32, u32, [Added]f16, and f32.
-	> The **_numeric scalar_** types are i32, u32, [Added]f16, and f32.
+	> The **_scalar_** types are bool, i32, u32, f16, and f32.
+
+	> The **_numeric scalar_** types are i32, u32, f16, and f32.
+	
 	> The **_integer scalar_** types are i32 and u32.
 - Modify the table in section [4.2.6 Matrix Types](https://www.w3.org/TR/WGSL/#matrix-types):
 	> | Type | Description |
