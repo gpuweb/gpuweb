@@ -64,7 +64,7 @@ Define the f16 type along with other existing types, allow f16 matrix, and point
 - Modify the table in section [4.2.6 Matrix Types](https://www.w3.org/TR/WGSL/#matrix-types):
 	> | Type | Description |
 	> | - | - |
-	> | mat*N*x*M*\<*T*\>, *T* is f16 or f32 | Matrix of *N* columns and *M* rows, where *N* and *M* are both in {2, 3, 4}. Equivalently, it can be viewed as *N* column vectors of type vec*M*\<*T*\>. |
+	> | mat*N*x*M*\<*T*\> | Matrix of *N* columns and *M* rows of type *T*, where *N* and *M* are both in {2, 3, 4}, and *T* must be f32 or f16. Equivalently, it can be viewed as *N* column vectors of type vec*M*\<*T*\>. |
 
 ### [4.3. Memory](https://www.w3.org/TR/WGSL/#memory)
 
