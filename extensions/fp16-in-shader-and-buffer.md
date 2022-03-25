@@ -209,10 +209,10 @@ Allow bitcast for f16 vector and other types that have a same bits number.
 - Merge the following table into the *Bitcast type rules* table in this section:
     > | Precondition | Conclusion | Notes |
 	> | - | - | - |
-	> | *e*: vec2\<f16\><br/>*T* is i32, u32, or f32 | bitcast\<*T*\>(*e*): *T* | Reinterpretation of bits as *T*.<br/>The result is the reinterpretation of the 32 bits in *e* as a *T* value, following the internal layout rules. |
-	> | *e*: *T*<br/>*T* is i32, u32, or f32 | bitcast\<vec2\<f16\>\>(*e*): vec2\<f16\> | Reinterpretation of bits as *T*.<br/>The result is the reinterpretation of the 32 bits in *e* as a vec2\<f16\> value, following the internal layout rules. |
-	> | *e*: vec4\<f16\><br/>*T* is vec2\<i32\>, vec2\<u32\>, or vec2\<f32\> | bitcast\<*T*\>(*e*): *T* | Reinterpretation of bits as *T*.<br/>The result is the reinterpretation of the 64 bits in *e* as a *T* value, following the internal layout rules. |
-	> | *e*: *T*<br/>*T* is vec2\<i32\>, vec2\<u32\>, or vec2\<f32\> | bitcast\<vec4\<f16\>\>(*e*): vec4\<f16\> | Reinterpretation of bits as *T*.<br/>The result is the reinterpretation of the 64 bits in *e* as a vec2\<f16\> value, following the internal layout rules. |
+	> | *e*: vec2&lt;f16&gt;<br/>*T* is i32, u32, or f32 | bitcast&lt;*T*&gt;(*e*): *T* | Reinterpretation of bits as *T*.<br/>The result is the reinterpretation of the 32 bits in *e* as a *T* value, following the internal layout rules. |
+	> | *e*: *T*<br/>*T* is i32, u32, or f32 | bitcast&lt;vec2&lt;f16&gt;&gt;(*e*): vec2&lt;f16&gt; | Reinterpretation of bits as vec2&lt;f16&gt;.<br/>The result is the reinterpretation of the 32 bits in *e* as a vec2&lt;f16&gt; value, following the internal layout rules. |
+	> | *e*: vec4&lt;f16&gt;<br/>*T* is i32, u32, or f32 | bitcast&lt;vec2&lt;*T*&gt;&gt;(*e*): vec2&lt;*T*&gt; | Reinterpretation of bits as vec2&lt;*T*&gt;.<br/>The result is the reinterpretation of the 64 bits in *e* as a vec2&lt;*T*&gt; value, following the internal layout rules. |
+	> | *e*: vec2&lt;*T*&gt;<br/>*T* is i32, u32, or f32 | bitcast&lt;vec4&lt;f16&gt;&gt;(*e*): vec4&lt;f16&gt; | Reinterpretation of bits as vec4&lt;f16&gt;.<br/>The result is the reinterpretation of the 64 bits in *e* as a vec4&lt;f16&gt; value, following the internal layout rules. |
 
 ### [6.9. Arithmetic Expressions](https://www.w3.org/TR/WGSL/#arithmetic-expr)
 
