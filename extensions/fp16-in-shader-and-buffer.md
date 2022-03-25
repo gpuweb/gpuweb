@@ -221,11 +221,11 @@ Allow using f16 types for all arithmetic expressions.
 -->
 
 - Modify the *Unary arithmetic expressions* table:
-    - In "Precondition" column, replace "*T* is f32 or vec*N*\<f32\>" with "*T* is f32, f16, vec*N*\<f32\> or vec*N*\<f16\>"
+    - In "Precondition" column, replace "*T* is i32, f32, vec*N*\<i32\> or vec*N*\<f32\>" with "*T* is i32, f32, f16, vec*N*\<i32\>, vec*N*\<f32\> or vec*N*\<f16\>"
 - Modify the *Binary arithmetic expressions* table:
-    - In "Precondition" column, replace all "*T* is f32 or vec*N*\<f32\>" with "*T* is f32, f16, vec*N*\<f32\> or vec*N*\<f16\>"
+    - In "Precondition" column, replace all "*T* is i32, u32, f32, vec*N*\<i32\>, vec*N*\<u32\>, or vec*N*\<f32\>" with "*T* is i32, u32, f32, f16, vec*N*\<i32\>, vec*N*\<u32\>, vec*N*\<f32\>, or vec*N*\<f16\>"
 - Modify the *Binary arithmetic expressions with mixed scalar and vector operands* table:
-    - In "Precondition" column, replace the "*S* is one of f32, i32, u32" with "*S* is one of f32, i32, u32, f16"
+    - In "Precondition" column, replace the "*S* is one of f32, i32, u32" with "*S* is one of i32, u32, f32, f16"
 - Modify the *Matrix arithmetic* table:
     - In "Precondition" column, replace all "f32" with "*T*", and add "*T* is f32 or f16" at the end of each cell in this column
     - In "Conclusions" column, replace all "f32" with "*T*"
