@@ -7,6 +7,8 @@
 ## WebGPU Spec Changes
 
 - Add `"fp16-in-shader-and-buffer"` in `enum GPUFeatureName`.
+- Modify the 4th paragraph of constants in [10.1.2. GPUProgrammableStage](https://www.w3.org/TR/webgpu/#GPUProgrammableStage) section:
+  > Values are specified as `GPUPipelineConstantValue`, which is a `double` which is converted to the WGSL data type of the corresponding pipeline-overridable constant (`bool`, `i32`, `u32`, or `f32`) via [an IDL value](https://webidl.spec.whatwg.org/#dfn-convert-ecmascript-to-idl-value) ([boolean](https://webidl.spec.whatwg.org/#idl-boolean), [long](https://webidl.spec.whatwg.org/#idl-long), [unsigned long](https://webidl.spec.whatwg.org/#idl-unsigned-long), or [float](https://webidl.spec.whatwg.org/#idl-float)). If the "fp16-in-shader-and-buffer" feature is enabled, a  pipeline-overridable constant may be of WGSL data type `f16`. The specified `GPUPipelineConstantValue` for a pipeline-overridable constant of `f16` is convert to [float](https://webidl.spec.whatwg.org/#idl-float) via [an IDL value](https://webidl.spec.whatwg.org/#dfn-convert-ecmascript-to-idl-value), then convert to WGSL type `f16` via IEEE-754 binary32 to IEEE-754 binary16 conversion.
 - Add a `"fp16-in-shader-and-buffer"` section in ["Feature Index"](https://www.w3.org/TR/webgpu/#feature-index) chapter with the following functionality defination.
     > Using "`enable f16;`" directive in WGSL code is allowed if and only if the `"fp16-in-shader-and-buffer"` feature is enabled; otherwise using it must result in a compilation error when creating shader module.
 
