@@ -241,7 +241,7 @@ module.exports = grammar({
     ],
 
     conflicts: $ => [
-        [$.type_decl,$.primary_expression],
+        [$.type_decl,$.function_call_expression],
     ],
 
     word: $ => $.ident,
