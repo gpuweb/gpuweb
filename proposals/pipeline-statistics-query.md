@@ -45,6 +45,7 @@ partial interface GPURenderPassEncoder {
     Ends recording the current pipeline statistics query.
     - If the feature is not enabled, throws a `TypeError`.
     - Fails if a pipeline statistics query is not open.
+    - Fails if the pass is not open.
 - In `createQuerySet()`:
     - If the query set type is `"pipeline-statistics"` but the feature is not enabled, throws a `TypeError`.
 - In `resolveQuerySet()`:
