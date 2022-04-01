@@ -265,12 +265,7 @@ while scanner_i < len(scanner_lines):
                 scanner_record = True
                 if last_key != None and scanner_span.name() == "example":  # TODO Remove special case
                     if last_key in scanner_components[scanner_span.name()]:
-                        # TODO(dneto): this _next text does not appear in the output grammar.
-                        # This seems to be dead code.  Throw an error here instead?
-                        last_key += "_next"
-                        if last_key not in scanner_components[scanner_span.name()]:
-                            scanner_components[scanner_span.name()][last_key] = [
-                            ]
+                        raise RuntimeError("line " + str(scanner_i) + ": example with duplicate name: " + last_key)
                     else:
                         scanner_components[scanner_span.name()][last_key] = []
                 scanner_i += scanner_record_value[-1]
