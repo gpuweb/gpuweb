@@ -273,7 +273,7 @@ while scanner_i < len(scanner_lines):
             # Try parsing this line
             scanner_parse = scanner_span.parse(scanner_lines, scanner_i)
             if scanner_parse[2] < 0:
-                # This line is continues the rule parsed on the immediately preceding lines.
+                # This line continues the rule parsed on the immediately preceding lines.
                 if (scanner_parse[1] != None and
                         last_key != None and
                         last_value != None and
