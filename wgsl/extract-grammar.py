@@ -48,11 +48,77 @@ def scanner_escape_regex(regex):
     return re.escape(regex.strip()).strip().replace("/", "\\/").replace("\\_", "_").replace("\\%", "%").replace("\\;", ";").replace("\\<", "<").replace("\\>", ">").replace("\\=", "=").replace("\\,", ",").replace("\\:", ":").replace("\\!", "!")
 
 
-class scanner_rule:
+# Global variable holding the current line text.
+line = ""
+
+"""
+Scanner classes are used to parse contiguous sets of lines in the WGSL bikeshed
+source text.
+"""
+class Scanner:
+
+    @staticmethod
+    def name():
+        return "my scanner name"
+
+    """
+    Each of the methods below also sets the 'line' global variable with
+    the i'th line, but after stripping trailing line-comments and trailing
+    spaces.
+    """
+
+    """ Returns True if this scanner should be used starting at the i'th line."""
+    @staticmethod
+    def begin(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns True if this scanner stop being used at the i'th line."""
+    @staticmethod
+    def end(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns True if this scanner should start trying to parse the text starting after the i'th line."""
+    @staticmethod
+    def record(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns True if this scanner stop start trying to parse the text starting after the i'th line."""
+    @staticmethod
+    def skip(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns True if this scanner should try to parse this line. Only called when "recording" """
+    @staticmethod
+    def valid(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns a triple resulting from parsing the line.
+      First element:  rule name, if it's a rule
+      Second element:  parsed content
+         For  rule, this is the list of terminals and non-terminals on the right hand side
+         of the rule.
+      Third element:
+         0 if it's the first line of a rule (or the whole rule),
+           or if this just a line of text from the example.
+         -1 if it's a continuation of the previous rule.
+    """
+    @staticmethod
+    def parse(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+
+class scanner_rule(Scanner):
     @staticmethod
     def name():
         return "rule"
 
+    """ Returns true if this scanner should be used starting at the i'th line """
     @staticmethod
     def begin(lines, i):
         line = lines[i].rstrip()
@@ -82,23 +148,36 @@ class scanner_rule:
     def parse(lines, i):
         line = lines[i].rstrip()
         if line[2:].startswith("<dfn for=syntax>"):
+            # When the line is
+            #    <dfn for=syntax>access_mode</dfn>
+            # returns ('access_mode',None,0)
             rule_name = line[2:].split("<dfn for=syntax>")[1]
             rule_name = rule_name.split("</dfn>")[0].strip()
             return (rule_name, None, 0)
         elif line[4:].startswith("| "):
+            # When the line is
+            #    | [=syntax/variable_decl=] [=syntax/equal=] [=syntax/expression=]
+            # returns (None, ['[=syntax/variable_decl=]','[=syntax/equal=]','[=syntax/expression=]',0)
             rule_value = line[6:]
             return (None, rule_value.split(" "), 0)
         elif line[4:].startswith("  "):
+            # For production rule continuation.
+            # When the line is
+            #      [=syntax/variable_decl=] [=syntax/equal=] [=syntax/expression=]
+            # returns (None, ['[=syntax/variable_decl=]','[=syntax/equal=]','[=syntax/expression=]',-1)
             rule_value = line[6:]
             return (None, rule_value.split(" "), -1)
         return (None, None, None)
 
 
-class scanner_example:  # Not an example of a scanner, scanner of examples from specification
+class scanner_example(Scanner):  # Not an example of a scanner, scanner of examples from specification
     @staticmethod
     def name():
         return "example"
 
+    """
+     Returns true if this scanner should be used starting at the i'th line
+    """
     @staticmethod
     def begin(lines, i):
         line = lines[i].split("//")[0].rstrip()
@@ -140,15 +219,17 @@ scanner_spans = [scanner_rule,
 
 scanner_components = {i.name(): {} for i in scanner_spans}
 
-scanner_i = 0
+scanner_i = 0 # line number of the current line
 scanner_span = None
 scanner_record = False
-last_key = None
-last_value = None
+last_key = None   # The rule name, if the most recently parsed thing was a rule.
+last_value = None # The most recently parsed thing
 while scanner_i < len(scanner_lines):
+    # Try both the rule and the example scanners.
     for j in scanner_spans:
         scanner_begin = j.begin(scanner_lines, scanner_i)
         if scanner_begin[0]:
+            # Use this scanner
             scanner_span = None
             scanner_record = False
             last_key = None
@@ -158,36 +239,41 @@ while scanner_i < len(scanner_lines):
                 last_key = scanner_begin[1]
             scanner_i += scanner_begin[-1]
         if scanner_span == j:
+            # Check if we should stop using this scanner.
             scanner_end = j.end(scanner_lines, scanner_i)
             if scanner_end[0]:
+                # Yes, stop using this scanner.
                 scanner_span = None
                 scanner_record = False
                 last_key = None
                 last_value = None
                 scanner_i += scanner_end[-1]
     if scanner_span != None:
+        # We're are in the middle of scanning a span of lines.
         if scanner_record:
             scanner_skip = scanner_span.skip(scanner_lines, scanner_i)
             if scanner_skip[0]:
+                # Stop recording
                 scanner_record = False
-                scanner_i += scanner_skip[-1]
+                scanner_i += scanner_skip[-1]  # Advance past this line
         else:
+            # Should we start recording?
             scanner_record_value = scanner_span.record(
                 scanner_lines, scanner_i)
             if scanner_record_value[0]:
+                # Start recording
                 scanner_record = True
                 if last_key != None and scanner_span.name() == "example":  # TODO Remove special case
                     if last_key in scanner_components[scanner_span.name()]:
-                        last_key += "_next"
-                        if last_key not in scanner_components[scanner_span.name()]:
-                            scanner_components[scanner_span.name()][last_key] = [
-                            ]
+                        raise RuntimeError("line " + str(scanner_i) + ": example with duplicate name: " + last_key)
                     else:
                         scanner_components[scanner_span.name()][last_key] = []
                 scanner_i += scanner_record_value[-1]
         if scanner_record and scanner_span.valid(scanner_lines, scanner_i):
+            # Try parsing this line
             scanner_parse = scanner_span.parse(scanner_lines, scanner_i)
             if scanner_parse[2] < 0:
+                # This line continues the rule parsed on the immediately preceding lines.
                 if (scanner_parse[1] != None and
                         last_key != None and
                         last_value != None and
@@ -197,25 +283,29 @@ while scanner_i < len(scanner_lines):
                     )][last_key][-1] += scanner_parse[1]
             else:
                 if scanner_parse[0] != None:
+                    # It's a rule, with name in the 0'th position.
+                    last_key = scanner_parse[0]
                     if scanner_parse[1] != None:
-                        last_key = scanner_parse[0]
                         last_value = scanner_parse[1]
                         if last_key not in scanner_components[scanner_span.name()]:
+                            # Create a new entry for this rule
                             scanner_components[scanner_span.name()][last_key] = [
                                 last_value]
                         else:
+                            # Append to the existing entry.
                             scanner_components[scanner_span.name()][last_key].append(
                                 last_value)
                     else:
-                        last_key = scanner_parse[0]
+                        # Reset
                         last_value = None
                         scanner_components[scanner_span.name()][last_key] = []
                 else:
+                    # It's example text
                     if scanner_parse[1] != None:
                         last_value = scanner_parse[1]
                         scanner_components[scanner_span.name()][last_key].append(
                             last_value)
-                scanner_i += scanner_parse[-1]
+                scanner_i += scanner_parse[-1] # Advance line index
     scanner_i += 1
 
 
