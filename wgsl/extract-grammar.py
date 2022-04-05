@@ -324,7 +324,7 @@ module.exports = grammar({
     extras: $ => [
         $._comment,
         $._block_comment,
-        $.blankspace,
+        $._blankspace,
     ],
 
     inline: $ => [
@@ -467,7 +467,7 @@ for key, value in scanner_components[scanner_rule.name()].items():
 
 
 for key, value in scanner_components[scanner_rule.name()].items():
-    if key.startswith("_") and key != "_comment" and key != "blankspace" and key not in rule_skip:
+    if key.startswith("_") and key != "_comment" and key != "_blankspace" and key not in rule_skip:
         grammar_source += grammar_from_rule(key, value) + ",\n"
         rule_skip.add(key)
 
@@ -492,8 +492,8 @@ rule_skip.add("_comment")
 
 
 grammar_source += grammar_from_rule(
-    "blankspace", scanner_components[scanner_rule.name()]["blankspace"])
-rule_skip.add("blankspace")
+    "_blankspace", scanner_components[scanner_rule.name()]["_blankspace"])
+rule_skip.add("_blankspace")
 
 
 grammar_source += "\n"
