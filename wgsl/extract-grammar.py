@@ -330,9 +330,8 @@ module.exports = grammar({
         $._reserved,
     ],
 
-    conflicts: $ => [
-        [$.type_decl,$.function_call_expression],
-    ],
+    // WGSL has no parsing conflicts.
+    conflicts: $ => [],
 
     word: $ => $.ident,
 
