@@ -768,9 +768,9 @@ depends on work that happens on any timeline other than the [=Content timeline=]
 They are represented by callbacks and promises in JavaScript.
 
 <div class="example">
-{{GPUComputePassEncoder/dispatch(workgroupCountX, workgroupCountY, workgroupCountZ)|GPUComputePassEncoder.dispatch()}}:
+{{GPUComputePassEncoder/dispatchWorkgroups()|GPUComputePassEncoder.dispatchWorkgroups()}}:
 
-  1. User encodes a `dispatch` command by calling a method of the
+  1. User encodes a `dispatchWorkgroups` command by calling a method of the
     {{GPUComputePassEncoder}} which happens on the [=Content timeline=].
   2. User issues {{GPUQueue/submit(commandBuffers)|GPUQueue.submit()}} that hands over
     the {{GPUCommandBuffer}} to the user agent, which processes it
@@ -907,20 +907,92 @@ The [=subresources=] of textures included in the views provided to
 {{GPURenderPassColorAttachment/resolveTarget|GPURenderPassColorAttachment.resolveTarget}}
 are considered to be used as [=internal usage/attachment=] for the [=usage scope=] of this render pass.
 
-The <dfn dfn>physical size</dfn> of a [=texture subresource=] is the dimension of the
-[=texture subresource=] in texels that includes the possible extra paddings
-to form complete [=texel blocks=] in the [=subresource=].
+The <dfn dfn>logical miplevel-specific texture extent</dfn> of a [=texture=] is the size of the
+[=texture=] in texels at a specific miplevel. It is calculated by this procedure:
 
-  - For pixel-based {{GPUTextureFormat|GPUTextureFormats}}, the [=physical size=] is always equal to the size of the [=texture subresource=]
-    used in the sampling hardware.
-  - [=Textures=] in block-based compressed {{GPUTextureFormat|GPUTextureFormats}} always have a [=mipmap level=] 0 whose {{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/size}}
-    is a multiple of the [=texel block size=], but the lower mipmap levels might not be
-    multiples of the [=texel block size=] and can have paddings.
+<div algorithm>
+    <dfn abstract-op>Logical miplevel-specific texture extent</dfn>(descriptor, mipLevel)
 
-<div class="example">
-Considering a {{GPUTexture}} in BC format whose {{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/size}} is {60, 60, 1}, when sampling
-the {{GPUTexture}} at [=mipmap level=] 2, the sampling hardware uses {15, 15, 1} as the size of the [=texture subresource=],
-while its [=physical size=] is {16, 16, 1} as the block-compression algorithm can only operate on 4x4 [=texel blocks=].
+    **Arguments:**
+
+    - {{GPUTextureDescriptor}} |descriptor|
+    - {{GPUSize32}} |mipLevel|
+
+    **Returns:** {{GPUExtent3DDict}}
+
+    1. Let |extent| be a new {{GPUExtent3DDict}} object.
+    1. If |descriptor|.{{GPUTextureDescriptor/dimension}} is:
+        <dl class="switch">
+            : {{GPUTextureDimension/"1d"}}
+            ::
+                Set |extent|.{{GPUExtent3DDict/width}} to max(1, |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/width=] &Gt; |mipLevel|).
+
+                Set |extent|.{{GPUExtent3DDict/height}} to 1.
+
+                Set |extent|.{{GPUExtent3DDict/depthOrArrayLayers}} to |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/depthOrArrayLayers=].
+
+            : {{GPUTextureDimension/"2d"}}
+            ::
+                Set |extent|.{{GPUExtent3DDict/width}} to max(1, |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/width=] &Gt; |mipLevel|).
+
+                Set |extent|.{{GPUExtent3DDict/height}} to max(1, |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/height=] &Gt; |mipLevel|).
+
+                Set |extent|.{{GPUExtent3DDict/depthOrArrayLayers}} to |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/depthOrArrayLayers=].
+
+            : {{GPUTextureDimension/"3d"}}
+            ::
+                Set |extent|.{{GPUExtent3DDict/width}} to max(1, |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/width=] &Gt; |mipLevel|).
+
+                Set |extent|.{{GPUExtent3DDict/height}} to max(1, |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/height=] &Gt; |mipLevel|).
+
+                Set |extent|.{{GPUExtent3DDict/depthOrArrayLayers}} to max(1, |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/depthOrArrayLayers=] &Gt; |mipLevel|).
+        </dl>
+    1. Return |extent|.
+</div>
+
+The <dfn dfn>physical miplevel-specific texture extent</dfn> of a [=texture=] is the size of the
+[=texture=] in texels at a specific miplevel that includes the possible extra padding
+to form complete [=texel blocks=] in the [=texture=]. It is calculated by this procedure:
+
+<div algorithm>
+    <dfn abstract-op>Physical miplevel-specific texture extent</dfn>(descriptor, mipLevel)
+
+    **Arguments:**
+
+    - {{GPUTextureDescriptor}} |descriptor|
+    - {{GPUSize32}} |mipLevel|
+
+    **Returns:** {{GPUExtent3DDict}}
+
+    1. Let |extent| be a new {{GPUExtent3DDict}} object.
+    1. Let |logicalExtent| be [=logical miplevel-specific texture extent=](|descriptor|, |mipLevel|).
+    1. If |descriptor|.{{GPUTextureDescriptor/dimension}} is:
+        <dl class="switch">
+            : {{GPUTextureDimension/"1d"}}
+            ::
+                Set |extent|.{{GPUExtent3DDict/width}} to |logicalExtent|.[=Extent3D/width=] rounded up to the nearest multiple of |descriptor|'s [=texel block width=].
+
+                Set |extent|.{{GPUExtent3DDict/height}} to 1.
+
+                Set |extent|.{{GPUExtent3DDict/depthOrArrayLayers}} to |logicalExtent|.[=Extent3D/depthOrArrayLayers=].
+
+            : {{GPUTextureDimension/"2d"}}
+            ::
+                Set |extent|.{{GPUExtent3DDict/width}} to |logicalExtent|.[=Extent3D/width=] rounded up to the nearest multiple of |descriptor|'s [=texel block width=].
+
+                Set |extent|.{{GPUExtent3DDict/height}} to |logicalExtent|.[=Extent3D/height=] rounded up to the nearest multiple of |descriptor|'s [=texel block height=].
+
+                Set |extent|.{{GPUExtent3DDict/depthOrArrayLayers}} to |logicalExtent|.[=Extent3D/depthOrArrayLayers=].
+
+            : {{GPUTextureDimension/"3d"}}
+            ::
+                Set |extent|.{{GPUExtent3DDict/width}} to |logicalExtent|.[=Extent3D/width=] rounded up to the nearest multiple of |descriptor|'s [=texel block width=].
+
+                Set |extent|.{{GPUExtent3DDict/height}} to |logicalExtent|.[=Extent3D/height=] rounded up to the nearest multiple of |descriptor|'s [=texel block height=].
+
+                Set |extent|.{{GPUExtent3DDict/depthOrArrayLayers}} to |logicalExtent|.[=Extent3D/depthOrArrayLayers=].
+        </dl>
+    1. Return |extent|.
 </div>
 
 ### Synchronization ### {#programming-model-synchronization}
@@ -939,8 +1011,8 @@ This specification defines the following [=usage scopes=]:
 
 - Outside of a pass (in {{GPUCommandEncoder}}), each (non-state-setting) command is one usage scope
     (e.g. {{GPUCommandEncoder/copyBufferToTexture()}}).
-- In a compute pass, each dispatch command ({{GPUComputePassEncoder/dispatch()}} or
-    {{GPUComputePassEncoder/dispatchIndirect()}}) is one usage scope.
+- In a compute pass, each dispatch command ({{GPUComputePassEncoder/dispatchWorkgroups()}} or
+    {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}) is one usage scope.
     A subresource is "used" in the usage scope if it is potentially accessible by the command.
     Within a dispatch, for each bind group slot that is used by the current {{GPUComputePipeline}}'s
     {{GPUPipelineBase/[[layout]]}}, every [=subresource=] referenced by
@@ -1364,7 +1436,7 @@ applications should generally request the "worst" limits that work for their con
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>65535
     <tr class=row-continuation><td colspan=4>
         The maximum value for the arguments of
-        {{GPUComputePassEncoder/dispatch(workgroupCountX, workgroupCountY, workgroupCountZ)}}.
+        {{GPUComputePassEncoder/dispatchWorkgroups(workgroupCountX, workgroupCountY, workgroupCountZ)}}.
 
 </table>
 
@@ -2923,16 +2995,19 @@ enum GPUTextureAspect {
                     1. If any of the following requirements are unmet:
                         <div class=validusage>
                             - |this| is [=valid=]
-                            - If the |descriptor|.{{GPUTextureViewDescriptor/aspect}} is
-                                <dl class="switch">
-                                    : {{GPUTextureAspect/"stencil-only"}}
-                                    :: |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}} must be a
-                                        [=depth-or-stencil format=] which has a stencil aspect.
+                            - |descriptor|.{{GPUTextureViewDescriptor/aspect}} must be present in
+                                |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}}.
+                            - If the |descriptor|.{{GPUTextureViewDescriptor/aspect}} is {{GPUTextureAspect/"all"}}:
+                                - |descriptor|.{{GPUTextureViewDescriptor/format}} must be equal to either
+                                        |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}} or one
+                                        of the formats in |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/viewFormats}}.
 
-                                    : {{GPUTextureAspect/"depth-only"}}
-                                    :: |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}} must be a
-                                        [=depth-or-stencil format=] which has a depth aspect.
-                                </dl>
+                                Otherwise:
+
+                                - |descriptor|.{{GPUTextureViewDescriptor/format}} must be equal to the result of [$resolving GPUTextureAspect$](
+                                    |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}},
+                                    |descriptor|.{{GPUTextureViewDescriptor/aspect}}).
+
                             - |descriptor|.{{GPUTextureViewDescriptor/mipLevelCount}} must be &gt; 0.
                             - |descriptor|.{{GPUTextureViewDescriptor/baseMipLevel}} +
                                 |descriptor|.{{GPUTextureViewDescriptor/mipLevelCount}} must be &le;
@@ -2941,9 +3016,8 @@ enum GPUTextureAspect {
                             - |descriptor|.{{GPUTextureViewDescriptor/baseArrayLayer}} +
                                 |descriptor|.{{GPUTextureViewDescriptor/arrayLayerCount}} must be &le;
                                 the [$array layer count$] of |this|.
-                            - |descriptor|.{{GPUTextureViewDescriptor/format}} must be equal to either
-                                |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}}
-                                or one of the formats in |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/viewFormats}}.
+                            - If |this|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/sampleCount}} is &gt; 1,
+                                |descriptor|.{{GPUTextureViewDescriptor/dimension}} must be {{GPUTextureViewDimension/"2d"}}.
                             - If |descriptor|.{{GPUTextureViewDescriptor/dimension}} is:
                                 <dl class="switch">
                                     : {{GPUTextureViewDimension/"1d"}}
@@ -2996,7 +3070,15 @@ enum GPUTextureAspect {
 
     1. Let |resolved| be a copy of |descriptor|.
     1. If |resolved|.{{GPUTextureViewDescriptor/format}} is `undefined`,
-        set |resolved|.{{GPUTextureViewDescriptor/format}} to |texture|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}}.
+        1. Let |format| be the result of [$resolving GPUTextureAspect$](
+                {{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}},
+                |descriptor|.{{GPUTextureViewDescriptor/aspect}}).
+        1. If |format| is `null`:
+            - Set |resolved|.{{GPUTextureViewDescriptor/format}} to |texture|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/format}}.
+
+            Otherwise:
+
+            - Set |resolved|.{{GPUTextureViewDescriptor/format}} to |format|.
     1. If |resolved|.{{GPUTextureViewDescriptor/mipLevelCount}} is `undefined`,
         set |resolved|.{{GPUTextureViewDescriptor/mipLevelCount}} to |texture|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/mipLevelCount}}
         &minus; |resolved|.{{GPUTextureViewDescriptor/baseMipLevel}}.
@@ -3097,7 +3179,8 @@ and a single compressed block of the textures in block-based compressed {{GPUTex
 The <dfn dfn>texel block width</dfn> and <dfn dfn>texel block height</dfn> specifies the dimension of one [=texel block=].
   - For pixel-based {{GPUTextureFormat}}s, the [=texel block width=] and [=texel block height=] are always 1.
   - For block-based compressed {{GPUTextureFormat}}s, the [=texel block width=] is the number of texels in each row of one [=texel block=],
-    and the [=texel block height=] is the number of texel rows in one [=texel block=].
+    and the [=texel block height=] is the number of texel rows in one [=texel block=]. See [[#texture-format-caps]] for an exhaustive list
+    of values for every texture format.
 
 The <dfn dfn>texel block size</dfn> of a {{GPUTextureFormat}} is the number of bytes to store one [=texel block=].
 The [=texel block size=] of each {{GPUTextureFormat}} is constant except for {{GPUTextureFormat/"stencil8"}}, {{GPUTextureFormat/"depth24plus"}}, and {{GPUTextureFormat/"depth24plus-stencil8"}}.
@@ -3249,6 +3332,29 @@ A <dfn>renderable format</dfn> is either a <dfn>color renderable format</dfn>, o
 If a format is listed in [[#plain-color-formats]] with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability, it is a
 color renderable format. Any other format is not a color renderable format.
 All [=depth-or-stencil formats=] are renderable.
+
+<div algorithm>
+    <dfn abstract-op>resolving GPUTextureAspect</dfn>(format, aspect)
+
+    **Arguments:**
+        - {{GPUTextureFormat}} |format|
+        - {{GPUTextureAspect}} |aspect|
+
+    **Returns:** {{GPUTextureFormat}} or `null`
+
+    1. If |aspect| is:
+        <dl class="switch">
+            : {{GPUTextureAspect/"all"}}
+            :: Return |format|.
+
+            : {{GPUTextureAspect/"depth-only"}}
+            : {{GPUTextureAspect/"stencil-only"}}
+            :: If |format| is a depth-stencil-format:
+                Return the [=aspect-specific format=] of |format| according to [[#depth-formats]] or `null` if
+                    the aspect is not present in |format|.
+        </dl>
+    1. Return `null`.
+</div>
 
 ## <dfn interface>GPUExternalTexture</dfn> ## {#gpu-external-texture}
 
@@ -3662,6 +3768,7 @@ enum GPUCompareFunction {
 
 <div algorithm>
     <dfn abstract-op>validating GPUSamplerDescriptor</dfn>(device, descriptor)
+
     **Arguments:**
         - {{GPUDevice}} |device|
         - {{GPUSamplerDescriptor}} |descriptor|
@@ -4435,10 +4542,10 @@ Note: using the same {{GPUPipelineLayout}} for many {{GPURenderPipeline}} or {{G
   1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(1, ...)}}
   1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(2, ...)}}
   1. {{GPUComputePassEncoder/setPipeline(pipeline)|setPipeline(X)}}
-  1. {{GPUComputePassEncoder/dispatch(workgroupCountX, workgroupCountY, workgroupCountZ)|dispatch()}}
+  1. {{GPUComputePassEncoder/dispatchWorkgroups()|dispatchWorkgroups()}}
   1. {{GPUProgrammablePassEncoder/setBindGroup(index, bindGroup, dynamicOffsets)|setBindGroup(1, ...)}}
   1. {{GPUComputePassEncoder/setPipeline(pipeline)|setPipeline(Y)}}
-  1. {{GPUComputePassEncoder/dispatch(workgroupCountX, workgroupCountY, workgroupCountZ)|dispatch()}}
+  1. {{GPUComputePassEncoder/dispatchWorkgroups()|dispatchWorkgroups()}}
 
 In this scenario, the user agent would have to re-bind the group slot 2 for the second dispatch, even though neither the {{GPUBindGroupLayout}} at index 2 of {{GPUPipelineLayout/[[bindGroupLayouts]]|GPUPipelineLayout.bindGrouplayouts}}, or the {{GPUBindGroup}} at slot 2, change.
 </div>
@@ -5122,7 +5229,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
             some [=pipeline-overridable=] constant defined in the shader module
             |descriptor|.{{GPUProgrammableStage/module}} by code points and
             not by [=UAX15 Equivalences=] for [[!UnicodeVersion14|Unicode Version 14.0.0]].
-            
+
             Note: User agents should consider issuing developer-visible warnings in most or all
             situations where display of two names with different code point sequences
             look the same to the reader, such as ones same under canonical equivalence with
@@ -6706,7 +6813,7 @@ Issue: Does the term "image copy" include copyTextureToTexture?
   The [=imageCopyTexture subresource size=] of |imageCopyTexture| is calculated as follows:
 
   Its [=Extent3D/width=], [=Extent3D/height=] and [=Extent3D/depthOrArrayLayers=] are the width, height, and depth, respectively,
-  of the [=physical size=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}} [=subresource=] at [=mipmap level=]
+  of the [=physical miplevel-specific texture extent=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}} [=subresource=] at [=mipmap level=]
   |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}}.
 
 </div>
@@ -6827,10 +6934,12 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
                         - [$validating GPUImageCopyTexture$](|destination|, |copySize|) returns `true`.
                         - |dstTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_DST}}.
                         - |dstTextureDesc|.{{GPUTextureDescriptor/sampleCount}} is 1.
+                        - Let |aspectSpecificFormat| = |dstTextureDesc|.{{GPUTextureDescriptor/format}}.
                         - If |dstTextureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=]:
                             - |destination|.{{GPUImageCopyTexture/aspect}} must refer to a single aspect of
-                                |dstTextureDesc|.{{GPUTextureDescriptor/format}}, and that aspect must be
-                                a valid image copy destination according to [[#depth-formats]].
+                                |dstTextureDesc|.{{GPUTextureDescriptor/format}}.
+                            - That aspect must be a valid image copy destination according to [[#depth-formats]].
+                            - Set |aspectSpecificFormat| to the [=aspect-specific format=] according to [[#depth-formats]].
                         - [=validating texture copy range=](|destination|, |copySize|) return `true`.
                         - If |dstTextureDesc|.{{GPUTextureDescriptor/format}} is not a [=depth-or-stencil format=]:
                             - |source|.{{GPUImageDataLayout/offset}} is a multiple of the [=texel block size=] of
@@ -6839,7 +6948,7 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
                             - |source|.{{GPUImageDataLayout/offset}} is a multiple of 4.
                         - [$validating linear texture data$](|source|,
                             |source|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[size]]}},
-                            |dstTextureDesc|.{{GPUTextureDescriptor/format}},
+                            |aspectSpecificFormat|,
                             |copySize|) succeeds.
                     </div>
             </div>
@@ -6871,10 +6980,12 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
                         - [$validating GPUImageCopyTexture$](|source|, |copySize|) returns `true`.
                         - |srcTextureDesc|.{{GPUTextureDescriptor/usage}} contains {{GPUTextureUsage/COPY_SRC}}.
                         - |srcTextureDesc|.{{GPUTextureDescriptor/sampleCount}} is 1.
-                        - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is a depth-stencil format:
+                        - Let |aspectSpecificFormat| = |srcTextureDesc|.{{GPUTextureDescriptor/format}}.
+                        - If |srcTextureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=] format:
                             - |source|.{{GPUImageCopyTexture/aspect}} must refer to a single aspect of
-                                |srcTextureDesc|.{{GPUTextureDescriptor/format}}, and that aspect must be
-                                a valid image copy source according to [[#depth-formats]].
+                                |srcTextureDesc|.{{GPUTextureDescriptor/format}}.
+                            - That aspect must be a valid image copy source according to [[#depth-formats]].
+                            - Set |aspectSpecificFormat| to the [=aspect-specific format=] according to [[#depth-formats]].
                         - [$validating GPUImageCopyBuffer$](|destination|) returns `true`.
                         - |destination|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[usage]]}} contains
                             {{GPUBufferUsage/COPY_DST}}.
@@ -6886,7 +6997,7 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
                             - |destination|.{{GPUImageDataLayout/offset}} is a multiple of 4.
                         - [$validating linear texture data$](|destination|,
                             |destination|.{{GPUImageCopyBuffer/buffer}}.{{GPUBuffer/[[size]]}},
-                            |srcTextureDesc|.{{GPUTextureDescriptor/format}},
+                            |aspectSpecificFormat|,
                             |copySize|) succeeds.
                     </div>
             </div>
@@ -7102,6 +7213,10 @@ interface mixin GPUProgrammablePassEncoder {
     : <dfn>\[[bind_groups]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, {{GPUBindGroup}}&gt;
     ::
         The current {{GPUBindGroup}} for each index, initially empty.
+
+    : <dfn>\[[dynamic_offsets]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, sequence<{{GPUBufferDynamicOffset}}>&gt;
+    ::
+        The current dynamic offsets for each {{GPUProgrammablePassEncoder/[[bind_groups]]}} entry, initially empty.
 </dl>
 
 ## Bind Groups ## {#programmable-passes-bind-groups}
@@ -7121,7 +7236,9 @@ interface mixin GPUProgrammablePassEncoder {
 
                 <!--The overload appears to be confusing bikeshed, and it ends up expecting this to
                 define the arguments for the 5-arg variant of the method, despite the "for"
-                explicitly pointing at the 3-arg variant.-->
+                explicitly pointing at the 3-arg variant. See
+                https://github.com/plinss/widlparser/issues/56 and
+                https://github.com/tabatkins/bikeshed/issues/1740 -->
                 <!--|dynamicOffsets|: Array containing buffer offsets in bytes for each entry in
                     |bindGroup| marked as {{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/hasDynamicOffset}}.-->
             </pre>
@@ -7130,6 +7247,12 @@ interface mixin GPUProgrammablePassEncoder {
                 defining |dynamicOffsets|.
 
             **Returns:** {{undefined}}
+
+            Note:
+            |dynamicOffsets|[|i|] is used for the |i|-th dynamic buffer binding in the bind group,
+            when bindings are ordered by {{GPUBindGroupLayoutEntry}}.{{GPUBindGroupLayoutEntry/binding}}.
+            Said differently |dynamicOffsets| are in the same order as dynamic buffer binding's
+            {{GPUBindGroupLayoutEntry}}.{{GPUBindGroupLayoutEntry/binding}}.
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
@@ -7159,6 +7282,7 @@ interface mixin GPUProgrammablePassEncoder {
 
                     </div>
                 1. Set |this|.{{GPUProgrammablePassEncoder/[[bind_groups]]}}[|index|] to be |bindGroup|.
+                1. Set |this|.{{GPUProgrammablePassEncoder/[[dynamic_offsets]]}}[|index|] to be a copy of |dynamicOffsets|.
             </div>
         </div>
 
@@ -7202,7 +7326,7 @@ interface mixin GPUProgrammablePassEncoder {
 
     1. Let |dynamicOffsetIndex| be `0`.
     1. Let |layout| be |bindGroup|.{{GPUBindGroup/[[layout]]}}.
-    1. For each {{GPUBindGroupEntry}} |entry| in |bindGroup|.{{GPUBindGroup/[[entries]]}}:
+    1. For each {{GPUBindGroupEntry}} |entry| in |bindGroup|.{{GPUBindGroup/[[entries]]}} ordered in increasing values of |entry|.{{GPUBindGroupEntry/binding}}:
         1. Let |bindingDescriptor| be the {{GPUBindGroupLayoutEntry}} at
             |layout|.{{GPUBindGroupLayout/[[entryMap]]}}[|entry|.{{GPUBindGroupEntry/binding}}]:
         1. If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}} is not `undefined` and
@@ -7402,8 +7526,8 @@ interface mixin GPUDebugCommandsMixin {
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUComputePassEncoder {
     undefined setPipeline(GPUComputePipeline pipeline);
-    undefined dispatch(GPUSize32 workgroupCountX, optional GPUSize32 workgroupCountY = 1, optional GPUSize32 workgroupCountZ = 1);
-    undefined dispatchIndirect(GPUBuffer indirectBuffer, GPUSize64 indirectOffset);
+    undefined dispatchWorkgroups(GPUSize32 workgroupCountX, optional GPUSize32 workgroupCountY = 1, optional GPUSize32 workgroupCountZ = 1);
+    undefined dispatchWorkgroupsIndirect(GPUBuffer indirectBuffer, GPUSize64 indirectOffset);
 
     undefined end();
 };
@@ -7491,7 +7615,7 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
             </div>
         </div>
 
-    : <dfn>dispatch(workgroupCountX, workgroupCountY, workgroupCountZ)</dfn>
+    : <dfn>dispatchWorkgroups(workgroupCountX, workgroupCountY, workgroupCountZ)</dfn>
     ::
         Dispatch work to be performed with the current {{GPUComputePipeline}}.
         See [[#computing-operations]] for the detailed specification.
@@ -7500,11 +7624,25 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
             **Called on:** {{GPUComputePassEncoder}} this.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUComputePassEncoder/dispatch(workgroupCountX, workgroupCountY, workgroupCountZ)">
+            <pre class=argumentdef for="GPUComputePassEncoder/dispatchWorkgroups(workgroupCountX, workgroupCountY, workgroupCountZ)">
                 |workgroupCountX|: X dimension of the grid of workgroups to dispatch.
                 |workgroupCountY|: Y dimension of the grid of workgroups to dispatch.
                 |workgroupCountZ|: Z dimension of the grid of workgroups to dispatch.
             </pre>
+
+            <div class=note>
+                Note: The `x`, `y`, and `z` values passed to {{GPUComputePassEncoder/dispatchWorkgroups()}}
+                and {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}} are the number of
+                *workgroups* to dispatch for each dimension, *not* the number of shader invocations
+                to perform across each dimension. This matches the behavior of modern native GPU
+                APIs, but differs from the behavior of OpenCL.
+
+                This means that if a {{GPUShaderModule}} defines an entry point with
+                `@workgroup_size(4, 4)`, and work is dispatched to it with the call
+                `computePass.dispatchWorkgroups(8, 8);` the entry point will be invoked 1024 times
+                total: Dispatching a 4x4 workgroup 8 times along both the X and Y axes.
+                (`4*4*8*8=1024`)
+            </div>
 
             **Returns:** {{undefined}}
 
@@ -7530,7 +7668,7 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
             </div>
         </div>
 
-    : <dfn>dispatchIndirect(indirectBuffer, indirectOffset)</dfn>
+    : <dfn>dispatchWorkgroupsIndirect(indirectBuffer, indirectOffset)</dfn>
     ::
         Dispatch work to be performed with the current {{GPUComputePipeline}} using parameters read
         from a {{GPUBuffer}}.
@@ -7538,7 +7676,8 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
 
         The <dfn dfn for=>indirect dispatch parameters</dfn> encoded in the buffer must be a tightly
         packed block of **three 32-bit unsigned integer values (12 bytes total)**,
-        given in the same order as the arguments for {{GPUComputePassEncoder/dispatch()}}. For example:
+        given in the same order as the arguments for {{GPUComputePassEncoder/dispatchWorkgroups()}}.
+        For example:
 
         <pre highlight="js">
             let dispatchIndirectParameters = new Uint32Array(3);
@@ -7551,7 +7690,7 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
             **Called on:** {{GPUComputePassEncoder}} this.
 
             **Arguments:**
-            <pre class=argumentdef for="GPUComputePassEncoder/dispatchIndirect(indirectBuffer, indirectOffset)">
+            <pre class=argumentdef for="GPUComputePassEncoder/dispatchWorkgroupsIndirect(indirectBuffer, indirectOffset)">
                 |indirectBuffer|: Buffer containing the [=indirect dispatch parameters=].
                 |indirectOffset|: Offset in bytes into |indirectBuffer| where the dispatch data begins.
             </pre>
@@ -7578,18 +7717,6 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
             no workgroups will be dispatched.
         </div>
 </dl>
-
-<div class=note>
-Note: The `x`, `y`, and `z` values passed to {{GPUComputePassEncoder/dispatch()}} and
-{{GPUComputePassEncoder/dispatchIndirect()}} are the number of *workgroups* to dispatch for each
-dimension, *not* the number of shader invocations to perform across each dimension. This matches the
-behavior of modern native GPU APIs, but differs from the behavior of OpenCL.
-
-This means that if a {{GPUShaderModule}} defines an entry point with `@workgroup_size(4, 4)`, and
-work is dispatched to it with the call `computePass.dispatch(8, 8);` the entry point will be invoked
-1024 times total: Dispatching of a 4x4 workgroup 8 times along both the X and Y axes.
-(`4*4*8*8=1024`)
-</div>
 
 ### Finalization ### {#compute-pass-encoder-finalization}
 
@@ -7896,7 +8023,7 @@ dictionary GPURenderPassColorAttachment {
     ::
         Indicates the value to clear {{GPURenderPassColorAttachment/view}} to prior to executing the
         render pass. If not [=map/exist|provided=] defaults to `{r: 0, g: 0, b: 0, a: 0}`. Ignored
-        if {{GPURenderPassColorAttachment/loadOp}} if not {{GPULoadOp/"clear"}}.
+        if {{GPURenderPassColorAttachment/loadOp}} is not {{GPULoadOp/"clear"}}.
 
     : <dfn>loadOp</dfn>
     ::
@@ -7979,7 +8106,7 @@ dictionary GPURenderPassDepthStencilAttachment {
     ::
         Indicates the value to clear {{GPURenderPassDepthStencilAttachment/view}}'s depth component
         to prior to executing the render pass. Ignored if {{GPURenderPassDepthStencilAttachment/depthLoadOp}}
-        if not {{GPULoadOp/"clear"}}. Must be between 0.0 and 1.0, inclusive.
+        is not {{GPULoadOp/"clear"}}. Must be between 0.0 and 1.0, inclusive.
         <!-- unless unrestricted depth is enabled -->
 
     : <dfn>depthLoadOp</dfn>
@@ -8005,7 +8132,7 @@ dictionary GPURenderPassDepthStencilAttachment {
     ::
         Indicates the value to clear {{GPURenderPassDepthStencilAttachment/view}}'s stencil component
         to prior to executing the render pass. Ignored if {{GPURenderPassDepthStencilAttachment/stencilLoadOp}}
-        if not {{GPULoadOp/"clear"}}.
+        is not {{GPULoadOp/"clear"}}.
 
     : <dfn>stencilLoadOp</dfn>
     ::
@@ -8983,14 +9110,6 @@ GPUQueue includes GPUObjectBase;
             1. Let |dataBytes| be [=get a copy of the buffer source|a copy of the bytes held by the buffer source=] |data|.
             1. Let |dataByteSize| be the number of bytes in |dataBytes|.
             1. Let |textureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
-            1. If any of the following conditions are unsatisfied,
-                throw {{OperationError}} and stop.
-                <div class=validusage>
-                    - [$validating linear texture data$](|dataLayout|,
-                        |dataByteSize|,
-                        |textureDesc|.{{GPUTextureDescriptor/format}},
-                        |size|) succeeds.
-                </div>
             1. Let |contents| be the contents of the [=images=] seen by
                 viewing |dataBytes| with |dataLayout| and |size|.
 
@@ -9005,8 +9124,15 @@ GPUQueue includes GPUObjectBase;
                             - |textureDesc|.{{GPUTextureDescriptor/sampleCount}} is 1.
                             - [=validating texture copy range=](|destination|, |size|) return `true`.
                             - |destination|.{{GPUImageCopyTexture/aspect}} must refer to a single aspect of
-                                |textureDesc|.{{GPUTextureDescriptor/format}}, and that aspect must be
-                                a valid image copy destination according to [[#depth-formats]].
+                                |textureDesc|.{{GPUTextureDescriptor/format}}.
+                            - That aspect must be a valid image copy destination according to [[#depth-formats]].
+                            - Let |aspectSpecificFormat| = |textureDesc|.{{GPUTextureDescriptor/format}}.
+                            - If |textureDesc|.{{GPUTextureDescriptor/format}} is a [=depth-or-stencil format=]:
+                                - Set |aspectSpecificFormat| to the [=aspect-specific format=] of |textureDesc|.{{GPUTextureDescriptor/format}} according to [[#depth-formats]].
+                            - [$validating linear texture data$](|dataLayout|,
+                                |dataByteSize|,
+                                |aspectSpecificFormat|,
+                                |size|) succeeds.
 
                             Note: unlike
                             {{GPUCommandEncoder}}.{{GPUCommandEncoder/copyBufferToTexture()}},
@@ -9977,8 +10103,8 @@ Compute shaders do not have pipeline inputs or outputs, their results are
 side effects from writing data into storage bindings bound as
 {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} and {{GPUStorageTextureBindingLayout}}.
 These operations are encoded within {{GPUComputePassEncoder}} as:
-  - {{GPUComputePassEncoder/dispatch()}}
-  - {{GPUComputePassEncoder/dispatchIndirect()}}
+  - {{GPUComputePassEncoder/dispatchWorkgroups()}}
+  - {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}
 
 Issue: describe the computing algorithm
 
@@ -11295,6 +11421,7 @@ None of the depth formats can be filtered.
             <th>{{GPUTextureSampleType}}
             <th>Valid [=image copy=] source
             <th>Valid [=image copy=] destination
+            <th><dfn dfn>Aspect-specific format</dfn>
     </thead>
     <tr>
         <td>{{GPUTextureFormat/stencil8}}
@@ -11303,6 +11430,7 @@ None of the depth formats can be filtered.
         <td>1
         <td>{{GPUTextureSampleType/"uint"}}
         <td colspan=2>&checkmark;
+        <td>{{GPUTextureFormat/stencil8}}
     <tr>
         <td>{{GPUTextureFormat/depth16unorm}}
         <td>2
@@ -11310,6 +11438,7 @@ None of the depth formats can be filtered.
         <td>2
         <td>{{GPUTextureSampleType/"depth"}}
         <td colspan=2>&checkmark;
+        <td>{{GPUTextureFormat/depth16unorm}}
     <tr>
         <td>{{GPUTextureFormat/depth24plus}}
         <td>4
@@ -11317,6 +11446,7 @@ None of the depth formats can be filtered.
         <td>- (<a href="#depthPlus">See prose</a>)
         <td>{{GPUTextureSampleType/"depth"}}
         <td colspan=2>&cross;
+        <td>{{GPUTextureFormat/depth24plus}}
     <tr>
         <td rowspan=2 style='white-space:nowrap'>{{GPUTextureFormat/depth24plus-stencil8}}
         <td rowspan=2>4 &minus; 8
@@ -11324,11 +11454,13 @@ None of the depth formats can be filtered.
         <td>- (<a href="#depthPlus">See prose</a>)
         <td>{{GPUTextureSampleType/"depth"}}
         <td colspan=2>&cross;
+        <td>{{GPUTextureFormat/depth24plus}}
     <tr>
         <td>stencil
         <td>1
         <td>{{GPUTextureSampleType/"uint"}}
         <td colspan=2>&checkmark;
+        <td>{{GPUTextureFormat/stencil8}}
     <tr>
         <td>{{GPUTextureFormat/depth32float}}
         <td>4
@@ -11337,6 +11469,7 @@ None of the depth formats can be filtered.
         <td>{{GPUTextureSampleType/"depth"}}
         <td colspan=1>&checkmark;
         <td colspan=1>&cross;
+        <td>{{GPUTextureFormat/depth32float}}
     <tr>
         <td rowspan=2 style='white-space:nowrap'>{{GPUTextureFormat/depth24unorm-stencil8}}
         <td rowspan=2>4
@@ -11344,11 +11477,13 @@ None of the depth formats can be filtered.
         <td>3
         <td>{{GPUTextureSampleType/"depth"}}
         <td colspan=2>&cross;
+        <td>{{GPUTextureFormat/depth24plus}}
     <tr>
         <td>stencil
         <td>1
         <td>{{GPUTextureSampleType/"uint"}}
         <td colspan=2>&checkmark;
+        <td>{{GPUTextureFormat/stencil8}}
     <tr>
         <td rowspan=2 style='white-space:nowrap'>{{GPUTextureFormat/depth32float-stencil8}}
         <td rowspan=2>5 &minus; 8
@@ -11357,11 +11492,13 @@ None of the depth formats can be filtered.
         <td>{{GPUTextureSampleType/"depth"}}
         <td colspan=1>&checkmark;
         <td colspan=1>&cross;
+        <td>{{GPUTextureFormat/depth32float}}
     <tr>
         <td>stencil
         <td>1
         <td>{{GPUTextureSampleType/"uint"}}
         <td colspan=2>&checkmark;
+        <td>{{GPUTextureFormat/stencil8}}
 </table>
 
 #### Reading and Sampling Depth/Stencil Textures #### {#reading-depth-stencil}
