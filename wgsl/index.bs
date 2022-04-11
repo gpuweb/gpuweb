@@ -77,8 +77,8 @@ div.syntax > p > code {
   "WebGPU": {
     "authors": [
       "Dzmitry Malyshau",
-      "Justin Fan",
-      "Kai Ninomiya"
+      "Kai Ninomiya",
+      "Brandon Jones"
     ],
     "href": "https://gpuweb.github.io/gpuweb/",
     "title": "WebGPU",
@@ -6865,7 +6865,7 @@ The location of a function call is referred to as a <dfn noexport>call site</dfn
 Call sites are a [=dynamic context=].
 As such, the same textual location may represent multiple call sites.
 
-## Restrictions on functions ## {#function-restriction}
+## Restrictions on Functions ## {#function-restriction}
 
 * A [=vertex=] shader must return the `position` [=built-in output value=].
     See [[#builtin-values]].
@@ -6895,21 +6895,80 @@ As such, the same textual location may represent multiple call sites.
     * An [[#address-of-expr|address-of expression]] of a
         [[#var-identifier-expr|variable identifier expression]]
     * A function parameter
-* WGSL assumes no aliasing is present between any combination of
-    function parameters and variables.
-    As such, a function parameter of pointer type must not be used to read or
-    write to any [=memory locations=] of its [=originating variable=] that are
-    also written via:
-    * Another function parameter in the same function
-    * A statement or expression in the function using the originating variable directly
-
-Note: The aliasing restriction applies to memory location written by function
-calls in the function.
 
 Note: Recursion is disallowed because cycles are not permitted among any kinds
 of declarations.
 
-Issue: Revisit aliasing rules for clarity.
+### Aliasing Memory Views ### {#function-aliasing}
+
+[=Memory locations=] can be accessed during the execution of a function using [=memory views=].
+Within a function, each [=memory view=] has a particular root identifier.
+The root identifier can be an [=originating variable=] or a [=formal parameter=]
+of [=pointer type=].
+
+Locally derived expressions of [=reference type|reference=] or [=pointer
+type|pointer] type may introduce new names for a particular root identifier,
+but each expression has a statically determinable root identifier.
+While the [=originating variable=] of a root identifier is a dynamic concept that
+depends on the [=call sites=] for the function, WGSL programs can be
+statically analyzed to determine the set of all possible [=originating
+variables=] for each root identifier.
+
+Two root identifiers <dfn noexport>alias</dfn> when they have the same
+[=originating variable=].
+It is a [=dynamic error=] if:
+* more than one aliased root identifiers access the same [=memory locations=], and
+* at least one access is a [=write access|write=], and
+* both accesses occur during the execution of the same call of the function
+
+Note: This aliasing restriction applies to memory locations written by
+[=function calls=] made in the function.
+
+Note: [=Originating variables=] cannot have aliased [=memory locations=].
+See [[#var-decls]] and [[#resource-interface]].
+
+<div class='example wgsl' heading='Aliased memory views'>
+  <xmp highlight='rust'>
+    var x : i32 = 0;
+
+    fn foo() {
+      bar(&x, &x); // Both p and q parameters are aliases of x.
+    }
+
+    // This function produces a dynamic error because of the aliased
+    // memory accesses.
+    fn bar(p : ptr<private, i32>, q : ptr<private, i32>) {
+      if (x == 0) {
+        *p = 1;
+      } else {
+        *q = 2;
+      }
+    }
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='Aliasing in a helper function'>
+  <xmp highlight='rust'>
+    var x : i32 = 0;
+
+    fn baz(p : ptr<private, i32>) {
+      *p = 2;
+    }
+
+    // This function produces a dynamic error if x == 0, because x is read and
+    // written through different root identifiers even though the write occurs
+    // in the scope of baz.
+    fn bar(p : ptr<private, i32>) {
+      if (x == 0) {
+        baz(p);
+      }
+    }
+
+    fn foo() {
+      bar(&x); // p in bar is aliased to x.
+    }
+  </xmp>
+</div>
 
 # Entry Points # {#entry-points}
 
