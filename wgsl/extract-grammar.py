@@ -623,7 +623,7 @@ for key, value in scanner_components[scanner_example.name()].items():
         value = ["fn function__scope____() {"] + value + ["}"]
     if "type-scope" in key:
         # Initiailize with zero-value expression.
-        value = ["let type_scope____: "] + value + ["="] + value + ["()"] + [";"]
+        value = ["const type_scope____: "] + value + ["="] + value + ["()"] + [";"]
     program = "\n".join(value)
     tree = parser.parse(bytes(program, "utf8"))
     if tree.root_node.has_error:
