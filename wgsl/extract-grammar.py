@@ -146,7 +146,9 @@ class scanner_rule(Scanner):
 
     @staticmethod
     def parse(lines, i):
-        line = lines[i].rstrip()
+        # Exclude code point comments
+        # Supports both "Code point" and "Code points"
+        line = lines[i].split("(Code point")[0].rstrip()
         if line[2:].startswith("<dfn for=syntax>"):
             # When the line is
             #    <dfn for=syntax>access_mode</dfn>
@@ -322,7 +324,7 @@ module.exports = grammar({
     extras: $ => [
         $._comment,
         $._block_comment,
-        $._space,
+        $._blankspace,
     ],
 
     inline: $ => [
@@ -464,7 +466,7 @@ for key, value in scanner_components[scanner_rule.name()].items():
 
 
 for key, value in scanner_components[scanner_rule.name()].items():
-    if key.startswith("_") and key != "_comment" and key != "_space" and key not in rule_skip:
+    if key.startswith("_") and key != "_comment" and key != "_blankspace" and key not in rule_skip:
         grammar_source += grammar_from_rule(key, value) + ",\n"
         rule_skip.add(key)
 
@@ -489,8 +491,8 @@ rule_skip.add("_comment")
 
 
 grammar_source += grammar_from_rule(
-    "_space", scanner_components[scanner_rule.name()]["_space"])
-rule_skip.add("_space")
+    "_blankspace", scanner_components[scanner_rule.name()]["_blankspace"])
+rule_skip.add("_blankspace")
 
 
 grammar_source += "\n"
