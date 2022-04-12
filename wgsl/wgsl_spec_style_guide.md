@@ -122,13 +122,13 @@ attribute on an element does two things:
 1. It scopes variables to that element. In a browser, clicking on one use of a variable
     will highlight all the uses of that variable in the same scope.
 
-For example, the definition of a matrix type has two parameters: _N_ and _M_.
-The uses of `|N|` and `|M|` are scoped to the `tr` element having the `algorithm` attribute:
+For example, the definition of a matrix type has two parameters: _C_ and _R_.
+The uses of `|C|` and `|R|` are scoped to the `tr` element having the `algorithm` attribute:
 
     <tr algorithm="matrix type">
-      <td>mat|N|x|M|&lt;f32&gt;
-      <td>Matrix of |N| columns and |M| rows, where |N| and |M| are both in {2, 3, 4}.
-          Equivalently, it can be viewed as |N| column vectors of type vec|M|&lt;f32&gt;.
+      <td>mat|C|x|R|&lt;f32&gt;
+      <td>Matrix of |C| columns and |R| rows, where |C| and |R| are both in {2, 3, 4}.
+          Equivalently, it can be viewed as |C| column vectors of type vec|R|&lt;f32&gt;.
 
 The following kinds of document elements should have `algorithm` attribute:
 
