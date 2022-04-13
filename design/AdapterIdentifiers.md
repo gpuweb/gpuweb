@@ -46,21 +46,22 @@ const gpuAdapter = await navigator.requestAdapter();
 
 WebGPU applications often require a significant amount of resource initialization at startup, and it's possible that the resources being initialized may need to be altered depending on the adapter in use. For example: Shader sources may need to be re-written to avoid a known bug or lower detail meshes and textures may need to be fetched to avoid overtaxing a slower device. In these cases some amount of adapter identifiers need to be queried very early in the application's lifetime, and preferably without invoking a user consent prompt. (Nobody likes to be asked for permission immediately on navigation, at which point they likely have little to know context for why the permission is needed.)
 
-In this case, the developer would look at the `info` attribute of the `GPUAdapter`, which is a `GPUAdapterInfo` interface containing several potential identifiers for the adapter, and may contain values similar to the following:
+In this case, the developer would call the `requestAdapterInfo()` method of the `GPUAdapter`, which returns a `GPUAdapterInfo` interface containing several potential identifiers for the adapter, and may contain values similar to the following:
 
 ```js
+const adapterInfo = await gpuAdapter.requestAdapterInfo();
 console.log(gpuAdapter.info);
 
 // Output:
 {
     vendor: 'nvidia',
     architecture: 'turing',
-    deviceId: null,
-    fullName: null
+    deviceId: 0,
+    description: ''
 }
 ```
 
-Note that some values of the interface are `null`, because the UA deemed that they were too high-entropy to return without explicit user consent. If the UA wished, it would have the ability to return `null` for all values. This would be most commonly expected in "enhanced privacy" modes like [Edge's strict tracking prevention](https://support.microsoft.com/en-us/microsoft-edge/learn-about-tracking-prevention-in-microsoft-edge-5ac125e8-9b90-8d59-fa2c-7f2e9a44d869) or [Firefox's Enhanced Tracking Protection](https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop). Ideally returning little to no identifiers is common enough that user agents that wish to expose very little information by default can do so without severe compatibility concerns.
+Note that some values of the interface are empty values, such as the empty string or `0`, because the UA deemed that they were too high-entropy to return without explicit user consent. If the UA wished, it would have the ability to return empty values for all values. This would be most commonly expected in "enhanced privacy" modes like [Edge's strict tracking prevention](https://support.microsoft.com/en-us/microsoft-edge/learn-about-tracking-prevention-in-microsoft-edge-5ac125e8-9b90-8d59-fa2c-7f2e9a44d869) or [Firefox's Enhanced Tracking Protection](https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop). Ideally returning little to no identifiers is common enough that user agents that wish to expose very little information by default can do so without severe compatibility concerns.
 
 The information that _is_ returned should be helpful in identifying broad buckets of adapters with similar capabilities and performance characteristics. For example, Nvidia's "Turing" architecture [covers a range of nearly 40 different GPUs](https://en.wikipedia.org/wiki/Turing_(microarchitecture)#Products_using_Turing) across a wide range of prices and form factors. Identifing the adapter as an Turing device is enough to allow developers to activate broad workarounds aimed at that family of hardware and make some assumptions about baseline performance, but is also broad enough to not give away too much identifiable information about the user.
 
@@ -74,13 +75,13 @@ At some point during the lifetime of the application the developer may determine
 
 ```js
 feedbackButton.addEventListener('click', async ()=> {
-    const hints = ['architecture', 'deviceId', 'fullName'];
-    const unmaskedAdapterInfo = await gpuAdapter.requestUnmaskedAdapterInfo(hints);
-    generateUserFeedback(unmaskedAdapterInfo);
+    const unmaskHints = ['architecture', 'deviceId', 'description'];
+    const adapterInfo = await gpuAdapter.requestAdapterInfo(unmaskHints);
+    generateUserFeedback(adapterInfo);
 });
 ```
 
-The resolved value is the adapter's `GPUAdapterInfo` with any fields specified by `hints` that were previously omitted or reported with a less accurate value now populated with the most accurate information the UA will deliver. For example:
+The resolved value is the adapter's `GPUAdapterInfo` with any fields specified by `unmaskHints` that were previously omitted or reported with a less accurate value now populated with the most accurate information the UA will deliver. For example:
 
 ```js
 console.log(unmaskedAdapterInfo);
@@ -90,25 +91,25 @@ console.log(unmaskedAdapterInfo);
     vendor: 'nvidia',
     architecture: 'turing',
     deviceId: 8644,
-    fullName: 'NVIDIA GeForce GTX 1660 SUPER'
+    description: 'NVIDIA GeForce GTX 1660 SUPER'
 }
 ```
 
-Because the unmasked values may contain higher entropy identifying information, the bar for querying it is quite a bit higher. Calling `requestUnmaskedAdapterInfo()` requires user activation, and will reject the promise otherwise. If the `hints` array contains any previously masked value it also requires that user consent be given before returning, and as such may display a prompt to the user asking if the page can access the newly requested GPU details before allowing the promise to resolve. If the user declines to give consent then the promise is rejected.
+Because the unmasked values may contain higher entropy identifying information, the bar for querying it is quite a bit higher. Calling `requestAdapterInfo()` with any `unmaskHints` requires user activation, and will reject the promise otherwise. If the `unmaskHints` array contains any previously masked value it also requires that user consent be given before returning, and as such may display a prompt to the user asking if the page can access the newly requested GPU details before allowing the promise to resolve. If the user declines to give consent then the promise is rejected.
 
-Once the user has given their consent the `info` attribute of the `GPUAdapter` should be updated to reflect the newly unmasked fields and future instances of the same underlying adapter returned from `navigator.requestAdapter()` on that page load should also contain unmasked data without requiring another call to `requestUnmaskedAdapterInfo()`.
+Once the user has given their consent any future calls to `requestAdapterInfo()` should return the unmasked fields even if no `unmaskHints` are specified, and future instances of the same underlying adapter returned from `navigator.requestAdapter()` on that page load should also return unmasked data without requiring hints to be passed.
 
-Even after `requestUnmaskedAdapterInfo()` is called the UA is still allowed to return `null` for attributes requested in the `hints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left as `null`.)
+Even after `unmaskHints` have been passed to `requestAdapterInfo()` the UA is still allowed to return empty values for attributes requested in the `unmaskHints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left empty.)
 
 ### Identifier formatting
 
 To minimize developer work and reduce the chances of fingerprinting via casing differences between platforms, and string values reported as part of the `GPUAdapterInfo` conform to strict formatting rules. They must be lowercase ASCII strings containing no spaces, with separate words concatenated with a hyphen ("-") character.
 
-The exception to this is `fullName`, which may be a string reported directly from the driver without modification. As a result, however, `fullName` should always be omitted from masked adapters. Additionally, enough information should be offered via other fields that developers don't feel the need to attempt parsing the `fullName` string.
+The exception to this is `description`, which may be a string reported directly from the driver without modification. As a result, however, `description` should always be omitted from masked adapters. Additionally, enough information should be offered via other fields that developers don't feel the need to attempt parsing the `description` string.
 
 User agents should also make an effort to normalize the strings returned, ideally through a public registery. This especially applies to fields like `vendor` which are presumed to have a relatively low number of possible values.
 
-Some values, such as `architecture`, are unlikely to be directly provided by the driver. As such, User Agents are expected to make a best-effort at identifying and reporting common architectures, and report `null` otherwise.
+Some values, such as `architecture`, are unlikely to be directly provided by the driver. As such, User Agents are expected to make a best-effort at identifying and reporting common architectures, and report empty string otherwise.
 
 ### Iframe controls
 
