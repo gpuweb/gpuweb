@@ -342,7 +342,7 @@ module.exports = grammar({
 grammar_source += "\n"
 
 
-def grammar_from_rule_item(rule_item):
+def grammar_from_rule_item(rule_item, prec=0):
     result = ""
     item_choice = False
     items = []
@@ -401,16 +401,20 @@ def grammar_from_rule_item(rule_item):
             result = items[0]
         else:
             result = f"seq({', '.join(items)})"
+
+    if prec > 0:
+        result = f"prec({prec}, {result})"
+
     return result
 
 
-def grammar_from_rule(key, value):
+def grammar_from_rule(key, value, prec=0):
     result = f"        {key}: $ =>"
     if len(value) == 1:
-        result += f" {grammar_from_rule_item(value[0])}"
+        result += f" {grammar_from_rule_item(value[0], prec)}"
     else:
         result += " choice(\n            {}\n        )".format(
-            ',\n            '.join([grammar_from_rule_item(i) for i in value]))
+            ',\n            '.join([grammar_from_rule_item(i, prec) for i in value]))
     return result
 
 
@@ -430,9 +434,11 @@ for rule in ["translation_unit", "global_directive", "global_decl"]:
 # Extract literals
 
 
+prec = 0
 for key, value in scanner_components[scanner_rule.name()].items():
     if key.endswith("_literal") and key not in rule_skip:
-        grammar_source += grammar_from_rule(key, value) + ",\n"
+        grammar_source += grammar_from_rule(key, value, prec) + ",\n"
+        prec += 1
         rule_skip.add(key)
 
 
