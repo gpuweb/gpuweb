@@ -156,22 +156,6 @@ class scanner_rule(Scanner):
             rule_name = line[2:].split("<dfn for=syntax>")[1]
             rule_name = rule_name.split("</dfn>")[0].strip()
             return (rule_name, None, 0)
-        elif line[4:].startswith("<xmp> |"):
-            # When the line is
-            #    <xmp> |
-            #       / <regex
-            #       over multiple
-            #       lines/
-            #     </xmp>
-            # returns (None, '<regex with space collapsed>', num_lines)
-            count = 1
-            rule_value = ''
-            line = lines[i + count]
-            while not line[4:].startswith("</xmp>"):
-                rule_value += line.strip()
-                count += 1
-                line = lines[i + count]
-            return (None, ["`" + rule_value.replace(' ', '') + "`"], count)
         elif line[4:].startswith("| "):
             # When the line is
             #    | [=syntax/variable_decl=] [=syntax/equal=] [=syntax/expression=]
