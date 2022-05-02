@@ -56,18 +56,18 @@ console.log(gpuAdapter.info);
 {
     vendor: 'nvidia',
     architecture: 'turing',
-    deviceId: 0,
+    device: '',
     description: ''
 }
 ```
 
-Note that some values of the interface are empty values, such as the empty string or `0`, because the UA deemed that they were too high-entropy to return without explicit user consent. If the UA wished, it would have the ability to return empty values for all values. This would be most commonly expected in "enhanced privacy" modes like [Edge's strict tracking prevention](https://support.microsoft.com/en-us/microsoft-edge/learn-about-tracking-prevention-in-microsoft-edge-5ac125e8-9b90-8d59-fa2c-7f2e9a44d869) or [Firefox's Enhanced Tracking Protection](https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop). Ideally returning little to no identifiers is common enough that user agents that wish to expose very little information by default can do so without severe compatibility concerns.
+Note that some values of the interface are the empty string, because the UA deemed that they were too high-entropy to return without explicit user consent. If the UA wished, it would have the ability to return empty string for all values. This would be most commonly expected in "enhanced privacy" modes like [Edge's strict tracking prevention](https://support.microsoft.com/en-us/microsoft-edge/learn-about-tracking-prevention-in-microsoft-edge-5ac125e8-9b90-8d59-fa2c-7f2e9a44d869) or [Firefox's Enhanced Tracking Protection](https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop). Ideally returning little to no identifiers is common enough that user agents that wish to expose very little information by default can do so without severe compatibility concerns.
 
 The information that _is_ returned should be helpful in identifying broad buckets of adapters with similar capabilities and performance characteristics. For example, Nvidia's "Turing" architecture [covers a range of nearly 40 different GPUs](https://en.wikipedia.org/wiki/Turing_(microarchitecture)#Products_using_Turing) across a wide range of prices and form factors. Identifing the adapter as an Turing device is enough to allow developers to activate broad workarounds aimed at that family of hardware and make some assumptions about baseline performance, but is also broad enough to not give away too much identifiable information about the user.
 
 Additionally, in some cases the UA may find it beneficial to return a value that is not the most accurate one that could be reported but still gives developers a reasonable reference point with a lower amount of entropy.
 
-Finally, it may not always be possible or practical to detemine a value for some fields (like a GPU's architecture) and in those cases returning `null` is acceptible even if the user agent would have considered the information low-entropy.
+Finally, it may not always be possible or practical to detemine a value for some fields (like a GPU's architecture) and in those cases returning empty string is acceptible even if the user agent would have considered the information low-entropy.
 
 ### Unmasked adapter identifiers
 
@@ -90,7 +90,7 @@ console.log(unmaskedAdapterInfo);
 {
     vendor: 'nvidia',
     architecture: 'turing',
-    deviceId: 8644,
+    device: '0x8644',
     description: 'NVIDIA GeForce GTX 1660 SUPER'
 }
 ```
@@ -99,7 +99,7 @@ Because the unmasked values may contain higher entropy identifying information, 
 
 Once the user has given their consent any future calls to `requestAdapterInfo()` should return the unmasked fields even if no `unmaskHints` are specified, and future instances of the same underlying adapter returned from `navigator.requestAdapter()` on that page load should also return unmasked data without requiring hints to be passed.
 
-Even after `unmaskHints` have been passed to `requestAdapterInfo()` the UA is still allowed to return empty values for attributes requested in the `unmaskHints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left empty.)
+Even after `unmaskHints` have been passed to `requestAdapterInfo()` the UA is still allowed to return empty string for attributes requested in the `unmaskHints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left empty.)
 
 ### Identifier formatting
 
@@ -134,10 +134,10 @@ partial interface GPUAdapter {
 };
 
 interface GPUAdapterInfo {
-  DOMString? vendor;
-  DOMString? architecture;
-  long? deviceId;
-  DOMString? fullName;
+  DOMString vendor;
+  DOMString architecture;
+  DOMString device;
+  DOMString fullName;
 };
 ```
 
