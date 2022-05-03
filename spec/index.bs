@@ -43,13 +43,6 @@ Assume Explicit For: yes
     ],
     "href": "https://sourcemaps.info/spec.html",
     "title": "Source Map Revision 3 Proposal"
-  },
-  "UnicodeVersion14": {
-    "href":"http://www.unicode.org/versions/Unicode14.0.0/",
-    "author":"The Unicode Consortium",
-    "title":"The Unicode Standard, Version 14.0.0",
-    "isbn":"978-1-936213-29-0",
-    "id":"UnicodeVersion14"
   }
 }
 </pre>
@@ -102,11 +95,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: runtime-sized; url: runtime-sized
         text: SizeOf; url: sizeof
         text: WGSL floating point conversion; url: floating-point-conversion
-spec: UAX15; urlPrefix: https://www.unicode.org/reports/tr15/tr15-51.html
-    type: dfn
-        text: Unicode Standard Annex #15 for Unicode Version 14.0.0
-        text: UAX15 Normalization Forms; url: Normalization_Forms_Table
-        text: UAX15 Equivalences; url: Canon_Compat_Equivalence
+        text: WGSL identifier comparison; url: identifier-comparison
 </pre>
 
 <style>
@@ -637,7 +626,7 @@ Any interface which includes {{GPUObjectBase}} is a [=WebGPU interface=].
 
 <script type=idl>
 interface mixin GPUObjectBase {
-    attribute (USVString or undefined) label;
+    attribute USVString label;
 };
 </script>
 
@@ -646,12 +635,15 @@ interface mixin GPUObjectBase {
 <dl dfn-type=attribute dfn-for=GPUObjectBase>
     : <dfn>label</dfn>
     ::
-        A label which can be used by development tools (such as error/warning messages,
-        browser developer tools, or platform debugging utilities) to identify the underlying
-        [=internal object=] to the developer.
-        It has no specified format, and therefore cannot be reliably machine-parsed.
+        Initially the empty string.
 
-        In any given situation, the user agent may or may not choose to use this label.
+        A developer-provided label which can be used by the browser, OS, or other tools to help
+        identify the underlying [=internal object=] to the developer. Examples include displaying
+        the label in error/warning messages, browser developer tools, and platform debugging
+        utilities. The user agent is free to choose if and how it will use this label.
+
+        Note: {{GPUObjectBase/label}} is defined as a {{USVString}} because some user agents may
+        supply it to the debug facilities of the underlying native APIs.
 </dl>
 
 {{GPUObjectBase}} has the following internal slots:
@@ -2787,7 +2779,8 @@ namespace GPUTextureUsage {
                                 - |descriptor|.{{GPUTextureDescriptor/mipLevelCount}} must be 1.
                                 - |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/depthOrArrayLayers=] must be 1.
                                 - |descriptor|.{{GPUTextureDescriptor/usage}} must not include the {{GPUTextureUsage/STORAGE_BINDING}} bit.
-                                - |descriptor|.{{GPUTextureDescriptor/format}} must be a [=renderable format=] and support multisampling according to [[#texture-format-caps]].
+                                - |descriptor|.{{GPUTextureDescriptor/usage}} must include the {{GPUTextureUsage/RENDER_ATTACHMENT}} bit.
+                                - |descriptor|.{{GPUTextureDescriptor/format}} must support multisampling according to [[#texture-format-caps]].
 
                             - |descriptor|.{{GPUTextureDescriptor/mipLevelCount}} must be less than or equal to
                                 [$maximum mipLevel count$](|descriptor|.{{GPUTextureDescriptor/dimension}}, |descriptor|.{{GPUTextureDescriptor/size}}).
@@ -2979,6 +2972,19 @@ enum GPUTextureAspect {
     ::
         Creates a {{GPUTextureView}}.
 
+        <div class="note">
+        By default {{GPUTexture/createView()}} will create a view with a dimension that can
+        represent the entire texture. For example, calling {{GPUTexture/createView()}} without
+        specifying a {{GPUTextureViewDescriptor/dimension}} on a {{GPUTextureDimension/"2d"}}
+        texture with more than one layer will create a {{GPUTextureViewDimension/"2d-array"}}
+        {{GPUTextureView}}, even if an {{GPUTextureViewDescriptor/arrayLayerCount}} of 1 is
+        specified.
+
+        For textures created from sources where the layer count is unknown at the
+        time of development it is recommended that calls to {{GPUTexture/createView()}} are provided
+        an explicit {{GPUTextureViewDescriptor/dimension}} to ensure shader compatibility.
+        </div>
+
         <div algorithm=GPUTexture.createView>
             **Called on:** {{GPUTexture}} |this|.
 
@@ -2989,7 +2995,7 @@ enum GPUTextureAspect {
 
             **Returns:** |view|, of type {{GPUTextureView}}.
 
-            1. Set |descriptor| to the result of [$resolving GPUTextureViewDescriptor defaults$] with |descriptor|.
+            1. Set |descriptor| to the result of [$resolving GPUTextureViewDescriptor defaults$] for |this| with |descriptor|.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
                     1. If any of the following requirements are unmet:
@@ -3065,8 +3071,8 @@ enum GPUTextureAspect {
 </dl>
 
 <div algorithm>
-    When <dfn abstract-op>resolving GPUTextureViewDescriptor defaults</dfn> for {{GPUTextureViewDescriptor}}
-    |descriptor| run the following steps:
+    When <dfn abstract-op>resolving GPUTextureViewDescriptor defaults</dfn> for {{GPUTextureView}}
+    |texture| with a {{GPUTextureViewDescriptor}} |descriptor| run the following steps:
 
     1. Let |resolved| be a copy of |descriptor|.
     1. If |resolved|.{{GPUTextureViewDescriptor/format}} is `undefined`,
@@ -3089,7 +3095,10 @@ enum GPUTextureAspect {
             :: Set |resolved|.{{GPUTextureViewDescriptor/dimension}} to {{GPUTextureViewDimension/"1d"}}.
 
             : {{GPUTextureDimension/"2d"}}
-            :: Set |resolved|.{{GPUTextureViewDescriptor/dimension}} to {{GPUTextureViewDimension/"2d"}}.
+            :: If the [$array layer count$] of |texture| is 1:
+                    - Set |resolved|.{{GPUTextureViewDescriptor/dimension}} to {{GPUTextureViewDimension/"2d"}}.
+                Otherwise:
+                    - Set |resolved|.{{GPUTextureViewDescriptor/dimension}} to {{GPUTextureViewDimension/"2d-array"}}.
 
             : {{GPUTextureDimension/"3d"}}
             :: Set |resolved|.{{GPUTextureViewDescriptor/dimension}} to {{GPUTextureViewDimension/"3d"}}.
@@ -3105,9 +3114,8 @@ enum GPUTextureAspect {
             :: Set |resolved|.{{GPUTextureViewDescriptor/arrayLayerCount}} to `6`.
 
             : {{GPUTextureViewDimension/"2d-array"}} or {{GPUTextureViewDimension/"cube-array"}}
-            :: Set |resolved|.{{GPUTextureViewDescriptor/arrayLayerCount}} to
-                |texture|.{{GPUTexture/[[descriptor]]}}.{{GPUTextureDescriptor/size}}.[=Extent3D/depthOrArrayLayers=] &minus;
-                |resolved|.{{GPUTextureViewDescriptor/baseArrayLayer}}.
+            :: Set |resolved|.{{GPUTextureViewDescriptor/arrayLayerCount}} to the [$array layer count$] of |texture|
+                &minus; |resolved|.{{GPUTextureViewDescriptor/baseArrayLayer}}.
         </dl>
 
     1. Return |resolved|.
@@ -4686,21 +4694,14 @@ dictionary GPUShaderModuleDescriptor : GPUObjectDescriptorBase {
 source-map-v3 format.
 Source maps are optional, but serve as a standardized way to support dev-tool
 integration such as source-language debugging [[SourceMap]].
-WGSL names in source maps compare by their code points and
-do not follow [=UAX15 Equivalences=] for [[!UnicodeVersion14|Unicode Version 14.0.0]].
-
-Note: User agents should consider issuing developer-visible warnings in most or all
-situations where display of two names with different code point sequences
-look the same to the reader, such as ones same under canonical equivalence with
-[=UAX15 Normalization Forms|Normalization Form C (NFC)=] or characters that look similarly.
+WGSL names (identifiers) in source maps follow the rules defined in [=WGSL identifier comparison=].
 
 {{GPUShaderModuleDescriptor/hints}}, if defined, maps an entry point name from
 the shader to a {{GPUShaderModuleCompilationHint}}. No validation is performed with
 any of these {{GPUShaderModuleCompilationHint}}. Implementations should use any
 information present in the {{GPUShaderModuleCompilationHint}} to perform as much
 compilation as is possible within {{GPUDevice/createShaderModule()}}.
-Entry point names compare by their code points and
-do not follow [=UAX15 Equivalences=] for [[!UnicodeVersion14|Unicode Version 14.0.0]].
+Entry point names follow the rules defined in [=WGSL identifier comparison=].
 
 Note: Supplying information in {{GPUShaderModuleDescriptor/hints}} does not have any
 observable effect, other than performance. Because a single shader module can hold
@@ -4835,7 +4836,7 @@ any specific point in the code at all.
         The offset, in UTF-16 code units, from the beginning of line {{GPUCompilationMessage/lineNum}}
         of the shader {{GPUShaderModuleDescriptor/code}} to the point or beginning of the substring
         that the {{GPUCompilationMessage/message}} corresponds to. Value is one-based, such that a
-        {{GPUCompilationMessage/linePos}} of `1` indicates the first character of the line.
+        {{GPUCompilationMessage/linePos}} of `1` indicates the first code unit of the line.
 
         If {{GPUCompilationMessage/message}} corresponds to a substring this points to the
         first UTF-16 code unit of the substring. Must be `0` if the {{GPUCompilationMessage/message}}
@@ -4947,6 +4948,10 @@ interface mixin GPUPipelineBase {
                 1. Throw a {{RangeError}}.
 
             1. If |this| is not [=valid=]:
+                1. Return a new error {{GPUBindGroupLayout}}.
+
+            1. If |index| &ge; the [=list/size=] of
+                |this|.{{GPUPipelineBase/[[layout]]}}.{{GPUPipelineLayout/[[bindGroupLayouts]]}}:
                 1. Return a new error {{GPUBindGroupLayout}}.
 
             1. Return a new {{GPUBindGroupLayout}} object that references the same internal object as
@@ -5109,8 +5114,7 @@ run the following steps:
 
 A {{GPUProgrammableStage}} describes the entry point in the user-provided
 {{GPUShaderModule}} that controls one of the programmable stages of a [=pipeline=].
-Entry point names compare by their code points and
-do not follow [=UAX15 Equivalences=] for [[!UnicodeVersion14|Unicode Version 14.0.0]].
+Entry point names follow the rules defined in [=WGSL identifier comparison=].
 
 <script type=idl>
 dictionary GPUProgrammableStage {
@@ -5131,16 +5135,10 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         Each such [=pipeline-overridable=] constant is uniquely identified by a single
         [=pipeline-overridable constant identifier string=] (representing the numeric ID of the
         constant, if one is specified, and otherwise the constant's identifier name).
-        The names compare by their code points and
-        do not follow [=UAX15 Equivalences=] for [[!UnicodeVersion14|Unicode Version 14.0.0]].
+        WGSL names (identifiers) in source maps follow the rules defined in [=WGSL identifier comparison=].
 
         The key of each key-value pair must equal the identifier string of one such constant.
         When the pipeline is executed, that constant will have the specified value.
-
-        Note: A user agent or should issue developer-visible warnings when the meaning of a
-        WGSL program would change if all instances of an identifier spelled with a specific
-        code point sequence are replaced by another code point sequence
-        that would appear the same to a reader.
 
         Values are specified as <dfn typedef for=>GPUPipelineConstantValue</dfn>, which is a
         `double` which is converted to the WGSL data type of the corresponding pipeline-overridable
@@ -5227,13 +5225,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         |descriptor|.{{GPUProgrammableStage/constants}}:
         - |key| must equal the [=pipeline-overridable constant identifier string=] of
             some [=pipeline-overridable=] constant defined in the shader module
-            |descriptor|.{{GPUProgrammableStage/module}} by code points and
-            not by [=UAX15 Equivalences=] for [[!UnicodeVersion14|Unicode Version 14.0.0]].
-
-            Note: User agents should consider issuing developer-visible warnings in most or all
-            situations where display of two names with different code point sequences
-            look the same to the reader, such as ones same under canonical equivalence with
-            [=UAX15 Normalization Forms|Normalization Form C (NFC)=] or characters that look similarly.
+            |descriptor|.{{GPUProgrammableStage/module}} by the rules defined in [=WGSL identifier comparison=].
     - For each [=pipeline-overridable constant identifier string=] |key| which is
         [=statically accessed=] by the shader entry point:
         - If the pipeline-overridable constant identified by |key|
@@ -6273,7 +6265,7 @@ The <dfn dfn>encoder state</dfn> may be one of the following:
 </dl>
 
 <div algorithm>
-    To <dfn abstract-op>Prepare the encoder state</dfn> of {{GPUCommandsMixin}} |encoder|:
+    To <dfn abstract-op>Validate the encoder state</dfn> of {{GPUCommandsMixin}} |encoder|:
 
     If |encoder|.{{GPUCommandsMixin/[[state]]}} is:
     <dl class=switch>
@@ -6727,7 +6719,7 @@ dictionary GPUImageCopyExternalImage {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |source| is [$valid to use with$] |this|.
@@ -6772,7 +6764,7 @@ dictionary GPUImageCopyExternalImage {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If |size| is missing, set |size| to `max(0, |buffer|.{{GPUBuffer/[[size]]}} - |offset|)`.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
@@ -6924,7 +6916,7 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - Let |dstTextureDesc| be |destination|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
@@ -6972,7 +6964,7 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - Let |srcTextureDesc| be |source|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
@@ -7022,7 +7014,7 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - Let |srcTextureDesc| be |source|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/[[descriptor]]}}.
@@ -7095,7 +7087,7 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
                 {{GPUFeatureName/"timestamp-query"}}, throw a {{TypeError}}.
             1. Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
                 <div class=device-timeline>
-                    1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                    1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                     1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                         <div class=validusage>
                             - |querySet| is [$valid to use with$] |this|.
@@ -7127,7 +7119,7 @@ Issue: define this as an algorithm with (texture, mipmapLevel) parameters and us
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |querySet| is [$valid to use with$] |this|.
@@ -7201,8 +7193,9 @@ interface mixin GPUBindingCommandsMixin {
 };
 </script>
 
-{{GPUBindingCommandsMixin}} is only included by interfaces which include
-{{GPUObjectBase}} and {{GPUCommandsMixin}}.
+{{GPUBindingCommandsMixin}} assumes the presence of
+{{GPUObjectBase}} and {{GPUCommandsMixin}} members on the same object.
+It must only be included by interfaces which also include those mixins.
 
 {{GPUBindingCommandsMixin}} has the following internal slots:
 
@@ -7253,7 +7246,7 @@ interface mixin GPUBindingCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |bindGroup| is [$valid to use with$] |this|.
@@ -7440,8 +7433,9 @@ interface mixin GPUDebugCommandsMixin {
 };
 </script>
 
-{{GPUDebugCommandsMixin}} is only included by interfaces which include
-{{GPUObjectBase}} and {{GPUCommandsMixin}}.
+{{GPUDebugCommandsMixin}} assumes the presence of
+{{GPUObjectBase}} and {{GPUCommandsMixin}} members on the same object.
+It must only be included by interfaces which also include those mixins.
 
 {{GPUDebugCommandsMixin}} adds the following internal slots to interfaces which include it:
 
@@ -7470,7 +7464,7 @@ interface mixin GPUDebugCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. [=stack/Push=] |groupLabel| onto |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}}.
             </div>
         </div>
@@ -7486,7 +7480,7 @@ interface mixin GPUDebugCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following requirements are unmet, make |this| [=invalid=], and stop.
                     <div class=validusage>
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must not [=list/is empty|be empty=].
@@ -7511,7 +7505,7 @@ interface mixin GPUDebugCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
             </div>
         </div>
 </dl>
@@ -7609,7 +7603,7 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |pipeline| is [$valid to use with$] |this|.
@@ -7651,7 +7645,7 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
@@ -7703,7 +7697,7 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
@@ -8299,8 +8293,9 @@ interface mixin GPURenderCommandsMixin {
 };
 </script>
 
-{{GPURenderCommandsMixin}} is only included by interfaces which include
-{{GPUObjectBase}} and {{GPUCommandsMixin}}.
+{{GPURenderCommandsMixin}} assumes the presence of
+{{GPUObjectBase}} and {{GPUCommandsMixin}} members on the same object.
+It must only be included by interfaces which also include those mixins.
 
 {{GPURenderCommandsMixin}} has the following internal slots:
 
@@ -8363,7 +8358,7 @@ interface mixin GPURenderCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. Let |pipelineTargetsLayout| be [$derive render targets layout from pipeline$](|pipeline|.{{GPURenderPipeline/[[descriptor]]}}).
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
@@ -8400,7 +8395,7 @@ interface mixin GPURenderCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If |size| is missing, set |size| to max(0, |buffer|.{{GPUBuffer/[[size]]}} - |offset|).
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
@@ -8436,7 +8431,7 @@ interface mixin GPURenderCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If |size| is missing, set |size| to max(0, |buffer|.{{GPUBuffer/[[size]]}} - |offset|).
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
@@ -8472,7 +8467,7 @@ interface mixin GPURenderCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - It is [$valid to draw$] with |this|.
@@ -8516,7 +8511,7 @@ interface mixin GPURenderCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - It is [$valid to draw indexed$] with |this|.
@@ -8576,7 +8571,7 @@ interface mixin GPURenderCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - It is [$valid to draw$] with |this|.
@@ -8625,7 +8620,7 @@ interface mixin GPURenderCommandsMixin {
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - It is [$valid to draw indexed$] with |this|.
@@ -8704,7 +8699,7 @@ attachments used by this encoder.
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=]
                     and stop.
                     <div class=validusage>
@@ -8747,7 +8742,7 @@ attachments used by this encoder.
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=]
                     and stop.
                     <div class=validusage>
@@ -8807,7 +8802,7 @@ attachments used by this encoder.
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_set]]}} is not `null`.
@@ -8829,7 +8824,7 @@ attachments used by this encoder.
 
             Issue the following steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
                     <div class=validusage>
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} is `true`.
@@ -8867,7 +8862,7 @@ attachments used by this encoder.
 
             Issue the following steps on the [=Device timeline=] of |this|:
             <div class=device-timeline>
-                1. [$Prepare the encoder state$] of |this|. If it returns false, stop.
+                1. [$Validate the encoder state$] of |this|. If it returns false, stop.
                 1. If any of the following conditions are unsatisfied, make |this| [=invalid=]
                     and stop.
                     <div class=validusage>
@@ -9210,10 +9205,6 @@ GPUQueue includes GPUObjectBase;
                 throw a {{SecurityError}} and stop.
             1. If any of the following requirements are unmet, throw an {{OperationError}} and stop.
                 <div class=validusage>
-                    - If |source|.{{GPUImageCopyExternalImage/source}} is an {{HTMLCanvasElement}}:
-                        Its [=canvas context mode=] must be `"2d"`, `"webgl"`, `"webgl2"`, or `"webgpu"`.
-                    - If |source|.{{GPUImageCopyExternalImage/source}} is an {{OffscreenCanvas}}:
-                        Its [=OffscreenCanvas context mode=] must be `"2d"`, `"webgl"`, `"webgl2"`, or `"webgpu"`.
                     - |source|.|origin|.[=Origin3D/x=] + |copySize|.[=Extent3D/width=]
                         must be &le; the width of |sourceImage|.
                     - |source|.|origin|.[=Origin3D/y=] + |copySize|.[=Extent3D/height=]

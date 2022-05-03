@@ -134,6 +134,11 @@ spec: Vulkan ; urlPrefix: https://www.khronos.org/registry/vulkan/specs/1.2-exte
         text: memory model scope; url:memory-model-scope
         text: memory model memory semantics; url:memory-model-memory-semantics
         text: memory model non-private; url: memory-model-non-private
+spec: UAX14; urlPrefix: https://www.unicode.org/reports/tr14
+    type: dfn
+        text: UAX14 Section 6.1 Non-tailorable Line Breaking Rules; url: BreakingRules
+        text: UAX14 LB4; url: LB4
+        text: UAX14 LB5; url: LB5
 spec: UAX15; urlPrefix: https://www.unicode.org/reports/tr15/tr15-51.html
     type: dfn
         text: Unicode Standard Annex #15 for Unicode Version 14.0.0
@@ -143,9 +148,18 @@ spec: UAX31; urlPrefix: https://www.unicode.org/reports/tr31/tr31-35.html
         text: Unicode Standard Annex #31 for Unicode Version 14.0.0
         text: UAX31 Lexical Classes; url: Table_Lexical_Classes_for_Identifiers
         text: UAX31 Grammar; url: D1
+spec: UTS46; urlPrefix: https://www.unicode.org/reports/tr46/tr46-27.html
+    type: dfn
+        text: UTS46 Mapping; url: IDNA_Mapping_Table
+spec: charmod-norm; urlPrefix: https://www.w3.org/TR/charmod-norm/
+    type: dfn
+        text: charmod-norm Matching; url: identityMatching
 spec: Unicode Character Database for Unicode Version 14.0.0; urlPrefix: https://www.unicode.org/Public/14.0.0/ucd/DerivedCoreProperties.txt
     type: dfn
         text: Unicode Character Database for Unicode Version 14.0.0
+spec: UnicodeVersion14; urlPrefix: https://www.unicode.org/versions/Unicode14.0.0/UnicodeStandard-14.0.pdf
+    type: dfn
+        text: code point; url:
 </pre>
 
 # Introduction # {#intro}
@@ -374,16 +388,38 @@ However, UTF-8 is always a valid encoding for a WGSL program.
 Note: The intent of promoting UTF-8 like this is to simplify interchange of WGSL programs
 and to encourage interoperability among tools.
 
-WGSL program text consists of a sequence of code points, grouped into contiguous non-empty sets forming:
+WGSL program text consists of a sequence of Unicode [=code points=], grouped into contiguous non-empty sets forming:
 * [=comments=]
 * [=tokens=]
-* [=blankspace=]
+* [=blankspaces=]
 
 The program text must not include a null code point (`U+0000`).
 
-<dfn>Blankspace</dfn> is any combination of one or more of code points from
+## Parsing ## {#parsing}
+
+To parse a WGSL program:
+1. Remove [=comments=]:
+    * Replace the first comment with a space code point (`U+0020`).
+    * Repeat until no comments remain.
+2. Scanning from beginning to end, group the remaining code points into [=tokens=] and [=blankspace=]
+    in greedy fashion:
+    * The next group is formed from the longest
+        non-empty prefix of the remaining ungrouped code points, that is either:
+        * a valid token, or
+        * blankspace
+    * Repeat until no ungrouped code points remain.
+3. Discard the blankspace, leaving only tokens.
+4. Parse the token sequence, attempting to match the [=syntax/translation_unit=] grammar rule.
+
+A [=shader-creation error=] results if:
+* the entire source text cannot be converted into a finite sequence of valid tokens, or
+* the [=syntax/translation_unit=] grammar rule does not match the entire token sequence.
+
+## Blankspace and line breaks ## {#blankspace-and-line-breaks}
+
+<dfn>Blankspace</dfn> is any combination of one or more of code points from the Unicode
 [=Unicode Standard Annex #31 for Unicode Version 14.0.0|Pattern_White_Space=] property.
-Following is the set of code points in [=Unicode Standard Annex #31 for Unicode Version 14.0.0|Pattern_White_Space=]:
+The following is the set of code points in [=Unicode Standard Annex #31 for Unicode Version 14.0.0|Pattern_White_Space=]:
 * space (`U+0020`)
 * horizontal tab (`U+0009`)
 * line feed (`U+000A`)
@@ -402,23 +438,21 @@ Following is the set of code points in [=Unicode Standard Annex #31 for Unicode 
     | `/[\u0020\u0009\u000a\u000b\u000c\u000d\u0085\u200e\u200f\u2028\u2029]/uy`
 </div>
 
-To parse a WGSL program:
-1. Remove comments:
-    * Replace the first comment with a space code point (`U+0020`).
-    * Repeat until no comments remain.
-2. Scanning from beginning to end, group the remaining code points into tokens and blankspace
-    in greedy fashion:
-    * The next group is formed from the longest
-        non-empty prefix of the remaining ungrouped code points, that is either:
-        * a valid token, or
-        * blankspace
-    * Repeat until no ungrouped code points remain.
-3. Discard the blankspace, leaving only tokens.
-4. Parse the token sequence, attempting to match the [=syntax/translation_unit=] grammar rule.
+A <dfn>line break</dfn> is a contiguous sequence of [=blankspace=] code points indicating the end of a line.
+It is defined as the blankspace signalling a "mandatory break" as defined by
+[=UAX14 Section 6.1 Non-tailorable Line Breaking Rules=] [=UAX14 LB4|LB4=] and [=UAX14 LB5|LB5=].
+That is, a line break is any of:
+* line feed (`U+000A`)
+* vertical tab (`U+000B`)
+* form feed (`U+000C`)
+* carriage return (`U+000D`) when not also followed by line feed (`U+000A`)
+* carriage return (`U+000D`) followed by line feed (`U+000A`)
+* next line (`U+0085`)
+* line separator (`U+2028`)
+* paragraph separator (`U+2029`)
 
-A [=shader-creation error=] results if:
-* the entire source text cannot be converted into a finite sequence of valid tokens, or
-* the [=syntax/translation_unit=] grammar rule does not match the entire token sequence.
+Note: Diagnostics that report source text locations in terms of line numbers should use [=line breaks=] to
+count lines.
 
 ## Comments ## {#comments}
 
@@ -429,8 +463,7 @@ Shader authors can use comments to document their programs.
 A <dfn noexport>line-ending comment</dfn> is a kind of [=comment=] consisting
 of the two code points `//` (`U+002F` followed by `U+002F`) and the code points that follow,
 up until but not including:
-* the next [=blankspace=] code point other than a space (`U+0020`), a horizontal tab (`U+0009`),
-    a left-to-right mark (`U+200E`) or a right-to-left mark (`U+200F`), or
+* the next [=line break=], or
 * the end of the program.
 
 A <dfn noexport>block comment</dfn> is a kind of [=comment=] consisting of:
@@ -504,7 +537,7 @@ An <dfn>integer literal</dfn> is:
     const b = 0X123u;
     const c = 1u;
     const d = 123;
-    const f = 0;
+    const e = 0;
     const f = 0i;
     const g = 0x3f;
   </xmp>
@@ -647,11 +680,7 @@ See [[#declaration-and-scope]] and [[#directives]].
 The form of an identifier is based on the
 [=Unicode Standard Annex #31 for Unicode Version 14.0.0|Unicode Standard Annex #31=] for
 [[!UnicodeVersion14|Unicode Version 14.0.0]],
-with the following elaborations. Identifiers do not compare under canonical equivalence
-and they are not normalized otherwise,
-meaning that single accented code points are distinct from the same code points constructed
-by an accent and a letter, and Unicode code points that look similar are not
-treated as the same and they compare by their code points.
+with the following elaborations.
 
 Identifiers use the following profile described in terms of [=UAX31 Grammar=]:
 
@@ -668,8 +697,8 @@ valid: `Δέλτα`, `réflexion`, `Кызыл`, `𐰓𐰏𐰇`, `朝焼け`, `�
 
 With the following exceptions:
 * An identifier must not have the same spelling as a [=keyword=] or as a [=reserved word=].
-* An identifier must not be `_` (a single underscore)
-* An identifier must not start with two underscores.
+* An identifier must not be `_` (a single underscore, `U+005F`).
+* An identifier must not start with `__` (two underscores, `U+005F` followed by `U+005F`).
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>ident</dfn> :
@@ -682,19 +711,30 @@ with all valid code points
 of both [=UAX31 Lexical Classes|XID_Start=] and
 [=UAX31 Lexical Classes|XID_Continue=].
 
-Note: A user agent or should issue developer-visible warnings when
-the meaning of a WGSL program would change if all instances of an
-identifier spelled with a specific code point sequence are replaced
-by another code point sequence that would appear the same to a reader.
-For example, remapping each identifier to its canonical equivalent
-spelling under [=UAX15 Normalization Forms|Normalization Form C (NFC)=]
-must permit the same set of declarations (avoiding new identifier collisions),
-and must not change how identifier uses [=resolve=] to their declarations.
-
 Note: The [=return type=] for some [=built-in functions=] are structure types whose name cannot be used WGSL source.
 Those structure types are described as if they were [=predeclared=] with a name starting with two underscores.
 The result value can be saved into newly declared `let` or `var` using type inferencing, or immediately have one of its members
 immediately extracted by name.  See example usages in the description of `frexp` and `modf`.
+
+### Identifier Comparison ### {#identifier-comparison}
+
+Two WGSL identifiers are the same if and only if they consist of the same sequence of code points.
+
+In particular, two identifiers may be distinct in WGSL, but considered the same under conventional normalization,
+mapping, and matching algorithms such as:
+- [=UAX15 Normalization Forms|Normalization Form C (NFC)=],
+- [=UAX15 Normalization Forms|Normalization Form D (NFD)=],
+- [=UAX15 Normalization Forms|Normalization Form KC (NFKC)=],
+- [=UAX15 Normalization Forms|Normalization Form KD (NFKD)=],
+- [=UTS46 Mapping=], and
+- [=charmod-norm Matching=].
+
+Note: A user agent should issue developer-visible warnings when the meaning of a WGSL program would change if
+all instances of an identifier are replaced with one of that identifier's homographs.
+(A homoglyph is a sequence of code points that may appear the same to a reader as another sequence of code points. 
+Examples of mappings to detect homoglyphs are the transformations, mappings, and matching algorithms mentioned in
+the previous paragraph. Two sequences of code points are homographs if the identifier can transform one into the other by
+repeatedly replacing a subsequence with its homoglyph.)
 
 ## Attributes ## {#attributes}
 
@@ -9283,8 +9323,6 @@ The following are reserved words:
 
     | `'bf16'`   <!-- WGSL -->
 
-    | `'buffer'`   <!-- GLSL -->
-
     | `'cast'`   <!-- GLSL(reserved) -->
 
     | `'catch'`   <!-- C++ ECMAScript2022 -->
@@ -9449,13 +9487,9 @@ The following are reserved words:
 
     | `'import'`   <!-- C++ ECMAScript2022 -->
 
-    | `'in'`   <!-- ECMAScript2022 Rust HLSL GLSL -->
-
     | `'inline'`   <!-- C++ HLSL GLSL(reserved) -->
 
     | `'inout'`   <!-- HLSL GLSL -->
-
-    | `'input'`   <!-- GLSL(reserved) -->
 
     | `'instanceof'`   <!-- ECMAScript2022 -->
 
@@ -9566,10 +9600,6 @@ The following are reserved words:
     | `'of'`   <!-- ECMAScript2022 -->
 
     | `'operator'`   <!-- C++ -->
-
-    | `'out'`   <!-- HLSL GLSL -->
-
-    | `'output'`   <!-- GLSL(reserved) -->
 
     | `'package'`   <!-- ECMAScript2022 -->
 
@@ -9710,8 +9740,6 @@ The following are reserved words:
     | `'technique11'`   <!-- HLSL -->
 
     | `'template'`   <!-- C++ GLSL(reserved) -->
-
-    | `'texture'`   <!-- HLSL HLSL -->
 
     | `'texture1D'`   <!-- GLSL -->
 
@@ -11053,33 +11081,33 @@ Parameter values must be valid for the respective texture types.
 Returns the dimensions of a texture, or texture's mip level in texels.
 
 ```rust
-fn textureDimensions(t: texture_1d<T>) -> i32
-fn textureDimensions(t: texture_1d<T>, level: i32) -> i32
-fn textureDimensions(t: texture_2d<T>) -> vec2<i32>
-fn textureDimensions(t: texture_2d<T>, level: i32) -> vec2<i32>
-fn textureDimensions(t: texture_2d_array<T>) -> vec2<i32>
-fn textureDimensions(t: texture_2d_array<T>, level: i32) -> vec2<i32>
-fn textureDimensions(t: texture_3d<T>) -> vec3<i32>
-fn textureDimensions(t: texture_3d<T>, level: i32) -> vec3<i32>
-fn textureDimensions(t: texture_cube<T>) -> vec2<i32>
-fn textureDimensions(t: texture_cube<T>, level: i32) -> vec2<i32>
-fn textureDimensions(t: texture_cube_array<T>) -> vec2<i32>
-fn textureDimensions(t: texture_cube_array<T>, level: i32) -> vec2<i32>
-fn textureDimensions(t: texture_multisampled_2d<T>)-> vec2<i32>
-fn textureDimensions(t: texture_depth_2d) -> vec2<i32>
-fn textureDimensions(t: texture_depth_2d, level: i32) -> vec2<i32>
-fn textureDimensions(t: texture_depth_2d_array) -> vec2<i32>
-fn textureDimensions(t: texture_depth_2d_array, level: i32) -> vec2<i32>
-fn textureDimensions(t: texture_depth_cube) -> vec2<i32>
-fn textureDimensions(t: texture_depth_cube, level: i32) -> vec2<i32>
-fn textureDimensions(t: texture_depth_cube_array) -> vec2<i32>
-fn textureDimensions(t: texture_depth_cube_array, level: i32) -> vec2<i32>
-fn textureDimensions(t: texture_depth_multisampled_2d)-> vec2<i32>
-fn textureDimensions(t: texture_storage_1d<F,A>) -> i32
-fn textureDimensions(t: texture_storage_2d<F,A>) -> vec2<i32>
-fn textureDimensions(t: texture_storage_2d_array<F,A>) -> vec2<i32>
-fn textureDimensions(t: texture_storage_3d<F,A>) -> vec3<i32>
-fn textureDimensions(t: texture_external) -> vec2<i32>
+fn textureDimensions(t: texture_1d<T>) -> u32
+fn textureDimensions(t: texture_1d<T>, level: u32) -> u32
+fn textureDimensions(t: texture_2d<T>) -> vec2<u32>
+fn textureDimensions(t: texture_2d<T>, level: u32) -> vec2<u32>
+fn textureDimensions(t: texture_2d_array<T>) -> vec2<u32>
+fn textureDimensions(t: texture_2d_array<T>, level: u32) -> vec2<u32>
+fn textureDimensions(t: texture_3d<T>) -> vec3<u32>
+fn textureDimensions(t: texture_3d<T>, level: u32) -> vec3<u32>
+fn textureDimensions(t: texture_cube<T>) -> vec2<u32>
+fn textureDimensions(t: texture_cube<T>, level: u32) -> vec2<u32>
+fn textureDimensions(t: texture_cube_array<T>) -> vec2<u32>
+fn textureDimensions(t: texture_cube_array<T>, level: u32) -> vec2<u32>
+fn textureDimensions(t: texture_multisampled_2d<T>)-> vec2<u32>
+fn textureDimensions(t: texture_depth_2d) -> vec2<u32>
+fn textureDimensions(t: texture_depth_2d, level: u32) -> vec2<u32>
+fn textureDimensions(t: texture_depth_2d_array) -> vec2<u32>
+fn textureDimensions(t: texture_depth_2d_array, level: u32) -> vec2<u32>
+fn textureDimensions(t: texture_depth_cube) -> vec2<u32>
+fn textureDimensions(t: texture_depth_cube, level: u32) -> vec2<u32>
+fn textureDimensions(t: texture_depth_cube_array) -> vec2<u32>
+fn textureDimensions(t: texture_depth_cube_array, level: u32) -> vec2<u32>
+fn textureDimensions(t: texture_depth_multisampled_2d)-> vec2<u32>
+fn textureDimensions(t: texture_storage_1d<F,A>) -> u32
+fn textureDimensions(t: texture_storage_2d<F,A>) -> vec2<u32>
+fn textureDimensions(t: texture_storage_2d_array<F,A>) -> vec2<u32>
+fn textureDimensions(t: texture_storage_3d<F,A>) -> vec3<u32>
+fn textureDimensions(t: texture_external) -> vec2<u32>
 ```
 
 **Parameters:**
@@ -11148,6 +11176,15 @@ fn textureGather(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array
 fn textureGather(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: i32, offset: vec2<i32>) -> vec4<f32>
 fn textureGather(t: texture_depth_cube, s: sampler, coords: vec3<f32>) -> vec4<f32>
 fn textureGather(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_index: i32) -> vec4<f32>
+fn textureGather(component: u32, t: texture_2d<T>, s: sampler, coords: vec2<f32>) -> vec4<T>
+fn textureGather(component: u32, t: texture_2d<T>, s: sampler, coords: vec2<f32>, offset: vec2<i32>) -> vec4<T>
+fn textureGather(component: u32, t: texture_2d_array<T>, s: sampler, coords: vec2<f32>, array_index: u32) -> vec4<T>
+fn textureGather(component: u32, t: texture_2d_array<T>, s: sampler, coords: vec2<f32>, array_index: u32, offset: vec2<i32>) -> vec4<T>
+fn textureGather(component: u32, t: texture_cube<T>, s: sampler, coords: vec3<f32>) -> vec4<T>
+fn textureGather(component: u32, t: texture_cube_array<T>, s: sampler, coords: vec3<f32>, array_index: u32) -> vec4<T>
+fn textureGather(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: u32) -> vec4<f32>
+fn textureGather(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: u32, offset: vec2<i32>) -> vec4<f32>
+fn textureGather(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_index: u32) -> vec4<f32>
 ```
 
 **Parameters:**
@@ -11231,6 +11268,9 @@ fn textureGatherCompare(t: texture_depth_2d_array, s: sampler_comparison, coords
 fn textureGatherCompare(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: i32, depth_ref: f32, offset: vec2<i32>) -> vec4<f32>
 fn textureGatherCompare(t: texture_depth_cube, s: sampler_comparison, coords: vec3<f32>, depth_ref: f32) -> vec4<f32>
 fn textureGatherCompare(t: texture_depth_cube_array, s: sampler_comparison, coords: vec3<f32>, array_index: i32, depth_ref: f32) -> vec4<f32>
+fn textureGatherCompare(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: u32, depth_ref: f32) -> vec4<f32>
+fn textureGatherCompare(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: u32, depth_ref: f32, offset: vec2<i32>) -> vec4<f32>
+fn textureGatherCompare(t: texture_depth_cube_array, s: sampler_comparison, coords: vec3<f32>, array_index: u32, depth_ref: f32) -> vec4<f32>
 ```
 **Parameters:**
 
@@ -11283,6 +11323,15 @@ fn textureLoad(t: texture_depth_2d, coords: vec2<i32>, level: i32) -> f32
 fn textureLoad(t: texture_depth_2d_array, coords: vec2<i32>, array_index: i32, level: i32) -> f32
 fn textureLoad(t: texture_depth_multisampled_2d, coords: vec2<i32>, sample_index: i32)-> f32
 fn textureLoad(t: texture_external, coords: vec2<i32>) -> vec4<f32>
+fn textureLoad(t: texture_1d<T>, coords: u32, level: u32) -> vec4<T>
+fn textureLoad(t: texture_2d<T>, coords: vec2<u32>, level: u32) -> vec4<T>
+fn textureLoad(t: texture_2d_array<T>, coords: vec2<u32>, array_index: u32, level: u32) -> vec4<T>
+fn textureLoad(t: texture_3d<T>, coords: vec3<u32>, level: u32) -> vec4<T>
+fn textureLoad(t: texture_multisampled_2d<T>, coords: vec2<u32>, sample_index: u32)-> vec4<T>
+fn textureLoad(t: texture_depth_2d, coords: vec2<u32>, level: u32) -> f32
+fn textureLoad(t: texture_depth_2d_array, coords: vec2<u32>, array_index: u32, level: u32) -> f32
+fn textureLoad(t: texture_depth_multisampled_2d, coords: vec2<u32>, sample_index: u32)-> f32
+fn textureLoad(t: texture_external, coords: vec2<u32>) -> vec4<f32>
 ```
 
 **Parameters:**
@@ -11322,11 +11371,11 @@ If an out of bounds access occurs, the built-in function returns one of:
 Returns the number of layers (elements) of an array texture.
 
 ```rust
-fn textureNumLayers(t: texture_2d_array<T>) -> i32
-fn textureNumLayers(t: texture_cube_array<T>) -> i32
-fn textureNumLayers(t: texture_depth_2d_array) -> i32
-fn textureNumLayers(t: texture_depth_cube_array) -> i32
-fn textureNumLayers(t: texture_storage_2d_array<F,A>) -> i32
+fn textureNumLayers(t: texture_2d_array<T>) -> u32
+fn textureNumLayers(t: texture_cube_array<T>) -> u32
+fn textureNumLayers(t: texture_depth_2d_array) -> u32
+fn textureNumLayers(t: texture_depth_cube_array) -> u32
+fn textureNumLayers(t: texture_storage_2d_array<F,A>) -> u32
 ```
 
 **Parameters:**
@@ -11348,16 +11397,16 @@ The number of layers (elements) of the array texture.
 Returns the number of mip levels of a texture.
 
 ```rust
-fn textureNumLevels(t: texture_1d<T>) -> i32
-fn textureNumLevels(t: texture_2d<T>) -> i32
-fn textureNumLevels(t: texture_2d_array<T>) -> i32
-fn textureNumLevels(t: texture_3d<T>) -> i32
-fn textureNumLevels(t: texture_cube<T>) -> i32
-fn textureNumLevels(t: texture_cube_array<T>) -> i32
-fn textureNumLevels(t: texture_depth_2d) -> i32
-fn textureNumLevels(t: texture_depth_2d_array) -> i32
-fn textureNumLevels(t: texture_depth_cube) -> i32
-fn textureNumLevels(t: texture_depth_cube_array) -> i32
+fn textureNumLevels(t: texture_1d<T>) -> u32
+fn textureNumLevels(t: texture_2d<T>) -> u32
+fn textureNumLevels(t: texture_2d_array<T>) -> u32
+fn textureNumLevels(t: texture_3d<T>) -> u32
+fn textureNumLevels(t: texture_cube<T>) -> u32
+fn textureNumLevels(t: texture_cube_array<T>) -> u32
+fn textureNumLevels(t: texture_depth_2d) -> u32
+fn textureNumLevels(t: texture_depth_2d_array) -> u32
+fn textureNumLevels(t: texture_depth_cube) -> u32
+fn textureNumLevels(t: texture_depth_cube_array) -> u32
 ```
 
 **Parameters:**
@@ -11377,8 +11426,8 @@ The number of mip levels for the texture.
 Returns the number samples per texel in a multisampled texture.
 
 ```rust
-textureNumSamples(t: texture_multisampled_2d<T>) -> i32
-textureNumSamples(t: texture_depth_multisampled_2d) -> i32
+fn textureNumSamples(t: texture_multisampled_2d<T>) -> u32
+fn textureNumSamples(t: texture_depth_multisampled_2d) -> u32
 ```
 
 **Parameters:**
@@ -11416,6 +11465,12 @@ fn textureSample(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array
 fn textureSample(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: i32, offset: vec2<i32>) -> f32
 fn textureSample(t: texture_depth_cube, s: sampler, coords: vec3<f32>) -> f32
 fn textureSample(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_index: i32) -> f32
+fn textureSample(t: texture_2d_array<f32>, s: sampler, coords: vec2<f32>, array_index: u32) -> vec4<f32>
+fn textureSample(t: texture_2d_array<f32>, s: sampler, coords: vec2<f32>, array_index: u32, offset: vec2<i32>) -> vec4<f32>
+fn textureSample(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, array_index: u32) -> vec4<f32>
+fn textureSample(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: u32) -> f32
+fn textureSample(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: u32, offset: vec2<i32>) -> f32
+fn textureSample(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_index: u32) -> f32
 ```
 
 **Parameters:**
@@ -11460,6 +11515,9 @@ fn textureSampleBias(t: texture_3d<f32>, s: sampler, coords: vec3<f32>, bias: f3
 fn textureSampleBias(t: texture_3d<f32>, s: sampler, coords: vec3<f32>, bias: f32, offset: vec3<i32>) -> vec4<f32>
 fn textureSampleBias(t: texture_cube<f32>, s: sampler, coords: vec3<f32>, bias: f32) -> vec4<f32>
 fn textureSampleBias(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, array_index: i32, bias: f32) -> vec4<f32>
+fn textureSampleBias(t: texture_2d_array<f32>, s: sampler, coords: vec2<f32>, array_index: u32, bias: f32) -> vec4<f32>
+fn textureSampleBias(t: texture_2d_array<f32>, s: sampler, coords: vec2<f32>, array_index: u32, bias: f32, offset: vec2<i32>) -> vec4<f32>
+fn textureSampleBias(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, array_index: u32, bias: f32) -> vec4<f32>
 ```
 
 **Parameters:**
@@ -11504,6 +11562,9 @@ fn textureSampleCompare(t: texture_depth_2d_array, s: sampler_comparison, coords
 fn textureSampleCompare(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: i32, depth_ref: f32, offset: vec2<i32>) -> f32
 fn textureSampleCompare(t: texture_depth_cube, s: sampler_comparison, coords: vec3<f32>, depth_ref: f32) -> f32
 fn textureSampleCompare(t: texture_depth_cube_array, s: sampler_comparison, coords: vec3<f32>, array_index: i32, depth_ref: f32) -> f32
+fn textureSampleCompare(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: u32, depth_ref: f32) -> f32
+fn textureSampleCompare(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: u32, depth_ref: f32, offset: vec2<i32>) -> f32
+fn textureSampleCompare(t: texture_depth_cube_array, s: sampler_comparison, coords: vec3<f32>, array_index: u32, depth_ref: f32) -> f32
 ```
 
 **Parameters:**
@@ -11552,6 +11613,9 @@ fn textureSampleCompareLevel(t: texture_depth_2d_array, s: sampler_comparison, c
 fn textureSampleCompareLevel(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: i32, depth_ref: f32, offset: vec2<i32>) -> f32
 fn textureSampleCompareLevel(t: texture_depth_cube, s: sampler_comparison, coords: vec3<f32>, depth_ref: f32) -> f32
 fn textureSampleCompareLevel(t: texture_depth_cube_array, s: sampler_comparison, coords: vec3<f32>, array_index: i32, depth_ref: f32) -> f32
+fn textureSampleCompareLevel(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: u32, depth_ref: f32) -> f32
+fn textureSampleCompareLevel(t: texture_depth_2d_array, s: sampler_comparison, coords: vec2<f32>, array_index: u32, depth_ref: f32, offset: vec2<i32>) -> f32
+fn textureSampleCompareLevel(t: texture_depth_cube_array, s: sampler_comparison, coords: vec3<f32>, array_index: u32, depth_ref: f32) -> f32
 ```
 
 The `textureSampleCompareLevel` function is the same as `textureSampleCompare`, except that:
@@ -11574,6 +11638,9 @@ fn textureSampleGrad(t: texture_3d<f32>, s: sampler, coords: vec3<f32>, ddx: vec
 fn textureSampleGrad(t: texture_3d<f32>, s: sampler, coords: vec3<f32>, ddx: vec3<f32>, ddy: vec3<f32>, offset: vec3<i32>) -> vec4<f32>
 fn textureSampleGrad(t: texture_cube<f32>, s: sampler, coords: vec3<f32>, ddx: vec3<f32>, ddy: vec3<f32>) -> vec4<f32>
 fn textureSampleGrad(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, array_index: i32, ddx: vec3<f32>, ddy: vec3<f32>) -> vec4<f32>
+fn textureSampleGrad(t: texture_2d_array<f32>, s: sampler, coords: vec2<f32>, array_index: u32, ddx: vec2<f32>, ddy: vec2<f32>) -> vec4<f32>
+fn textureSampleGrad(t: texture_2d_array<f32>, s: sampler, coords: vec2<f32>, array_index: u32, ddx: vec2<f32>, ddy: vec2<f32>, offset: vec2<i32>) -> vec4<f32>
+fn textureSampleGrad(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, array_index: u32, ddx: vec3<f32>, ddy: vec3<f32>) -> vec4<f32>
 ```
 
 **Parameters:**
@@ -11625,6 +11692,15 @@ fn textureSampleLevel(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, 
 fn textureSampleLevel(t: texture_depth_cube, s: sampler, coords: vec3<f32>, level: i32) -> f32
 fn textureSampleLevel(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_index: i32, level: i32) -> f32
 fn textureSampleLevel(t: texture_external, s: sampler, coords: vec2<f32>) -> vec4<f32>
+fn textureSampleLevel(t: texture_2d_array<f32>, s: sampler, coords: vec2<f32>, array_index: u32, level: f32) -> vec4<f32>
+fn textureSampleLevel(t: texture_2d_array<f32>, s: sampler, coords: vec2<f32>, array_index: u32, level: f32, offset: vec2<i32>) -> vec4<f32>
+fn textureSampleLevel(t: texture_cube_array<f32>, s: sampler, coords: vec3<f32>, array_index: u32, level: f32) -> vec4<f32>
+fn textureSampleLevel(t: texture_depth_2d, s: sampler, coords: vec2<f32>, level: u32) -> f32
+fn textureSampleLevel(t: texture_depth_2d, s: sampler, coords: vec2<f32>, level: u32, offset: vec2<i32>) -> f32
+fn textureSampleLevel(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: u32, level: u32) -> f32
+fn textureSampleLevel(t: texture_depth_2d_array, s: sampler, coords: vec2<f32>, array_index: u32, level: u32, offset: vec2<i32>) -> f32
+fn textureSampleLevel(t: texture_depth_cube, s: sampler, coords: vec3<f32>, level: u32) -> f32
+fn textureSampleLevel(t: texture_depth_cube_array, s: sampler, coords: vec3<f32>, array_index: u32, level: u32) -> f32
 ```
 
 **Parameters:**
@@ -11668,6 +11744,10 @@ fn textureStore(t: texture_storage_1d<F,write>, coords: i32, value: vec4<T>)
 fn textureStore(t: texture_storage_2d<F,write>, coords: vec2<i32>, value: vec4<T>)
 fn textureStore(t: texture_storage_2d_array<F,write>, coords: vec2<i32>, array_index: i32, value: vec4<T>)
 fn textureStore(t: texture_storage_3d<F,write>, coords: vec3<i32>, value: vec4<T>)
+fn textureStore(t: texture_storage_1d<F,write>, coords: u32, value: vec4<T>)
+fn textureStore(t: texture_storage_2d<F,write>, coords: vec2<u32>, value: vec4<T>)
+fn textureStore(t: texture_storage_2d_array<F,write>, coords: vec2<u32>, array_index: u32, value: vec4<T>)
+fn textureStore(t: texture_storage_3d<F,write>, coords: vec3<u32>, value: vec4<T>)
 ```
 
 The channel format `T` depends on the storage texel format `F`.
