@@ -413,7 +413,7 @@ and disable WebGPU on drivers with known bugs that can't be worked around.
 
 ### Timing attacks ### {#security-timing}
 
-WebGPU is designed for multi-threaded use via Web Workers. As such, it is designed not to open
+WebGPU is designed to later support multi-threaded use via Web Workers. As such, it is designed not to open
 the users to modern high-precision timing attacks. Some of the objects,
 like {{GPUBuffer}} or {{GPUQueue}}, have shared state which can be simultaneously accessed.
 This allows race conditions to occur, similar to those of accessing a `SharedArrayBuffer`
@@ -828,8 +828,6 @@ Note: This example describes the worst case, while in practice
 the implementation may not need to cross the process boundary,
 or may be able to expose the driver-managed memory directly to
 the user behind an `ArrayBuffer`, thus avoiding any data copies.
-
-### Multi-Threading ### {#programming-model-multi-threading}
 
 ### Resource Usages ### {#programming-model-resource-usages}
 
@@ -1393,6 +1391,14 @@ applications should generally request the "worst" limits that work for their con
     <tr class=row-continuation><td colspan=4>
         The maximum allowed number of components of input or output variables
         for inter-stage communication (like vertex outputs or fragment inputs).
+
+    <tr><td><dfn>maxColorAttachments</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
+    <tr class=row-continuation><td colspan=4>
+        The maximum allowed number of color attachments in
+        {{GPURenderPipelineDescriptor}}.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}},
+        {{GPURenderPassDescriptor}}.{{GPURenderPassDescriptor/colorAttachments}},
+        and {{GPURenderPassLayout}}.{{GPURenderPassLayout/colorFormats}}.
 
     <tr><td><dfn>maxComputeWorkgroupStorageSize</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16352
@@ -2089,30 +2095,6 @@ Those not defined here are defined elsewhere in this document.
     <!-- As needed, compute more allowed usages based on the features enabled on the device. -->
 </div>
 
-{{GPUDevice}} objects are [=serializable objects=].
-
-Issue(gpuweb/gpuweb#354): Finish defining multithreading API and add `[Serializable]` back to the interface.
-
-<div algorithm>
-    <dfn abstract-op>The steps to serialize a GPUDevice object</dfn>,
-    given |value|, |serialized|, and |forStorage|, are:
-     1. Set |serialized|.agentCluster to be the [=surrounding agent=]'s [=agent cluster=].
-     1. If |serialized|.agentCluster's [=cross-origin isolated capability=] is false, throw a "{{DataCloneError}}".
-     1. If |forStorage| is `true`, throw a "{{DataCloneError}}".
-     1. Set |serialized|.device to the value of |value|.{{GPUObjectBase/[[device]]}}.
-</div>
-
-<div algorithm>
-    <dfn abstract-op>The steps to deserialize a GPUDevice object</dfn>,
-    given |serialized| and |value|, are:
-     1. If |serialized|.agentCluster is not the [=surrounding agent=]'s [=agent cluster=], throw a "{{DataCloneError}}".
-     1. Set |value|.{{GPUObjectBase/[[device]]}} to |serialized|.device.
-</div>
-
-Issue: `GPUDevice` doesn't really need the cross-origin policy restriction.
-It should be usable from multiple agents regardless. Once we describe the serialization
-of buffers, textures, and queues - the COOP+COEP logic should be moved in there.
-
 ## Example ## {#initialization-examples}
 
 <div class="example">
@@ -2277,8 +2259,6 @@ Note:
 </div>
 
 {{GPUBuffer}} is a reference to an internal buffer object.
-
-Issue(gpuweb/gpuweb#354): Finish defining multithreading API and add `[Serializable]` back to the interface.
 
 ## Buffer Creation ## {#buffer-creation}
 
@@ -3450,8 +3430,6 @@ GPUExternalTexture includes GPUObjectBase;
     ::
         Indicates whether the object has been destroyed (can no longer be used).
         Initially set to `false`.
-
-        <!-- Move this to an internal object if GPUExternalTexture becomes Serializable. -->
 
     : <dfn>\[[descriptor]]</dfn>, of type {{GPUExternalTextureDescriptor}}
     ::
@@ -4710,13 +4688,11 @@ GPUShaderModule includes GPUObjectBase;
 
 {{GPUShaderModule}} is a reference to an internal shader module object.
 
-Issue(gpuweb/gpuweb#354): Finish defining multithreading API and add `[Serializable]` back to the interface.
-
 ### Shader Module Creation ### {#shader-module-creation}
 
 <script type=idl>
 dictionary GPUShaderModuleCompilationHint {
-    required GPUPipelineLayout layout;
+    required (GPUPipelineLayout or GPUAutoLayoutMode) layout;
 };
 
 dictionary GPUShaderModuleDescriptor : GPUObjectDescriptorBase {
@@ -4943,8 +4919,12 @@ and switched as one
 ## Base pipelines ## {#pipeline-base}
 
 <script type=idl>
+enum GPUAutoLayoutMode {
+    "auto",
+};
+
 dictionary GPUPipelineDescriptorBase : GPUObjectDescriptorBase {
-    GPUPipelineLayout layout;
+    required (GPUPipelineLayout or GPUAutoLayoutMode) layout;
 };
 
 interface mixin GPUPipelineBase {
@@ -5003,8 +4983,13 @@ interface mixin GPUPipelineBase {
 
 ### Default pipeline layout ### {#default-pipeline-layout}
 
-A {{GPUPipelineBase}} object that was created without a {{GPUPipelineDescriptorBase/layout}}
-has a default layout created and used instead.
+A {{GPUPipelineBase}} object that was created with a {{GPUPipelineDescriptorBase/layout}} set to
+{{GPUAutoLayoutMode/"auto"}} has a default layout created and used instead.
+
+Note: Default layouts are provided as a convenience for simple pipelines, but use of explicit layouts
+is recommended in most cases. Bind groups created from default layouts cannot be used with other
+pipelines, and the structure of the default layout may change when altering shaders, causing
+unexpected bind group creation errors.
 
 <div algorithm="default pipeline layout creation">
 
@@ -5440,13 +5425,16 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 
             1. Let |pipeline| be a new valid {{GPUComputePipeline}} object.
             1. Issue the following steps on the [=Device timeline=] of |this|:
+                1. Let |layout| be a new [$default pipeline layout$] for |pipeline| if
+                    |descriptor|.{{GPUPipelineDescriptorBase/layout}} is {{GPUAutoLayoutMode/"auto"}},
+                    and |descriptor|.{{GPUPipelineDescriptorBase/layout}} otherwise.
+
                 <div class=device-timeline>
                     1. If any of the following conditions are unsatisfied:
                         <div class=validusage>
-                            - |descriptor|.{{GPUPipelineDescriptorBase/layout}} is [$valid to use with$] |this|.
+                            - |layout| is [$valid to use with$] |this|.
                             - [$validating GPUProgrammableStage$]({{GPUShaderStage/COMPUTE}},
-                                |descriptor|.{{GPUComputePipelineDescriptor/compute}},
-                                |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+                                |descriptor|.{{GPUComputePipelineDescriptor/compute}}, |layout|) succeeds.
                             - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
                                 |device|.limits.{{supported limits/maxComputeWorkgroupStorageSize}} bytes of
                                 workgroup storage.
@@ -5467,11 +5455,7 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
                             1. [$Generate a validation error$]
                             1. Make |pipeline| [=invalid=].
 
-                    1. If |descriptor|.{{GPUPipelineDescriptorBase/layout}} is `undefined`:
-                        1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to a new [$default pipeline layout$]
-                            for |pipeline|.
-
-                        Otherwise set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |descriptor|.{{GPUPipelineDescriptorBase/layout}}.
+                    1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |layout|.
                 </div>
             1. Return |pipeline|.
 
@@ -5619,10 +5603,14 @@ details.
             1. Let |pipeline| be a new valid {{GPURenderPipeline}} object.
             1. Issue the following steps on the [=Device timeline=] of |this|:
                 <div class=device-timeline>
+                    1. Let |layout| be a new [$default pipeline layout$] for |pipeline| if
+                        |descriptor|.{{GPUPipelineDescriptorBase/layout}} is {{GPUAutoLayoutMode/"auto"}},
+                        and |descriptor|.{{GPUPipelineDescriptorBase/layout}} otherwise.
+
                     1. If any of the following conditions are unsatisfied:
                         <div class=validusage>
-                            - |descriptor|.{{GPUPipelineDescriptorBase/layout}} is [$valid to use with$] |this|.
-                            - [$validating GPURenderPipelineDescriptor$](|descriptor|, |this|) succeeds.
+                            - |layout| is [$valid to use with$] |this|.
+                            - [$validating GPURenderPipelineDescriptor$](|descriptor|, |layout|, |this|) succeeds.
                         </div>
 
                         Then:
@@ -5647,11 +5635,7 @@ details.
                                 |stencilBack|.{{GPUStencilFaceState/depthFailOp}}, or |stencilBack|.{{GPUStencilFaceState/failOp}}
                                 is not {{GPUStencilOperation/"keep"}}:
                                 1. Set |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} to true.
-                    1. If |descriptor|.{{GPUPipelineDescriptorBase/layout}} is `undefined`:
-                        1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to a new [$default pipeline layout$]
-                            for |pipeline|.
-
-                        Otherwise set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |descriptor|.{{GPUPipelineDescriptorBase/layout}}.
+                    1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |layout|.
                 </div>
             1. Return |pipeline|.
 
@@ -5691,23 +5675,22 @@ details.
 </dl>
 
 <div algorithm>
-    <dfn abstract-op>validating GPURenderPipelineDescriptor</dfn>(descriptor, device)
+    <dfn abstract-op>validating GPURenderPipelineDescriptor</dfn>(descriptor, layout, device)
         **Arguments:**
             - {{GPURenderPipelineDescriptor}} |descriptor|
+            - {{GPUPipelineLayout}} |layout|
             - {{GPUDevice}} |device|
 
         Return `true` if all of the following conditions are satisfied:
 
             - [$validating GPUProgrammableStage$]({{GPUShaderStage/VERTEX}},
-                |descriptor|.{{GPURenderPipelineDescriptor/vertex}},
-                |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
+                |descriptor|.{{GPURenderPipelineDescriptor/vertex}}, |layout|) succeeds.
             - [$validating GPUVertexState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/vertex}},
                 |descriptor|.{{GPURenderPipelineDescriptor/vertex}}) succeeds.
             - If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is not `null`:
                 - [$validating GPUProgrammableStage$]({{GPUShaderStage/FRAGMENT}},
-                    |descriptor|.{{GPURenderPipelineDescriptor/fragment}},
-                    |descriptor|.{{GPUPipelineDescriptorBase/layout}}) succeeds.
-                - [$validating GPUFragmentState$](|descriptor|.{{GPURenderPipelineDescriptor/fragment}}) succeeds.
+                    |descriptor|.{{GPURenderPipelineDescriptor/fragment}}, |layout|) succeeds.
+                - [$validating GPUFragmentState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}}) succeeds.
                 - If the "sample_mask" [=builtin=] is a [=pipeline output=] of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
                     - |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}} is `false`.
             - [$validating GPUPrimitiveState$](|descriptor|.{{GPURenderPipelineDescriptor/primitive}}, |device|.{{device/[[features]]}}) succeeds.
@@ -5845,28 +5828,30 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 </script>
 
 <div algorithm>
-    <dfn abstract-op>validating GPUFragmentState</dfn>(|descriptor|)
-        Return `true` if all of the following requirements are met:
+    <dfn abstract-op>validating GPUFragmentState</dfn>({{GPUDevice}} |device|, {{GPUFragmentState}} |descriptor|)
 
-        - |descriptor|.{{GPUFragmentState/targets}}.length must be &le; 8.
-        - For each non-`null` |colorState| layout descriptor in the list |descriptor|.{{GPUFragmentState/targets}}:
-            - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
-                with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
-            - If |colorState|.{{GPUColorTargetState/blend}} is not `undefined`:
-                - The |colorState|.{{GPUColorTargetState/format}} must be filterable
-                    according to the [[#plain-color-formats]] table.
-                - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}
-                    must be a [=valid GPUBlendComponent=].
-                - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
-                    must be a [=valid GPUBlendComponent=].
-            - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
-            - If |descriptor|.{{GPUProgrammableStage/entryPoint}} has a [=pipeline output=] value
-                with [=location=] attribute equal to the index of the |colorState|
-                in the |descriptor|.{{GPUFragmentState/targets}} list:
-                - The [=pipeline output=] type must be compatible with |colorState|.{{GPUColorTargetState/format}}.
+    Return `true` if all of the following requirements are met:
 
-                Otherwise:
-                - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
+    - |descriptor|.{{GPUFragmentState/targets}}.length must be &le;
+        |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
+    - For each non-`null` |colorState| layout descriptor in the list |descriptor|.{{GPUFragmentState/targets}}:
+        - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
+            with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
+        - If |colorState|.{{GPUColorTargetState/blend}} is not `undefined`:
+            - The |colorState|.{{GPUColorTargetState/format}} must be filterable
+                according to the [[#plain-color-formats]] table.
+            - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}
+                must be a [=valid GPUBlendComponent=].
+            - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
+                must be a [=valid GPUBlendComponent=].
+        - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
+        - If |descriptor|.{{GPUProgrammableStage/entryPoint}} has a [=pipeline output=] value
+            with [=location=] attribute equal to the index of the |colorState|
+            in the |descriptor|.{{GPUFragmentState/targets}} list:
+            - The [=pipeline output=] type must be compatible with |colorState|.{{GPUColorTargetState/format}}.
+
+            Otherwise:
+            - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
 </div>
 
 Note:
@@ -8058,9 +8043,11 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 <div class=validusage dfn-for=GPURenderPassDescriptor>
     <dfn abstract-op>Valid Usage</dfn>
 
-    Given a {{GPURenderPassDescriptor}} |this| the following validation rules apply:
+    Given a {{GPUDevice}} |device| and {{GPURenderPassDescriptor}} |this|, the following validation rules apply:
 
-    1. |this|.{{GPURenderPassDescriptor/colorAttachments}}.length must be less than or equal to 8.
+    1. |this|.{{GPURenderPassDescriptor/colorAttachments}}.length must be less than or equal to
+        |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
+
     1. If |this|.{{GPURenderPassDescriptor/colorAttachments}} has all values be `null` (or the sequence is empty):
 
         1. |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} must not be `null`.
@@ -9127,7 +9114,8 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
             <div class=device-timeline>
                 1. If any of the following conditions are unsatisfied, [$generate a validation error$] and stop.
                     <div class=validusage>
-                        - |descriptor|.{{GPURenderPassLayout/colorFormats}}.length must be less than or equal to 8.
+                        - |descriptor|.{{GPURenderPassLayout/colorFormats}}.length must be less than or equal to
+                            |this|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
                         - If |descriptor|.{{GPURenderPassLayout/colorFormats}} only contains `null` members:
                             - |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} must not be `null`.
                         - For each |colorFormat| in |descriptor|.{{GPURenderPassLayout/colorFormats}}:
