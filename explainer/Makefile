@@ -1,8 +1,9 @@
+.PHONY: all clean
+
 all: index.html
 
-index.html: index.bs
-	bikeshed --die-on=everything spec index.bs
+clean:
+	rm -f index.html webgpu.idl
 
-online:
-	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F output=err
-	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F force=1 > index.html
+index.html: *.bs
+	DIE_ON=everything ../tools/invoke-bikeshed.sh index.html *.bs

@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e # Exit with nonzero exit code if anything fails
 
+export BIKESHED_DISALLOW_ONLINE=1
+
 # Compile specs by default, unless told to only copy static files
 if [ "$1" == 'static' ]; then
   echo 'Extracting IDL from WebGPU spec'
@@ -27,7 +29,7 @@ if [ -d out ]; then
 
   echo 'Copying spec/* -> out/'
   cp spec/* out/
-  rm out/{README.md,Makefile,*.py,*.bs}
+  rm out/{README.md,Makefile,*.bs}
 
   echo 'Copying samples/* -> out/samples/'
   cp samples/* out/samples/
