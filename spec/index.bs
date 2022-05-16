@@ -10469,6 +10469,11 @@ interface GPUCanvasContext {
                             - [=Supported context formats=] must [=set/contain=]
                                 |configuration|.{{GPUCanvasConfiguration/format}}.
                         </div>
+
+                        Note: This early validation remains valid until the next
+                        {{GPUCanvasContext/configure()}} call, **except** for
+                        validation of the {{GPUTextureDescriptor/size}}, which changes when
+                        the canvas is resized.
                 </div>
         </div>
 
@@ -10567,8 +10572,8 @@ interface GPUCanvasContext {
     **Returns:** image contents
 
     1. Let |texture| be |context|.{{GPUCanvasContext/[[currentTexture]]}}.
-    1. If any of the following requirements is unmet, return a transparent black image of size
-        |context|.{{GPUCanvasContext/[[textureDescriptor]]}}.{{GPUTextureDescriptor/size}} and stop.
+    1. If any of the following requirements is unmet, return a transparent black image
+        with the same size as |context|.{{GPUCanvasContext/canvas}} and stop.
         <div class=validusage>
             - |texture| must not be `null`.
             - |texture|.{{GPUTexture/[[destroyed]]}} must be false.
@@ -10619,7 +10624,6 @@ dictionary GPUCanvasConfiguration {
     sequence<GPUTextureFormat> viewFormats = [];
     GPUPredefinedColorSpace colorSpace = "srgb";
     GPUCanvasCompositingAlphaMode compositingAlphaMode = "opaque";
-    GPUExtent3D size;
 };
 </script>
 
@@ -10643,8 +10647,7 @@ dictionary GPUCanvasConfiguration {
     {{GPUCanvasConfiguration}} |configuration|)
     is a {{GPUTextureDescriptor}} with the following members:
 
-    - {{GPUTextureDescriptor/size}}: |configuration|.{{GPUCanvasConfiguration/size}} if it
-        [=map/exists=], and [|canvas|.width, |canvas|.height, 1] otherwise.
+    - {{GPUTextureDescriptor/size}}: [|canvas|.width, |canvas|.height, 1].
     - {{GPUTextureDescriptor/format}}: |configuration|.{{GPUCanvasConfiguration/format}}.
     - {{GPUTextureDescriptor/usage}}: |configuration|.{{GPUCanvasConfiguration/usage}}.
     - {{GPUTextureDescriptor/viewFormats}}: |configuration|.{{GPUCanvasConfiguration/viewFormats}}.
@@ -10670,23 +10673,28 @@ high dynamic range is explicitly enabled for the canvas element.
 
 ### Canvas Context sizing ### {#context-sizing}
 
-The size of the image used to present a WebGPU canvas is set by the {{GPUCanvasConfiguration}}
-passed to {{GPUCanvasContext/configure()}}, and remains the same until {{GPUCanvasContext/configure()}}
-is called again with a new size. If a {{GPUCanvasConfiguration/size}} is not specified then the
-width and height attributes of the {{GPUCanvasContext}}.{{GPUCanvasContext/canvas}}
-at the time {{GPUCanvasContext/configure()}} is called will be used.
-The image will be scaled to fit the displayed size of the canvas element.
+All canvas configuration is set in {{GPUCanvasContext/configure()}} except for the resolution
+of the canvas, which is set by the canvas's `width` and `height`.
 
-<div class="note">
-    Note: Unlike `'webgl'` or `'2d'` contexts, `width` and `height` attributes of canvases with a
-    `'webgpu'` context only affect:
-    - Default layout size, if not overridden by CSS.
-    - Default {{GPUCanvasConfiguration}}.{{GPUCanvasConfiguration/size}} when calling
-        {{GPUCanvasContext/configure()}}, if not overridden.
+Note:
+Like WebGL and 2d canvas, resizing a WebGPU canvas loses the current contents of the drawing buffer.
+In WebGPU, it does so by [$Invalidate the current texture|invalidating the current texture$].
+
+<div algorithm>
+    When an {{HTMLCanvasElement}} or {{OffscreenCanvas}} |canvas| with a
+    {{GPUCanvasContext}} |context| has its `width` or `height` properties modified,
+    <dfn abstract-op>update the canvas size</dfn>:
+
+    1. [$Invalidate the current texture$] of |context|.
+    1. Let |configuration| be |context|.{{GPUCanvasContext/[[configuration]]}}
+    1. If |configuration| is not `null`:
+        1. Set |context|.{{GPUCanvasContext/[[textureDescriptor]]}} to the
+            {$GPUTextureDescriptor for the canvas and configuration$}(|canvas|, |configuration|).
+
+    Note: This may result a {{GPUTextureDescriptor}} which exceeds the
+    {{supported limits/maxTextureDimension2D}} of the device. In this case,
+    validation will fail inside {{GPUCanvasContext/getCurrentTexture()}}.
 </div>
-
-If it is desired to match the dimensions of the canvas after it is resized, the {{GPUCanvasContext}}
-must be reconfigured by calling {{GPUCanvasContext/configure()}} again with the new dimensions.
 
 <div class="example">
     Reconfigure a {{GPUCanvasContext}} in response to canvas resize, monitored using
@@ -10695,20 +10703,13 @@ must be reconfigured by calling {{GPUCanvasContext/configure()}} again with the 
 
     <pre highlight="js">
         const canvas = document.createElement('canvas');
-        const context =  canvas.getContext('webgpu');
+        const context = canvas.getContext('webgpu');
 
         const resizeObserver = new ResizeObserver(entries => {
             for (const entry of entries) {
                 if (entry.target != canvas) { continue; }
-                context.configure({
-                    device: gpuDevice,
-                    format: navigator.gpu.getPreferredCanvasFormat(),
-                    size: {
-                        // This reports the size of the canvas element in pixels
-                        width: entry.devicePixelContentBoxSize[0].inlineSize,
-                        height: entry.devicePixelContentBoxSize[0].blockSize,
-                    }
-                });
+                canvas.width = entry.devicePixelContentBoxSize[0].inlineSize;
+                canvas.height = entry.devicePixelContentBoxSize[0].blockSize;
             }
         });
         resizeObserver.observe(canvas);
