@@ -1559,6 +1559,12 @@ Consider a path for uploading srgb-encoded images into linearly-encoded textures
     :: The CSS predefined color space <a value for=color()>srgb</a>.
 </dl>
 
+A premultiplied RGBA value is <dfn dfn>super-luminant</dfn> if any of the R/G/B channel values
+exceeds the alpha channel value. For example, the premultiplied sRGB RGBA value [1.0, 0, 0, 0.5]
+represents the (unpremultiplied) sRGB color [2, 0, 0] with alpha of 50%. Just like any color
+value outside the sRGB color gamut, this is a well defined point in the extended color space.
+(Except when alpha is 0, in which case there is no color.)
+
 ### Color Space Conversions ### {#color-space-conversions}
 
 A color is converted between spaces by translating its representation in one space to a
@@ -1571,7 +1577,8 @@ are ignored.
 
 Colors are not lossily clamped during conversion: converting from one color space to another
 will result in values outside the range [0, 1] if the source color values were outside the range
-of the destination color space's gamut (e.g. if a Display P3 image is converted to sRGB).
+of the destination color space's gamut. For an sRGB destination, for example, this can occur if the
+source is rgba16float, in a wider color space like Display P3 image, or [=super-luminant=].
 
 Similarly, if the source value has a high bit depth (e.g. PNG with 16 bits per component) or
 extended range (e.g. canvas with `float16` storage), these colors are preserved through color space
@@ -10726,9 +10733,19 @@ Issue: Because timestamp query provides high-resolution GPU timestamp, we need t
 
 ## {{HTMLCanvasElement/getContext()|HTMLCanvasElement.getContext()}} ## {#canvas-getcontext}
 
-A {{GPUCanvasContext}} object can be obtained via the {{HTMLCanvasElement/getContext()}}
-method of an {{HTMLCanvasElement}} instance by passing the string literal `'webgpu'` as its
-`contextType` argument.
+A {{GPUCanvasContext}} object is [$create a 'webgpu' context on a canvas|created$]
+via the {{HTMLCanvasElement/getContext()}} method of an {{HTMLCanvasElement}}
+instance by passing the string literal `'webgpu'` as its `contextType` argument.
+
+<div algorithm>
+    To <dfn abstract-op>create a 'webgpu' context on a canvas</dfn>
+    ({{HTMLCanvasElement}} or {{OffscreenCanvas}}) |canvas|:
+
+    1. Let |context| be a new {{GPUCanvasContext}}.
+    1. Set |context|.{{GPUCanvasContext/canvas}} to |canvas|.
+    1. Set |context|.{{GPUCanvasContext/[[drawingBuffer]]}} to a transparent black
+        image with the same size as |canvas|.
+</div>
 
 <div class="example">
     Get a {{GPUCanvasContext}} from an offscreen {{HTMLCanvasElement}}:
@@ -10763,14 +10780,14 @@ interface GPUCanvasContext {
 {{GPUCanvasContext}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUCanvasContext">
-    : <dfn>\[[configuration]]</dfn> of type {{GPUCanvasConfiguration}}?, initially `null`.
+    : <dfn>\[[configuration]]</dfn>, of type {{GPUCanvasConfiguration}}?, initially `null`.
     ::
         The options this context is currently configured with.
 
         `null` if the context has not been configured or has been
         {{GPUCanvasContext/unconfigure()|unconfigured}}.
 
-    : <dfn>\[[textureDescriptor]]</dfn> of type {{GPUTextureDescriptor}}?, initially `null`.
+    : <dfn>\[[textureDescriptor]]</dfn>, of type {{GPUTextureDescriptor}}?, initially `null`.
     ::
         The currently configured texture descriptor, derived from the
         {{GPUCanvasContext/[[configuration]]}} and canvas.
@@ -10778,15 +10795,37 @@ interface GPUCanvasContext {
         `null` if the context has not been configured or has been
         {{GPUCanvasContext/unconfigure()|unconfigured}}.
 
-    : <dfn>\[[currentTexture]]</dfn> of type {{GPUTexture}}?, initially `null`
+    : <dfn>\[[drawingBuffer]]</dfn>, an image, initially
+        a transparent black image with the same size as the canvas
     ::
-        The current texture that will be returned by the context when calling
-        {{GPUCanvasContext/getCurrentTexture()}}, and the next one to be composited to the
-        document.
+        The underlying image data of the canvas. It is read-only through this field, but the image
+        is exposed as writable by {{GPUCanvasContext/[[currentTexture]]}} (returned by
+        {{GPUCanvasContext/getCurrentTexture()}}).
 
-        When non-`null`, this texture's size always matches the current
-        {{GPUCanvasContext/[[configuration]]}}'s size. Calling {{GPUCanvasContext/configure()}}
-        [$Invalidate the current texture|invalidates$] it.
+        This bitmap may be transparent, even if
+        {{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/alphaMode}} is
+        {{GPUCanvasAlphaMode/"opaque"}}. The "[$get a copy of the image contents of a context$]"
+        algorithm returns a cleared alpha channel in that case.
+        This bitmap outlives the {{GPUCanvasContext/[[currentTexture]]}} and is seen when the
+        canvas is [$get a copy of the image contents of a context|used as an image source$]
+        (in drawImage, toDataURL, etc.) even after the canvas has been
+        [$update the rendering of the WebGPU canvas|presented$].
+
+        Any time this is accessed, implementations must ensure that all previously submitted work
+        (e.g. queue submissions) have completed writing to it via {{GPUCanvasContext/[[currentTexture]]}}.
+
+    : <dfn>\[[currentTexture]]</dfn>, of type {{GPUTexture}}?, initially `null`
+    ::
+        The {{GPUTexture}} to draw into for the current frame.
+        Exposes a writable view onto the underlying {{GPUCanvasContext/[[drawingBuffer]]}}.
+        {{GPUCanvasContext/getCurrentTexture()}} populates this slot if null or destroyed,
+        then returns it.
+
+        If there is a (non-destroyed) {{GPUCanvasContext/[[currentTexture]]}} in the slot at the end
+        of a frame, it gets [$update the rendering of the WebGPU canvas|presented to the screen$].
+
+        Calling {{GPUCanvasContext/configure()}} or resizing the canvas
+        sets it to null (in [$Replace the drawing buffer$]).
 </dl>
 
 {{GPUCanvasContext}} has the following methods:
@@ -10794,8 +10833,8 @@ interface GPUCanvasContext {
 <dl dfn-type=method dfn-for=GPUCanvasContext>
     : <dfn>configure(configuration)</dfn>
     ::
-        Configures the context for this canvas. Destroys any textures produced with a previous
-        configuration.
+        Configures the context for this canvas.
+        This clears the drawing buffer to transparent black (in [$Replace the drawing buffer$]).
 
         <div algorithm="GPUCanvasContext.configure">
             **Called on:** {{GPUCanvasContext}} |this|.
@@ -10812,11 +10851,12 @@ interface GPUCanvasContext {
                 |configuration|.{{GPUCanvasConfiguration/format}} with |device|.{{GPUObjectBase/[[device]]}}.
             1. [$Validate texture format required features$] of each element of
                 |configuration|.{{GPUTextureDescriptor/viewFormats}} with |device|.{{GPUObjectBase/[[device]]}}.
-            1. [$Invalidate the current texture$] of |this|.
             1. Let |descriptor| be the
                 {$GPUTextureDescriptor for the canvas and configuration$}(|this|.{{GPUCanvasContext/canvas}}, |configuration|).
             1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to |configuration|.
             1. Set |this|.{{GPUCanvasContext/[[textureDescriptor]]}} to |descriptor|.
+            1. [$Replace the drawing buffer$] of |this|, which resets
+                |this|.{{GPUCanvasContext/[[drawingBuffer]]}} with a bitmap with the new format and tags.
 
             1. Issue the following steps on the [=Device timeline=] of |device|:
                 <div class=device-timeline>
@@ -10844,9 +10884,9 @@ interface GPUCanvasContext {
 
             **Returns:** undefined
 
-            1. [$Invalidate the current texture$] of |this|.
             1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to `null`.
             1. Set |this|.{{GPUCanvasContext/[[textureDescriptor]]}} to `null`.
+            1. [$Replace the drawing buffer$] of |this|.
         </div>
 
     : <dfn>getCurrentTexture()</dfn>
@@ -10865,43 +10905,42 @@ interface GPUCanvasContext {
             1. Let |device| be |this|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/device}}.
             1. If |this|.{{GPUCanvasContext/[[currentTexture]]}} is `null` or
                 |this|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/[[destroyed]]}} is true:
+                1. [$Replace the drawing buffer$].
                 1. Set |this|.{{GPUCanvasContext/[[currentTexture]]}} to the result of calling
-                    |device|.{{GPUDevice/createTexture()}} with |this|.{{GPUCanvasContext/[[textureDescriptor]]}}.
+                    |device|.{{GPUDevice/createTexture()}} with |this|.{{GPUCanvasContext/[[textureDescriptor]]}},
+                    except with the {{GPUTexture}}'s underlying storage pointing to
+                    |this|.{{GPUCanvasContext/[[drawingBuffer]]}}.
 
-                    <div class=note>
-                        If the texture can't be created (e.g. due to validation failure or out-of-memory),
-                        this generates and error and returns an [=invalid=] {{GPUTexture}}.
-                        Some validation here is redundant with that done in {{GPUCanvasContext/configure()}}.
-                        Implementations must not skip this redundant validation.
-
-                        {{GPUCanvasContext/getCurrentTexture()}} will continue returning the same
-                        invalid texture until it is [$Invalidate the current texture|invalidated$]
-                        or explicitly {{GPUTexture/destroy()|destroyed}}.
-                    </div>
+                    Note:
+                    If the texture can't be created (e.g. due to validation failure or out-of-memory),
+                    this generates and error and returns an [=invalid=] {{GPUTexture}}.
+                    Some validation here is redundant with that done in {{GPUCanvasContext/configure()}}.
+                    Implementations **must not** skip this redundant validation.
             1. Return |this|.{{GPUCanvasContext/[[currentTexture]]}}.
         </div>
 
-        Note: Developers can expect that the same {{GPUTexture}} object will be returned by every
+        Note: The same {{GPUTexture}} object will be returned by every
         call to {{GPUCanvasContext/getCurrentTexture()}} made within the same frame (i.e. between
         invocations of the "update the rendering or user interface of that `Document`" sub-step of
-        the "[=Update the rendering=]" step) unless the current texture has been
-        [$Invalidate the current texture|invalidated$].
+        the "[=Update the rendering=]" step), even if that {{GPUTexture}} is invalid due to a
+        validation or out-of-memory error, **unless** the current texture has been
+        removed (in [$Replace the drawing buffer$]) or {{GPUTexture/destroy()|destroyed}}.
 </dl>
 
 <div algorithm>
     In the "update the rendering or user interface of that `Document`" sub-step of the
-    "[=Update the rendering=]" step of the
-    HTML processing model, each {{GPUCanvasContext}} |context| must <dfn abstract-op>present the
-    context content to the canvas</dfn> by running the following steps:
+    "[=Update the rendering=]" step of the HTML processing model, each {{GPUCanvasContext}} |context|
+    must <dfn abstract-op>update the rendering of the WebGPU canvas</dfn> by running the following steps:
 
-    1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null` and
-        |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/[[destroyed]]}} is `false`:
-        1. Let |imageContents| be
-            [$get a copy of the image contents of a context|a copy of the image contents$]
-            of |context|.
-        1. Update |context|.{{GPUCanvasContext/canvas}} with |imageContents|.
-        1. Call |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}.
-    1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
+    1. Update the rendering of |context|.{{GPUCanvasContext/canvas}} with
+        [$get a copy of the image contents of a context|a copy of the image contents$] of |context|.
+    1. Call |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}
+        (without destroying |context|.{{GPUCanvasContext/[[drawingBuffer]]}})
+        to terminate write access to the image.
+
+    Note: If {{GPUCanvasConfiguration/alphaMode}} is {{GPUCanvasAlphaMode/"opaque"}},
+    the presented image has its alpha channel cleared. Implementations may skip this step if they
+    are able to composite images in a way that ignores the alpha channel (as if it is 1.0).
 </div>
 
 <div algorithm="transferToImageBitmap from WebGPU">
@@ -10911,17 +10950,24 @@ interface GPUCanvasContext {
     1. Let |imageContents| be
         [$get a copy of the image contents of a context|a copy of the image contents$]
         of |context|.
-    1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`:
-        1. Call |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}.
-    1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
+    1. [$Replace the drawing buffer$].
     1. Return a new {{ImageBitmap}} containing the |imageContents|.
+
+    Note: This is equivalent to "moving" the (possibly alpha-cleared) image contents into the
+    ImageBitmap, without a copy.
 </div>
 
+When WebGPU canvas contents are read using other Web APIs, like
+{{CanvasDrawImage/drawImage()}}, `texImage2D()`, `texSubImage2D()`,
+{{HTMLCanvasElement/toDataURL()}}, {{HTMLCanvasElement/toBlob()}}, and so on,
+they [$get a copy of the image contents of a context$].
+
+Note: If {{GPUCanvasConfiguration/alphaMode}} is {{GPUCanvasAlphaMode/"opaque"}},
+this incurs a clear of the alpha channel. If a canvas is only needed for interop
+(not presentation), avoid {{GPUCanvasAlphaMode/"opaque"}} if not needed.
+
 <div algorithm>
-    When WebGPU canvas contents are read using other Web APIs, like
-    {{CanvasDrawImage/drawImage()}}, `texImage2D()`, `texSubImage2D()`,
-    {{HTMLCanvasElement/toDataURL()}}, {{HTMLCanvasElement/toBlob()}}, and so on,
-    they <dfn abstract-op>get a copy of the image contents of a context</dfn>:
+    To <dfn abstract-op>get a copy of the image contents of a context</dfn>:
 
     **Arguments:**
 
@@ -10929,31 +10975,47 @@ interface GPUCanvasContext {
 
     **Returns:** image contents
 
-    1. Let |texture| be |context|.{{GPUCanvasContext/[[currentTexture]]}}.
-    1. If any of the following requirements is unmet, return a transparent black image
-        with the same size as |context|.{{GPUCanvasContext/canvas}} and stop.
-        <div class=validusage>
-            - |texture| must not be `null`.
-            - |texture|.{{GPUTexture/[[destroyed]]}} must be false.
-            - If |context|.{{GPUCanvasContext/canvas}} is an {{OffscreenCanvas}},
-                it must not be linked to a [=placeholder canvas element=].
-
-            <!-- If a "desynchronized" option is added, disallow it here? -->
-        </div>
     1. Ensure that all submitted work items (e.g. queue submissions) have
-        completed writing to |texture|.
-    1. Return the contents of |texture|, tagged as having alpha premultiplied, and with the color space
-        |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/colorSpace}}.
+        completed writing to the image (via |context|.{{GPUCanvasContext/[[currentTexture]]}}).
+    1. Let |snapshot| be a copy of |context|.{{GPUCanvasContext/[[drawingBuffer]]}}.
+    1. Let |alphaMode| be |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/alphaMode}}.
+    1.
+        <dl class=switch>
+        : If |alphaMode| is {{GPUCanvasAlphaMode/"opaque"}}:
+        ::
+            1. Clear the alpha channel of |snapshot| to 1.0.
+            1. Tag |snapshot| as being opaque.
 
-        Issue(gpuweb/gpuweb#1847): Does compositingAlphaMode=opaque make this return opaque contents?
+            Note:
+            If the {{GPUTexture}} exposing this {{GPUCanvasContext/[[drawingBuffer]]}} (if any) has
+            been [$Replace the drawing buffer|destroyed$], the alpha channel is unobservable, and
+            implementations may clear the alpha channel in-place.
+
+        : Otherwise:
+        :: Tag |snapshot| with |alphaMode|.
+
+    1. Return |snapshot|.
+
+    <!-- If a "desynchronized" option is added, explicitly describe its behavior here. -->
 </div>
 
 <div algorithm>
-    To <dfn abstract-op>Invalidate the current texture</dfn> of a {{GPUCanvasContext}} |context|:
+    To <dfn abstract-op>Replace the drawing buffer</dfn> of a {{GPUCanvasContext}} |context|:
 
     1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`, call its
         {{GPUTexture/destroy()}} method.
     1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
+    1. Let |configuration| be |context|.{{GPUCanvasContext/[[configuration]]}}.
+    1. Set |context|.{{GPUCanvasContext/[[drawingBuffer]]}} to a transparent black image of the same
+        size as |context|.{{GPUCanvasContext/canvas}}.
+
+        - If |configuration| is not null, it has the specified
+            |configuration|.{{GPUCanvasConfiguration/format}} and is tagged with the specified
+            |configuration|.{{GPUCanvasConfiguration/colorSpace}}.
+        - If not, the color space is {{GPUPredefinedColorSpace/"srgb"}}.
+
+        Note: |configuration|.{{GPUCanvasConfiguration/alphaMode}} is ignored until
+        "[$get a copy of the image contents of a context$]".
 </div>
 
 ## GPUCanvasConfiguration ## {#canvas-configuration}
@@ -10970,7 +11032,7 @@ format in the {{GPUCanvasConfiguration/viewFormats}}, and use {{GPUTexture/creat
 a view with an `srgb` format.
 
 <script type=idl>
-enum GPUCanvasCompositingAlphaMode {
+enum GPUCanvasAlphaMode {
     "opaque",
     "premultiplied",
 };
@@ -10981,7 +11043,7 @@ dictionary GPUCanvasConfiguration {
     GPUTextureUsageFlags usage = 0x10;  // GPUTextureUsage.RENDER_ATTACHMENT
     sequence<GPUTextureFormat> viewFormats = [];
     GPUPredefinedColorSpace colorSpace = "srgb";
-    GPUCanvasCompositingAlphaMode compositingAlphaMode = "opaque";
+    GPUCanvasAlphaMode alphaMode = "opaque";
 };
 </script>
 
@@ -11036,14 +11098,14 @@ of the canvas, which is set by the canvas's `width` and `height`.
 
 Note:
 Like WebGL and 2d canvas, resizing a WebGPU canvas loses the current contents of the drawing buffer.
-In WebGPU, it does so by [$Invalidate the current texture|invalidating the current texture$].
+In WebGPU, it does so by [$Replace the drawing buffer|replacing the drawing buffer$].
 
 <div algorithm>
     When an {{HTMLCanvasElement}} or {{OffscreenCanvas}} |canvas| with a
     {{GPUCanvasContext}} |context| has its `width` or `height` properties modified,
     <dfn abstract-op>update the canvas size</dfn>:
 
-    1. [$Invalidate the current texture$] of |context|.
+    1. [$Replace the drawing buffer$] of |context|.
     1. Let |configuration| be |context|.{{GPUCanvasContext/[[configuration]]}}
     1. If |configuration| is not `null`:
         1. Set |context|.{{GPUCanvasContext/[[textureDescriptor]]}} to the
@@ -11074,30 +11136,41 @@ In WebGPU, it does so by [$Invalidate the current texture|invalidating the curre
     </pre>
 </div>
 
-## <dfn dfn-type=enum-value dfn-for=GPUCanvasCompositingAlphaMode>GPUCanvasCompositingAlphaMode</dfn> ## {#GPUCanvasCompositingAlphaMode}
+## <dfn dfn-type=enum-value dfn-for=GPUCanvasAlphaMode>GPUCanvasAlphaMode</dfn> ## {#GPUCanvasAlphaMode}
 
-This enum selects how the contents of the canvas' context will paint onto the page.
+This enum selects how the contents of the canvas will be interpreted when read, when
+[$update the rendering of the WebGPU canvas|rendered to the screen$] or
+[$get a copy of the image contents of a context|used as an image source$]
+(in drawImage, toDataURL, etc.)
 
 <table class='data'>
     <thead>
         <tr>
-            <th>GPUCanvasCompositingAlphaMode
+            <th>GPUCanvasAlphaMode
             <th>Description
             <th>dst.rgb
             <th>dst.a
     </thead>
     <tr>
-        <td>{{GPUCanvasCompositingAlphaMode/opaque}}
-        <td>Paint RGB as opaque and ignore alpha values.
-            If the content is not already opaque, implementations may need to clear alpha to opaque during presentation.
+        <td>{{GPUCanvasAlphaMode/opaque}}
+        <td>Read RGB as opaque and ignore alpha values.
+            If the content is not already opaque, the alpha channel is cleared to 1.0
+            when [$get a copy of the image contents of a context|used as an image source$] or
+            [$update the rendering of the WebGPU canvas|rendered to the screen$].
         <td>`dst.rgb = src.rgb`
         <td>`dst.a = 1`
     <tr>
-        <td>{{GPUCanvasCompositingAlphaMode/premultiplied}}
-        <td>Composite assuming color values are premultiplied by their alpha value.
+        <td>{{GPUCanvasAlphaMode/premultiplied}}
+        <td>Read RGBA as premultiplied: color values are premultiplied by their alpha value.
             100% red 50% opaque is [0.5, 0, 0, 0.5].
-            Color values must be less than or equal to their alpha value.
-            [1.0, 0, 0, 0.5] is "super-luminant" and cannot reliably be displayed.
+
+            When [$get a copy of the image contents of a context|used as an image source$],
+            [=super-luminant=] values undergo [[#color-space-conversions|color space conversion]].
+
+            When displayed to the screen, [=super-luminant=] values have undefined
+            compositing results. This is true even if color space conversion would result in
+            non-super-luminant values before compositing, because the intermediate format for
+            compositing is not specified.
         <td>`dst.rgb = src.rgb + dst.rgb * (1 - src.a)`
         <td>`dst.a = src.a + dst.a * (1 - src.a)`
 </table>
