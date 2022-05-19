@@ -2799,11 +2799,6 @@ GPUTexture includes GPUObjectBase;
     ::
         If the texture is destroyed, it can no longer be used in any operation,
         and its underlying memory can be freed.
-
-        Issue: Like many pieces of state, this should move to the device-timeline. But it needs to
-        be mirrored on the shared-content-timeline as well (for canvas textures) for use in
-        {{GPUCanvasContext/getCurrentTexture()}}. Alternatively, destroy() could be overridden to
-        clear the {{GPUCanvasContext/[[currentTexture]]}} slot.
 </dl>
 
 <div algorithm>
@@ -10798,34 +10793,41 @@ interface GPUCanvasContext {
     : <dfn>\[[drawingBuffer]]</dfn>, an image, initially
         a transparent black image with the same size as the canvas
     ::
-        The underlying image data of the canvas. It is read-only through this field, but the image
-        is exposed as writable by {{GPUCanvasContext/[[currentTexture]]}} (returned by
-        {{GPUCanvasContext/getCurrentTexture()}}).
+        The drawing buffer is the working-copy image data of the canvas.
+        It is exposed as writable by {{GPUCanvasContext/[[currentTexture]]}}
+        (returned by {{GPUCanvasContext/getCurrentTexture()}}).
 
-        This bitmap may be transparent, even if
+        The drawing buffer is used to [$get a copy of the image contents of a context$], which
+        occurs at the end of every frame to present the drawing buffer to the screen, in
+        "[$update the rendering of the WebGPU canvas$]". It may be transparent, even if
         {{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/alphaMode}} is
-        {{GPUCanvasAlphaMode/"opaque"}}. The "[$get a copy of the image contents of a context$]"
-        algorithm returns a cleared alpha channel in that case.
-        This bitmap outlives the {{GPUCanvasContext/[[currentTexture]]}} and is seen when the
-        canvas is [$get a copy of the image contents of a context|used as an image source$]
-        (in drawImage, toDataURL, etc.) even after the canvas has been
-        [$update the rendering of the WebGPU canvas|presented$].
+        {{GPUCanvasAlphaMode/"opaque"}}. The {{GPUCanvasConfiguration/alphaMode}} only affects the
+        result of the "[$get a copy of the image contents of a context$]" algorithm.
 
-        Any time this is accessed, implementations must ensure that all previously submitted work
-        (e.g. queue submissions) have completed writing to it via {{GPUCanvasContext/[[currentTexture]]}}.
+        The drawing buffer outlives the {{GPUCanvasContext/[[currentTexture]]}} and contains the
+        previously-rendered contents even after the canvas has been presented.
+
+        Any time the drawing buffer is read, implementations must ensure that all previously
+        submitted work (e.g. queue submissions) have completed writing to it via
+        {{GPUCanvasContext/[[currentTexture]]}}.
 
     : <dfn>\[[currentTexture]]</dfn>, of type {{GPUTexture}}?, initially `null`
     ::
         The {{GPUTexture}} to draw into for the current frame.
-        Exposes a writable view onto the underlying {{GPUCanvasContext/[[drawingBuffer]]}}.
+        It exposes a writable view onto the underlying {{GPUCanvasContext/[[drawingBuffer]]}}.
         {{GPUCanvasContext/getCurrentTexture()}} populates this slot if null or destroyed,
         then returns it.
 
-        If there is a (non-destroyed) {{GPUCanvasContext/[[currentTexture]]}} in the slot at the end
-        of a frame, it gets [$update the rendering of the WebGPU canvas|presented to the screen$].
+        Any changes to the drawing buffer made through the currentTexture get presented at the end
+        of the frame, in "[$update the rendering of the WebGPU canvas$]".
 
-        Calling {{GPUCanvasContext/configure()}} or resizing the canvas
-        sets it to null (in [$Replace the drawing buffer$]).
+        {{GPUTexture/destroy()|Destroying}} the currentTexture has no effect on the drawing buffer
+        contents; it only terminates write-access to the drawing buffer early.
+        During the same frame, {{GPUCanvasContext/getCurrentTexture()}} continues returning the
+        same destroyed texture.
+
+        Calling {{GPUCanvasContext/configure()}} or resizing the canvas clears the drawing buffer
+        and sets the current texture to `null`, in "[$Replace the drawing buffer$]".
 </dl>
 
 {{GPUCanvasContext}} has the following methods:
@@ -10903,8 +10905,7 @@ interface GPUCanvasContext {
                 1. Throw an {{InvalidStateError}} and stop.
             1. [=Assert=] |this|.{{GPUCanvasContext/[[textureDescriptor]]}} is not `null`.
             1. Let |device| be |this|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/device}}.
-            1. If |this|.{{GPUCanvasContext/[[currentTexture]]}} is `null` or
-                |this|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/[[destroyed]]}} is true:
+            1. If |this|.{{GPUCanvasContext/[[currentTexture]]}} is `null`:
                 1. [$Replace the drawing buffer$].
                 1. Set |this|.{{GPUCanvasContext/[[currentTexture]]}} to the result of calling
                     |device|.{{GPUDevice/createTexture()}} with |this|.{{GPUCanvasContext/[[textureDescriptor]]}},
@@ -10921,10 +10922,9 @@ interface GPUCanvasContext {
 
         Note: The same {{GPUTexture}} object will be returned by every
         call to {{GPUCanvasContext/getCurrentTexture()}} made within the same frame (i.e. between
-        invocations of the "update the rendering or user interface of that `Document`" sub-step of
-        the "[=Update the rendering=]" step), even if that {{GPUTexture}} is invalid due to a
-        validation or out-of-memory error, **unless** the current texture has been
-        removed (in [$Replace the drawing buffer$]) or {{GPUTexture/destroy()|destroyed}}.
+        invocations of "[$update the rendering of the WebGPU canvas$]"), even if that {{GPUTexture}}
+        is destroyed, failed validation, or failed to allocate, **unless** the current texture has
+        been removed (in [$Replace the drawing buffer$]).
 </dl>
 
 <div algorithm>
@@ -11009,10 +11009,12 @@ this incurs a clear of the alpha channel. If a canvas is only needed for interop
     1. Set |context|.{{GPUCanvasContext/[[drawingBuffer]]}} to a transparent black image of the same
         size as |context|.{{GPUCanvasContext/canvas}}.
 
-        - If |configuration| is not null, it has the specified
+        - If |configuration| is null, the drawing buffer is tagged with the color space
+            {{GPUPredefinedColorSpace/"srgb"}}.
+            In this case, the drawing buffer will remain blank until the context is configured.
+        - If not, the drawing buffer has the specified
             |configuration|.{{GPUCanvasConfiguration/format}} and is tagged with the specified
             |configuration|.{{GPUCanvasConfiguration/colorSpace}}.
-        - If not, the color space is {{GPUPredefinedColorSpace/"srgb"}}.
 
         Note: |configuration|.{{GPUCanvasConfiguration/alphaMode}} is ignored until
         "[$get a copy of the image contents of a context$]".
