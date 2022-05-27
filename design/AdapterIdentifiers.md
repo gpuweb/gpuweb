@@ -75,7 +75,7 @@ At some point during the lifetime of the application the developer may determine
 
 ```js
 feedbackButton.addEventListener('click', async ()=> {
-    const unmaskHints = ['architecture', 'deviceId', 'description'];
+    const unmaskHints = ['architecture', 'device', 'description'];
     const unmaskedAdapterInfo = await gpuAdapter.requestAdapterInfo(unmaskHints);
     generateUserFeedback(unmaskedAdapterInfo);
 });
