@@ -50,7 +50,7 @@ In this case, the developer would call the `requestAdapterInfo()` method of the 
 
 ```js
 const adapterInfo = await gpuAdapter.requestAdapterInfo();
-console.log(gpuAdapter.info);
+console.log(adapterInfo);
 
 // Output:
 {
@@ -76,8 +76,8 @@ At some point during the lifetime of the application the developer may determine
 ```js
 feedbackButton.addEventListener('click', async ()=> {
     const unmaskHints = ['architecture', 'deviceId', 'description'];
-    const adapterInfo = await gpuAdapter.requestAdapterInfo(unmaskHints);
-    generateUserFeedback(adapterInfo);
+    const unmaskedAdapterInfo = await gpuAdapter.requestAdapterInfo(unmaskHints);
+    generateUserFeedback(unmaskedAdapterInfo);
 });
 ```
 
@@ -129,8 +129,7 @@ This helps strike a balance between enabling powerful rendering and computation 
 
 ```webidl
 partial interface GPUAdapter {
-  readonly attribute GPUAdapterInfo info;
-  Promise<GPUAdapterInfo> requestUnmaskedAdapterInfo(sequence<DOMString> hints);
+  Promise<GPUAdapterInfo> requestAdapterInfo(optional sequence<DOMString> unmaskHints = []);
 };
 
 interface GPUAdapterInfo {
