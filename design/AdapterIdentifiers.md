@@ -136,7 +136,7 @@ interface GPUAdapterInfo {
   DOMString vendor;
   DOMString architecture;
   DOMString device;
-  DOMString fullName;
+  DOMString description;
 };
 ```
 
