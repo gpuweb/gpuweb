@@ -41,7 +41,7 @@ A common and useful asset for developers is sites such as https://gpuinfo.org/, 
 The first step when using WebGPU is to query a `GPUAdapter`, of which there may be several available to the system. This will typically correspond to a physical or software emulated GPU.
 
 ```js
-const gpuAdapter = await navigator.requestAdapter();
+const gpuAdapter = await navigator.gpu.requestAdapter();
 ```
 
 WebGPU applications often require a significant amount of resource initialization at startup, and it's possible that the resources being initialized may need to be altered depending on the adapter in use. For example: Shader sources may need to be re-written to avoid a known bug or lower detail meshes and textures may need to be fetched to avoid overtaxing a slower device. In these cases some amount of adapter identifiers need to be queried very early in the application's lifetime, and preferably without invoking a user consent prompt. (Nobody likes to be asked for permission immediately on navigation, at which point they likely have little to know context for why the permission is needed.)
@@ -97,7 +97,7 @@ console.log(unmaskedAdapterInfo);
 
 Because the unmasked values may contain higher entropy identifying information, the bar for querying it is quite a bit higher. Calling `requestAdapterInfo()` with any `unmaskHints` requires user activation, and will reject the promise otherwise. If the `unmaskHints` array contains any previously masked value it also requires that user consent be given before returning, and as such may display a prompt to the user asking if the page can access the newly requested GPU details before allowing the promise to resolve. If the user declines to give consent then the promise is rejected.
 
-Once the user has given their consent any future calls to `requestAdapterInfo()` should return the unmasked fields even if no `unmaskHints` are specified, and future instances of the same underlying adapter returned from `navigator.requestAdapter()` on that page load should also return unmasked data without requiring hints to be passed.
+Once the user has given their consent any future calls to `requestAdapterInfo()` should return the unmasked fields even if no `unmaskHints` are specified, and future instances of the same underlying adapter returned from `navigator.gpu.requestAdapter()` on that page load should also return unmasked data without requiring hints to be passed.
 
 Even after `unmaskHints` have been passed to `requestAdapterInfo()` the UA is still allowed to return empty string for attributes requested in the `unmaskHints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left empty.)
 
@@ -121,7 +121,7 @@ The recommended feature identifier is `"webgpu"`, and the [default allowlist](ht
 <iframe src="https://example.com/embed" allow="webgpu"></iframe>
 ```
 
-If the `"webgpu"` feature is not granted to a page, all calls that page makes to `navigator.requestAdapter()` will resolve to `null`.
+If the `"webgpu"` feature is not granted to a page, all calls that page makes to `navigator.gpu.requestAdapter()` will resolve to `null`.
 
 This helps strike a balance between enabling powerful rendering and computation capabilities on the web and a desire to mitigate abuse by bad actors.
 
