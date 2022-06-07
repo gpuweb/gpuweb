@@ -27,7 +27,7 @@ if type bikeshed >/dev/null && [ -z "$BIKESHED_DISALLOW_LOCAL" ] ; then
 
     # Use a temporary file because Bikeshed won't check for tarfiles on stdin.
     tmp_tar=$(mktemp)
-    trap 'rm -f -- "$tmp_body" "$tmp_headers"' EXIT
+    trap 'rm -f -- "$tmp_tar"' EXIT
 
     tar cf "$tmp_tar" "$@"
     bikeshed $opts spec "$tmp_tar" "$output"
