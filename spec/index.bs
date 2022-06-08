@@ -1426,6 +1426,16 @@ applications should generally request the "worst" limits that work for their con
         {{GPURenderPassDescriptor}}.{{GPURenderPassDescriptor/colorAttachments}},
         and {{GPURenderPassLayout}}.{{GPURenderPassLayout/colorFormats}}.
 
+    <tr><td><dfn>maxColorAttachmentBytesPerPixel</dfn>
+        <dn>{{GPUSize32}} <td>[=limit class/maximum=] <td>32 bytes
+    <tr class=row-continuation><td colspan=4>
+        The maximum number of bytes used for color attachments in
+        {{GPURenderPipelineDescriptor}}.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}},
+        {{GPURenderPassDescriptor}}.{{GPURenderPassDescriptor/colorAttachments}},
+        and {{GPURenderPassLayout}}.{{GPURenderPassLayout/colorFormats}}.
+        The number of bytes used is the sum of the [=texel block sizes=] of the outputs,
+        times the sample count (note all renderable formats have 1x1 [=texel blocks=]).
+
     <tr><td><dfn>maxComputeWorkgroupStorageSize</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16384 bytes
     <tr class=row-continuation><td colspan=4>
@@ -1496,6 +1506,7 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxInterStageShaderComponents;
     readonly attribute unsigned long maxInterStageShaderVariables;
     readonly attribute unsigned long maxColorAttachments;
+    readonly attribute unsigned long maxColorAttachmentBytesPerPixel;
     readonly attribute unsigned long maxComputeWorkgroupStorageSize;
     readonly attribute unsigned long maxComputeInvocationsPerWorkgroup;
     readonly attribute unsigned long maxComputeWorkgroupSizeX;
@@ -6429,6 +6440,26 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
 </dl>
 
 <div algorithm>
+    <dfn abstract-op>validating attachment layout</dfn>(|device|, |sampleCount|, |formats|)
+
+    **Arguments:**
+
+    - {{GPUDevice}} |device|
+    - {{GPUSize32}} |sampleCount|
+    - [=list=]&lt;{{GPUTextureFormat}}?&gt; |formats|
+
+    **Returns:** boolean
+
+    1. If |formats|.length &gt; |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}},
+        return false.
+    1. Let |bytesPerSample| be the sum of the [=texel block sizes=] of the non-null formats in |formats|.
+    1. Let |bytesPerPixel| be |bytesPerSample| &times; |sampleCount|.
+    1. If |bytesPerPixel| &gt; |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachmentBytesPerPixel}},
+        return false.
+    1. Return true.
+</div>
+
+<div algorithm>
     <dfn abstract-op>validating GPURenderPipelineDescriptor</dfn>(descriptor, layout, device)
         **Arguments:**
             - {{GPURenderPipelineDescriptor}} |descriptor|
@@ -6444,7 +6475,8 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
             - If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is not `null`:
                 - [$validating GPUProgrammableStage$]({{GPUShaderStage/FRAGMENT}},
                     |descriptor|.{{GPURenderPipelineDescriptor/fragment}}, |layout|) succeeds.
-                - [$validating GPUFragmentState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}}) succeeds.
+                - [$validating GPUFragmentState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}},
+                    |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}) succeeds.
                 - If the "sample_mask" [=builtin=] is a [=pipeline output=] of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
                     - |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}} is `false`.
             - [$validating GPUPrimitiveState$](|descriptor|.{{GPURenderPipelineDescriptor/primitive}}, |device|.{{device/[[features]]}}) succeeds.
@@ -6725,12 +6757,15 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 </script>
 
 <div algorithm>
-    <dfn abstract-op>validating GPUFragmentState</dfn>({{GPUDevice}} |device|, {{GPUFragmentState}} |descriptor|)
+    <dfn abstract-op>validating GPUFragmentState</dfn>({{GPUDevice}} |device|,
+    {{GPUFragmentState}} |descriptor|, {{GPUSize32}} |sampleCount|)
 
     Return `true` if all of the following requirements are met:
 
-    - |descriptor|.{{GPUFragmentState/targets}}.length must be &le;
-        |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
+    - [$validating attachment layout$](|device|, |sampleCount|, [
+        |target|?.{{GPUColorTargetState/format}} for each |target| in
+        |descriptor|.{{GPUFragmentState/targets}}
+        ]) returns true.
     - For each non-`null` |colorState| layout descriptor in the list |descriptor|.{{GPUFragmentState/targets}}:
         - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
             with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
@@ -9410,7 +9445,12 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 
     1. All {{GPURenderPassColorAttachment/view}}s in non-`null` members of |this|.{{GPURenderPassDescriptor/colorAttachments}},
         and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}}
-        if present, must have equal {{GPUTexture/sampleCount}}s.
+        if present, must have equal {{GPUTexture/sampleCount}}s. Let |sampleCount| be that value.
+
+    1. [$validating attachment layout$](|device|, |sampleCount|, [
+        |attachment|?.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[texture]]}}.{{GPUTexture/format}}
+        for each |attachment| in |this|.{{GPURenderPassDescriptor/colorAttachments}}
+        ]) must return true.
 
     1. For each {{GPURenderPassColorAttachment/view}} in non-`null` members of |this|.{{GPURenderPassDescriptor/colorAttachments}}
         and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}},
@@ -9726,7 +9766,7 @@ enum GPUStoreOp {
 which determines the compatibility of the pass with render pipelines.
 
 <script type=idl>
-dictionary GPURenderPassLayout: GPUObjectDescriptorBase {
+dictionary GPURenderPassLayout : GPUObjectDescriptorBase {
     required sequence<GPUTextureFormat?> colorFormats;
     GPUTextureFormat depthStencilFormat;
     GPUSize32 sampleCount = 1;
@@ -10522,8 +10562,8 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
                         [$generate a validation error$], make |e| [=invalid=], and stop.
                         <div class=validusage>
                             - |this| is [=valid=].
-                            - |descriptor|.{{GPURenderPassLayout/colorFormats}}.length must be less than or equal to
-                                |this|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
+                            - [$validating attachment layout$](|this|, |descriptor|.{{GPURenderPassLayout/sampleCount}},
+                                |descriptor|.{{GPURenderPassLayout/colorFormats}}]) must return true.
                             - If |descriptor|.{{GPURenderPassLayout/colorFormats}} only contains `null` members:
                                 - |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} must not be `null`.
                             - For each |colorFormat| in |descriptor|.{{GPURenderPassLayout/colorFormats}}:
