@@ -74,7 +74,6 @@ def main():
     g = Grammar.Load(json_text, 'translation_unit')
 
     if args.lalr:
-        #g.dump()
         print("=Grammar:\n")
         print(g.pretty_str())
         parse_table = g.LALR1(max_item_sets=args.limit)
@@ -83,8 +82,6 @@ def main():
             sys.exit(1)
         sys.exit(0)
     if args.lr:
-        #g.dump()
-        #print("\n")
         lr1_itemsets = g.LR1_ItemSets()
         for IS in lr1_itemsets:
             print("\n{}".format(str(IS)))

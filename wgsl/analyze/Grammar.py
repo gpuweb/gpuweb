@@ -1157,7 +1157,6 @@ class ItemSet:
         assert isinstance(lookahead, LookaheadSet)
         index = item.reg_info.index
         assert isinstance(index,int)
-        #print(" {}  {} ".format(str(index),index.__class__.__name__))
         assert index not in self.id_to_item
         self.id_to_item[index] = item
         self.id_to_lookahead[index] = lookahead
@@ -1361,12 +1360,9 @@ class ItemSet:
         return (changed,goto_list)
 
     def gotos(self,grammar,by_index_memo=None):
-        #print("\ngotos begin\n{}".format(self))
+        # TODO(dneto): I'm keeping this indirection as a convenient place
+        # to insert debug output.
         result = self.gotos_internal(grammar,by_index_memo=by_index_memo)
-        #print("gotos end changed? {}\n{}".format(str(result[0]),self))
-        #for (grammarsym,item_set) in result[1]:
-        #    print("  {} -> #{}".format(str(grammarsym),item_set.core_index))
-        #print("")
         return result
 
 class ParseTable:
