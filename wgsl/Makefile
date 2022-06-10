@@ -1,16 +1,19 @@
 .PHONY: all clean
 
-all: index.html grammar/grammar.js test
+all: index.html grammar/grammar.js test wgsl.lalr.txt
 
 clean:
-	rm -f index.html index.pre.html grammar/grammar.js
+	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
 
+# Generate spec HTML from Bikeshed source.
 index.pre.html: index.bs
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh index.pre.html index.bs
 
 index.html: index.pre.html
 	bash ../tools/add-git-head-to-bikeshed-header.sh index.pre.html > index.html
 
+# Extract WGSL grammar from the spec, validate it with Treesitter,
+# and use Treesitter to parse many code examples in the spec.
 grammar/grammar.js: index.bs extract-grammar.py
 	python3 ./extract-grammar.py index.bs grammar/grammar.js
 
@@ -18,7 +21,9 @@ online:
 	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F output=err
 	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F force=1 > index.html
 
-grammar/src/grammar.json : grammar/grammar.js
+# The grammar in JSON form, emitted by Treesitter.
+WGSL_GRAMMAR=grammar/src/grammar.json
+$(WGSL_GRAMMAR) : grammar/grammar.js
 
 
 #### Grammar analyzer materials below here.
@@ -29,14 +34,17 @@ test: analyze_test
 
 # The grammar anlyzer consumes the Treesitter JSON representation of the grammar.
 # So Treesitter has to succeed first.
-WGSL_GRAMMAR=grammar/src/grammar.json
 ANALYZE_SCRIPT=analyze/lalr.py
 ANALYZER=$(ANALYZE_SCRIPT) analyze/Grammar.py analyze/ObjectRegistry.py
 
 # Compute and print LALR(1) parse table for the WGSL grammar
 .PHONY: lalr
-lalr: $(ANALYZER) $(WGSL_GRAMMAR)
-	python3 $(ANALYZE_SCRIPT) -lalr grammar/src/grammar.json
+lalr: wgsl.lalr.txt
+
+
+# A human-readable LALR(1) parse table, in an ad hoc format.
+wgsl.lalr.txt : $(ANALYZER) $(WGSL_GRAMMAR)
+	python3 $(ANALYZE_SCRIPT) -lalr grammar/src/grammar.json >$@
 
 
 ## The following targets are used when developing the grammar analyzer
@@ -50,8 +58,8 @@ analyze_test: $(ANALYZER)
 
 # Profile LALR analysis
 .PHONY: profile
-profile lalr.wgsl.profile : $(ANALYZER) $(WGSL_GRAMMAR)
-	python3 -m cProfile -o lalr.wgsl.profile $(ANALYZE_SCRIPT) -lalr grammar/src/grammar.json
+profile wgsl.lalr.profile : $(ANALYZER) $(WGSL_GRAMMAR)
+	python3 -m cProfile -o wgsl.lalr.profile $(ANALYZE_SCRIPT) -lalr grammar/src/grammar.json
 
 # Compute LR(1) item sets
 .PHONY: lr
