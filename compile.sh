@@ -9,11 +9,11 @@ if [ "$1" == 'static' ]; then
   make -C spec webgpu.idl
 else
   echo 'Building spec'
-  make -C spec
+  make -C spec index.html webgpu.idl
   echo 'Building wgsl'
   make -C wgsl index.html
   echo 'Building explainer'
-  make -C explainer
+  make -C explainer index.html
 fi
 
 if [ -d out ]; then
