@@ -11,7 +11,7 @@ else
   echo 'Building spec'
   make -C spec
   echo 'Building wgsl'
-  make -C wgsl
+  make -C wgsl index.html
   echo 'Building explainer'
   make -C explainer
 fi
