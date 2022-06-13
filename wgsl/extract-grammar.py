@@ -39,15 +39,6 @@ grammar_path = os.path.dirname(grammar_filename)
 os.makedirs(grammar_path, exist_ok=True)
 grammar_file = open(grammar_filename, "w")
 
-
-def scanner_escape_name(name):
-    return name.strip().replace("`", "").replace('-', '_').lower().strip()
-
-
-def scanner_escape_regex(regex):
-    return re.escape(regex.strip()).strip().replace("/", "\\/").replace("\\_", "_").replace("\\%", "%").replace("\\;", ";").replace("\\<", "<").replace("\\>", ">").replace("\\=", "=").replace("\\,", ",").replace("\\:", ":").replace("\\!", "!")
-
-
 # Global variable holding the current line text.
 line = ""
 
