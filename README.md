@@ -1,6 +1,6 @@
 # W3C _GPU for the Web_ Community Group
 
-<img alt="WebGPU logo" src="logo/webgpu.png" width="400">
+<img alt="WebGPU logo" src="logo/webgpu-responsive.svg" width="400">
 
 This is the repository for the W3C's [GPU for the Web](https://www.w3.org/community/gpu/)
 Community Group.
