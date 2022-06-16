@@ -7913,6 +7913,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                             index in |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.
                         1. Otherwise, if |timestampWrite|.{{GPURenderPassTimestampWrite/location}} is {{GPURenderPassTimestampLocation/"end"}},
                             [=list/Append=] |timestampWrite| to |pass|.{{GPURenderPassEncoder/[[endTimestampWrites]]}}.
+                    1. Set |pass|.{{GPURenderCommandsMixin/[[drawCount]]}} to 0.
+                    1. Set |pass|.{{GPURenderPassEncoder/[[maxDrawCount]]}} to |descriptor|.{{GPURenderPassDescriptor/maxDrawCount}}.
                     1. Issue: Enqueue attachment loads/clears.
 
                 </div>
@@ -9327,6 +9329,10 @@ GPURenderPassEncoder includes GPURenderCommandsMixin;
     : <dfn>\[[endTimestampWrites]]</dfn>, of type {{GPURenderPassTimestampWrites}}
     ::
         The timestamp attachments which need to be executed when the pass ends.
+
+    : <dfn>\[[maxDrawCount]]</dfn> of type {{GPUSize64}}.
+    ::
+        The maximum number of draws allowed in this pass.
 </dl>
 
 When a {{GPURenderPassEncoder}} is created, it has the following default state:
@@ -9359,6 +9365,7 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
     GPURenderPassDepthStencilAttachment depthStencilAttachment;
     GPUQuerySet occlusionQuerySet;
     GPURenderPassTimestampWrites timestampWrites = [];
+    GPUSize64 maxDrawCount = 50000000;
 };
 </script>
 
@@ -9386,6 +9393,12 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
     : <dfn>timestampWrites</dfn>
     ::
         A sequence of {{GPURenderPassTimestampWrite}} values defines where and when timestamp values will be written for this pass.
+
+    : <dfn>maxDrawCount</dfn>
+    ::
+        The maximum number of draw calls that will be done in the render pass. Used by some
+        implementations to size work injected before the render pass. Keeping the default value
+        is a good default, unless it is known that more draw calls will be done.
 </dl>
 
 <div class=validusage dfn-for=GPURenderPassDescriptor>
@@ -9809,6 +9822,7 @@ called the render pass encoder can no longer be used.
                         - |this| must be [=valid=].
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} must be `false`.
+                        - |this|.{{GPURenderCommandsMixin/[[drawCount]]}} must be less than |this|.{{GPURenderPassEncoder/[[maxDrawCount]]}}.
                     </div>
                 1. [=list/Extend=] |parentEncoder|.{{GPUCommandsMixin/[[commands]]}}
                     with |this|.{{GPUCommandsMixin/[[commands]]}}.
@@ -9891,6 +9905,10 @@ It must only be included by interfaces which also include those mixins.
     ::
         The size in bytes of the section of {{GPUBuffer}} currently set for each slot, initially
         empty.
+
+    : <dfn>\[[drawCount]]</dfn>, of type {{GPUSize64}}
+    ::
+        The number of draw commands recorded in this encoder.
 </dl>
 
 ### Drawing ### {#render-pass-encoder-drawing}
@@ -10042,6 +10060,7 @@ It must only be included by interfaces which also include those mixins.
                             - If |strideCount| &ne; `0`
                                 - Ensure (|strideCount| &minus; `1`) &times; |stride| &plus; |lastStride| &le; |bufferSize|.
                     </div>
+                1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
             </div>
         </div>
 
@@ -10083,6 +10102,7 @@ It must only be included by interfaces which also include those mixins.
                             - If |buffers|[|slot|].{{GPUVertexBufferLayout/stepMode}} is {{GPUVertexStepMode/"instance"}} and |strideCount| &ne; `0`:
                                 - Ensure (|strideCount| &minus; `1`) &times; |stride| &plus; |lastStride| &le; |bufferSize|.
                     </div>
+                1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
             </div>
 
             Note: a valid program should also never use vertex indices with
@@ -10138,6 +10158,7 @@ It must only be included by interfaces which also include those mixins.
                         - |indirectOffset| is a multiple of 4.
                     </div>
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
+                1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
             </div>
         </div>
 
@@ -10187,6 +10208,7 @@ It must only be included by interfaces which also include those mixins.
                         - |indirectOffset| is a multiple of 4.
                     </div>
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
+                1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
             </div>
         </div>
 </dl>
@@ -10441,7 +10463,11 @@ attachments used by this encoder.
                             - If |this|.{{GPURenderCommandsMixin/[[depthReadOnly]]}} is true, |bundle|.{{GPURenderBundle/[[depthReadOnly]]}} must be true.
                             - If |this|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} is true, |bundle|.{{GPURenderBundle/[[stencilReadOnly]]}} must be true.
                     </div>
-                1. Issue: Describe steps
+
+                - For each |bundle| in |bundles|:
+                    - Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by |bundle|.{{GPURenderBundle/[[drawCount]]}}.
+
+                1. Issue: Describe the rest of the steps
             </div>
 
         </div>
@@ -10475,6 +10501,10 @@ GPURenderBundle includes GPUObjectBase;
     : <dfn>\[[stencilReadOnly]]</dfn>, of type boolean
     ::
         If `true`, indicates that the stencil component is not modified by executing this render bundle.
+
+    : <dfn>\[[drawCount]]</dfn>, of type {{GPUSize64}}
+    ::
+        The number of draw commands in this {{GPURenderBundle}}.
 </dl>
 
 ### Creation ### {#render-bundle-creation}
@@ -10539,6 +10569,7 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
                     1. Set |e|.{{GPURenderCommandsMixin/[[depthReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/depthReadOnly}}.
                     1. Set |e|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/stencilReadOnly}}.
                     1. Set |e|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/open=]".
+                    1. Set |e|.{{GPURenderCommandsMixin/[[drawCount]]}} to 0.
 
                     Issue: Describe the reset of the steps for {{GPUDevice/createRenderBundleEncoder()}}.
                 </div>
@@ -10588,6 +10619,8 @@ dictionary GPURenderBundleEncoderDescriptor : GPURenderPassLayout {
                         1. Return a new [=invalid=] {{GPURenderBundle}}.
                     1. Set |renderBundle|.{{GPURenderBundle/[[command_list]]}} to
                         |this|.{{GPUCommandsMixin/[[commands]]}}.
+                    1. Set |renderBundle|.{{GPURenderBundle/[[drawCount]]}} to
+                        |this|.{{GPURenderCommandsMixin/[[drawCount]]}}.
                 </div>
 
             1. Return |renderBundle|.
