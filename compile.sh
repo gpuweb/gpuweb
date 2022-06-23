@@ -3,36 +3,25 @@ set -e # Exit with nonzero exit code if anything fails
 
 export BIKESHED_DISALLOW_ONLINE=1
 
-# Compile specs by default, unless told to only copy static files
-if [ "$1" == 'static' ]; then
-  echo 'Extracting IDL from WebGPU spec'
-  make -C spec webgpu.idl
-else
-  echo 'Building spec'
-  make -C spec index.html webgpu.idl
-  echo 'Building wgsl'
-  make -C wgsl index.html
-  echo 'Building explainer'
-  make -C explainer index.html
-fi
+echo 'Building spec and webgpu.idl'
+make -C spec index.html webgpu.idl
+echo 'Building wgsl'
+make -C wgsl index.html wgsl.lalr.txt
+echo 'Building explainer'
+make -C explainer index.html
+echo 'Building correspondence'
+make -C correspondence index.html
 
 if [ -d out ]; then
-  mkdir -p out/wgsl out/explainer out/samples
+  echo 'Populating out/'
 
-  echo 'Copying wgsl/* -> out/wgsl/'
-  cp -r wgsl/* out/wgsl/
-  rm out/wgsl/{Makefile,*.bs}
+  mkdir -p out/wgsl out/explainer out/correspondence out/samples
+  cp -r spec/{index.html,webgpu.idl} out/
+  cp -r wgsl/index.html out/wgsl/
+  cp -r explainer/{index.html,img} out/explainer/
+  cp -r correspondence/index.html out/correspondence/
+  cp -r samples/* out/samples/
 
-  echo 'Copying explainer/* -> out/explainer/'
-  cp -r explainer/* out/explainer/
-  rm out/explainer/{Makefile,*.bs}
-
-  echo 'Copying spec/* -> out/'
-  cp spec/* out/
-  rm out/{README.md,Makefile,*.bs}
-
-  echo 'Copying samples/* -> out/samples/'
-  cp samples/* out/samples/
-
+  # Redirect wgsl.html to wgsl/
   echo '<meta http-equiv="refresh" content="0;url=wgsl/" />' > out/wgsl.html
 fi
