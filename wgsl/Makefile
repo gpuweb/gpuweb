@@ -1,7 +1,8 @@
-.PHONY: all validate clean
+.PHONY: all clean validate lalr validate-examples
 
-all: index.html grammar/grammar.js test lalr
-validate: lalr
+all: index.html validate test
+validate: lalr validate-examples
+validate-examples: grammar/grammar.js
 
 clean:
 	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
