@@ -1,6 +1,7 @@
-.PHONY: all clean
+.PHONY: all validate clean
 
-all: index.html grammar/grammar.js test wgsl.lalr.txt
+all: index.html grammar/grammar.js test lalr
+validate: lalr
 
 clean:
 	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
@@ -17,17 +18,13 @@ index.html: index.pre.html
 grammar/grammar.js: index.bs extract-grammar.py
 	python3 ./extract-grammar.py index.bs grammar/grammar.js
 
-online:
-	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F output=err
-	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F force=1 > index.html
-
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json
 $(WGSL_GRAMMAR) : grammar/grammar.js
 
 
 #### Grammar analyzer materials below here.
-#### You probably only want 'make lalr'
+#### You probably only want 'make validate'
 
 .PHONY: test
 test: analyze_test
