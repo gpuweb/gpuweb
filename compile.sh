@@ -9,14 +9,17 @@ echo 'Building wgsl'
 make -C wgsl index.html wgsl.lalr.txt
 echo 'Building explainer'
 make -C explainer index.html
+echo 'Building correspondence'
+make -C correspondence index.html
 
 if [ -d out ]; then
   echo 'Populating out/'
 
-  mkdir -p out/wgsl out/explainer out/samples
+  mkdir -p out/wgsl out/explainer out/correspondence out/samples
   cp -r spec/{index.html,webgpu.idl} out/
   cp -r wgsl/index.html out/wgsl/
   cp -r explainer/{index.html,img} out/explainer/
+  cp -r correspondence/index.html out/correspondence/
   cp -r samples/* out/samples/
 
   # Redirect wgsl.html to wgsl/
