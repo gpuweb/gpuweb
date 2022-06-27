@@ -17,7 +17,7 @@ if [ -d out ]; then
 
   mkdir -p out/wgsl out/explainer out/correspondence out/samples
   cp -r spec/{index.html,webgpu.idl} out/
-  cp -r wgsl/index.html out/wgsl/
+  cp -r wgsl/{index.html,wgsl.lalr.txt} out/wgsl/
   cp -r explainer/{index.html,img} out/explainer/
   cp -r correspondence/index.html out/correspondence/
   cp -r samples/* out/samples/
