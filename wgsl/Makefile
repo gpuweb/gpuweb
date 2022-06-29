@@ -11,8 +11,10 @@ clean:
 index.pre.html: index.bs
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh index.pre.html index.bs
 
+GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html
-	bash ../tools/add-git-head-to-bikeshed-header.sh index.pre.html > index.html
+	@echo 'Inserting source permalink: index.pre.html -> index.html'
+	@sed -e "s,gpuweb/wgsl/</a>,gpuweb/wgsl/</a><br><a href=\"$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs\">$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs</a>," <index.pre.html >index.html
 
 # Extract WGSL grammar from the spec, validate it with Treesitter,
 # and use Treesitter to parse many code examples in the spec.
