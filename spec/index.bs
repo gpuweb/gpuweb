@@ -497,6 +497,11 @@ To mitigate this form of abuse, browsers can throttle operations on background
 tabs, could warn that a tab is using a lot of resource, and restrict which
 contexts are allowed to use WebGPU.
 
+User agents can heuristically issue warnings to users about high power use,
+especially due to potentially malicious usage.
+If a user agent implements such a warning, it should include WebGPU usage in
+its heuristics, in addition to JavaScript, WebAssembly, WebGL, and so on.
+
 Issue: Update this section with iframe-control defaulting to "self" being a
 mitigation against this issue since only the top level origin (that is a bit
 more trusted since the user navigated to it, or is staying on it).
@@ -1702,15 +1707,20 @@ represents the (unpremultiplied) sRGB color [2, 0, 0] with alpha of 50%. Just li
 value outside the sRGB color gamut, this is a well defined point in the extended color space.
 (Except when alpha is 0, in which case there is no color.)
 
+Issue: Super-luminant is a confusing term because it doesn't really have anything to do with luminance.
+
 ### Color Space Conversions ### {#color-space-conversions}
 
 A color is converted between spaces by translating its representation in one space to a
 representation in another according to the definitions above.
 
-If the source value has fewer than 4 channels, the remaining green/blue/alpha channels are set to
+If the source value has fewer than 4 RGBA channels, the missing green/blue/alpha channels are set to
 `0, 0, 1` respectively, as needed, before converting for color space/encoding and alpha premultiplication.
 After conversion, if the destination needs fewer than 4 channels, the additional channels
 are ignored.
+
+Note:
+Grayscale images generally represent RGB values `(V, V, V)`, or RGBA values `(V, V, V, A)` in their color space.
 
 Colors are not lossily clamped during conversion: converting from one color space to another
 will result in values outside the range [0, 1] if the source color values were outside the range
@@ -2758,14 +2768,28 @@ content via {{ArrayBuffer}}s that represent part of the {{GPUBuffer}}'s
 allocations. Mapping a {{GPUBuffer}} is requested asynchronously with
 {{GPUBuffer/mapAsync()}} so that the user agent can ensure the GPU
 finished using the {{GPUBuffer}} before the application can access its content.
-Once the {{GPUBuffer}} is mapped the application can synchronously ask for access
-to ranges of its content with {{GPUBuffer/getMappedRange}}. A mapped {{GPUBuffer}}
+Once the {{GPUBuffer}} is mapped, the application can synchronously ask for access
+to ranges of its content with {{GPUBuffer/getMappedRange()}}. A mapped {{GPUBuffer}}
 cannot be used by the GPU and must be unmapped using {{GPUBuffer/unmap}} before
 work using it can be submitted to the [=Queue timeline=].
 
 Issue(gpuweb/gpuweb#605): Add client-side validation that a mapped buffer can
   only be unmapped and destroyed on the worker on which it was mapped. Likewise
-  {{GPUBuffer/getMappedRange}} can only be called on that worker.
+  {{GPUBuffer/getMappedRange()}} can only be called on that worker.
+
+<div algorithm>
+    A <dfn dfn>mapped range ArrayBuffer</dfn> is a special type of {{ArrayBuffer}}, returned by
+    {{GPUBuffer/getMappedRange()}}, which cannot be [=ArrayBuffer/transfer|transferred=] normally.
+    When such an {{ArrayBuffer}} |ab| is transferred, instead:
+
+    1. [=Get a copy of the buffer source=] |ab| and [=ArrayBuffer/create=]
+        a new {{ArrayBuffer}} |abCopy| with those contents.
+    1. [=ArrayBuffer/Detach=] |ab|.
+    1. [=ArrayBuffer/Transfer=] |abCopy| instead.
+
+    Note: User agents should consider issue a developer warning when this happens, as transferring
+    provides no additional functionality or performance over posting the ArrayBuffer normally.
+</div>
 
 <script type=idl>
 typedef [EnforceRange] unsigned long GPUMapModeFlags;
@@ -2855,6 +2879,8 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     1. If |this|.{{GPUBuffer/[[state]]}} is [=buffer state/mapping pending=]:
 
                         1. Let |m| be a new {{ArrayBuffer}} of size |rangeSize|.
+
+                            Note: This is just a memory allocation; this {{ArrayBuffer}} object is not exposed directly.
                         1. Set the content of |m| to the content of |this|'s allocation starting at offset |offset| and for |rangeSize| bytes.
                         1. Set |this|.{{GPUBuffer/[[mapping]]}} to |m|.
                         1. Set |this|.{{GPUBuffer/[[state]]}} to [=buffer state/mapped=].
@@ -2868,7 +2894,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
     : <dfn>getMappedRange(offset, size)</dfn>
     ::
-        Returns a {{ArrayBuffer}} with the contents of the {{GPUBuffer}} in the given mapped range.
+        Returns a [=mapped range ArrayBuffer=] with the contents of the {{GPUBuffer}} in the given mapped range.
 
         <div algorithm=GPUBuffer.getMappedRange>
             **Called on:** {{GPUBuffer}} |this|.
@@ -2902,7 +2928,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     Issue: Consider aligning mapAsync offset to 8 to match this.
                 </div>
 
-            1. Let |m| be a new {{ArrayBuffer}} of size |rangeSize| pointing at the content
+            1. Let |m| be a new [=mapped range ArrayBuffer=] of size |rangeSize| pointing at the content
                 of |this|.{{GPUBuffer/[[mapping]]}} at offset |offset| - |this|.{{GPUBuffer/[[mapping_range]]}}[0].
 
             1. [=list/Append=] |m| to |this|.{{GPUBuffer/[[mapped_ranges]]}}.
@@ -3329,7 +3355,6 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
     - |descriptor|.{{GPUTextureDescriptor/mipLevelCount}} must be less than or equal to
         [$maximum mipLevel count$](|descriptor|.{{GPUTextureDescriptor/dimension}}, |descriptor|.{{GPUTextureDescriptor/size}}).
 
-    - |descriptor|.{{GPUTextureDescriptor/usage}} must be a combination of {{GPUTextureUsage}} values.
     - If |descriptor|.{{GPUTextureDescriptor/usage}} includes the {{GPUTextureUsage/RENDER_ATTACHMENT}} bit:
         - |descriptor|.{{GPUTextureDescriptor/format}} must be a [=renderable format=].
         - |descriptor|.{{GPUTextureDescriptor/dimension}} must be {{GPUTextureDimension/"2d"}}.
@@ -9831,7 +9856,7 @@ called the render pass encoder can no longer be used.
                         - |this| must be [=valid=].
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} must be `false`.
-                        - |this|.{{GPURenderCommandsMixin/[[drawCount]]}} must be less than |this|.{{GPURenderPassEncoder/[[maxDrawCount]]}}.
+                        - |this|.{{GPURenderCommandsMixin/[[drawCount]]}} must be &le; |this|.{{GPURenderPassEncoder/[[maxDrawCount]]}}.
                     </div>
                 1. [=list/Extend=] |parentEncoder|.{{GPUCommandsMixin/[[commands]]}}
                     with |this|.{{GPUCommandsMixin/[[commands]]}}.

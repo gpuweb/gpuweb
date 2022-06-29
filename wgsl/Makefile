@@ -1,6 +1,8 @@
-.PHONY: all clean
+.PHONY: all clean validate lalr validate-examples
 
-all: index.html grammar/grammar.js test wgsl.lalr.txt
+all: index.html validate test
+validate: lalr validate-examples
+validate-examples: grammar/grammar.js
 
 clean:
 	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
@@ -9,17 +11,15 @@ clean:
 index.pre.html: index.bs
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh index.pre.html index.bs
 
+GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html
-	bash ../tools/add-git-head-to-bikeshed-header.sh index.pre.html > index.html
+	@echo 'Inserting source permalink: index.pre.html -> index.html'
+	@sed -e "s,gpuweb/wgsl/</a>,gpuweb/wgsl/</a><br><a href=\"$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs\">$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs</a>," <index.pre.html >index.html
 
 # Extract WGSL grammar from the spec, validate it with Treesitter,
 # and use Treesitter to parse many code examples in the spec.
 grammar/grammar.js: index.bs extract-grammar.py
 	python3 ./extract-grammar.py index.bs grammar/grammar.js
-
-online:
-	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F output=err
-	curl https://api.csswg.org/bikeshed/ -F file=@index.bs -F force=1 > index.html
 
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json
@@ -27,7 +27,7 @@ $(WGSL_GRAMMAR) : grammar/grammar.js
 
 
 #### Grammar analyzer materials below here.
-#### You probably only want 'make lalr'
+#### You probably only want 'make validate'
 
 .PHONY: test
 test: analyze_test
