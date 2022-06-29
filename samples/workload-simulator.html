@@ -73,8 +73,8 @@ input[type="range"] {
 .bad { color: red; user-select: text; }
 .light { color: #CCCCCC; }
 </style>
-<canvas id=webglCanvas class=square></canvas>
-<canvas id=webGPUCanvas class=square></canvas>
+<canvas id=webglCanvas width=512 height=512 class=square></canvas>
+<canvas id=webGPUCanvas width=512 height=512 class=square style=display:none;></canvas>
 <canvas id=canvas class=square style=display:none;></canvas>
 <div id=dom class=square style=display:none;background:white>
   <img id=img style=width:256px;height:256px;background:black></img>
@@ -82,7 +82,7 @@ input[type="range"] {
 <div style="margin:0 2em; padding-top:2em">
 <h2 style=margin-top:0>Drag the logo, or choose "Animate".</h2>
 <label for=animate><input type=checkbox name=animate id=animate>Animate</label>
-<span id=continuousOptions>
+<span id=continuousOptions style=display:none;>
   <label for=useRaf><input type=radio name=loop id=useRaf checked>requestAnimationFrame</label>
   <label for=usePostMessage><input type=radio name=loop id=usePostMessage>postMessage</label>
   <label for=useSetTimeout><input type=radio name=loop id=useSetTimeout>setTimeout</label>
@@ -173,6 +173,7 @@ input[type="range"] {
   <details id=webgpuCanvasOptions>
     <summary>WebGPU canvas context options</summary>
       <label for=multisampling><input type=checkbox name=multisampling id=multisampling checked>4x Multisampling</label>
+      <label for=opaque><input type=checkbox name=opaque id=opaque checked>Opaque</label>
   </details>
   <details id=contextAttributes>
     <summary>WebGL Context attributes</summary>
@@ -234,7 +235,7 @@ for (const control of controls) {
 }
 // Some controls require a page reload when changed.
 let reloadingPage = false;
-const reloadControls = ['useWebGL2', 'antialias', 'alpha', 'depth', 'stencil', 'premultipliedAlpha', 'preserveDrawingBuffer', 'desynchronized', 'ppDefault', 'lowPower', 'highPerformance', 'canvasSize', 'onscreen', 'offscreen', 'transferControlToOffscreen', 'multisampling'].map(x=>window[x]);
+const reloadControls = ['useWebGL2', 'antialias', 'alpha', 'depth', 'stencil', 'premultipliedAlpha', 'preserveDrawingBuffer', 'desynchronized', 'ppDefault', 'lowPower', 'highPerformance', 'canvasSize', 'onscreen', 'offscreen', 'transferControlToOffscreen', 'multisampling', 'opaque'].map(x=>window[x]);
 for (let control of reloadControls) {
   control.oninput = null;
   control.onchange = ()=>{
@@ -407,7 +408,7 @@ let device;
 let gpuPresent;
 let canvasContext;
 let multisampleRenderAttachment;
-let sampleCount = 4;
+let sampleCount = multisampling.checked ? 4 : 1;
 let pipeline;
 let sampler;
 let bindGroup;
@@ -605,24 +606,26 @@ async function render(fromRaf, fromPostMessage) {
           if (!errorMessage.textContent) errorMessage.textContent = 'Uncaptured error: ' + e.error.message;
         });
         canvasContext = webGPUCanvas.getContext('webgpu');
-        canvasContext.configure({device, format: canvasFormat});
+        canvasContext.configure({
+          device,
+          format: canvasFormat,
+          compositingAlphaMode: opaque.checked ? 'opaque' : 'premultiplied'
+        });
         const bindGroupLayout = device.createBindGroupLayout({
           entries: [
             {
               binding: 0,
-              // TODO: These shouldn't need to be visible to both stages. There's a bug in Dawn that
-              // incorrectly requires variables that are unused in one stage to be visible to all stages.
-              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              visibility: GPUShaderStage.VERTEX,
               buffer: { type: 'uniform', },
             },
             {
               binding: 1,
-              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              visibility: GPUShaderStage.FRAGMENT,
               sampler: { type: 'filtering', },
             },
             {
               binding: 2,
-              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              visibility: GPUShaderStage.FRAGMENT,
               texture: { sampleType: 'float', },
             },
           ],
@@ -641,36 +644,33 @@ async function render(fromRaf, fromPostMessage) {
             errorMessage.textContent = 'Failed to allocate multisample render attachment.';
         }
         let shaderModule = device.createShaderModule({ code: `
-          var<private> pos : array<vec2<f32>, 6> = array<vec2<f32>, 6>(
-              vec2<f32>(-1., 1.),
-              vec2<f32>(-1., -1.),
-              vec2<f32>(1., -1.),
-              vec2<f32>(-1., 1.),
-              vec2<f32>(1., -1.),
-              vec2<f32>(1., 1.));
+          let pos = array<vec2<f32>, 6>(
+              vec2(-1., 1.),
+              vec2(-1., -1.),
+              vec2(1., -1.),
+              vec2(-1., 1.),
+              vec2(1., -1.),
+              vec2(1., 1.));
 
-          [[block]] struct Uniforms {
-            xy: vec2<f32>;
-          };
-          [[binding(0), group(0)]] var<uniform> uniforms: Uniforms;
-          [[binding(1), group(0)]] var sampler1: sampler;
-          [[binding(2), group(0)]] var texture1: texture_2d<f32>;
+          @binding(0) @group(0) var<uniform> xy: vec2<f32>;
+          @binding(1) @group(0) var sampler1: sampler;
+          @binding(2) @group(0) var texture1: texture_2d<f32>;
 
           struct Output {
-            [[builtin(position)]] Position : vec4<f32>;
-            [[location(0)]] uv : vec2<f32>;
+            @builtin(position) Position : vec4<f32>,
+            @location(0) uv : vec2<f32>,
           };
           
-          [[stage(vertex)]]
-          fn vs([[builtin(vertex_index)]] VertexIndex : u32) -> Output {
+          @stage(vertex)
+          fn vs(@builtin(vertex_index) VertexIndex : u32) -> Output {
             var output : Output;
-            output.Position = vec4<f32>(pos[VertexIndex] / vec2<f32>(2.,2.) + uniforms.xy, 0.0, 1.0);
-            output.uv = pos[VertexIndex] / vec2<f32>(2., -2.) + vec2<f32>(.5, .5);
+            output.Position = vec4(pos[VertexIndex] / vec2(2.,2.) + xy, 0.0, 1.0);
+            output.uv = pos[VertexIndex] / vec2(2., -2.) + vec2(.5, .5);
             return output;
           }
 
-          [[stage(fragment)]]
-          fn fs([[location(0)]] uv: vec2<f32>) -> [[location(0)]] vec4<f32> {
+          @stage(fragment)
+          fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             return textureSample(texture1, sampler1, uv);
           }
           `, });
@@ -679,7 +679,7 @@ async function render(fromRaf, fromPostMessage) {
         pipeline = device.createRenderPipeline({
           primitive: { topology: 'triangle-list' },
           layout: pipelineLayout,
-          multisample: { count: multisampling.checked ? sampleCount : 1, },
+          multisample: { count: sampleCount },
           vertex: {
             entryPoint: 'vs',
             module: shaderModule,
@@ -820,8 +820,9 @@ async function render(fromRaf, fromPostMessage) {
         colorAttachments: [ {
           view: renderAttachment,
           resolveTarget: multisampling.checked ? canvasView : undefined,
-          loadValue: { r: 1, g: 1, b: 1, a: 1 },
-          storeOp: multisampling.checked ? 'clear' : 'store',
+          loadOp: 'clear',
+          clearValue: { r: 1, g: 1, b: 1, a: 1 },
+          storeOp: multisampling.checked ? 'discard' : 'store',
         }, ],
       });
       if (useRenderBundles.checked && renderBundle && instances == renderBundleInstances && renderBundleNumDrawCalls == numDrawCalls) {
@@ -896,7 +897,7 @@ async function render(fromRaf, fromPostMessage) {
           }
         }
       }
-      passEncoder.endPass();
+      passEncoder.end();
       if (buffer) buffer.destroy();
       let queryBuffer;
       if (querySet) {

@@ -28,28 +28,88 @@ HEADER = """
 
 scanner_filename = sys.argv[1]
 scanner_file = open(scanner_filename, "r")
+# Break up the input into lines, and skip empty lines.
 scanner_lines = [j for i in [i.split("\n")
                              for i in scanner_file.readlines()] for j in i if len(j) > 0]
+# Replace comments in rule text
+scanner_lines = [re.sub('<!--.*-->', '', line) for line in scanner_lines]
 
 grammar_filename = sys.argv[2]
 grammar_path = os.path.dirname(grammar_filename)
 os.makedirs(grammar_path, exist_ok=True)
 grammar_file = open(grammar_filename, "w")
 
+# Global variable holding the current line text.
+line = ""
 
-def scanner_escape_name(name):
-    return name.strip().replace("`", "").replace('-', '_').lower().strip()
+"""
+Scanner classes are used to parse contiguous sets of lines in the WGSL bikeshed
+source text.
+"""
+class Scanner:
+
+    @staticmethod
+    def name():
+        return "my scanner name"
+
+    """
+    Each of the methods below also sets the 'line' global variable with
+    the i'th line, but after stripping trailing line-comments and trailing
+    spaces.
+    """
+
+    """ Returns True if this scanner should be used starting at the i'th line."""
+    @staticmethod
+    def begin(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns True if this scanner stop being used at the i'th line."""
+    @staticmethod
+    def end(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns True if this scanner should start trying to parse the text starting after the i'th line."""
+    @staticmethod
+    def record(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns True if this scanner stop start trying to parse the text starting after the i'th line."""
+    @staticmethod
+    def skip(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns True if this scanner should try to parse this line. Only called when "recording" """
+    @staticmethod
+    def valid(lines, i):
+        line = lines[i].rstrip()
+        return False
+
+    """ Returns a triple resulting from parsing the line.
+      First element:  rule name, if it's a rule
+      Second element:  parsed content
+         For  rule, this is the list of terminals and non-terminals on the right hand side
+         of the rule.
+      Third element:
+         0 if it's the first line of a rule (or the whole rule),
+           or if this just a line of text from the example.
+         -1 if it's a continuation of the previous rule.
+    """
+    @staticmethod
+    def parse(lines, i):
+        line = lines[i].rstrip()
+        return False
 
 
-def scanner_escape_regex(regex):
-    return re.escape(regex.strip()).strip().replace("/", "\\/").replace("\\_", "_").replace("\\%", "%").replace("\\;", ";").replace("\\<", "<").replace("\\>", ">").replace("\\=", "=").replace("\\,", ",").replace("\\:", ":").replace("\\!", "!")
-
-
-class scanner_rule:
+class scanner_rule(Scanner):
     @staticmethod
     def name():
         return "rule"
 
+    """ Returns true if this scanner should be used starting at the i'th line """
     @staticmethod
     def begin(lines, i):
         line = lines[i].rstrip()
@@ -77,25 +137,40 @@ class scanner_rule:
 
     @staticmethod
     def parse(lines, i):
-        line = lines[i].rstrip()
+        # Exclude code point comments
+        # Supports both "Code point" and "Code points"
+        line = lines[i].split("(Code point")[0].rstrip()
         if line[2:].startswith("<dfn for=syntax>"):
+            # When the line is
+            #    <dfn for=syntax>access_mode</dfn>
+            # returns ('access_mode',None,0)
             rule_name = line[2:].split("<dfn for=syntax>")[1]
             rule_name = rule_name.split("</dfn>")[0].strip()
             return (rule_name, None, 0)
         elif line[4:].startswith("| "):
+            # When the line is
+            #    | [=syntax/variable_decl=] [=syntax/equal=] [=syntax/expression=]
+            # returns (None, ['[=syntax/variable_decl=]','[=syntax/equal=]','[=syntax/expression=]',0)
             rule_value = line[6:]
             return (None, rule_value.split(" "), 0)
         elif line[4:].startswith("  "):
+            # For production rule continuation.
+            # When the line is
+            #      [=syntax/variable_decl=] [=syntax/equal=] [=syntax/expression=]
+            # returns (None, ['[=syntax/variable_decl=]','[=syntax/equal=]','[=syntax/expression=]',-1)
             rule_value = line[6:]
             return (None, rule_value.split(" "), -1)
         return (None, None, None)
 
 
-class scanner_example:  # Not an example of a scanner, scanner of examples from specification
+class scanner_example(Scanner):  # Not an example of a scanner, scanner of examples from specification
     @staticmethod
     def name():
         return "example"
 
+    """
+     Returns true if this scanner should be used starting at the i'th line
+    """
     @staticmethod
     def begin(lines, i):
         line = lines[i].split("//")[0].rstrip()
@@ -137,15 +212,17 @@ scanner_spans = [scanner_rule,
 
 scanner_components = {i.name(): {} for i in scanner_spans}
 
-scanner_i = 0
+scanner_i = 0 # line number of the current line
 scanner_span = None
 scanner_record = False
-last_key = None
-last_value = None
+last_key = None   # The rule name, if the most recently parsed thing was a rule.
+last_value = None # The most recently parsed thing
 while scanner_i < len(scanner_lines):
+    # Try both the rule and the example scanners.
     for j in scanner_spans:
         scanner_begin = j.begin(scanner_lines, scanner_i)
         if scanner_begin[0]:
+            # Use this scanner
             scanner_span = None
             scanner_record = False
             last_key = None
@@ -155,36 +232,41 @@ while scanner_i < len(scanner_lines):
                 last_key = scanner_begin[1]
             scanner_i += scanner_begin[-1]
         if scanner_span == j:
+            # Check if we should stop using this scanner.
             scanner_end = j.end(scanner_lines, scanner_i)
             if scanner_end[0]:
+                # Yes, stop using this scanner.
                 scanner_span = None
                 scanner_record = False
                 last_key = None
                 last_value = None
                 scanner_i += scanner_end[-1]
     if scanner_span != None:
+        # We're are in the middle of scanning a span of lines.
         if scanner_record:
             scanner_skip = scanner_span.skip(scanner_lines, scanner_i)
             if scanner_skip[0]:
+                # Stop recording
                 scanner_record = False
-                scanner_i += scanner_skip[-1]
+                scanner_i += scanner_skip[-1]  # Advance past this line
         else:
+            # Should we start recording?
             scanner_record_value = scanner_span.record(
                 scanner_lines, scanner_i)
             if scanner_record_value[0]:
+                # Start recording
                 scanner_record = True
                 if last_key != None and scanner_span.name() == "example":  # TODO Remove special case
                     if last_key in scanner_components[scanner_span.name()]:
-                        last_key += "_next"
-                        if last_key not in scanner_components[scanner_span.name()]:
-                            scanner_components[scanner_span.name()][last_key] = [
-                            ]
+                        raise RuntimeError("line " + str(scanner_i) + ": example with duplicate name: " + last_key)
                     else:
                         scanner_components[scanner_span.name()][last_key] = []
                 scanner_i += scanner_record_value[-1]
         if scanner_record and scanner_span.valid(scanner_lines, scanner_i):
+            # Try parsing this line
             scanner_parse = scanner_span.parse(scanner_lines, scanner_i)
             if scanner_parse[2] < 0:
+                # This line continues the rule parsed on the immediately preceding lines.
                 if (scanner_parse[1] != None and
                         last_key != None and
                         last_value != None and
@@ -194,25 +276,29 @@ while scanner_i < len(scanner_lines):
                     )][last_key][-1] += scanner_parse[1]
             else:
                 if scanner_parse[0] != None:
+                    # It's a rule, with name in the 0'th position.
+                    last_key = scanner_parse[0]
                     if scanner_parse[1] != None:
-                        last_key = scanner_parse[0]
                         last_value = scanner_parse[1]
                         if last_key not in scanner_components[scanner_span.name()]:
+                            # Create a new entry for this rule
                             scanner_components[scanner_span.name()][last_key] = [
                                 last_value]
                         else:
+                            # Append to the existing entry.
                             scanner_components[scanner_span.name()][last_key].append(
                                 last_value)
                     else:
-                        last_key = scanner_parse[0]
+                        # Reset
                         last_value = None
                         scanner_components[scanner_span.name()][last_key] = []
                 else:
+                    # It's example text
                     if scanner_parse[1] != None:
                         last_value = scanner_parse[1]
                         scanner_components[scanner_span.name()][last_key].append(
                             last_value)
-                scanner_i += scanner_parse[-1]
+                scanner_i += scanner_parse[-1] # Advance line index
     scanner_i += 1
 
 
@@ -229,7 +315,7 @@ module.exports = grammar({
     extras: $ => [
         $._comment,
         $._block_comment,
-        $._space,
+        $._blankspace,
     ],
 
     inline: $ => [
@@ -237,10 +323,8 @@ module.exports = grammar({
         $._reserved,
     ],
 
-    conflicts: $ => [
-        [$.array_type_decl],
-        [$.type_decl,$.primary_expression],
-    ],
+    // WGSL has no parsing conflicts.
+    conflicts: $ => [],
 
     word: $ => $.ident,
 
@@ -373,7 +457,7 @@ for key, value in scanner_components[scanner_rule.name()].items():
 
 
 for key, value in scanner_components[scanner_rule.name()].items():
-    if key.startswith("_") and key != "_comment" and key != "_space" and key not in rule_skip:
+    if key.startswith("_") and key != "_comment" and key != "_blankspace" and key not in rule_skip:
         grammar_source += grammar_from_rule(key, value) + ",\n"
         rule_skip.add(key)
 
@@ -398,8 +482,8 @@ rule_skip.add("_comment")
 
 
 grammar_source += grammar_from_rule(
-    "_space", scanner_components[scanner_rule.name()]["_space"])
-rule_skip.add("_space")
+    "_blankspace", scanner_components[scanner_rule.name()]["_blankspace"])
+rule_skip.add("_blankspace")
 
 
 grammar_source += "\n"
@@ -426,6 +510,7 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
     grammar_package.write('}\n')
 
 # External scanner for nested block comments
+# For the API, see https://tree-sitter.github.io/tree-sitter/creating-parsers#external-scanners
 # See: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
 
 os.makedirs(os.path.join(grammar_path, "src"), exist_ok=True)
@@ -461,6 +546,11 @@ bool tree_sitter_wgsl_external_scanner_scan(void *payload, TSLexer *lexer,
     for (;;) {
       switch (lexer->lookahead) {
         case '\0':
+          /* This signals the end of input. Since nesting depth is
+           * greater than zero, the scanner is in the middle of
+           * a block comment. Block comments must be affirmatively
+           * terminated.
+           */
           return false;
         case '*':
           advance(lexer);
@@ -500,7 +590,8 @@ subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
 subprocess.run(["npx", "tree-sitter", "generate"],
                cwd=grammar_path, check=True)
 # Following are commented for future reference to expose playground
-# subprocess.run(["npx", "tree-sitter", "build-wasm"],
+# Remove "--docker" if local environment matches with the container
+# subprocess.run(["npx", "tree-sitter", "build-wasm", "--docker"],
 #                cwd=grammar_path, check=True)
 
 Language.build_library(
@@ -524,7 +615,8 @@ for key, value in scanner_components[scanner_example.name()].items():
     if "function-scope" in key:
         value = ["fn function__scope____() {"] + value + ["}"]
     if "type-scope" in key:
-        value = ["let type_scope____: "] + value + [";"]
+        # Initiailize with zero-value expression.
+        value = ["const type_scope____: "] + value + ["="] + value + ["()"] + [";"]
     program = "\n".join(value)
     tree = parser.parse(bytes(program, "utf8"))
     if tree.root_node.has_error:

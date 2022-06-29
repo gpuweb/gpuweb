@@ -2,46 +2,58 @@
 
 ## Dependencies
 
-The specification is written using [Bikeshed](https://tabatkins.github.io/bikeshed). \
-The WGSL grammar in the specification is validated using [Tree-sitter](https://tree-sitter.github.io/tree-sitter/).
+The following tools are used:
+* For building the specification HTML from source: [Bikeshed](https://tabatkins.github.io/bikeshed)
+  * If Bikeshed is not installed locally, the Bikeshed web API will be used to generate the specification.
+      This is generally slower, and requires a connection to the internet.
+* For validating the grammar and code samples:
+  * [Python 3](https://www.python.org)
+  * [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)
+  * [npm](https://www.npmjs.com/)
+  * [node.js](https://nodejs.org/)
+  * A C/C++ compiler
 
-To install both `Bikeshed` and `Tree-sitter`, type:
+To install Bikeshed and Tree-sitter, run:
 
 ```bash
-python3 -m pip install bikeshed==3.0.3 tree_sitter==0.19.0
+python3 -m pip install bikeshed==3.7.0 tree_sitter==0.19.0
 ```
 
-## Generating both the specification and validating grammar (recommended)
+## Building the specification
 
-With both `Bikeshed` and `Tree-sitter` locally installed, type:
+When the specification is generated, it is written to `index.html`.
+
+### Generating specification, validating the grammar and code samples (recommended)
 
 ```bash
 make
 ```
 
-The rendered specification will be written to `index.html`.
+### Generating the specification only
 
-## Generating the specification only
-
-With `Bikeshed` locally installed, type:
+To generate the specification only, run:
 
 ```bash
 make index.html
 ```
 
-Alternatively, if you do not have `Bikeshed` locally installed, you can use the Bikeshed Web API to generate the specification (slower):
+### Validating the code samples can be parsed
 
 ```bash
-make online
+make validate-examples
 ```
 
-Either approach will write the rendered specification to `index.html`.
+This extracts the grammar from the specification source in `index.bs`, creates a Tree-sitter parser from the
+grammar, and then ensures that code samples from the specification can be parsd correctly.
 
-## Validating grammar only
-
-With `Tree-sitter` installed, type:
+### Validating the grammar is LALR(1)
 
 ```bash
-make grammar/grammar.js
+make lalr
 ```
 
+This produces an LALR(1) parse table for the WGSL grammarin an ad-hoc textual format.
+It will fail if it finds a conflict.
+
+Tree-sitter's JSON representation of the WGSL grammar is used as an input to this step,
+so this step will execute the Tree-sitter step if required.
