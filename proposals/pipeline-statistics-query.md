@@ -1,9 +1,10 @@
 # Pipeline Statistics Queries
 
 **Roadmap:** This extension is **not under active consideration**, but may be considered later.
-Currently, it may only be implemented in non-standards-compliant contexts, such as by Web developers
-who enable a command line flag or other non-default option in order to profile the performance of
-their application.
+WebGPU implementations **must not** expose this functionality; doing so is a spec violation.
+Note however, an implementation might provide an option (e.g. command line flag) to enable a draft
+implementation, for developers who want to test this proposal or use its functionality for locally
+profiling their application performance.
 
 ## WebGPU Spec Changes
 
