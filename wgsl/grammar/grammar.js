@@ -32,7 +32,7 @@ module.exports = grammar({
     // WGSL has no parsing conflicts.
     conflicts: $ => [],
 
-    word: $ => $.ident,
+    word: $ => $.ident_pattern_token,
 
     rules: {
         translation_unit: $ => seq(optional(repeat1($.global_directive)), optional(repeat1($.global_decl))),
@@ -76,15 +76,31 @@ module.exports = grammar({
             $.float_literal,
             $.bool_literal
         ),
-        attribute: $ => choice(
-            seq($.attr, $.ident, $.paren_left, optional(repeat1(seq($.literal_or_ident, $.comma))), $.literal_or_ident, optional($.comma), $.paren_right),
-            seq($.attr, $.ident)
-        ),
-        literal_or_ident: $ => choice(
-            $.float_literal,
+        ident_or_int_literal: $ => choice(
             $.int_literal,
             $.ident
         ),
+        member_ident: $ => $.ident_pattern_token,
+        attribute: $ => choice(
+            seq($.attr, token('align'), $.paren_left, $.int_literal, $.attrib_end),
+            seq($.attr, token('binding'), $.paren_left, $.int_literal, $.attrib_end),
+            seq($.attr, token('builtin'), $.paren_left, $.builtin_value_name, $.attrib_end),
+            seq($.attr, token('const')),
+            seq($.attr, token('group'), $.paren_left, $.int_literal, $.attrib_end),
+            seq($.attr, token('id'), $.paren_left, $.int_literal, $.attrib_end),
+            seq($.attr, token('interpolate'), $.paren_left, $.interpolation_type_name, $.attrib_end),
+            seq($.attr, token('interpolate'), $.paren_left, $.interpolation_type_name, $.comma, $.interpolation_sample_name, $.attrib_end),
+            seq($.attr, token('invariant')),
+            seq($.attr, token('location'), $.paren_left, $.int_literal, $.attrib_end),
+            seq($.attr, token('size'), $.paren_left, $.int_literal, $.attrib_end),
+            seq($.attr, token('workgroup_size'), $.paren_left, $.ident_or_int_literal, $.attrib_end),
+            seq($.attr, token('workgroup_size'), $.paren_left, $.ident_or_int_literal, $.comma, $.ident_or_int_literal, $.attrib_end),
+            seq($.attr, token('workgroup_size'), $.paren_left, $.ident_or_int_literal, $.comma, $.ident_or_int_literal, $.comma, $.ident_or_int_literal, $.attrib_end),
+            seq($.attr, token('vertex')),
+            seq($.attr, token('fragment')),
+            seq($.attr, token('compute'))
+        ),
+        attrib_end: $ => seq(optional($.comma), $.paren_right),
         array_type_decl: $ => seq($.array, $.less_than, $.type_decl, optional(seq($.comma, $.element_count_expression)), $.greater_than),
         element_count_expression: $ => choice(
             $.additive_expression,
@@ -92,14 +108,7 @@ module.exports = grammar({
         ),
         struct_decl: $ => seq($.struct, $.ident, $.struct_body_decl),
         struct_body_decl: $ => seq($.brace_left, optional(repeat1(seq($.struct_member, $.comma))), $.struct_member, optional($.comma), $.brace_right),
-        struct_member: $ => seq(optional(repeat1($.attribute)), $.variable_ident_decl),
-        address_space: $ => choice(
-            $.function,
-            $.private,
-            $.workgroup,
-            $.uniform,
-            $.storage
-        ),
+        struct_member: $ => seq(optional(repeat1($.attribute)), $.member_ident, $.colon, $.type_decl),
         texture_sampler_types: $ => choice(
             $.sampler_type,
             $.depth_texture_type,
@@ -198,7 +207,8 @@ module.exports = grammar({
         argument_expression_list: $ => seq($.paren_left, optional(seq(optional(repeat1(seq($.expression, $.comma))), $.expression, optional($.comma))), $.paren_right),
         postfix_expression: $ => choice(
             seq($.bracket_left, $.expression, $.bracket_right, optional($.postfix_expression)),
-            seq($.period, $.ident, optional($.postfix_expression))
+            seq($.period, $.member_ident, optional($.postfix_expression)),
+            seq($.period, $.swizzle_name, optional($.postfix_expression))
         ),
         unary_expression: $ => choice(
             $.singular_expression,
@@ -350,30 +360,15 @@ module.exports = grammar({
         function_header: $ => seq($.fn, $.ident, $.paren_left, optional($.param_list), $.paren_right, optional(seq($.arrow, optional(repeat1($.attribute)), $.type_decl))),
         param_list: $ => seq(optional(repeat1(seq($.param, $.comma))), $.param, optional($.comma)),
         param: $ => seq(optional(repeat1($.attribute)), $.variable_ident_decl),
-        enable_directive: $ => seq($.enable, $.ident, $.semicolon),
-        access_mode: $ => choice(
-            token('read'),
-            token('write'),
-            token('read_write')
+        enable_directive: $ => seq($.enable, $.extension_name, $.semicolon),
+        address_space: $ => choice(
+            $.function,
+            $.private,
+            $.workgroup,
+            $.uniform,
+            $.storage
         ),
-        texel_format: $ => choice(
-            token('rgba8unorm'),
-            token('rgba8snorm'),
-            token('rgba8uint'),
-            token('rgba8sint'),
-            token('rgba16uint'),
-            token('rgba16sint'),
-            token('rgba16float'),
-            token('r32uint'),
-            token('r32sint'),
-            token('r32float'),
-            token('rg32uint'),
-            token('rg32sint'),
-            token('rg32float'),
-            token('rgba32uint'),
-            token('rgba32sint'),
-            token('rgba32float')
-        ),
+        ident_pattern_token: $ => token(/([_\p{XID_Start}][\p{XID_Continue}]+)|([\p{XID_Start}])/uy),
         array: $ => token('array'),
         atomic: $ => token('atomic'),
         bool: $ => token('bool'),
@@ -489,6 +484,64 @@ module.exports = grammar({
         xor_equal: $ => token('^='),
         shift_right_equal: $ => token('>>='),
         shift_left_equal: $ => token('<<='),
+        interpolation_type_name: $ => choice(
+            token('perspective'),
+            token('linear'),
+            token('flat')
+        ),
+        interpolation_sample_name: $ => choice(
+            token('center'),
+            token('centroid'),
+            token('sample')
+        ),
+        builtin_value_name: $ => choice(
+            token('vertex_index'),
+            token('instance_index'),
+            token('position'),
+            token('front_facing'),
+            token('frag_depth'),
+            token('local_invocation_id'),
+            token('local_invocation_index'),
+            token('global_invocation_id'),
+            token('workgroup_id'),
+            token('num_workgroups'),
+            token('sample_index'),
+            token('sample_mask')
+        ),
+        access_mode: $ => choice(
+            token('read'),
+            token('write'),
+            token('read_write')
+        ),
+        texel_format: $ => choice(
+            token('rgba8unorm'),
+            token('rgba8snorm'),
+            token('rgba8uint'),
+            token('rgba8sint'),
+            token('rgba16uint'),
+            token('rgba16sint'),
+            token('rgba16float'),
+            token('r32uint'),
+            token('r32sint'),
+            token('r32float'),
+            token('rg32uint'),
+            token('rg32sint'),
+            token('rg32float'),
+            token('rgba32uint'),
+            token('rgba32sint'),
+            token('rgba32float')
+        ),
+        extension_name: $ => token('f16'),
+        swizzle_name: $ => choice(
+            token('/[rgba]/'),
+            token('/[rgba][rgba]/'),
+            token('/[rgba][rgba][rgba]/'),
+            token('/[rgba][rgba][rgba][rgba]/'),
+            token('/[xyzw]/'),
+            token('/[xyzw][xyzw]/'),
+            token('/[xyzw][xyzw][xyzw]/'),
+            token('/[xyzw][xyzw][xyzw][xyzw]/')
+        ),
         _reserved: $ => choice(
             token('AppendStructuredBuffer'),
             token('BlendState'),
@@ -835,7 +888,7 @@ module.exports = grammar({
             token('writeonly'),
             token('yield')
         ),
-        ident: $ => token(/([_\p{XID_Start}][\p{XID_Continue}]+)|([\p{XID_Start}])/uy),
+        ident: $ => $.ident_pattern_token,
         _comment: $ => seq(token('//'), token(/.*/)),
         _blankspace: $ => token(/[\u0020\u0009\u000a\u000b\u000c\u000d\u0085\u200e\u200f\u2028\u2029]/uy)
     },
