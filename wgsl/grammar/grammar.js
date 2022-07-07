@@ -109,7 +109,7 @@ module.exports = grammar({
         struct_decl: $ => seq($.struct, $.ident, $.struct_body_decl),
         struct_body_decl: $ => seq($.brace_left, optional(repeat1(seq($.struct_member, $.comma))), $.struct_member, optional($.comma), $.brace_right),
         struct_member: $ => seq(optional(repeat1($.attribute)), $.member_ident, $.colon, $.type_decl),
-        texture_sampler_types: $ => choice(
+        texture_and_sampler_types: $ => choice(
             $.sampler_type,
             $.depth_texture_type,
             seq($.sampled_texture_type, $.less_than, $.type_decl, $.greater_than),
@@ -158,7 +158,7 @@ module.exports = grammar({
             seq($.pointer, $.less_than, $.address_space, $.comma, $.type_decl, optional(seq($.comma, $.access_mode)), $.greater_than),
             $.array_type_decl,
             seq($.atomic, $.less_than, $.type_decl, $.greater_than),
-            $.texture_sampler_types
+            $.texture_and_sampler_types
         ),
         vec_prefix: $ => choice(
             $.vec2,
