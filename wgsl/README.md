@@ -8,7 +8,8 @@ The following tools are used:
       This is generally slower, and requires a connection to the internet.
 * For validating the grammar and code samples:
   * [Python 3](https://www.python.org)
-  * [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)
+  * [Tree-sitter](https://tree-sitter.github.io/tree-sitter)
+  * [py-tree-sitter](https://github.com/tree-sitter/py-tree-sitter)
   * [npm](https://www.npmjs.com/)
   * [node.js](https://nodejs.org/)
   * A C/C++ compiler
