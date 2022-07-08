@@ -299,11 +299,10 @@ module.exports = grammar({
         ),
         increment_statement: $ => seq($.lhs_expression, $.plus_plus),
         decrement_statement: $ => seq($.lhs_expression, $.minus_minus),
-        if_statement: $ => seq($.if, $.expression, $.compound_statement, optional(seq($.else, $.else_statement))),
-        else_statement: $ => choice(
-            $.compound_statement,
-            $.if_statement
-        ),
+        if_statement: $ => seq($.if_clause, optional(repeat1($.else_if_clause)), optional($.else_clause)),
+        if_clause: $ => seq($.if, $.expression, $.compound_statement),
+        else_if_clause: $ => seq($.else, $.if, $.expression, $.compound_statement),
+        else_clause: $ => seq($.else, $.compound_statement),
         switch_statement: $ => seq($.switch, $.expression, $.brace_left, repeat1($.switch_body), $.brace_right),
         switch_body: $ => choice(
             seq($.case, $.case_selectors, optional($.colon), $.case_compound_statement),
