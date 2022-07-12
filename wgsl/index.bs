@@ -6822,7 +6822,6 @@ The `discard` statement [=shader-creation error|must=] only be used in a [=fragm
 More precisely, executing a `discard` statement will:
 
 * convert the current invocation into a [=helper invocation=], and
-* prevent evaluation and generation of a [=return value=] for the [=entry point=], and
 * prevent the current fragment from being processed downstream in the [=GPURenderPipeline=].
 
 Only statements
@@ -6835,7 +6834,7 @@ the fragment will be thrown away.
 <div class='example wgsl' heading='Using the discard statement to throw away a fragment'>
   <xmp highlight='rust'>
   @group(0) @binding(0)
-  var<storage, read_write> buffer : u32;
+  var<storage, read_write> will_emit_color : u32;
 
   fn discard_if_shallow(pos: vec4<f32>) {
     if pos.z < 0.001 {
@@ -6983,6 +6982,9 @@ For each function:
 We assign a [=behavior=] to each function: it is its body's [=behavior=] (treating the body as a regular statement), with any "Return" replaced by "Next".
 As a consequence of the rules above, a function behavior is always one of {}, or {Next}.
 
+Behavior analysis [=shader-creation error|must=] be able to determine a
+non-empty [=behavior=] for each statement, and function.
+
 <table class='data'>
   <caption>Rules for analyzing and validating the behaviors of statements</caption>
   <thead>
@@ -7091,7 +7093,7 @@ As a consequence of the rules above, a function behavior is always one of {}, or
         |sn|: |Bn|<br>
         Fallthrough is not in |Bn|<br>
         Break is not in (|B1| &cup; ... &cup; |Bn|)
-    <td class="nowrap">|B1| &cup; ... &cup; |Bn|)&#x2216;{Fallthrough}
+    <td class="nowrap">(|B1| &cup; ... &cup; |Bn|)&#x2216;{Fallthrough}
   <tr algorithm="switch with break behavior">
     <td class="nowrap">
         |s1|: |B1|<br>
@@ -7099,7 +7101,7 @@ As a consequence of the rules above, a function behavior is always one of {}, or
         |sn|: |Bn|<br>
         Fallthrough is not in |Bn|<br>
         Break is in (|B1| &cup; ... &cup; |Bn|)
-    <td class="nowrap">|B1| &cup; ... &cup; |Bn| &cup; {Next})&#x2216;{Break, Fallthrough}
+    <td class="nowrap">(|B1| &cup; ... &cup; |Bn| &cup; {Next})&#x2216;{Break, Fallthrough}
 </table>
 
 Note: The empty statement case occurs when a `loop` has an empty body, or when a `for` loop lacks an initialization or update statement.
@@ -7115,9 +7117,7 @@ For the purpose of this analysis:
 Each [=built-in function=] has a [=behavior=] of {Next}.
 And each operator application not listed in the table above has the same [=behavior=] as if it were a function call with the same operands and with a function's [=behavior=] of {Next}.
 
-A [=shader-creation error=] results if behavior analysis fails:
-- Behavior analysis [=shader-creation error|must=] be able to determine a non-empty [=behavior=] for each statement, and function.
-- The function behaviors [=shader-creation error|must=] satisfy the rules given above.
+The behavior of a function [=shader-creation error|must=] satisfy the rules given above.
 
 Note: It is unnecessary to analyze the behavior of expressions because they
 will always be {Next} or a previously analyzed function will have produced
@@ -8707,24 +8707,30 @@ WebGPU provides no guarantees about:
 
 ## Fragment Shaders and Helper Invocations ## {#fragment-shaders-helper-invocations}
 
-Invocations in the [=fragment shader stage=] are divided into 2x2 grids of neighbouring invocations.
+Invocations in the [=fragment shader stage=] are divided into 2x2 grids of
+invocations with neighbouring positions in the X and Y dimensions.
 Each of these grids is referred to as a <dfn noexport>quad</dfn>.
 Quads can collaborate in some collective operations (see [[#derivatives]]).
 
-An implementation will always ensure that a shader is executed with enough
-invocations such that each fragment is part of a full quad.
-When there are not enough fragments to fill the quad, an implementation will
-include <dfn noexport>helper invocations</dfn> for the missing members.
+Ordinarily, [[WebGPU#fragment-processing|fragment processing]] creates one
+invocation of a fragment shader for each
+[[WebGPU#rasterizationpoint|RasterizationPoint]] produced by
+[[WebGPU#rasterization|rasterization]].
+Sometimes there may be insufficient RasterizationPoints to fully populate a
+quad, for example at the edge of a graphics primitive.
+When a quad has only 1, 2, or 3 invocations corresponding to
+RasterizationPoints, fragment processing will create a <dfn noexport>helper
+invocation</dfn> for each unpopulated position in the quad.
 
-[=write access|Write accesses=] performed by helper invocations in the
-[=address spaces/storage=] or [=address spaces/workgroup=] address spaces will
-have no effect on the contents of any [=memory locations=].
-[[#texturestore|textureStore]] function calls performed by helper invocations
-will have no effect on the texture.
-[[#atomic-builtin-functions|Atomic built-in funtions]] performed by helper
-invocations will return undefined results.
-Return values for the [=entry point=] computed by a helper invocation will not
-be processed downstream in the [=GPURenderPipeline=].
+Helper invocations do not have observable effects, except that they help
+compute [[#derivatives|derivatives]]. Therefore an implementation will:
+* not perform any [=write access|write accesses=] (see also
+    [[#memory-operation]]) on the [=address spaces/storage=], [=address
+    spaces/workgroup=], or [=address spaces/handle=] address spaaces.
+* return undefined results for any [[#atomic-builtin-functions|Atomic built-in functions]]
+    performed.
+* not contribute the [=entry point=] [=return value=] for further
+    downstream processing in the [=GPURenderPipeline=].
 
 If all of the invocations in a quad become helper invocations (e.g. due to
 executing a [=statement/discard=] statement), execution of the quad may be
