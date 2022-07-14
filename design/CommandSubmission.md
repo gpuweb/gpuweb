@@ -1,5 +1,7 @@
 # Command Submission
 
+**THIS DOCUMENT IS OUTDATED**
+
 Command buffers carry sequences of user commands on the CPU side.
 They can be recorded independently of the work done on GPU, or each other.
 They go through the following stages:

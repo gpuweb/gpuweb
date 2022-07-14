@@ -326,7 +326,7 @@ module.exports = grammar({
     // WGSL has no parsing conflicts.
     conflicts: $ => [],
 
-    word: $ => $.ident,
+    word: $ => $.ident_pattern_token,
 
     rules: {
 """[1:-1]
