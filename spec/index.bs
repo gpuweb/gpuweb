@@ -47,6 +47,12 @@ spec: ECMA-262; urlPrefix: https://tc39.es/ecma262/#
         text: agent; url: agent
         text: surrounding agent; url: surrounding-agent
         text: agent cluster; url: sec-agent-clusters
+    type: abstract-op
+        text: DetachArrayBuffer; url: sec-detacharraybuffer
+        text: AllocateArrayBuffer; url: sec-allocatearraybuffer
+    type: attribute
+        for: ArrayBuffer
+            text: [[ArrayBufferDetachKey]]; url: sec-properties-of-the-arraybuffer-instances
 spec: HTML; urlPrefix: https://html.spec.whatwg.org/multipage/
     type: dfn
         text: origin-clean; url: canvas.html#concept-canvas-origin-clean
@@ -2501,10 +2507,10 @@ GPUBuffer includes GPUObjectBase;
     ::
         The mapping for this {{GPUBuffer}}. The {{ArrayBuffer}} isn't directly accessible
         and is instead accessed through views into it, called the mapped ranges, that are
-        stored in {{GPUBuffer/[[mapped_ranges]]}}
+        stored in {{GPUBuffer/[[mapped_ranges]]}}.
 
-        Issue(gpuweb/gpuweb#605): Specify {{GPUBuffer/[[mapping]]}} in term of `DataBlock` similarly
-        to `AllocateArrayBuffer`?
+        Issue: Specify {{GPUBuffer/[[mapping]]}} in term of `DataBlock` similarly
+        to [$AllocateArrayBuffer$]?
 
     : <dfn>\[[mapping_range]]</dfn>, of type [=list=]&lt;{{unsigned long long}}&gt; or `null`
     ::
@@ -2512,8 +2518,8 @@ GPUBuffer includes GPUObjectBase;
 
     : <dfn>\[[mapped_ranges]]</dfn>, of type [=list=]&lt;{{ArrayBuffer}}&gt; or `null`
     ::
-        The {{ArrayBuffer}}s returned via {{GPUBuffer/getMappedRange}} to the application. They are tracked
-        so they can be detached when {{GPUBuffer/unmap}} is called.
+        The {{ArrayBuffer}}s returned via {{GPUBuffer/getMappedRange()}} to the application.
+        They are tracked so they can be detached when {{GPUBuffer/unmap()}} is called.
 
     : <dfn>\[[map_mode]]</dfn>, of type {{GPUMapModeFlags}}
     ::
@@ -2806,28 +2812,22 @@ content via {{ArrayBuffer}}s that represent part of the {{GPUBuffer}}'s
 allocations. Mapping a {{GPUBuffer}} is requested asynchronously with
 {{GPUBuffer/mapAsync()}} so that the user agent can ensure the GPU
 finished using the {{GPUBuffer}} before the application can access its content.
-Once the {{GPUBuffer}} is mapped, the application can synchronously ask for access
-to ranges of its content with {{GPUBuffer/getMappedRange()}}. A mapped {{GPUBuffer}}
-cannot be used by the GPU and must be unmapped using {{GPUBuffer/unmap}} before
+A mapped {{GPUBuffer}}
+cannot be used by the GPU and must be unmapped using {{GPUBuffer/unmap()}} before
 work using it can be submitted to the [=Queue timeline=].
 
-Issue(gpuweb/gpuweb#605): Add client-side validation that a mapped buffer can
+Once the {{GPUBuffer}} is mapped, the application can synchronously ask for access
+to ranges of its content with {{GPUBuffer/getMappedRange()}}.
+The returned {{ArrayBuffer}} can only be [=ArrayBuffer/detach|detached=] by {{GPUBuffer/unmap()}}
+(directly, or via {{GPUBuffer}}.{{GPUBuffer/destroy()}} or {{GPUDevice}}.{{GPUDevice/destroy()}}),
+and cannot be [=ArrayBuffer/transfer|transferred=].
+A {{TypeError}} is thrown by any other operation that attempts to do so.
+
+<!-- TODO(multithreading):
+Add client-side validation that a mapped buffer can
 only be unmapped and destroyed on the worker on which it was mapped. Likewise
 {{GPUBuffer/getMappedRange()}} can only be called on that worker.
-
-<div algorithm>
-    A <dfn dfn>mapped range ArrayBuffer</dfn> is a special type of {{ArrayBuffer}}, returned by
-    {{GPUBuffer/getMappedRange()}}, which cannot be [=ArrayBuffer/transfer|transferred=] normally.
-    When such an {{ArrayBuffer}} |ab| is transferred, instead:
-
-    1. [=Get a copy of the buffer source=] |ab| and [=ArrayBuffer/create=]
-        a new {{ArrayBuffer}} |abCopy| with those contents.
-    1. [=ArrayBuffer/Detach=] |ab|.
-    1. [=ArrayBuffer/Transfer=] |abCopy| instead.
-
-    Note: User agents should consider issue a developer warning when this happens, as transferring
-    provides no additional functionality or performance over posting the ArrayBuffer normally.
-</div>
+-->
 
 <script type=idl>
 typedef [EnforceRange] unsigned long GPUMapModeFlags;
@@ -2883,7 +2883,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
             **Returns:** {{Promise}}&lt;{{undefined}}&gt;
 
-            Issue(gpuweb/gpuweb#605): Handle error buffers once we have a description of the error monad.
+            Issue: Figure out exactly how [=invalid=] buffers are handled here.
 
             1. If |size| is missing:
                 1. Let |rangeSize| be max(0, |this|.{{GPUBuffer/size}} - |offset|).
@@ -2938,7 +2938,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
     : <dfn>getMappedRange(offset, size)</dfn>
     ::
-        Returns a [=mapped range ArrayBuffer=] with the contents of the {{GPUBuffer}} in the given mapped range.
+        Returns an {{ArrayBuffer}} with the contents of the {{GPUBuffer}} in the given mapped range.
 
         <div algorithm=GPUBuffer.getMappedRange>
             **Called on:** {{GPUBuffer}} |this|.
@@ -2974,8 +2974,14 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     Issue: Consider aligning mapAsync offset to 8 to match this.
                 </div>
 
-            1. Let |m| be a new [=mapped range ArrayBuffer=] of size |rangeSize| pointing at the content
-                of |this|.{{GPUBuffer/[[mapping]]}} at offset |offset| - |this|.{{GPUBuffer/[[mapping_range]]}}[0].
+            1. Let |m| be a new {{ArrayBuffer}} of size |rangeSize|, pointing at the content
+                at offset (|offset| - |this|.{{GPUBuffer/[[mapping_range]]}}[0])
+                of |this|.{{GPUBuffer/[[mapping]]}}.
+
+            1. Set |m|.{{ArrayBuffer/[[ArrayBufferDetachKey]]}} to "WebGPUBufferMapping".
+
+                Note: This causes a {{TypeError}} to be thrown if an attempt is made to
+                [$DetachArrayBuffer$], except by {{GPUBuffer/unmap()}}.
 
             1. [=list/Append=] |m| to |this|.{{GPUBuffer/[[mapped_ranges]]}}.
 
@@ -3017,10 +3023,12 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     - |this|.{{GPUBuffer/[[state]]}} is [=buffer state/mapped=] and |this|.{{GPUBuffer/[[map_mode]]}} contains {{GPUMapMode/WRITE}}
 
                     Then:
+
                     1. Enqueue an operation on the default queue's [=Queue timeline=] that updates the |this|.{{GPUBuffer/[[mapping_range]]}}
                         of |this|'s allocation to the content of |this|.{{GPUBuffer/[[mapping]]}}.
 
-                1. Detach each {{ArrayBuffer}} in |this|.{{GPUBuffer/[[mapped_ranges]]}} from its content.
+                1. For each {{ArrayBuffer}} |ab| in |this|.{{GPUBuffer/[[mapped_ranges]]}}:
+                    1. Perform [$DetachArrayBuffer$](|ab|, "WebGPUBufferMapping").
                 1. Set |this|.{{GPUBuffer/[[mapping]]}} to `null`.
                 1. Set |this|.{{GPUBuffer/[[mapping_range]]}} to `null`.
                 1. Set |this|.{{GPUBuffer/[[mapped_ranges]]}} to `null`.
@@ -3032,6 +3040,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
             {{ArrayBuffer}} are discarded and will not affect the content of follow-up mappings.
         </div>
 </dl>
+
 
 # Textures and Texture Views # {#textures}
 
