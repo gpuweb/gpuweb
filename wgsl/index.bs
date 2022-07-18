@@ -247,7 +247,6 @@ Statements:
     * Repetition: loop, while, for.
     * Escaping a nested execution construct: break, continue.
     * Refactoring: function call and return.
-    * Discard (fragment shaders only): terminating the invocation and throwing away the output.
 * Evaluate expressions to compute values as part of the above behaviours.
 
 WGSL is statically typed: each value computed by a particular expression is in a specific type,
@@ -6457,8 +6456,8 @@ next statement until the end of the loop body.
 The declaration is executed each time it is reached, so each new iteration
 creates a new instance of the variable or constant, and re-initializes it.
 
-This repetition can be interrupted by a [=statement/break=], [=statement/return=], or
-[=statement/discard=] statement.
+This repetition can be interrupted by a [=statement/break=], or
+[=statement/return=] statement.
 
 Optionally, the last statement in the loop body may be a
 [=statement/continuing=] statement.
@@ -6793,9 +6792,6 @@ The construct is optional.
 
 The compound statement [=shader-creation error|must not=] contain a [=statement/return=] at any compound statement nesting level.
 
-The compound statement [=shader-creation error|must not=] contain a [=statement/discard=] at any compound statement nesting level nor through function calls.
-See [[#behaviors]] for a more formal description of this rule.
-
 ### Return Statement ### {#return-statement}
 
 <div class='syntax' noexport='true'>
@@ -6819,13 +6815,13 @@ The type of the return value [=shader-creation error|must=] match the return typ
 
 ### Discard Statement ### {#discard-statement}
 
-A <dfn dfn-for="statement">discard</dfn> statement immediately ends execution of a fragment shader invocation and throws away the fragment.
+A <dfn dfn-for="statement">discard</dfn> statement converts the invocation into
+a [=helper invocation=] and throws away the fragment.
 The `discard` statement [=shader-creation error|must=] only be used in a [=fragment=] shader stage.
 
 More precisely, executing a `discard` statement will:
 
-* immediately terminate the current invocation, and
-* prevent evaluation and generation of a [=return value=] for the [=entry point=], and
+* convert the current invocation into a [=helper invocation=], and
 * prevent the current fragment from being processed downstream in the [=GPURenderPipeline=].
 
 Only statements
@@ -6833,22 +6829,21 @@ executed prior to the `discard` statement will have observable effects.
 
 Note: A `discard` statement may be executed by any
 [=functions in a shader stage|function in a fragment stage=] and the effect is the same:
-immediate termination of the invocation.
-
-After a `discard` statement is executed, control flow is [[=uniform control flow|non-uniform=]] for the
-duration of the entry point.
+the fragment will be thrown away.
 
 <div class='example wgsl' heading='Using the discard statement to throw away a fragment'>
   <xmp highlight='rust'>
-  var<private> will_emit_color: bool = false;
+  @group(0) @binding(0)
+  var<storage, read_write> will_emit_color : u32;
 
   fn discard_if_shallow(pos: vec4<f32>) {
     if pos.z < 0.001 {
-      // If this is executed, then the will_emit_color flag will
-      // never be set to true.
+      // If this is executed, then the will_emit_color variable will
+      // never be set to 1 because helper invocations will not write
+      // to shared memory.
       discard;
     }
-    will_emit_color = true;
+    will_emit_color = 1;
   }
 
   @fragment
@@ -6857,9 +6852,9 @@ duration of the entry point.
   {
     discard_if_shallow(coord_in);
 
-    // Set the flag and emit red, but only if the helper function
+    // Set the value to 1 and emit red, but only if the helper function
     // did not execute the discard statement.
-    will_emit_color = true;
+    will_emit_color = 1;
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);
   }
   </xmp>
@@ -6970,7 +6965,6 @@ As with type analysis for values and expressions, behavior analysis proceeds bot
 
 A <dfn export>behavior</dfn> is a set, whose elements may be:
 - Return
-- Discard
 - Break
 - Continue
 - Fallthrough
@@ -6982,17 +6976,14 @@ We note "*s*: *B*" to say that *s* respects the rules regarding behaviors, and h
 
 For each function:
 - Its body [=shader-creation error|must=] be a valid statement by these rules.
-- If the function has a return type, the [=behavior=] of its body [=shader-creation error|must=] be one of {Return} or {Return, Discard}.
-- Otherwise, the [=behavior=] of its body [=shader-creation error|must=] be a subset of {Next, Return, Discard}.
+- If the function has a return type, the [=behavior=] of its body [=shader-creation error|must=] be {Return}.
+- Otherwise, the [=behavior=] of its body [=shader-creation error|must=] be a subset of {Next, Return}.
 
 We assign a [=behavior=] to each function: it is its body's [=behavior=] (treating the body as a regular statement), with any "Return" replaced by "Next".
-As a consequence of the rules above, a function behavior is always one of {}, {Next}, {Discard}, or {Next, Discard}.
+As a consequence of the rules above, a function behavior is always one of {}, or {Next}.
 
-Similarly, we assign a [=behavior=] to each expression, since expressions can include function calls, which can discard.
-Like functions, expression behaviors are always one of {}, {Next}, {Discard}, or {Next, Discard}.
-
-Note: There is currently no valid program with an expression that does not have Next in its [=behavior=].
-The reason is that only functions without a return type can have such a [=behavior=], and there is no compound expression in which such a function can be called.
+Behavior analysis [=shader-creation error|must=] be able to determine a
+non-empty [=behavior=] for each statement, and function.
 
 <table class='data'>
   <caption>Rules for analyzing and validating the behaviors of statements</caption>
@@ -7027,49 +7018,44 @@ The reason is that only functions without a return type can have such a [=behavi
     <td>{Next}
   <tr algorithm="let declaration behavior">
     <td class="nowrap">let x = |e|;
-    <td class="nowrap">|e|: |B|
-    <td>|B|
+    <td>
+    <td>{Next}
   <tr algorithm="initialized variable declaration behavior">
     <td class="nowrap">var x = |e|;
-    <td class="nowrap">|e|: |B|
-    <td>|B|
+    <td>
+    <td>{Next}
   <tr algorithm="assignment behavior">
-    <td class="nowrap">|x| = |e|;
-    <td class="nowrap">|x|: |B1|<br>
-      |e|: |B2|<br>
-      |x| is not `_`
-    <td>|B1| &cup; |B2|
+    <td class="nowrap">x = |e|;
+    <td>
+    <td>{Next}
   <tr algorithm="phony assignment behavior">
     <td class="nowrap">_ = |e|;
-    <td class="nowrap">|e|: |B|
-    <td>|B|
+    <td>
+    <td>{Next}
   <tr algorithm="function call statement behavior">
     <td class="nowrap">|f|(|e1|, ..., |en|);
-    <td class="nowrap">|e1|: |B1|<br>
-        ...<br>
-        |en|: |Bn|<br>
-        |f| has behavior |B|
-    <td class="nowrap">|B| &cup; ((|B1| &cup; ... &cup; |Bn|)&#x2216;{Next})
+    <td class="nowrap">|f| has behavior |B|
+    <td class="nowrap">|B|
   <tr algorithm="return behaviour">
     <td>return;
     <td>
     <td>{Return}
   <tr algorithm="return value behavior">
     <td class="nowrap">return |e|;
-    <td class="nowrap">|e|: |B|<br>
-    <td class="nowrap">(|B|&#x2216;{Next}) &cup; {Return}
-  <tr algorithm="discard behaviour">
-    <td>discard;
     <td>
-    <td>{Discard}
+    <td>{Return}
+  <tr algorithm="discard behavior">
+    <td class="nowrap">discard;
+    <td>
+    <td>{Next}
   <tr algorithm="break behavior">
     <td>break;
     <td>
     <td>{Break}
   <tr algorithm="break if behavior">
     <td>break if |e|;
-    <td class="nowrap">|e|: |B|
-    <td>|B| &cup; {Break}
+    <td>
+    <td>{Break, Next}
   <tr algorithm="continue behavior">
     <td>continue;
     <td>
@@ -7080,40 +7066,42 @@ The reason is that only functions without a return type can have such a [=behavi
     <td>{Fallthrough}
   <tr algorithm="if statement behavior">
     <td class="nowrap">if |e| |s1| else |s2|
-    <td class="nowrap">|e|: |B|<br>
+    <td class="nowrap">
         |s1|: |B1|<br>
         |s2|: |B2|
-    <td class="nowrap">(|B|&#x2216;{Next}) &cup; |B1| &cup; |B2|
+    <td class="nowrap">|B1| &cup; |B2|
   <tr algorithm="loop with continuing without break behavior">
     <td class="nowrap" rowspan=2>loop {|s1| continuing {|s2|}}
-    <td class="nowrap">|s1|: |B1|<br>
+    <td class="nowrap">
+        |s1|: |B1|<br>
         |s2|: |B2|<br>
-        None of {Continue, Return, Discard} are in |B2|<br>
+        None of {Continue, Return} are in |B2|<br>
         Break is not in (|B1| &cup; |B2|)
     <td class="nowrap">(|B1| &cup; |B2|)&#x2216;{Continue, Next}
   <tr algorithm="loop with continuing with break behavior">
-    <td class="nowrap">|s1|: |B1|<br>
+    <td class="nowrap">
+        |s1|: |B1|<br>
         |s2|: |B2|<br>
-        None of {Continue, Return, Discard} are in |B2|<br/>
+        None of {Continue, Return} are in |B2|<br/>
         Break is in (|B1| &cup; |B2|)
     <td class="nowrap">(|B1| &cup; |B2| &cup; {Next})&#x2216;{Break, Continue}
   <tr algorithm="switch behavior">
     <td class="nowrap" rowspan=2>switch |e|  {case <var ignore>c1</var>: |s1| ... case <var ignore>cn</var>: |sn|}
-    <td class="nowrap">|e|: |B|<br>
+    <td class="nowrap">
         |s1|: |B1|<br>
         ...<br>
         |sn|: |Bn|<br>
         Fallthrough is not in |Bn|<br>
         Break is not in (|B1| &cup; ... &cup; |Bn|)
-    <td class="nowrap">((|B|&#x2216;{Next}) &cup; |B1| &cup; ... &cup; |Bn|)&#x2216;{Fallthrough}
+    <td class="nowrap">(|B1| &cup; ... &cup; |Bn|)&#x2216;{Fallthrough}
   <tr algorithm="switch with break behavior">
-    <td class="nowrap">|e|: |B|<br>
+    <td class="nowrap">
         |s1|: |B1|<br>
         ...<br>
         |sn|: |Bn|<br>
         Fallthrough is not in |Bn|<br>
         Break is in (|B1| &cup; ... &cup; |Bn|)
-    <td class="nowrap">(|B| &cup; |B1| &cup; ... &cup; |Bn| &cup; {Next})&#x2216;{Break, Fallthrough}
+    <td class="nowrap">(|B1| &cup; ... &cup; |Bn| &cup; {Next})&#x2216;{Break, Fallthrough}
 </table>
 
 Note: The empty statement case occurs when a `loop` has an empty body, or when a `for` loop lacks an initialization or update statement.
@@ -7126,65 +7114,24 @@ For the purpose of this analysis:
 - `if` statements with `else if` branches are treated as if they were nested simple `if/else` statements
 - a [=syntax/switch_body=] starting with `default` behaves just like a [=syntax/switch_body=] starting with `case _:`
 
-<table class='data'>
-  <caption>Rules for analyzing and validating the behaviors of expressions</caption>
-  <thead>
-    <tr><th>Expression<th>Preconditions<th>Resulting behavior
-  </thead>
-  <tr algorithm="function call behavior">
-    <td class="nowrap">|f|(|e1|, ..., |en|)
-    <td class="nowrap">|e1|: |B1|<br>
-        ...<br>
-        |en|: |Bn|<br>
-        |f| has behavior |B|
-    <td class="nowrap">|B| &cup; ((|B1| &cup; ... &cup; |Bn|)&#x2216;{Next})
-  <tr algorithm="literal expression behavior">
-    <td class="nowrap">Any literal
-    <td>
-    <td class="nowrap">{Next}
-  <tr algorithm="variable expression behavior">
-    <td class="nowrap">Any variable reference
-    <td>
-    <td class="nowrap">{Next}
-  <tr algorithm="array-like index expression behavior">
-    <td class="nowrap">|e1|[|e2|]
-    <td class="nowrap">|e1|: |B1|<br>
-        |e2|: |B2|
-    <td class="nowrap">|B1| &cup; |B2|
-  <tr algorithm="structure member expression behavior">
-    <td class="nowrap">|e|.field
-    <td class="nowrap">|e|: |B|
-    <td class="nowrap">|B|
-  <tr algorithm="short-circuiting or expression behavior">
-    <td class="nowrap">|e1| || |e2|
-    <td class="nowrap">|e1|: |B1|<br>
-        |e2|: |B2|
-    <td class="nowrap">|B1| &cup; |B2|
-  <tr algorithm="short-circuiting and expression behavior">
-    <td class="nowrap">|e1| && |e2|
-    <td class="nowrap">|e1|: |B1|<br>
-        |e2|: |B2|
-    <td class="nowrap">|B1| &cup; |B2|
-</table>
-
 Each [=built-in function=] has a [=behavior=] of {Next}.
 And each operator application not listed in the table above has the same [=behavior=] as if it were a function call with the same operands and with a function's [=behavior=] of {Next}.
 
-A [=shader-creation error=] results if behavior analysis fails:
-- Behavior analysis [=shader-creation error|must=] be able to determine a non-empty [=behavior=] for each statement, expression, and function.
-- The function behaviors [=shader-creation error|must=] satisfy the rules given above.
-- The behaviors of compute and vertex entry points [=shader-creation error|must not=] contain Discard.
+The behavior of a function [=shader-creation error|must=] satisfy the rules given above.
+
+Note: It is unnecessary to analyze the behavior of expressions because they
+will always be {Next} or a previously analyzed function will have produced
+a error.
 
 ### Notes ### {#behaviors-notes}
 
 This section is informative, non-normative.
 
 Here is the full list of ways that these rules can cause a program to be rejected (this is just restating information already listed above):
-- The body of a function (treated as a regular statement) has a behavior not included in {Next, Return, Discard}.
-- The body of a function with a return type has a behavior which is neither {Return} nor {Return, Discard}.
-- The behavior of a continuing block contains any of Continue, Return, or Discard.
+- The body of a function (treated as a regular statement) has a behavior not included in {Next, Return}.
+- The body of a function with a return type has a behavior which is not {Return}.
+- The behavior of a continuing block contains any of Continue, or Return.
 - The behavior of the last case of a switch contains Fallthrough.
-- The behavior of a compute or vertex entry point function contains Discard.
 - Some obviously infinite loops have an empty behaviour set, and are therefore invalid.
 
 This analysis can be run in linear time, by analyzing the call-graph bottom-up (since the behavior of a function call can depend on the function's code).
@@ -7297,6 +7244,16 @@ Here are some examples showing this analysis in action:
    </xmp>
 </div>
 
+<div class='example wgsl' heading='Discard will not terminate a loop'>
+  <xmp highlight='rust'>
+    fn invalid_infinite_loop() {
+      loop {
+        discard; // Behaviour { Next }.
+      }          // Invalid, behaviour of the whole loop is { }.
+    }
+  </xmp>
+</div>
+
 <div class='example wgsl' heading='A conditional continue with continuing statement'>
    <xmp highlight='rust'>
     fn conditional_continue() {
@@ -7309,7 +7266,7 @@ Here are some examples showing this analysis in action:
         a = a * 2;           // Valid, as the previous statement has Next in its behavior
         continuing {         // Valid as the continuing statement has behavior {Next}
                              //  which does not include any of:
-                             //  {Break, Continue, Discard, Return}
+                             //  {Break, Continue, Return}
           a = a + 1;
         }
       }                      // The loop as a whole has behavior {Next},
@@ -7347,37 +7304,6 @@ Here are some examples showing this analysis in action:
    </xmp>
 </div>
 `for` loops desugar to `loop` with a conditional break. As shown in a previous example, the conditional break has [=behavior=] {Break, Next}, which leads to adding "Next" to the loop's [=behavior=].
-
-<div class='example wgsl expect-error' heading='Effect of a function that discards unconditionally'>
-   <xmp highlight='rust'>
-    fn always_discard() {
-      discard;
-    }                   // The whole function has behavior {Discard}
-    fn code_after_discard() {
-      var a: i32;
-      always_discard(); // Behavior: {Discard}
-      a = a + 1;        // Valid, statically unreachable code.
-                        //   Statement behavior: {Next}
-                        //   Overall behavior: {Discard}
-    }
-   </xmp>
-</div>
-
-<div class='example wgsl' heading='Effect of a function that discards conditionally'>
-   <xmp highlight='rust'>
-    fn sometimes_discard(a: i32) {
-      if a {
-        discard;        // Behavior: {Discard}
-      }                 // Behavior: {Next, Discard}
-    }                   // The whole function has behavior {Next, Discard}
-    fn code_after_discard() {
-      var a: i32;
-      a = 42;
-      sometimes_discard(a);  // Behavior: {Next, Discard}
-      a = a + 1;             // Valid
-    }                        // The whole function has behavior {Next, Discard}
-   </xmp>
-</div>
 
 <div class='example wgsl expect-error' heading='return required in functions that have a return type'>
    <xmp highlight='rust'>
@@ -7544,9 +7470,6 @@ In detail, when a function call is executed the following steps occur:
     unsuspended.
     If the called function [=return value|returns a value=], that value is supplied for the
     value of the function call expression.
-
-Note: The current function will not resume execution if the called function or
-any descendent called function executes a [=statement/discard=] statement.
 
 The location of a function call is referred to as a <dfn noexport>call site</dfn>.
 Call sites are a [=dynamic context=].
@@ -8782,6 +8705,39 @@ WebGPU provides no guarantees about:
     the invocations of another workgroup.
     That is, you cannot assume that workgroups are launched in a particular order.
 
+## Fragment Shaders and Helper Invocations ## {#fragment-shaders-helper-invocations}
+
+Invocations in the [=fragment shader stage=] are divided into 2x2 grids of
+invocations with neighbouring [=built-in values/position|positions=] in the X and Y dimensions.
+Each of these grids is referred to as a <dfn noexport>quad</dfn>.
+Quads can collaborate in some collective operations (see [[#derivatives]]).
+
+Ordinarily, [[WebGPU#fragment-processing|fragment processing]] creates one
+invocation of a fragment shader for each
+[[WebGPU#rasterizationpoint|RasterizationPoint]] produced by
+[[WebGPU#rasterization|rasterization]].
+Sometimes there may be insufficient RasterizationPoints to fully populate a
+quad, for example at the edge of a graphics primitive.
+When a quad has only 1, 2, or 3 invocations corresponding to
+RasterizationPoints, fragment processing will create a <dfn noexport>helper
+invocation</dfn> for each unpopulated position in the quad.
+
+Helper invocations do not have observable effects, except that they help
+compute [[#derivatives|derivatives]].
+As such, helper invocations are subject to the following restrictions:
+* No [=write access|write accesses=] (see also [[#memory-operation]])
+    will be performed on the [=address spaces/storage=], [=address
+    spaces/workgroup=], or [=address spaces/handle=] address spaces.
+* [[#atomic-builtin-functions|Atomic built-in functions]] will return
+    undefined results.
+* The [=Entry point=] [=return value=] will not be further processed
+    downstream in the [=GPURenderPipeline=].
+
+If all of the invocations in a quad become helper invocations (e.g. due to
+executing a [=statement/discard=] statement), execution of the quad may be
+terminated; however, such termination is not considered to produce [=uniform
+control flow|non-uniform control flow=].
+
 ## Collective Operations ## {#collective-operations}
 
 ### Barriers ### {#barrier}
@@ -8796,10 +8752,8 @@ As such, control barriers [=shader-creation error|must=] only be executed in [=u
 ### Derivatives ### {#derivatives}
 
 A <dfn noexport>partial derivative</dfn> is the rate of change of a value along an axis.
-
-Fragment shader invocations operating on neighbouring fragments (in screen-space coordinates)
-collaborate to compute approximate partial derivatives.
-These neighbouring fragments are referred to as a <dfn noexport>quad</dfn>.
+Fragment shader invocations within the same [=quad=] collaborate to compute
+approximate partial derivatives.
 
 Partial derivatives of the *fragment coordinate* are computed implicitly as part
 of operation of the following built-in functions:
