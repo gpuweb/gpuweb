@@ -201,7 +201,8 @@ module.exports = grammar({
             $.ident,
             $.type_decl_without_ident,
             $.vec_prefix,
-            $.mat_prefix
+            $.mat_prefix,
+            $.array
         ),
         paren_expression: $ => seq($.paren_left, $.expression, $.paren_right),
         argument_expression_list: $ => seq($.paren_left, optional(seq(optional(repeat1(seq($.expression, $.comma))), $.expression, optional($.comma))), $.paren_right),
