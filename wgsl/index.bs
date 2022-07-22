@@ -916,7 +916,8 @@ An attribute [=shader-creation error|must not=] be specified more than once per 
   <tr><td><dfn noexport dfn-for="attribute">`workgroup_size`</dfn>
     <td>One, two or three parameters.
 
-    Each parameter is either a literal or [[#module-constants|module-scope constant]].
+    Each parameter is either a literal, [=module scope|module-scope=]
+    [=const-declaration=], or [=override-declaration=].
     All parameters [=shader-creation error|must=] be of the same type, either i32 or u32.
     <td>[=shader-creation error|Must=] be applied to a [=compute shader stage|compute shader=] entry point function.
     [=shader-creation error|Must not=] be applied to any other object.
@@ -1059,7 +1060,7 @@ We say the identifier is <dfn noexport>in scope</dfn>
 Where a declaration appears determines its scope:
 * Predeclared objects, and objects declared at module-scope, are [=in scope=] across the entire program source.
 * Otherwise, the scope is a span of text beginning immediately after the end of the declaration.
-    For details, see [[#function-scope-variables]], and the declaration of [=formal parameters=] in [[#function-declaration-sec]].
+    For details, see [[#var-decls]], and the declaration of [=formal parameters=] in [[#function-declaration-sec]].
 
 Two declarations in the same WGSL source program [=shader-creation error|must not=] simultaneously:
 * introduce the same identifier name, and
@@ -1481,6 +1482,15 @@ Note: When no conversion is performed, the conversion rank is zero.
       <td>infinity
       <td>There are no automatic conversions between other types.
 </table>
+
+The type `T` the <dfn noexport>concretization</dfn> of type `S` if:
+* `T` is not a reference type, and
+* ConversionRank(`S`, `T`) is finite, and
+* For any non-reference type `T'`, ConversionRank(`S`, `T'`) > ConversionRank(`S`, `T`).
+
+The <dfn noexport>concretization of a value</dfn> `e` of type `T` is the value
+resulting from applying, to `e`, the feasible conversion that maps `T` to `T’`s
+concretization.
 
 ### Overload Resolution ### {#overload-resolution-section}
 
@@ -2234,7 +2244,7 @@ Host-shareable types are used to describe the contents of buffers which are shar
 the host and the GPU, or copied between host and GPU without format translation.
 When used for this purpose, the type may be additionally decorated with layout attributes
 as described in [[#memory-layouts]].
-We will see in [[#module-scope-variables]] that the [=store type=] of [=uniform buffer=] and [=storage buffer=]
+We will see in [[#var-decls]] that the [=store type=] of [=uniform buffer=] and [=storage buffer=]
 variables [=shader-creation error|must=] be host-shareable.
 
 A type is <dfn noexport>host-shareable</dfn> if it is one of:
@@ -2264,52 +2274,32 @@ Memory locations are partitioned into <dfn noexport>address spaces</dfn>.
 Each address space has unique properties determining
 mutability, visibility, the values it may contain,
 and how to use variables with it.
+See [[#var-and-value]] for more details.
 
 <table class='data' id="address-space-table">
   <caption>Address Spaces</caption>
   <thead>
     <tr><th>Address space
         <th>Sharing among invocations
-        <th>Supported access modes
-        <th>Variable scope
-        <th>Restrictions on stored values
         <th>Notes
   </thead>
   <tr><td><dfn noexport dfn-for="address spaces">function</dfn>
       <td>Same invocation only
-      <td>[=access/read_write=]
-      <td>[=Function scope=]
-      <td>[=Constructible=] type
       <td>
   <tr><td><dfn noexport dfn-for="address spaces">private</dfn>
       <td>Same invocation only
-      <td>[=access/read_write=]
-      <td>[=Module scope=]
-      <td>[=Constructible=] type
       <td>
   <tr><td><dfn noexport dfn-for="address spaces">workgroup</dfn>
       <td>Invocations in the same [=compute shader stage|compute shader=] [=compute shader stage/workgroup=]
-      <td>[=access/read_write=]
-      <td>[=Module scope=]
-      <td>Type with a [=type/concrete=] [=fixed footprint=]
       <td>The [=element count=] of an outermost array may be a [=pipeline-overridable=] constant.
   <tr><td><dfn noexport dfn-for="address spaces">uniform</dfn>
       <td>Invocations in the same [=shader stage=]
-      <td>[=access/read=]
-      <td>[=Module scope=]
-      <td>[=Constructible=] [=host-shareable=] types
       <td>For [=uniform buffer=] variables
   <tr><td><dfn noexport dfn-for="address spaces">storage</dfn>
       <td>Invocations in the same [=shader stage=]
-      <td> [=access/read_write=], [=access/read=] (default)
-      <td>[=Module scope=]
-      <td>[=Host-shareable=]
       <td>For [=storage buffer=] variables
   <tr><td><dfn noexport dfn-for="address spaces">handle</dfn>
       <td>Invocations in the same shader stage
-      <td>[=access/read=]
-      <td>[=Module scope=]
-      <td>[=Sampler=] types or [=texture=] types
       <td>For [=sampler=] and texture variables.<br>
 </table>
 
@@ -3762,36 +3752,262 @@ See [[#declaration-and-scope]].
 
 # Variable and Value Declarations # {#var-and-value}
 
+[=variable declaration|Variable=] and [=value declaration|value=] declarations
+provide names for data values.
+
+A <dfn noexport>value declaration</dfn> creates a name for a value, and that
+value is immutable once it has been declared.
+The three kinds of value declarations are ‘const’, ‘override’, and ‘let’,
+further described below (see [[#value-decls]]).
+
+A <dfn noexport>variable declaration</dfn> creates a name for [=memory locations=]
+for storing a value; the value stored there may be updated, if the variable has
+a [=access/read_write=] access mode.
+There is one kind of variable declaration, ‘var’, but it has options for
+[=address space=] and [=access modes=] in various combinations, described
+below (see [[#var-decls]]).
+
+Note: A value declaration does not have associated memory locations. For
+example, no WGSL expression can form a pointer to the value.
+
+A declaration appearing outside of any function definition is at [=module scope=].
+Its name is [=in scope=] for the entire program.
+
+A declaration appearing within a function definition is in <dfn
+noexport>function scope</dfn>.
+The name is available for use in the statement immediately after its
+declaration until the end of the brace-delimited list of statements immediately
+enclosing the declaration.
+A function-scope declaration is a [=dynamic context=].
+
+Variable and value declarations have a similar overall syntax:
+<xmp highlight=rust>
+  // Specific value declarations.
+               const    name [: type]  = initializer ;
+  [attribute]? override name [: type] [= initializer];
+               let      name [: type]  = initializer ;
+
+  // General variable form.
+  [attribute]* var[<address_space[, access_mode]>] name [: type] [= initializer];
+
+  // Specific variable declarations.
+  // Function scope.
+               var[<function>] name [: type] [= initializer];
+
+  // Module scope.
+               var<private>    name [: type] [= initializer];
+               var<workgroup>  name : type;
+  [attribute]+ var<uniform>    name : type;
+  [attribute]+ var             name : texture_type;
+  [attribute]+ var             name : sampler_type;
+  [attribute]+ var<storage[, access_mode]> name : type;
+</xmp>
+
+Each such declaration [=shader-creation error|must=] have an explicitly
+specified type, an initializer, or both.
+Each such declaration determines the type for the associated data value, known
+as the <dfn noexport>effective-value-type</dfn> for the declaration.
+The effective-value-type of the declaration is:
+* The declared type, if explicitly specified.
+* Otherwise, if the initializer expression has type `T`:
+    * For a `const` declaration, the effective-value-type is `T` itself.
+    * For a `override`, `let`, or `var` declaration, the effective-value-type
+        is the [=concretization=] of `T`.
+
+Each kind of value or variable declaration may place additional constraints on
+the form of the initializer expression, if present, and on the
+effective-value-type.
+
+<table class='data'>
+<caption>
+  Variable and Value Declaration Feature Summary.
+</caption>
+<thead>
+  <tr><th>Declaration
+      <th>Mutability
+      <th>Scope
+      <th>Type<sup>1</sup>
+      <th>Initializer Support
+      <th>Initializer Expression<sup>2</sup>
+      <th>Part of Resource Interface
+</thead>
+<tr><td>[=const-declaration|const=]
+    <td>Immuatable
+    <td>[=module scope|Module=] or [=function scope|function=]
+    <td>[=type/concrete|Concrete=] or [=type/abstract|abstract=] [=constructible=]
+    <td>Required
+    <td>[=const-expression=]
+    <td>No
+
+<tr><td>[=override-declaration|const=]
+    <td>Immuatable
+    <td>[=module scope|Module=]
+    <td>[=type/concrete|Concrete=] [=scalar=]
+    <td>Optional<sup>3</sup>
+    <td>[=override-expression=]
+    <td>No<sup>4</sup>
+
+<tr><td>[=let-declaration|const=]
+    <td>Immuatable
+    <td>[=function scope|Function=]
+    <td>[=type/concrete|Concrete=] [=constructible=] or [=pointer type=]
+    <td>Required
+    <td>[=runtime expression=]
+    <td>No
+
+<tr><td class="nowrap">
+        [=variable|var=]&lt;[=address spaces/storage=], read&gt;<br>
+        [=variable|var=]&lt;[=address spaces/storage=]&gt;
+    <td>Immutable
+    <td>[=module scope|Module=]
+    <td>[=type/concrete|Concrete=] [=host-shareable=]
+    <td>Disallowed
+    <td>
+    <td>Yes
+
+<tr><td class="nowrap">
+        [=variable|var=]&lt;[=address spaces/storage=], read_write&gt;<sup>5</sup>
+    <td>Mutable
+    <td>[=module scope|Module=]
+    <td>[=type/concrete|Concrete=] [=host-shareable=]
+    <td>Disallowed
+    <td>
+    <td>Yes
+
+<tr><td>[=variable|var=]&lt;[=address spaces/uniform=]&gt;
+    <td>Immutable
+    <td>[=module scope|Module=]
+    <td>[=type/concrete|Concrete=] [=constructible=] [=host-shareable=]
+    <td>Disallowed
+    <td>
+    <td>Yes
+
+<tr><td>[=variable|var=]
+    <td>Immutable<sup>6</sup>
+    <td>[=module scope|Module=]
+    <td>[[#texture-types|Texture]]
+    <td>Disallowed
+    <td>
+    <td>Yes
+
+<tr><td>[=variable|var=]
+    <td>Immutable
+    <td>[=module scope|Module=]
+    <td>[[#texture-types|Sampler]]
+    <td>Disallowed
+    <td>
+    <td>Yes
+
+<tr><td>[=variable|var=]&lt;[=address spaces/workgroup=]&gt;<sup>5</sup>
+    <td>Mutable
+    <td>[=module scope|Module=]
+    <td>[=type/concrete|Concrete=] [=plain type=] with a [=fixed footprint=]<sup>7</sup>
+    <td>Disallowed<sup>8</sup>
+    <td>
+    <td>No
+
+<tr><td>[=variable|var=]&lt;[=address spaces/private=]&gt;
+    <td>Mutable
+    <td>[=module scope|Module=]
+    <td>[=type/concrete|Concrete=] [=constructible=]
+    <td>Optional<sup>8</sup>
+    <td>[=override-expression=]
+    <td>No
+
+<tr><td>[=variable|var=]&lt;[=address spaces/function=]&gt;<br>
+        [=variable|var=]
+    <td>Mutable
+    <td>[=function scope|Function=]
+    <td>[=type/concrete|Concrete=] [=constructible=]
+    <td>Optional<sup>8</sup>
+    <td>[=runtime expression=]
+    <td>No
+
+</table>
+1. Only [=const-declarations=] can be [=type/abstract=] types, and only when
+    the type is not explicitly specified.
+2. The type of the expression must be compatible with the declaration’s
+    restrictions and match the declared type if it is present.
+3. If not specified, a value must be provided at [=pipeline
+    creation|pipeline-creation time=].
+4. [=Override-declarations=] are part of the pipeline interface, but are not
+    bound resources.
+5. [=Atomic types=] can only appear in mutable storage buffers or workgroup
+    variables.
+6. The data in [[#texture-storage|storage textures]] with a [=access/write=]
+    [=access mode=] is mutable, but can only be modified via
+    [[#texturestore|textureStore]] built-in function.
+    The variable itself cannot be modified.
+7. The [=element count=] of the outermost [=array=] may be an
+    [=override-expression=].
+8. If there is no initializer, the variable is [=default initial value|default
+    initialized=].
+
+## Variables vs Values ## {#var-vs-value}
+
+[=Variable declarations=] are the only mutable data in a WGSL program.
+[=Value declarations=] are always immutable.
+Variables can be the basis of [=reference type|reference=] and [=pointer
+type|pointer=] values because variables have associated [=memory locations=],
+whereas a value declaration cannot be the basis of a pointer or reference
+value.
+
+Using variables is generally more expensive than using value declarations,
+because using a variable requires extra operations to [=read access|read=] or
+[=write access|write=] to the [=memory locations=] associated with the variable.
+
+Generally speaking, an author should prefer using declarations in the following
+order, with the most preferred option listed first:
+* [=const-declaration=]
+* [=override-declaration=]
+* [=let-declaration=]
+* [=variable declaration=]
+
+This will generally result in the best overall performance of a shader.
+
 ## Value Declarations ## {#value-decls}
 
-[SHORTNAME] authors can declare names for immutable values using a <dfn noexport>value declaration</dfn> which are either:
+When an [=identifier=] [=resolves=] to a [=value declaration=], the identifier
+denotes that value.
 
-  * a [=let-declaration=], or
-  * an [=override-declaration=], or
-  * a [=const-declaration=].
+WGSL provides multiple kinds of value declarations.
+The value for each kind of declaration is fixed at a different point in the
+[[#shader-lifecycle|shader lifecycle]].
+The different kinds of value declarations and when their values are fixed are:
+* [=const-declarations=], at [=shader module creation|shader-creation time=]
+* [=override-declarations=], at [=pipeline creation|pipeline-creation time=]
+* [=let-declarations=], when they are executed
+* [=formal parameter=] declarations, when the associated [=function call=] argument is executed
 
-Value declarations do not have any associated storage.
-That is, there are no [=memory locations=] associated with the declaration.
+Note: [=Formal parameters=] are described in [[#functions]].
 
-### `let` Declarations ### {#let-decls}
+### `const` Declarations ### {#const-decls}
 
-A <dfn noexport>let-declaration</dfn> specifies a name for a value.
-Once the value for a let-declaration is computed, it is immutable.
-When an [=identifier=] use [=resolves=] to a let-declaration, the identifier denotes that value.
+A <dfn noexport>const-declaration</dfn> specifies a name for a data value that
+is fixed at [=shader module creation|shader-creation time=].
+Each const-declaration requires an initializer.
+A const-declaration can be declared in [=module scope|module=] or [=function
+scope|function=] scope.
+The initializer expression [=shader-creation error|must=] be a
+[=const-expression=].
+The type of a const-declaration must be a [=type/concrete=] or
+[=type/abstract=] [=constructible=] type.
+const-declarations are the only declarations where the [=effective-value-type=]
+may be [=type/abstract=].
 
-When a `let` identifier is declared without an explicitly specified type,
-e.g. `let foo = 4`, the type is automatically inferred from the expression to the right of the equals token (`=`).
-When the type is specified, e.g `let foo: i32 = 4`, the initializer expression [=shader-creation error|must=] evaluate to that type.
+Note: Since [=abstract numeric types=] cannot be spelled in WGSL, they can only
+be used via type inference.
 
-`let`-declarations can only appear within a function definition.
-
-<div class='example wgsl let-declaration at function-scope' heading='let-declared constants at function scope'>
-  <xmp highlight='rust'>
-    // 'blockSize' denotes the i32 value 1024.
-    let blockSize: i32 = 1024;
-
-    // 'row_size' denotes the u32 value 16u.  The type is inferred.
-    let row_size = 16u;
+<div class='example wgsl global-scope' heading='const-declarations at module scope'>
+  <xmp>
+    const a = 4;                  // AbstractInt with a value of 4.
+    const b : i32 = 4;            // i32 with a value of 4.
+    const c : u32 = 4;            // u32 with a value of 4.
+    const d : f32 = 4;            // f32 with a value of 4.
+    const e = vec3(a, a, a);      // vec3 of AbstractInt with a value of (4, 4, 4).
+    const f = 2.0;                // AbstractFloat with a vaue of 4.
+    const g = mat2x2(a, f, a, f); // mat2x2 of AbstractFloat with a value of ((4.0, 2.0), (4.0, 2.0)).
+    const h = array(a, f, a, f);  // array of AbstractFloat with 4 components: (4.0, 2.0, 4.0, 2.0).
   </xmp>
 </div>
 
@@ -3800,36 +4016,31 @@ When the type is specified, e.g `let foo: i32 = 4`, the initializer expression [
 An <dfn noexport>override-declaration</dfn> specifies a name for a
 [=pipeline-overridable=] constant value.
 The value of a <dfn noexport>pipeline-overridable</dfn> constant is fixed at
-pipeline-creation time.
-The value is the one specified by the WebGPU pipeline-creation method, if
-specified, and otherwise is the value of its initializer expression.
-When an [=identifier=] use [=resolves=] to a override-declaration, the identifier denotes that value.
-`override`-declarations [=shader-creation error|must=] meet the following restrictions:
+[=pipeline creation|pipeline-creation time=].
+The value is one specified by the WebGPU pipeline-creation method, if
+specified, and otherwise is the value of its [=concretization of a
+value|concretized=] initializer expression.
+The [=effective-value-type=] of an override-declaration must be a [=type/concrete=]
+[=scalar=] type.
 
-  * The declaration [=shader-creation error|must=] only occur at [=module scope=].
-  * The declaration [=shader-creation error|must=] have at least one of a declared type, an initializer
-      expression, or both.
-  * The declared type, if present, [=shader-creation error|must=] be a [=scalar=].
-  * The initializer expression, if present, [=shader-creation error|must=]:
-      * evaluate to a [=scalar=] type.
-      * evaluate to the declared type if it is present.
-      * be an [=override-expression=].
-  * If the declaration has the [=attribute/id=] applied, the literal operand is
-      known as the <dfn noexport>pipeline constant ID</dfn>, and [=shader-creation error|must=] be an
-      integer value between 0 and 65535.
-  * Pipeline constant IDs [=shader-creation error|must=] be unique within the WGSL program: Two `override`-declarations
-    [=shader-creation error|must not=] use the same pipeline constant ID.
-  * The application can specify its own value for the constant at pipeline-creation time.
-    The pipeline creation API accepts a mapping from overridable constant to a
-    value of the constant's type.
-    The constant is identified by a <dfn export>pipeline-overridable constant identifier string</dfn>,
-    which is the base-10 representation of the [=pipeline constant ID=] if specified, and otherwise
-    the declared [=name=] of the constant.
-  * The <dfn export>pipeline-overridable constant has a default value</dfn> if
-    its declaration has an initializer expression.
-    If it doesn't, it is a [=pipeline-creation error=] if a value is not provided at pipeline-creation time.
+An initializer expression is optional.
+If present, it must be an [=override-expression=] and represents the <dfn
+noexport>pipeline-overridable constant default value</dfn>.
+If no initializer is specified, it is a [=pipeline-creation error=] if a value
+is not provided at pipeline-creation time.
 
-Note: Override expressions are a superset of [=const-expressions=].
+If the declaration has an [=attribute/id=] attribute applied, the literal
+operand is known as the <dfn noexport>pipeline constant ID</dfn>, and must be a
+unique integer between 0 and 65535.
+That is, two override-declarations must not use the same pipeline constant ID.
+
+The application can specify its own value for an override-declaration at
+[=pipeline creation|pipeline-creation time=].
+The pipeline creation API accepts a mapping from overridable constants to a
+value of the constant’s type.
+The constant is identified by a <dfn noexport>pipeline-overridable constant
+identifier string</dfn>, which is the base-10 representation of the [=pipeline
+constant ID=] if specified, and otherwise the declared [=name=] of the constant.
 
 <div class='example wgsl global-scope' heading='Module constants, pipeline-overrideable'>
   <xmp highlight='rust'>
@@ -3849,109 +4060,145 @@ Note: Override expressions are a superset of [=const-expressions=].
   </xmp>
 </div>
 
-### `const` Declarations ### {#const-decls}
 
-A <dfn noexport>const-declaration</dfn> specifies a name for value that is
-fixed at [=shader module creation|shader-creation time=].
-Once the constant is declared, its value is immutable.
-When an [=identifier=] use [=resolves=] to a const-declaration, the
-identifier denotes that value.
+### `let` Declarations ### {#let-decls}
 
-When const-declaration does not explicitly specify a type, `e.g. const foo =
-4`, the type is automatically inferred from the expression to the right of the
-[=syntax/equals=] token.
-The type of a `const` declaration must be:
-* a [=constructible=] type, or
-* an [=abstract numeric type=], or
-* a [=vector=], or
-* a [=matrix=]
+A <dfn noexport>let-declaration</dfn> specifies a name for a value that is
+fixed each time the statement is executed at runtime.
+A let-declaration must only be declared in [=function scope=], and as such, is
+a [=dynamic context=].
+A let-declaration must have an initializer expression.
+The value is the [=concretization of a value|concretized=] value of the initializer.
+The [=effective-value-type=] of a let-declaration must be either a [=type/concrete=]
+[=constructible=] type or a [=pointer type=].
 
-When the type is specified, e.g. `const foo : i32 = 4`, the initializer
-expression must evaluate to that type.
+<div class='example wgsl let-declaration at function-scope' heading='let-declared constants at function scope'>
+  <xmp highlight='rust'>
+    // 'blockSize' denotes the i32 value 1024.
+    let blockSize: i32 = 1024;
 
-Note: Since [=AbstractInt=] and [=AbstractFloat=] cannot be spelled in
-WGSL source, named values can only use them through type inference.
-
-A const-declaration can be declared at module-scope or function-scope.
-A const-declaration must be declared with an initializer and be composed
-only of [=const-expressions=].
-
-<div class='example wgsl global-scope' heading='const-declarations'>
-  <xmp>
-    const a = 4;                  // AbstractInt with a value of 4.
-    const b : i32 = 4;            // i32 with a value of 4.
-    const c : u32 = 4;            // u32 with a value of 4.
-    const d : f32 = 4;            // f32 with a value of 4.
-    const e = vec3(a, a, a);      // vec3 of AbstractInt with a value of (4, 4, 4).
-    const f = 2.0;                // AbstractFloat with a vaue of 4.
-    const g = mat2x2(a, f, a, f); // mat2x2 of AbstractFloat with a value of ((4.0, 2.0), (4.0, 2.0)).
-    const h = array(a, f, a, f);  // array of AbstractFloat with 4 components: (4.0, 2.0, 4.0, 2.0).
+    // 'row_size' denotes the u32 value 16u.  The type is inferred.
+    let row_size = 16u;
   </xmp>
 </div>
 
 ## `var` Declarations ## {#var-decls}
 
-A <dfn noexport>variable</dfn> is a named reference to memory that can contain a value of a
-particular [=storable=] type.
+A <dfn>variable</dfn> is a named reference to memory that can contain a value
+of a particular [=storable=] type.
 
 Two types are associated with a variable: its [=store type=] (the type of value
 that may be placed in the referenced memory) and its [=reference type=] (the type
 of the variable itself).
-If a variable has store type |T|, [=address space=] |AS|, and [=access mode=] |AM|,
-then its reference type is ref&lt;|AS|,|T|,|AM|&gt;.
-The [=store type=] of a variable is always [=type/concrete=].
+If a variable has store type `T`, [=address space=] `AS`, and [=access mode=]
+`AM`, then its reference type is `ref<AS,T,AM>`.
+The store type of a variable is always [=type/concrete=].
 
-A <dfn noexport>variable declaration</dfn>:
+A variable declaration:
+* Specifies the variable’s [=name=].
+* Determines the variable’s [=address space=], [=store type=], and [=access mode=].
+    Together these comprise the variable’s [=reference type=].
+    * The store type is the [=effective-value-type=] of the variable’s declaration.
+* Ensures the execution environment allocates memory for a value of the store
+    type, in the specified address space, supporting the given access mode, for
+    the [=lifetime=] of the variable.
+* Optionally has an initializer expression if the variable is in the [=address
+    spaces/private=] or [=address spaces/function=] address spaces.
+    If present, the initializer must evaluate to the variable’s store type.
+    If present, the initializer for a [=address spaces/private=] variable must
+    be an [=override-expression=].
+    Variables in other address spaces [=shader-creation error|must not=] have an initializer.
 
-* Specifies the variable’s name.
-* Specifies the [=address space=], [=store type=], and [=access mode=].
-    Together these comprise the variable's [=reference type=].
-* Ensures the execution environment allocates memory for a value of the store type, in the specified address space,
-    supporting the given access mode, for the [=lifetime=] of the variable.
-* Optionally has an *initializer* expression, if the variable is in the [=address spaces/private=] or [=address spaces/function=] address spaces.
-    If present, the initializer expression [=shader-creation error|must=] evaluate to the variable's store type.
-
-When an [=identifier=] use [=resolves=] to a variable declaration,
-the identifier is an expression denoting the reference [=memory view=] for the variable's memory,
-and its type is the variable's [=reference type=].
+When an [=identifier=] [=resolves=] to a variable declaration, the identifier
+is an expression denoting the reference [=memory view=] for the variable’s memory,
+and its type is the variable’s [=reference type=].
 See [[#var-identifier-expr]].
 
-See [[#module-scope-variables]] and [[#function-scope-variables]] for rules about where
-a variable in a particular address space can be declared,
-and when the address space decoration is required, optional, or forbidden.
+Variables in the [=address spaces/private=], [=address spaces/storage=],
+[=address spaces/uniform=], [=address spaces/workgroup=], and [=address
+spaces/handle=] address spaces must only be declared in [=module scope=], while
+variables in the [=address spaces/function=] address space must only be
+declared in [=function scope=].
+The address space [=shader-creation error|must=] be specified for all address
+spaces except handle and function.
+The handle address space [=shader-creation error|must not=] be specified.
+Specifying the function address space is optional.
 
-The access mode always has a default, and except for variables in the [=address spaces/storage=] address space,
-[=shader-creation error|must not=] be written in WGSL source text. See [[#access-mode-defaults]].
+The [=access mode=] always has a default value, and except for variables in the
+[=address spaces/storage=] address space, [=shader-creation error|must not=] be
+specified in the WGSL source.
+See [[#access-mode-defaults]].
+
+A variable in the [=address spaces/uniform=] address space is a <dfn
+noexport>uniform buffer</dfn> variable.
+Its [=store type=] must be a [=host-shareable=] [=constructible=] type, and
+must satisfy the [[#address-space-layout-constraints|address space layout
+constraints]].
+
+A variable in the [=address spaces/storage=] address space is a <dfn
+noexport>storage buffer</dfn> variable.
+Its [=store type=] must be a [=host-shareable=] type and must satisfy the
+[[#address-space-layout-constraints|address space layout constraints]].
+The variable may be declared with a [=access/read=] or [=access/read_write=]
+access mode; the default is read.
+
+As described in [[#resource-interface]], uniform buffers, storage buffers,
+textures, and samplers form the [=resource interface of a shader=].
 
 The <dfn noexport>lifetime</dfn> of a variable is the period during shader
-execution for which the variable exists.
-The lifetime of a [=module scope=] variable is the entire execution of the shader stage.
+execution for which the [=memory locations=] are associated with the variable.
+The lifetime of a [=module scope=] variable is the entire execution of the
+shader stage.
+There is an independent version of a variable in the [=address spaces/private=]
+and [=address spaces/function=] address spaces for each invocation.
+[=function scope|Function-scope=] variables are a [=dynamic context=].
+The lifetime of a function-scope variable is determined by its scope:
+* It starts when control enters the variable’s declaration.
+* It ends when the name is no longer [=in scope=] of any part of the [=dynamic context=].
+    That is, the lifetime includes any functions [=function call|called=] while
+    the name is in scope.
 
-For a [=function scope=] variable, each invocation has its own independent
-version of the variable.
-The lifetime of the variable is determined by its scope:
-* It begins when control enters the variable's declaration.
-* It includes the entire execution of any function called from within the variable's scope.
-* It ends when control leaves the variable's scope, other than calling a function from
-    within the variable's scope.
+Two variables with overlapping lifetimes will not have [=overlap|overlapping
+memory=] locations.
+When a variable’s lifetime ends, its memory may be used for another variable.
 
-Two variables with overlapping lifetimes will not have [=overlap|overlapping memory=].
-When a variable's lifetime ends, its memory may be used for another variable.
+Note: WGSL ensures the contents of a variable are only observable during the
+variable’s lifetime.
 
-When a variable is created, its memory contains an initial value as follows:
+When a variable in the [=address spaces/private=], [=address spaces/function=],
+or [=address spaces/workgroup=] address spaces is created, it will have an
+initial value.
+If no initializer is specified the initial value is the <dfn noexport>default
+initial value</dfn>.
+The initial values are computed as follows:
+* For variables in the function address space:
+    * The [=zero value=] of the [=store type=], if the variable declaration did
+        not specify an initializer.
+    * Otherwise for function variables, it is the result of evaluating the
+        [=concretization of a value|concretized=] initializer expression at
+        that point in program execution.
+* For variables in the private address space:
+    * The [=zero value=] of the [=store type=], if the variable declaration did
+        not specify an initializer.
+    * Otherwise it is the result of evaluating the [=concretization of a
+        value|concretized=] initializer expression.
+        The initializer must be an [=override-expression=], and so its value is
+        fixed no later than [=pipeline creation|pipeline-creation time=].
+* For variables in the workgroup address space:
+    * When the [=store type=] is [=constructible=], the [=zero value=] for the
+        store type.
+    * If the [=store type=] is an [=atomic type=], the [=zero value=] is that
+        of the underlying type ([=integer scalar=]).
+    * Otherwise, if the [=store type=] is not [=constructible=], the [=zero
+        value=] is determined by recursively applying these rules to each
+        [=component=] of the [=composite=] until a [=constructible=] type is
+        encountered.
+        * Note: This commonly occurs when using an [=array=] with a
+            [=pipeline-overridable=] [=element count=] or a [=composite=] that
+            contains an [=atomic type=].
 
-* For variables in the [=address spaces/private=] or [=address spaces/function=] address spaces:
-    * The [=zero value=] for the store type, if the variable declaration has no initializer.
-    * Otherwise, it is the result of evaluating the initializer expression at that point in the program execution.
-* For variables in the [=address spaces/workgroup=] address space:
-    * When the store type is [=constructible=], the [=zero value=] for the store type.
-    * If the store type is an [=atomic type=], the [=zero value=] is that of the underlying type ([=integer scalar=]).
-    * Otherwise, if the store type is not constructible, the [=zero value=] is determined by recursively applying these
-        rules to each component of the [=composite=] until a [=constructible=] type is encountered.
-        * Note: This commonly occurs when using an array with a [=pipeline-overridable=] element count or
-            a composite that contains an atomic type.
-* Variables in other address spaces are [=resources=]
-    set by bindings in the [=draw command=] or [=dispatch command=].
+Variables in other address spaces are [=resources=] set by bindings in the
+[=draw command=] or [=dispatch command=].
 
 Consider the following snippet of WGSL:
 <div class='example wgsl function-scope' heading='Variable initial values'>
@@ -3977,37 +4224,6 @@ Consider the following snippet of WGSL:
 Because `x` is a variable, all accesses to it turn into load and store operations.
 However, it is expected that either the browser or the driver optimizes this intermediate representation
 such that the redundant loads are eliminated.
-
-## Module Scope Variables ## {#module-scope-variables}
-
-A variable declared outside all functions is at [=module scope=].
-The variable name is [=in scope=] for the entire program.
-
-Variables at [=module scope=] are restricted as follows:
-
-* The variable [=shader-creation error|must not=] be in the [=address spaces/function=] address space.
-* A variable in the [=address spaces/private=], [=address spaces/workgroup=], [=address spaces/uniform=], or [=address spaces/storage=] address spaces:
-    * [=shader-creation error|Must=] be declared with an explicit address space decoration.
-    * [=shader-creation error|Must=] use a [=store type=] as described in [[#address-space]].
-* If the [=store type=] is a texture type or a sampler type, then the variable declaration [=shader-creation error|must not=]
-    have an address space decoration.  The address space will always be [=address spaces/handle=].
-
-A variable in the [=address spaces/uniform=] address space is a <dfn noexport>uniform buffer</dfn> variable.
-Its [=store type=] [=shader-creation error|must=] be a [=host-shareable=] [=constructible=] type,
-and [=shader-creation error|must=] satisfy [address space layout constraints](#address-space-layout-constraints).
-
-A variable in the [=address spaces/storage=] address space is a <dfn noexport>storage buffer</dfn> variable.
-Its [=store type=] [=shader-creation error|must=] be a [=host-shareable=] type
-and [=shader-creation error|must=] satisfy [address space layout constraints](#address-space-layout-constraints).
-The variable may be declared with a [=access/read=] or [=access/read_write=] access mode; the default is [=access/read=].
-
-As described in [[#resource-interface]],
-uniform buffers, storage buffers, textures, and samplers form the
-[=resource interface of a shader=].
-
-WGSL defines the following attributes that can be applied to global variables:
- * [=attribute/binding=]
- * [=attribute/group=]
 
 <div class='example wgsl global-scope' heading="Module scope variable declarations">
   <xmp highlight='rust'>
@@ -4048,48 +4264,6 @@ WGSL defines the following attributes that can be applied to global variables:
   </xmp>
 </div>
 
-## Module Constants ## {#module-constants}
-
-A [[#value-decls|value declaration]] appearing outside all functions declares a
-[=module scope|module-scope=] constant.
-Module-scope constants must be either [=override-declarations=] or
-[=const-declaration=].
-The name is [=in scope=] for the entire program.
-
-<div class='example wgsl global-scope' heading='Module constants'>
-  <xmp highlight='rust'>
-    // The golden ratio.
-    const golden: f32 = 1.61803398875;
-
-    // The second unit vector for three dimensions, with inferred type.
-    const e2 = vec3(0,1,0);
-  </xmp>
-</div>
-
-When a variable or feature is used within control flow that depends on the
-value of a constant, then that variable or feature is considered to be used by the
-program.
-This is true regardless of the value of the constant, whether that value
-is the one from the constant's declaration or from a pipeline override.
-
-## Function Scope Variables and Constants ## {#function-scope-variables}
-
-A variable or constant declared in a declaration statement in a function body
-is in <dfn noexport>function scope</dfn>.
-The name is available for use immediately after its declaration statement, and
-until the end of the brace-delimited list of statements immediately enclosing
-the declaration.
-
-A function-scope [=let-declaration|let-declared=] constant [=shader-creation error|must=] be of
-[=constructible=] type, or of [=pointer type=].
-
-For a variable declared in function scope:
-* The variable is always in the [=address spaces/function=] address space.
-* The address space decoration is optional.
-* The [=store type=] [=shader-creation error|must=] be a [=constructible=] type.
-* When an initializer is specified, the store type may be omitted from the declaration.
-    In this case the store type is the type of the result of evaluating the initializer.
-
 <div class='example wgsl global-scope' heading="Function scope variables and constants">
   <xmp highlight='rust'>
     fn f() {
@@ -4097,20 +4271,9 @@ For a variable declared in function scope:
        var delta: i32;            // Another variable in the function address space.
        var sum: f32 = 0.0;        // A function address space variable with initializer.
        var pi = 3.14159;          // Infer the f32 store type from the initializer.
-       let unit: i32 = 1;         // Let-declared constants don't use an address space.
     }
   </xmp>
 </div>
-
-A variable or constant declared in the first clause of a `for` statement is available for use in the second
-and third clauses and in the body of the `for` statement.
-
-An instance of a function scope variable is a [=dynamic context=].
-Each variable that is [=in scope=] for some invocation has an overlapping
-[=lifetime=] and, therefore, has non-overlapping memory.
-Variables with non-overlapping lifetimes may reuse the memory of previous
-variables; however, new instances of the same variable are not guaranteed to
-use the same memory.
 
 ## Variable and Value Declaration Grammar Summary ## {#var-and-value-decl-grammar}
 
@@ -4157,13 +4320,33 @@ use the same memory.
 
 # Expressions # {#expressions}
 
-Expressions specify how values are computed.
+[=Expressions=] specify how values are computed.
+
+The different kinds of value expressions provide a tradeoff between when they
+are evaluated and how expressive they can be.
+The sooner the evaluation, the more constrained the operations, but also the
+more places the value can be used.  This tradeoff leads to different
+flexibility with each kind of value declaration.
+[=const-expressions=] and [=override-expressions=] are evaluated prior to
+execution on the GPU, so only the result of the computation of the expression
+is necessary in the final GPU code.
+Additionally, because [=const-expressions=] are evaluated at [=shader module
+creation|shader-creation time=] they can be used in more situations than
+[=override-expressions=], for example, to size [=arrays=] in [=function scope=]
+[=variable declaration|variables=].
+<dfn noexport>Runtime expressions</dfn> on the other hand, are computed
+completely on the GPU.
+So while they can be used by fewer grammar elements, they can be computed from
+a larger class of expressions, for example, other runtime values.
+
+Note: a runtime expression is any expression that is not a [=const-expression=]
+or an [=override-expression=].
 
 ## Early Evaluation Expressions ## {#early-eval-exprs}
 
 WGSL defines two types of expressions that can be evaluated before runtime:
-* [=const-expressions=], and
-* [=override-expressions=]
+* [=const-expressions=], at [=shader module creation|shader-creation time=]
+* [=override-expressions=], at [=pipeline creation|pipeline-creation time=]
 
 ### `const` Expressions ### {#const-expr}
 
