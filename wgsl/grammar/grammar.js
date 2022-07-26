@@ -336,7 +336,7 @@ module.exports = grammar({
         continuing_compound_statement: $ => seq($.brace_left, optional(repeat1($.statement)), optional($.break_if_statement), $.brace_right),
         return_statement: $ => seq($.return, optional($.expression)),
         func_call_statement: $ => seq($.ident, $.argument_expression_list),
-        static_assert_statement: $ => seq($.staticAssert, $.expression),
+        static_assert_statement: $ => seq($.static_assert, $.expression),
         statement: $ => choice(
             $.semicolon,
             seq($.return_statement, $.semicolon),
@@ -388,7 +388,7 @@ module.exports = grammar({
         pointer: $ => token('ptr'),
         sampler: $ => token('sampler'),
         sampler_comparison: $ => token('sampler_comparison'),
-        staticAssert: $ => token('staticAssert'),
+        static_assert: $ => token('static_assert'),
         struct: $ => token('struct'),
         texture_1d: $ => token('texture_1d'),
         texture_2d: $ => token('texture_2d'),
