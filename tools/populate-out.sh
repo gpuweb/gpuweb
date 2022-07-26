@@ -5,10 +5,10 @@ set -e
 
 mkdir -p out/{wgsl,wgsl/grammar,explainer,correspondence,samples}
 
-cp spec/{index.html,webgpu.idl} out/
+cp -r spec/{index.html,webgpu.idl,img} out/
 cp spec/webgpu.idl out/webgpu.idl.txt
 
-cp wgsl/{index.html,wgsl.lalr.txt} out/wgsl/
+cp -r wgsl/{index.html,wgsl.lalr.txt,img} out/wgsl/
 cp wgsl/grammar/grammar.js out/wgsl/grammar/
 
 cp explainer/index.html out/explainer/

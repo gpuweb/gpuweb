@@ -2,13 +2,16 @@
 
 ## Dependencies
 
-The specification is written using [Bikeshed](https://tabatkins.github.io/bikeshed).
+The specification is written using [Bikeshed](https://tabatkins.github.io/bikeshed)
+with diagrams generated using [Mermaid](https://mermaid-js.github.io/mermaid/).
 
-To install Bikeshed, type:
+To install the necessary tools, run:
 
 ```bash
-python3 -m pip install bikeshed==3.7.0
+./tools/install-dependencies.sh bikeshed diagrams
 ```
+
+Alternatively, invoke `pip3`/`npx` directly, using the commands in [that script](../tools/install-dependencies.sh).
 
 ## Building this spec
 

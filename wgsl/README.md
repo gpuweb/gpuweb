@@ -6,6 +6,8 @@ The following tools are used:
 * For building the specification HTML from source: [Bikeshed](https://tabatkins.github.io/bikeshed)
   * If Bikeshed is not installed locally, the Bikeshed web API will be used to generate the specification.
       This is generally slower, and requires a connection to the internet.
+* For building diagrams from source: [Mermaid](https://mermaid-js.github.io/mermaid/)
+  * The generated files are checked in. If Mermaid is not installed, regeneration will be skipped.
 * For validating the grammar and code samples:
   * [Python 3](https://www.python.org)
   * [Tree-sitter](https://tree-sitter.github.io/tree-sitter)
@@ -14,11 +16,13 @@ The following tools are used:
   * [node.js](https://nodejs.org/)
   * A C/C++ compiler
 
-To install Bikeshed and Tree-sitter, run:
+To install the necessary tools, run:
 
 ```bash
-python3 -m pip install bikeshed==3.7.0 tree_sitter==0.19.0
+./tools/install-dependencies.sh bikeshed diagrams wgsl
 ```
+
+Alternatively, invoke `pip3`/`npx` directly, using the commands in [that script](../tools/install-dependencies.sh).
 
 ## Building the specification
 
