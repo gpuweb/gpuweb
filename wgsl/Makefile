@@ -1,6 +1,6 @@
 .PHONY: all clean validate lalr validate-examples
 
-all: index.html validate test
+all: index.html validate test diagrams
 validate: lalr validate-examples
 validate-examples: grammar/grammar.js
 
@@ -15,6 +15,12 @@ GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html
 	@echo 'Inserting source permalink: index.pre.html -> index.html'
 	@sed -e "s,gpuweb/wgsl/</a>,gpuweb/wgsl/</a><br><a href=\"$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs\">$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs</a>," <index.pre.html >index.html
+
+# Generate diagrams from source. You can rebuild these without rebuilding the spec.
+MERMAID_OUTPUTS := $(patsubst diagrams/%.mmd,img/%.mmd.svg,$(wildcard diagrams/*.mmd))
+diagrams: $(MERMAID_OUTPUTS)
+img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
+	sh ../tools/invoke-mermaid.sh -i $< -o $@
 
 # Extract WGSL grammar from the spec, validate it with Treesitter,
 # and use Treesitter to parse many code examples in the spec.
