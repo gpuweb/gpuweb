@@ -1640,10 +1640,12 @@ class Grammar:
             if rule.is_symbol_name():
                 return rule.content
             if isinstance(rule,Choice):
+                parts = [pretty_str(i) for i in rule]
                 inside = " | ".join([pretty_str(i) for i in rule])
                 if self.pretty_str_requires_parens:
-                    return "( " + inside + " )"
-                return inside
+                    return "(\n   " + "\n | ".join([p for p in parts]) + "\n)"
+                else:
+                    return " | ".join([p for p in parts])
             if isinstance(rule,Seq):
                 return " ".join([pretty_str(i) for i in rule])
             if isinstance(rule,Repeat1):
