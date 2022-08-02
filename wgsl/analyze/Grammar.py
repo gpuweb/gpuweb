@@ -1539,6 +1539,9 @@ class Grammar:
         # Augment the grammar:
         self.rules[LANGUAGE] = self.MakeSeq([self.MakeSymbolName(start_symbol), self.end_of_text])
 
+        # This is reset during canonicalization
+        self.pretty_str_requires_parens = True
+
     def MakeEmpty(self):
         return self.empty
 
@@ -1601,6 +1604,7 @@ class Grammar:
         Rewrites this Grammar's rules so they are in Canonical Form.
         """
         self.rules = canonicalize_grammar(self,self.empty)
+        self.pretty_str_requires_parens = False
 
     def compute_first(self):
         """
@@ -1636,9 +1640,16 @@ class Grammar:
             if rule.is_symbol_name():
                 return rule.content
             if isinstance(rule,Choice):
-                return " | ".join([pretty_str(i) for i in rule])
+                parts = [pretty_str(i) for i in rule]
+                inside = " | ".join([pretty_str(i) for i in rule])
+                if self.pretty_str_requires_parens:
+                    return "(\n   " + "\n | ".join([p for p in parts]) + "\n)"
+                else:
+                    return " | ".join([p for p in parts])
             if isinstance(rule,Seq):
                 return " ".join([pretty_str(i) for i in rule])
+            if isinstance(rule,Repeat1):
+                return "( " + "".join([pretty_str(i) for i in rule]) + " )+"
             raise RuntimeError("unexpected node: {}".format(str(rule)))
 
         parts = []

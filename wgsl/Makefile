@@ -47,11 +47,17 @@ ANALYZER=$(ANALYZE_SCRIPT) analyze/Grammar.py analyze/ObjectRegistry.py
 .PHONY: lalr
 lalr: wgsl.lalr.txt
 
+# Print a simple (uncanonicalized form) of the grammar
+.PHONY: simple
+simple: wgsl.simple.txt
 
 # A human-readable LALR(1) parse table, in an ad hoc format.
 wgsl.lalr.txt : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -lalr grammar/src/grammar.json >$@
 
+
+wgsl.simple.txt : $(ANALYZER) $(WGSL_GRAMMAR)
+	python3 $(ANALYZE_SCRIPT) -simple grammar/src/grammar.json >$@
 
 ## The following targets are used when developing the grammar analyzer
 

@@ -56,6 +56,9 @@ def main():
     argparser.add_argument('-v', '--verbose',
                            help='increase output verbosity',
                            action="store_true")
+    argparser.add_argument('-simple',
+                           help='dump the grammar without canonicalization',
+                           action="store_true")
     argparser.add_argument('-ll',
                            help='compute LL(1) parser table and associated conflicts',
                            action="store_true")
@@ -71,8 +74,13 @@ def main():
     with open(args.json_file) as infile:
         json_text = "".join(infile.readlines())
 
-    g = Grammar.Load(json_text, 'translation_unit')
 
+    if args.simple:
+        g = Grammar(json_text, 'translation_unit')
+        print(g.pretty_str())
+        sys.exit(0)
+
+    g = Grammar.Load(json_text, 'translation_unit')
     if args.lalr:
         print("=Grammar:\n")
         print(g.pretty_str())
