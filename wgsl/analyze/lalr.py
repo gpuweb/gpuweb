@@ -59,6 +59,9 @@ def main():
     argparser.add_argument('-simple',
                            help='dump the grammar without canonicalization',
                            action="store_true")
+    argparser.add_argument('-recursive',
+                           help='dump a grammar suitable for recursive descent parsing',
+                           action="store_true")
     argparser.add_argument('-ll',
                            help='compute LL(1) parser table and associated conflicts',
                            action="store_true")
@@ -78,6 +81,11 @@ def main():
     if args.simple:
         g = Grammar(json_text, 'translation_unit')
         print(g.pretty_str(multi_line_choice=True))
+        sys.exit(0)
+    if args.recursive:
+        g = Grammar.Load(json_text, 'translation_unit')
+        print("\n".join(g.preorder()))
+        #print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
 
     g = Grammar.Load(json_text, 'translation_unit')

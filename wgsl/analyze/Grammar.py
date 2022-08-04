@@ -1691,6 +1691,41 @@ class Grammar:
         """Returns a unique integer for the string"""
         return self.registry.register_string(string)
 
+    def preorder(self):
+        """
+        Returns the names of rules, in order, based on the preorder traversal
+        starting from the LANGUAGE start node.
+
+        Assumes the grammar is in canonical form
+        """
+        assert self.is_canonical
+        # Names of visited nodes
+        visited = set()
+        # Names of nodes to visit
+        worklist = [LANGUAGE]
+
+        result = []
+        while len(worklist) > 0:
+            successors = []
+            for rule_name in worklist:
+                if rule_name in visited:
+                    continue
+                result.append(rule_name)
+                visited.add(rule_name)
+
+                rule = self.rules[rule_name]
+                if rule.is_nonterminal():
+                    # Top-level rules are Choice nodes.
+                    if not isinstance(rule,Choice):
+                        raise RuntimeException("expected Choice node for "+
+                           +"'{}' rule, got: {}".format(lhs,rule))
+                    for rhs in rule:
+                        phrase = rhs if rhs.is_nonterminal() else [rhs]
+                        # Note: this tolerates duplicates among siblings.
+                        successors.extend([x.content for x in phrase if x.is_symbol_name() and x.content not in visited])
+            worklist = successors
+        return result
+
     def LL1(self):
         """
         Constructs an LL(1) parser table and associated conflicts (if any).
