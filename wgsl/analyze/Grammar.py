@@ -1539,8 +1539,7 @@ class Grammar:
         # Augment the grammar:
         self.rules[LANGUAGE] = self.MakeSeq([self.MakeSymbolName(start_symbol), self.end_of_text])
 
-        # This is reset during canonicalization
-        self.pretty_str_requires_parens = True
+        self.is_canonical = False
 
     def MakeEmpty(self):
         return self.empty
@@ -1604,7 +1603,7 @@ class Grammar:
         Rewrites this Grammar's rules so they are in Canonical Form.
         """
         self.rules = canonicalize_grammar(self,self.empty)
-        self.pretty_str_requires_parens = False
+        self.is_canonical = True
 
     def compute_first(self):
         """
@@ -1627,34 +1626,38 @@ class Grammar:
         dump_grammar(self.rules)
         print(self.registry)
 
-    def pretty_str(self):
+    def pretty_str(self,multi_line_choice=False):
         """
         Returns a pretty string form of the grammar.
         It's still in canonical form: nonterminals are at most a choice over
         a sequence of leaves.
         """
-        def pretty_str(rule):
+        def pretty_str(rule,multi_line_choice):
             """Returns a pretty string for a node"""
             if rule.is_terminal() or rule.is_empty():
                 return str(rule)
             if rule.is_symbol_name():
                 return rule.content
             if isinstance(rule,Choice):
-                parts = [pretty_str(i) for i in rule]
-                inside = " | ".join([pretty_str(i) for i in rule])
-                if self.pretty_str_requires_parens:
-                    return "(\n   " + "\n | ".join([p for p in parts]) + "\n)"
+                parts = [pretty_str(i,multi_line_choice) for i in rule]
+                nl = "\n" if multi_line_choice else ""
+                joiner = nl + " | "
+                prefixer = "\n   " if multi_line_choice else ""
+                inside = prefixer + joiner.join([p for p in parts]) + nl
+                if self.is_canonical:
+                    return inside
                 else:
-                    return " | ".join([p for p in parts])
+                    # If it's not canonical, then it can have nesting.
+                    return "(" + inside + ")"
             if isinstance(rule,Seq):
-                return " ".join([pretty_str(i) for i in rule])
+                return " ".join([pretty_str(i,multi_line_choice) for i in rule])
             if isinstance(rule,Repeat1):
-                return "( " + "".join([pretty_str(i) for i in rule]) + " )+"
+                return "( " + "".join([pretty_str(i,multi_line_choice) for i in rule]) + " )+"
             raise RuntimeError("unexpected node: {}".format(str(rule)))
 
         parts = []
         for key in sorted(self.rules):
-            parts.append("{}: {}\n".format(key,pretty_str(self.rules[key])))
+            parts.append("{}: {}\n".format(key,pretty_str(self.rules[key],multi_line_choice)))
         return "".join(parts)
 
     def register_item_set(self,item_set):
