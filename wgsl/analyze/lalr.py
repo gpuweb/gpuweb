@@ -83,9 +83,10 @@ def main():
         print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
     if args.recursive:
-        g = Grammar.Load(json_text, 'translation_unit')
-        print("\n".join(g.preorder()))
-        #print(g.pretty_str(multi_line_choice=True))
+        g = Grammar(json_text, 'translation_unit')
+        g.canonicalize()
+        g.eliminate_left_recursion()
+        print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
 
     g = Grammar.Load(json_text, 'translation_unit')

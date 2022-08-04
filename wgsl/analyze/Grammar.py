@@ -162,8 +162,11 @@ class Rule(RegisterableObject):
     def is_terminal(self):
         return isinstance(self, (EndOfText, Token))
 
-    def is_nonterminal(self):
+    def is_container(self):
         return isinstance(self, ContainerRule)
+
+    def as_container(self):
+        return self if self.is_container() else [self]
 
     def is_symbol_name(self):
         return isinstance(self, SymbolName)
@@ -1539,7 +1542,7 @@ class Grammar:
         # Augment the grammar:
         self.rules[LANGUAGE] = self.MakeSeq([self.MakeSymbolName(start_symbol), self.end_of_text])
 
-        self.is_canonical = False
+        self.is_canonical = False # Updated during canonicalization
 
     def MakeEmpty(self):
         return self.empty
@@ -1643,12 +1646,12 @@ class Grammar:
                 nl = "\n" if multi_line_choice else ""
                 joiner = nl + " | "
                 prefixer = "\n   " if multi_line_choice else ""
-                inside = prefixer + joiner.join([p for p in parts]) + nl
+                inside = prefixer + joiner.join([p for p in parts])
                 if self.is_canonical:
                     return inside
                 else:
                     # If it's not canonical, then it can have nesting.
-                    return "(" + inside + ")"
+                    return "(" + inside + nl + ")"
             if isinstance(rule,Seq):
                 return " ".join([pretty_str(i,multi_line_choice) for i in rule])
             if isinstance(rule,Repeat1):
@@ -1713,18 +1716,134 @@ class Grammar:
                 result.append(rule_name)
                 visited.add(rule_name)
 
-                rule = self.rules[rule_name]
-                if rule.is_nonterminal():
-                    # Top-level rules are Choice nodes.
-                    if not isinstance(rule,Choice):
-                        raise RuntimeException("expected Choice node for "+
-                           +"'{}' rule, got: {}".format(lhs,rule))
-                    for rhs in rule:
-                        phrase = rhs if rhs.is_nonterminal() else [rhs]
-                        # Note: this tolerates duplicates among siblings.
-                        successors.extend([x.content for x in phrase if x.is_symbol_name() and x.content not in visited])
+                rule = self.rules[rule_name].as_container()
+                for rhs in rule:
+                    phrase = rhs.as_container()
+                    # Note: this tolerates duplicates among siblings.
+                    successors.extend([x.content for x in phrase if x.is_symbol_name() and x.content not in visited])
             worklist = successors
         return result
+
+    def eliminate_left_recursion(self):
+        """
+        Algorithm 4.1 from the Dragon Book.
+
+        Assume the grammar has no cycles. (A cycle exists if there is a rule
+            X ->+ X
+
+        Adapted to handle epsilon rules.
+
+        Algorithm:
+        1. Arrange the nonterminals into a defined ordering A1 ... An
+        2. Break self-cycles in the first position via more than one step.
+           for i = 1 to n:
+              for j = 1 to i-1:
+                 # Break backedges from Ai to Aj:
+                 replace production of the form Ai -> Aj gamma
+                 by productions   Ai -> delta1 gamma | delta2 gamma | ... | deltaK gamma
+                 where   Aj -> delta1 | delta2 | ... | deltaK
+                 are all the current Aj productions
+        3. Eliminate immediate left recursion:
+            Replace rules 
+                    A -> A alpha1 | A alpha2 | beta1 | beta2
+            with
+                    A -> beta1 A' | beta2 A'
+                    A' -> alpha1 A' | alpha2 A' | epsilon
+        """
+        assert self.is_canonical
+
+        # Determine a definite ordering of the rules.
+        # Use a DFS so we only have essential backedges.
+        preorder_names = self.preorder()
+        preorder_index = dict()
+        for name in preorder_names:
+            preorder_index[name] = len(preorder_index)
+
+        # Break self-cycles via more than one step
+        for i in range(1,len(preorder_names)):
+            rule_name = preorder_names[i]
+            rule = self.rules[rule_name]
+            replacement = []
+            changed = False
+            for rhs in rule.as_container():
+                phrase = rhs.as_container()
+                first = phrase[0]
+                rest = phrase[1:]
+                if first.is_symbol_name():
+                    first_name = first.content
+                    j = preorder_index[first_name]
+                    if j < i:
+                        # Break this backedge
+                        Aj = self.rules[first_name].as_container()
+                        if len(rest) == 0:
+                            # Add Aj's alternatives to  Ai's alternatives.
+                            # Aj is a choice node
+                            # The elements of Aj are already of suitable class.
+                            replacement.extend([delta for delta in Aj])
+                        else:
+                            # Rest is non-empty
+                            for delta in Aj:
+                                if delta.is_empty():
+                                    replacement.append(self.MakeSeq(rest))
+                                else:
+                                    new_elems = [x for x in delta.as_container()]
+                                    new_elems.extend(rest)
+                                    replacement.append(self.MakeSeq(new_elems))
+                        changed = True
+                    else:
+                        # Pass it through. It's not a backedge.
+                        replacement.append(rhs)
+                else:
+                    # First thing is not a symbol name. Pass it through
+                    replacement.append(rhs)
+            if changed:
+                # Update with the new rule.
+                self.rules[rule_name] = self.MakeChoice(replacement)
+
+        # Eliminate immediate left recursion
+        #    Replace rules 
+        #            A -> A alpha1 | A alpha2 | beta1 | beta2
+        #    with
+        #            A -> beta1 A' | beta2 A'
+        #            A' -> alpha1 A' | alpha2 A' | epsilon
+        #
+        #    When A can produce epsilon directly:
+        #            A -> A alpha1 | A alpha2 | beta1 | beta2 | epsilon
+        #    with
+        #            A -> beta1 A' | beta2 A' | A'
+        #            A' -> alpha1 A' | alpha2 A' | epsilon
+        preorder_names = self.preorder()
+        for rule_name in preorder_names:
+            rule = self.rules[rule_name]
+            changed = False
+            has_immediate_left_recursion =  False
+            for rhs in rule.as_container():
+                first = rhs.as_container()[0]
+                if first.is_symbol_name() and first.content is rule_name:
+                    has_immediate_left_recursion = True
+                    break
+            if has_immediate_left_recursion:
+                self_parts = []  # Becomes new right-hand-side for A
+                rest_name = "{}.rest".format(rule_name)
+                assert rest_name not in self.rules
+                rest_parts = []  # Becomes new right-hand-side for A'
+                for rhs in rule.as_container():
+                    phrase = rhs.as_container()
+                    first = phrase[0]
+                    rest = phrase[1:]
+                    if first.is_symbol_name() and first.content is rule_name:
+                        rest_parts.append(self.MakeSeq(rest + [self.MakeSymbolName(rest_name)]))
+                    else:
+                        if len(phrase) > 0 and phrase[0].is_empty():
+                            # beta is epsilon
+                            assert len(phrase) == 1
+                            self_parts.append( self.MakeSymbolName(rest_name) )
+                        else:
+                            self_parts.append( self.MakeSeq([x for x in phrase] + [self.MakeSymbolName(rest_name)]) )
+                rest_parts.append(self.MakeEmpty())
+                self.rules[rule_name] = self.MakeChoice(self_parts)
+                self.rules[rest_name] = self.MakeChoice(rest_parts)
+
 
     def LL1(self):
         """
@@ -1754,16 +1873,16 @@ class Grammar:
                 table[action_key] = action
 
         for lhs, rule in self.rules.items():
-            if rule.is_nonterminal():
+            if rule.is_container():
                 # Top-level terminals are Choice nodes.
                 if not isinstance(rule,Choice):
-                    raise RuntimeException("expected Choice node for "+
+                    raise RuntimeError("expected Choice node for "+
                        +"'{}' rule, got: {}".format(lhs,rule))
                 # For each terminal A -> alpha,
                 for rhs in rule:
                     # For each terminal x in First(alpha), add
                     # A -> alpha to M[A,x]
-                    phrase = rhs if rhs.is_nonterminal() else [rhs]
+                    phrase = rhs if rhs.is_container() else [rhs]
                     for x in first(self,phrase):
                         if x.is_empty():
                             for f in rule.follow:
