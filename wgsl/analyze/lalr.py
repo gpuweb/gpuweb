@@ -85,7 +85,13 @@ def main():
     if args.recursive:
         g = Grammar(json_text, 'translation_unit')
         g.canonicalize()
-        g.eliminate_left_recursion()
+        stop_at = {'expression','element_count_expression'}
+        g.eliminate_left_recursion(stop_at)
+        # The left recursion in expressions can bottom out at primary expression
+        print(g.pretty_str(multi_line_choice=True))
+        print("")
+        g.hoist_until('singular_expression',stop_at)
+        print("\nour final result\n")
         print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
 

@@ -874,6 +874,11 @@ def without_empty(s):
     """
     return {i for i in s if not i.is_empty()}
 
+def list_without_empty(L):
+    """
+    Returns a copy of list s without Empty
+    """
+    return [i for i in L if not i.is_empty()]
 
 def derives_empty(rules,phrase):
     """
@@ -1724,16 +1729,16 @@ class Grammar:
             worklist = successors
         return result
 
-    def eliminate_left_recursion(self):
+    def eliminate_left_recursion(self,stop_at_set):
         """
         Algorithm 4.1 from the Dragon Book.
 
-        Assume the grammar has no cycles. (A cycle exists if there is a rule
+        Assume the grammar has no cycles. A cycle exists if there is a rule
             X ->+ X
 
         Adapted to handle epsilon rules.
 
-        Algorithm:
+        Algorithm (but avoiding updating rules in stop_at_set)
         1. Arrange the nonterminals into a defined ordering A1 ... An
         2. Break self-cycles in the first position via more than one step.
            for i = 1 to n:
@@ -1762,6 +1767,8 @@ class Grammar:
         # Break self-cycles via more than one step
         for i in range(1,len(preorder_names)):
             rule_name = preorder_names[i]
+            if rule_name in stop_at_set:
+                continue
             rule = self.rules[rule_name]
             replacement = []
             changed = False
@@ -1772,7 +1779,7 @@ class Grammar:
                 if first.is_symbol_name():
                     first_name = first.content
                     j = preorder_index[first_name]
-                    if j < i:
+                    if (j < i) and (first_name not in stop_at_set):
                         # Break this backedge
                         Aj = self.rules[first_name].as_container()
                         if len(rest) == 0:
@@ -1783,15 +1790,11 @@ class Grammar:
                         else:
                             # Rest is non-empty
                             for delta in Aj:
-                                if delta.is_empty():
-                                    replacement.append(self.MakeSeq(rest))
-                                else:
-                                    new_elems = [x for x in delta.as_container()]
-                                    new_elems.extend(rest)
-                                    replacement.append(self.MakeSeq(new_elems))
+                                replacement.append(self.MakeSeq(list_without_empty(delta.as_container()) + rest))
                         changed = True
                     else:
-                        # Pass it through. It's not a backedge.
+                        # Pass it through. It's not a backedge, or we've been
+                        # asked to stop here.
                         replacement.append(rhs)
                 else:
                     # First thing is not a symbol name. Pass it through
@@ -1834,6 +1837,7 @@ class Grammar:
                     if first.is_symbol_name() and first.content is rule_name:
                         rest_parts.append(self.MakeSeq(rest + [self.MakeSymbolName(rest_name)]))
                     else:
+                        # TODO: use list_without_empty to shorten this
                         if len(phrase) > 0 and phrase[0].is_empty():
                             # beta is epsilon
                             assert len(phrase) == 1
@@ -1843,6 +1847,126 @@ class Grammar:
                 rest_parts.append(self.MakeEmpty())
                 self.rules[rule_name] = self.MakeChoice(self_parts)
                 self.rules[rest_name] = self.MakeChoice(rest_parts)
+
+    def hoist_until(self,target_rule_name,stop_at_set):
+        """
+        Hoists the rules for a a nonterminal into its ancestors.
+
+        When target_rule_name holds the name for nonterminal X, and
+        there is a rule:
+
+            A -> X alpha1 | B alpha2 | rest
+            B -> beta1 | beta2
+
+        and 'B' is a nonterminal that is not X,
+        and 'A' is not in stop_at_set,
+
+        Then replace A with:
+
+            A -> X alpha1 | beta1 alpha2 | beta2 alpha2 | rest
+
+        Repeat until settling.
+        Eventually all options in A will start with X:
+
+            A -> X alpha1 | X ...1 | X ...2 | rest
+
+        The target_rule_name must be chosen to avoid infinite replacement.
+        """
+        assert self.is_canonical
+
+        def partition(rule_name,rule):
+            """
+            Partitions a rule into four lists:
+                Sequences that start with nonterminal rule_name
+                Sequences that start with nonterminal other than rule_name
+                Sequences that start with terminal
+                Empty
+            """
+            start_with_rule = []
+            start_with_other_rule = []
+            start_with_terminal = []
+            empties = []
+            print("partitioning {}".format(" ".join([str(x) for x in rule.as_container()])))
+            for x in rule.as_container():
+                first = x.as_container()[0]
+                if first.is_symbol_name():
+                    print( "    first.content |{}| vs |{}|".format(first.content,rule_name))
+                    if first.content == rule_name:
+                        start_with_rule.append(x)
+                    else:
+                        start_with_other_rule.append(x)
+                else:
+                    if x.is_terminal():
+                        start_with_terminal.append(x)
+                    else:
+                        empties.append(x)
+            return (start_with_rule, start_with_other_rule, start_with_terminal, empties)
+
+        def expand_first(grammar,rule):
+            """
+                When rule is
+                    Seq(A rest)
+                and A -> A1 | ... | An
+                Return [ A1 rest | ... | An rest ]
+
+                If Ai is epsilon, then its corresponding term is just 'rest'
+            """
+            result = []
+            # Hoist the rule for 'other' nonterminal.
+            phrase = rule.as_container()
+            first = phrase[0]
+            assert first.is_symbol_name() and (first.content != target_rule_name)
+            print("  elaborating rule for {} ".format(first.content))
+            rest = phrase[1:]
+            other_rule = self.rules[first.content]
+            for other_rhs in other_rule.as_container():
+                result.append(grammar.MakeSeq(list_without_empty(other_rhs.as_container()) + rest))
+            return result
+
+
+        # Process in reverse order to reduce duplication.
+        order_of_attack = list(reversed(self.preorder()))
+        keep_going = True
+        ancestors = set()
+        while keep_going:
+            keep_going = False
+            print("hoisting worklist: {}".format(" ".join(order_of_attack)))
+
+            for candidate_rule_name in order_of_attack:
+                rule = self.rules[candidate_rule_name]
+                print("consider {}".format(candidate_rule_name))
+                (with_target_rule_name,other_rules,term,empty) = partition(target_rule_name,rule)
+                print("  {}   {}  {}  {}".format(len(with_target_rule_name),len(other_rules),len(term), len(empty)))
+                if len(with_target_rule_name) > 0 and len(other_rules) > 0:
+                    print("  need to hoist")
+                    # Need to hoist
+                    replacement = with_target_rule_name
+                    for other in other_rules:
+                        replacement.extend(expand_first(self,other))
+                    replacement.extend(term)
+                    replacement.extend(empty)
+                    self.rules[candidate_rule_name] = self.MakeChoice(replacement)
+                    print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
+                    keep_going = True
+                    if candidate_rule_name not in stop_at_set:
+                        ancestors.add(candidate_rule_name)
+
+            for candidate_rule_name in order_of_attack:
+                for ancestor in ancestors:
+                    rule = self.rules[candidate_rule_name]
+                    (with_ancestor,other_rules,term,empty) = partition(ancestor,rule)
+                    print("  {}   {}  {}  {}".format(len(with_ancestor),len(other_rules),len(term), len(empty)))
+                    if len(with_ancestor) > 0:
+                        print("    expanding ancestor {}".format(ancestor))
+                        replacement = []
+                        for a_rule in with_ancestor:
+                            replacement.extend(expand_first(self,a_rule))
+                        replacement.extend(other_rules)
+                        replacement.extend(term)
+                        replacement.extend(empty)
+                        self.rules[candidate_rule_name] = self.MakeChoice(replacement)
+                        print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
+                        keep_going = True
 
 
     def LL1(self):
