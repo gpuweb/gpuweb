@@ -1648,6 +1648,8 @@ class Grammar:
                 return rule.content
             if isinstance(rule,Choice):
                 parts = [pretty_str(i,multi_line_choice) for i in rule]
+                if multi_line_choice:
+                    parts.sort()
                 nl = "\n" if multi_line_choice else ""
                 joiner = nl + " | "
                 prefixer = "\n   " if multi_line_choice else ""
@@ -1848,6 +1850,24 @@ class Grammar:
                 self.rules[rule_name] = self.MakeChoice(self_parts)
                 self.rules[rest_name] = self.MakeChoice(rest_parts)
 
+    def dedup_choices(self):
+        update_dict = dict()
+        for name, rule in self.rules.items():
+            if isinstance(rule,Choice):
+                # Dedup by object index
+                replacement = []
+                seen_indices = set()
+                for option in rule:
+                    if option.reg_info.index not in seen_indices:
+                        replacement.append(option)
+                        seen_indices.add(option.reg_info.index)
+                if len(replacement) < len(rule):
+                    update_dict[name] = self.MakeChoice(replacement)
+                    #print(" dedup {} -> {}".format(name,str(update_dict[name])))
+        for name, rule in update_dict.items():
+            self.rules[name] = rule
+
+
     def hoist_until(self,target_rule_name,stop_at_set):
         """
         Hoists the rules for a a nonterminal into its ancestors.
@@ -1886,11 +1906,11 @@ class Grammar:
             start_with_other_rule = []
             start_with_terminal = []
             empties = []
-            print("partitioning {}".format(" ".join([str(x) for x in rule.as_container()])))
+            #print("partitioning {}".format(" ".join([str(x) for x in rule.as_container()])))
             for x in rule.as_container():
                 first = x.as_container()[0]
                 if first.is_symbol_name():
-                    print( "    first.content |{}| vs |{}|".format(first.content,rule_name))
+                    #print( "    first.content |{}| vs |{}|".format(first.content,rule_name))
                     if first.content == rule_name:
                         start_with_rule.append(x)
                     else:
@@ -1916,7 +1936,7 @@ class Grammar:
             phrase = rule.as_container()
             first = phrase[0]
             assert first.is_symbol_name() and (first.content != target_rule_name)
-            print("  elaborating rule for {} ".format(first.content))
+            #print("  elaborating rule for {} ".format(first.content))
             rest = phrase[1:]
             other_rule = self.rules[first.content]
             for other_rhs in other_rule.as_container():
@@ -1930,15 +1950,15 @@ class Grammar:
         ancestors = set()
         while keep_going:
             keep_going = False
-            print("hoisting worklist: {}".format(" ".join(order_of_attack)))
+            #print("hoisting worklist: {}".format(" ".join(order_of_attack)))
 
             for candidate_rule_name in order_of_attack:
                 rule = self.rules[candidate_rule_name]
-                print("consider {}".format(candidate_rule_name))
+                #print("consider {}".format(candidate_rule_name))
                 (with_target_rule_name,other_rules,term,empty) = partition(target_rule_name,rule)
-                print("  {}   {}  {}  {}".format(len(with_target_rule_name),len(other_rules),len(term), len(empty)))
+                #print("  {}   {}  {}  {}".format(len(with_target_rule_name),len(other_rules),len(term), len(empty)))
                 if len(with_target_rule_name) > 0 and len(other_rules) > 0:
-                    print("  need to hoist")
+                    #print("  need to hoist")
                     # Need to hoist
                     replacement = with_target_rule_name
                     for other in other_rules:
@@ -1946,7 +1966,7 @@ class Grammar:
                     replacement.extend(term)
                     replacement.extend(empty)
                     self.rules[candidate_rule_name] = self.MakeChoice(replacement)
-                    print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
+                    #print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
                     keep_going = True
                     if candidate_rule_name not in stop_at_set:
                         ancestors.add(candidate_rule_name)
@@ -1955,9 +1975,9 @@ class Grammar:
                 for ancestor in ancestors:
                     rule = self.rules[candidate_rule_name]
                     (with_ancestor,other_rules,term,empty) = partition(ancestor,rule)
-                    print("  {}   {}  {}  {}".format(len(with_ancestor),len(other_rules),len(term), len(empty)))
+                    #print("  {}   {}  {}  {}".format(len(with_ancestor),len(other_rules),len(term), len(empty)))
                     if len(with_ancestor) > 0:
-                        print("    expanding ancestor {}".format(ancestor))
+                        #print("    expanding ancestor {}".format(ancestor))
                         replacement = []
                         for a_rule in with_ancestor:
                             replacement.extend(expand_first(self,a_rule))
@@ -1965,9 +1985,10 @@ class Grammar:
                         replacement.extend(term)
                         replacement.extend(empty)
                         self.rules[candidate_rule_name] = self.MakeChoice(replacement)
-                        print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
+                        #print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
                         keep_going = True
 
+        self.dedup_choices()
 
     def LL1(self):
         """
