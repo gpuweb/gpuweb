@@ -51,19 +51,16 @@ lalr: wgsl.lalr.txt
 .PHONY: simple
 simple: wgsl.simple.txt
 
-# Print a simple (uncanonicalized form) of the grammar
-.PHONY: recursive
-recursive: wgsl.recursive.txt
-
 # A human-readable LALR(1) parse table, in an ad hoc format.
 wgsl.lalr.txt : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -lalr grammar/src/grammar.json >$@
 
-
 wgsl.simple.txt : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -simple grammar/src/grammar.json >$@
 
-wgsl.recursive.txt : $(ANALYZER) $(WGSL_GRAMMAR)
+# Print a simple (uncanonicalized form) of the grammar
+.PHONY: recursive
+recursive : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -recursive grammar/src/grammar.json
 
 ## The following targets are used when developing the grammar analyzer

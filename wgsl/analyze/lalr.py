@@ -85,10 +85,8 @@ def main():
     if args.recursive:
         g = Grammar(json_text, 'translation_unit')
         g.canonicalize()
-        stop_at = {'expression','element_count_expression'}
         g.eliminate_immediate_recursion()
-        # The left recursion in expressions can bottom out at primary expression
-        #g.hoist_until('unary_expression',stop_at)
+        g.left_refactor('unary_expression')
         print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
 

@@ -45,6 +45,7 @@ Represent and process a grammar:
 import json
 import functools
 from ObjectRegistry import RegisterableObject, ObjectRegistry
+from collections import defaultdict
 
 EPSILON = u"\u03b5"
 MIDDLE_DOT = u"\u00b7"
@@ -228,6 +229,59 @@ class Rule(RegisterableObject):
         # in the bottom decimal digit.
         assert isinstance(i,int)
         return self.class_id + CLASSES_BUCKET_SIZE * i
+
+    def pretty_str(rule,multi_line_choice=False,is_canonical=True):
+        """Returns a pretty string for a node"""
+        if rule.is_terminal() or rule.is_empty():
+            return str(rule)
+        if rule.is_symbol_name():
+            return rule.content
+        if isinstance(rule,Choice):
+            parts = [i.pretty_str(multi_line_choice,is_canonical) for i in rule]
+            if multi_line_choice:
+                parts.sort()
+            nl = "\n" if multi_line_choice else ""
+            joiner = nl + " | "
+            prefixer = "\n   " if multi_line_choice else ""
+            inside = prefixer + joiner.join([p for p in parts])
+            if is_canonical:
+                return inside
+            else:
+                # If it's not canonical, then it can have nesting.
+                return "(" + inside + nl + ")"
+        if isinstance(rule,Seq):
+            return " ".join([i.pretty_str(multi_line_choice,is_canonical) for i in rule])
+        if isinstance(rule,Repeat1):
+            return "( " + "".join([i.pretty_str(multi_line_choice,is_canonical) for i in rule]) + " )+"
+        raise RuntimeError("unexpected node: {}".format(str(rule)))
+
+    def partition(self,rule_name):
+        """
+        Partitions a rule into four lists:
+            Sequences that start with nonterminal rule_name
+            Sequences that start with nonterminal other than rule_name
+            Sequences that start with terminal
+            Empty
+        """
+        start_with_rule = []
+        start_with_other_rule = []
+        start_with_terminal = []
+        empties = []
+        #print("partitioning {}".format(" ".join([str(x) for x in rule.as_container()])))
+        for x in self.as_container():
+            first = x.as_container()[0]
+            if first.is_symbol_name():
+                #print( "    first.content |{}| vs |{}|".format(first.content,rule_name))
+                if first.content == rule_name:
+                    start_with_rule.append(x)
+                else:
+                    start_with_other_rule.append(x)
+            else:
+                if x.is_terminal():
+                    start_with_terminal.append(x)
+                else:
+                    empties.append(x)
+        return (start_with_rule, start_with_other_rule, start_with_terminal, empties)
 
 
 class ContainerRule(Rule):
@@ -1640,34 +1694,10 @@ class Grammar:
         It's still in canonical form: nonterminals are at most a choice over
         a sequence of leaves.
         """
-        def pretty_str(rule,multi_line_choice):
-            """Returns a pretty string for a node"""
-            if rule.is_terminal() or rule.is_empty():
-                return str(rule)
-            if rule.is_symbol_name():
-                return rule.content
-            if isinstance(rule,Choice):
-                parts = [pretty_str(i,multi_line_choice) for i in rule]
-                if multi_line_choice:
-                    parts.sort()
-                nl = "\n" if multi_line_choice else ""
-                joiner = nl + " | "
-                prefixer = "\n   " if multi_line_choice else ""
-                inside = prefixer + joiner.join([p for p in parts])
-                if self.is_canonical:
-                    return inside
-                else:
-                    # If it's not canonical, then it can have nesting.
-                    return "(" + inside + nl + ")"
-            if isinstance(rule,Seq):
-                return " ".join([pretty_str(i,multi_line_choice) for i in rule])
-            if isinstance(rule,Repeat1):
-                return "( " + "".join([pretty_str(i,multi_line_choice) for i in rule]) + " )+"
-            raise RuntimeError("unexpected node: {}".format(str(rule)))
 
         parts = []
         for key in sorted(self.rules):
-            parts.append("{}: {}\n".format(key,pretty_str(self.rules[key],multi_line_choice)))
+            parts.append("{}: {}\n".format(key,self.rules[key].pretty_str(multi_line_choice,self.is_canonical)))
         return "".join(parts)
 
     def register_item_set(self,item_set):
@@ -1860,6 +1890,89 @@ class Grammar:
                 self.rules[rest_name] = self.MakeChoice(rest_parts)
 
 
+    def left_refactor(self,target_rule_name):
+        """
+        Refactor the grammar, shifting uses of 'target_rule_name' in the first
+        position out to the invoking context.
+
+        That is, when 'target_rule_name' names nonterminal X, then when:
+
+            A -> X alpha1 | ... | X alphaN
+            B -> A beta1 | A beta2 | gamma
+
+        where no options in gamma begins with A.
+
+        Then create/update rules:
+
+            A.postX -> alpha1 | ... | alphaN
+            B -> X A.postX beta1 | X A.postX beta2 | gamma
+
+        Repeat until settling.
+        """
+
+        # Map a rule name X to a set of rules Y where X appears
+        # as a first nonterminal in one of Y's options.
+        appears_first_in = defaultdict(set)
+        for name, rule in self.rules.items():
+            for option in rule.as_container():
+                first = option.as_container()[0]
+                if first.is_symbol_name():
+                    appears_first_in[first.content].add(name)
+
+        candidates = set(self.rules.keys())
+        while len(candidates) > 0:
+            for A in list(candidates):
+                candidates.remove(A)
+                rule = self.rules[A]
+                (starts,others,terms,empties) = rule.partition(target_rule_name)
+                if len(starts) > 0 and (len(others)+len(terms)+len(empties) == 0):
+                    #print("processing {}".format(A))
+                    # Create the new rule.
+                    new_rule_name = "{}.post.{}".format(A,target_rule_name)
+                    # Form alpha1 ... alphaN
+                    new_options = []
+                    for option in rule:
+                        if len(option.as_container()) == 1:
+                            new_options.append(self.MakeEmpty())
+                        else:
+                            assert option.is_container() and (len(option)>1)
+                            new_options.append(self.MakeSeq(option[1:]))
+                    self.rules[new_rule_name] = self.MakeChoice(new_options)
+                    #print("created {} -> {}".format(new_rule_name,self.rules[new_rule_name].pretty_str(True)))
+
+                    # Update bookkeeping for appears_first_in
+                    for option in new_options:
+                        first = option.as_container()[0]
+                        if first.is_symbol_name():
+                            appears_first_in[first.content].add(new_rule_name)
+
+                    # Replace the old rule everywhere it appears in the first
+                    # position
+                    for parent_name in list(appears_first_in[A]):
+                        #print("< parent {} -> {}".format(parent_name,self.rules[parent_name].pretty_str(True)))
+                        parent = self.rules[parent_name]
+                        (starts,others,terms,empties) = parent.partition(A)
+                        new_options = []
+                        for option in starts:
+                            parts = []
+                            parts.append(self.MakeSymbolName(target_rule_name))
+                            parts.append(self.MakeSymbolName(new_rule_name))
+                            parts.extend(option.as_container()[1:])
+                            new_options.append(self.MakeSeq(parts))
+                        new_options.extend(others+terms+empties)
+                        self.rules[parent_name] = self.MakeChoice(new_options)
+                        #print("> parent {} -> {}".format(parent_name,self.rules[parent_name].pretty_str(True)))
+                        appears_first_in[A].remove(parent_name)
+                        appears_first_in[target_rule_name].add(parent_name)
+                        # Set up transitive closure.
+                        candidates.add(parent_name)
+
+                    #print()
+            #print()
+        #print()
+
+
+
     def hoist_until(self,target_rule_name,stop_at_set):
         """
         Hoists the rules for a a nonterminal into its ancestors.
@@ -1886,33 +1999,6 @@ class Grammar:
         """
         assert self.is_canonical
 
-        def partition(rule_name,rule):
-            """
-            Partitions a rule into four lists:
-                Sequences that start with nonterminal rule_name
-                Sequences that start with nonterminal other than rule_name
-                Sequences that start with terminal
-                Empty
-            """
-            start_with_rule = []
-            start_with_other_rule = []
-            start_with_terminal = []
-            empties = []
-            #print("partitioning {}".format(" ".join([str(x) for x in rule.as_container()])))
-            for x in rule.as_container():
-                first = x.as_container()[0]
-                if first.is_symbol_name():
-                    #print( "    first.content |{}| vs |{}|".format(first.content,rule_name))
-                    if first.content == rule_name:
-                        start_with_rule.append(x)
-                    else:
-                        start_with_other_rule.append(x)
-                else:
-                    if x.is_terminal():
-                        start_with_terminal.append(x)
-                    else:
-                        empties.append(x)
-            return (start_with_rule, start_with_other_rule, start_with_terminal, empties)
 
         def expand_first(grammar,rule):
             """
@@ -1947,7 +2033,7 @@ class Grammar:
             for candidate_rule_name in order_of_attack:
                 rule = self.rules[candidate_rule_name]
                 #print("consider {}".format(candidate_rule_name))
-                (with_target_rule_name,other_rules,term,empty) = partition(target_rule_name,rule)
+                (with_target_rule_name,other_rules,term,empty) = rule.partition(target_rule_name)
                 #print("  {}   {}  {}  {}".format(len(with_target_rule_name),len(other_rules),len(term), len(empty)))
                 if len(with_target_rule_name) > 0 and len(other_rules) > 0:
                     #print("  need to hoist")
@@ -1966,7 +2052,7 @@ class Grammar:
             for candidate_rule_name in order_of_attack:
                 for ancestor in ancestors:
                     rule = self.rules[candidate_rule_name]
-                    (with_ancestor,other_rules,term,empty) = partition(ancestor,rule)
+                    (with_ancestor,other_rules,term,empty) = rule.partition(ancestor)
                     #print("  {}   {}  {}  {}".format(len(with_ancestor),len(other_rules),len(term), len(empty)))
                     if len(with_ancestor) > 0:
                         #print("    expanding ancestor {}".format(ancestor))
