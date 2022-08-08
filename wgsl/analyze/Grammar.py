@@ -1850,23 +1850,6 @@ class Grammar:
                 self.rules[rule_name] = self.MakeChoice(self_parts)
                 self.rules[rest_name] = self.MakeChoice(rest_parts)
 
-    def dedup_choices(self):
-        update_dict = dict()
-        for name, rule in self.rules.items():
-            if isinstance(rule,Choice):
-                # Dedup by object index
-                replacement = []
-                seen_indices = set()
-                for option in rule:
-                    if option.reg_info.index not in seen_indices:
-                        replacement.append(option)
-                        seen_indices.add(option.reg_info.index)
-                if len(replacement) < len(rule):
-                    update_dict[name] = self.MakeChoice(replacement)
-                    #print(" dedup {} -> {}".format(name,str(update_dict[name])))
-        for name, rule in update_dict.items():
-            self.rules[name] = rule
-
 
     def hoist_until(self,target_rule_name,stop_at_set):
         """
@@ -1988,7 +1971,6 @@ class Grammar:
                         #print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
                         keep_going = True
 
-        self.dedup_choices()
 
     def LL1(self):
         """
