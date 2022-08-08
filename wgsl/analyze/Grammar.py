@@ -1908,6 +1908,8 @@ class Grammar:
             B -> X A.postX beta1 | X A.postX beta2 | gamma
 
         Repeat until settling.
+
+        Remove unreachable rules.
         """
 
         # Map a rule name X to a set of rules Y where X appears
@@ -1970,6 +1972,12 @@ class Grammar:
                     #print()
             #print()
         #print()
+
+        # Remove unused rules
+        reachable = set(self.preorder())
+        for name in list(self.rules.keys()):
+            if name not in reachable:
+                del self.rules[name]
 
 
 
