@@ -1972,13 +1972,74 @@ class Grammar:
                     #print()
             #print()
         #print()
+        self.remove_unused_rules()
 
-        # Remove unused rules
+
+    def remove_unused_rules(self):
         reachable = set(self.preorder())
         for name in list(self.rules.keys()):
             if name not in reachable:
                 del self.rules[name]
 
+    def epsilon_refactor(self):
+        """
+        Inline the following kinds of cases:
+
+        When this occurs:
+
+            A ->  B | epsilon
+            B ->  beta1 | beta2 | epsilon
+
+        Then replace A by B in all rules.
+        """
+
+        def partition_epsilon(rule):
+            non_empties = []
+            empties = []
+            for x in rule.as_container():
+                if x.is_empty():
+                    empties.append(x)
+                else:
+                    non_empties.append(x)
+            return (non_empties,empties)
+
+        has_empty = set()
+        # Map a rule name to the rule name it should be replaced by.
+        replacement = dict()
+
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A]
+            (non_empties,empties) = partition_epsilon(A_rule)
+            if len(empties) > 0:
+                has_empty.add(A)
+                # We've visited descendants already. See if this is an inlining case.
+                if len(non_empties) == 1:
+                    # Does it look like 'B'?
+                    option = non_empties[0].as_container()
+                    if len(option) == 1:
+                        first = option[0]
+                        if first.is_symbol_name() and first.content in has_empty:
+                            replacement[A] = first.content
+                            #print("  replacing {} with {}".format(A,first.content))
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule.as_container():
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.append(self.MakeSymbolName(replacement[x.content]))
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
 
 
     def hoist_until(self,target_rule_name,stop_at_set):

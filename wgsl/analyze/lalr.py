@@ -87,6 +87,7 @@ def main():
         g.canonicalize()
         g.eliminate_immediate_recursion()
         g.left_refactor('unary_expression')
+        g.epsilon_refactor()
         print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
 
