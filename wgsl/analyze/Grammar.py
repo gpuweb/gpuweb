@@ -1750,12 +1750,7 @@ class Grammar:
                  by productions   Ai -> delta1 gamma | delta2 gamma | ... | deltaK gamma
                  where   Aj -> delta1 | delta2 | ... | deltaK
                  are all the current Aj productions
-        3. Eliminate immediate left recursion:
-            Replace rules 
-                    A -> A alpha1 | A alpha2 | beta1 | beta2
-            with
-                    A -> beta1 A' | beta2 A'
-                    A' -> alpha1 A' | alpha2 A' | epsilon
+        3. Eliminate immediate left recursion
         """
         assert self.is_canonical
 
@@ -1805,6 +1800,20 @@ class Grammar:
                 # Update with the new rule.
                 self.rules[rule_name] = self.MakeChoice(replacement)
 
+        # Finally, eliminate immediate left recursion.
+        self.eliminate_immediate_recursion(self)
+
+
+    def eliminate_immediate_recursion(self):
+        """
+        Algorithm 4.1 from the Dragon Book.
+
+        Assume the grammar has no cycles. A cycle exists if there is a rule
+            X ->+ X
+
+        Adapted to handle epsilon rules.
+        """
+        assert self.is_canonical
         # Eliminate immediate left recursion
         #    Replace rules 
         #            A -> A alpha1 | A alpha2 | beta1 | beta2
