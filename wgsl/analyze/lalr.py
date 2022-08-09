@@ -62,6 +62,11 @@ def main():
     argparser.add_argument('-recursive',
                            help='dump a grammar suitable for recursive descent parsing',
                            action="store_true")
+    argparser.add_argument('-terminals',
+                           help='print terminals in output of -recursive',
+                           default=False,
+                           dest='print_terminals',
+                           action="store_true")
     argparser.add_argument('-ll',
                            help='compute LL(1) parser table and associated conflicts',
                            action="store_true")
@@ -76,7 +81,6 @@ def main():
     args = argparser.parse_args()
     with open(args.json_file) as infile:
         json_text = "".join(infile.readlines())
-
 
     if args.simple:
         g = Grammar(json_text, 'translation_unit')
@@ -94,6 +98,7 @@ def main():
         g.inline_single_choice_with_nonterminal()
         po = PrintOption(multi_line_choice=True)
         po.more_newlines = True
+        po.print_terminals = args.print_terminals
         print(g.pretty_str(po))
         sys.exit(0)
 

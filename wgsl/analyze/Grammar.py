@@ -148,6 +148,7 @@ class PrintOption:
         self.multi_line_choice = multi_line_choice
         self.is_canonical = False
         self.more_newlines = False # Extra newline between rules
+        self.print_terminals = True
 
         def MakeNone():
             return None
@@ -170,6 +171,10 @@ class PrintOption:
         result.multi_line_choice = self.multi_line_choice
         result.is_canonical = self.is_canonical
         result.more_newlines = self.more_newlines
+        result.print_terminals = self.print_terminals
+        result.replace_with_optional = self.replace_with_optional
+        result.replace_with_starred = self.replace_with_starred
+        result.grammar = self.grammar
         return result
 
 class Rule(RegisterableObject):
@@ -1750,6 +1755,8 @@ class Grammar:
         po.is_canonical = self.is_canonical
         po.grammar = self
 
+        token_rules = set()
+
         for name, rule in self.rules.items():
             (nonempties,empties) = rule.partition_epsilon()
             if len(nonempties)==1 and len(empties)==1:
@@ -1765,12 +1772,18 @@ class Grammar:
                     # Looks like:   A -> alpha | empty
                     # Where A appears, replace it with (alpha)?
                     po.replace_with_optional[name] = phrase
+            if len(nonempties)==1:
+                phrase = nonempties[0].as_container()
+                if len(phrase)==1 and phrase[0].is_token():
+                    token_rules.add(name)
 
         parts = []
         for key in sorted(self.rules):
             if key in po.replace_with_optional:
                 continue
             if key in po.replace_with_starred:
+                continue
+            if (not po.print_terminals) and (key in token_rules):
                 continue
             parts.append("{}: {}".format(key,self.rules[key].pretty_str(po)))
         return ("\n\n" if po.more_newlines else "\n").join(parts)
