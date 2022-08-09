@@ -91,6 +91,7 @@ def main():
         g.epsilon_refactor()
         g.inline_single_choice_with_nonterminal()
         g.dedup_rhs()
+        g.inline_single_choice_with_nonterminal()
         po = PrintOption(multi_line_choice=True)
         print(g.pretty_str(po))
         sys.exit(0)
