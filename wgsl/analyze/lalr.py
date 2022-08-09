@@ -99,9 +99,10 @@ def main():
         g.left_refactor('ident',set())
 
         g.epsilon_refactor()
-        g.inline_single_choice_with_nonterminal()
+        inline_stop = {'ident'}
+        g.inline_single_choice_with_nonterminal(inline_stop)
         g.dedup_rhs()
-        g.inline_single_choice_with_nonterminal()
+        g.inline_single_choice_with_nonterminal(inline_stop)
         print(g.pretty_str(po))
         sys.exit(0)
 

@@ -2223,10 +2223,12 @@ class Grammar:
 
         self.remove_unused_rules()
 
-    def inline_single_choice_with_nonterminal(self):
+    def inline_single_choice_with_nonterminal(self,excepting_set=set()):
         """
         Inline a rule when it only has one option, and at least one of the
         symbols is a symbol name.
+
+        Don't inline any symbol named by excepting_set.
         """
 
         # Map a rule name to the phrase it should be replaced with.
@@ -2235,7 +2237,7 @@ class Grammar:
         # Process descendants first
         for A in reversed(self.preorder()):
             A_rule = self.rules[A].as_container()
-            if len(A_rule) == 1:
+            if (len(A_rule) == 1) and (A not in excepting_set):
                 # There is only one option in the choice
                 rhs = A_rule[0].as_container()
                 # Skip inlining token definitions.
