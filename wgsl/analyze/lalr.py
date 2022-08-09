@@ -93,6 +93,7 @@ def main():
         g.dedup_rhs()
         g.inline_single_choice_with_nonterminal()
         po = PrintOption(multi_line_choice=True)
+        po.more_newlines = True
         print(g.pretty_str(po))
         sys.exit(0)
 

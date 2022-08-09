@@ -147,6 +147,7 @@ class PrintOption:
     def __init__(self,multi_line_choice=True):
         self.multi_line_choice = multi_line_choice
         self.is_canonical = False
+        self.more_newlines = False # Extra newline between rules
 
         def MakeNone():
             return None
@@ -168,6 +169,7 @@ class PrintOption:
         result = PrintOption()
         result.multi_line_choice = self.multi_line_choice
         result.is_canonical = self.is_canonical
+        result.more_newlines = self.more_newlines
         return result
 
 class Rule(RegisterableObject):
@@ -1770,8 +1772,8 @@ class Grammar:
                 continue
             if key in po.replace_with_starred:
                 continue
-            parts.append("{}: {}\n".format(key,self.rules[key].pretty_str(po)))
-        return "".join(parts)
+            parts.append("{}: {}".format(key,self.rules[key].pretty_str(po)))
+        return ("\n\n" if po.more_newlines else "\n").join(parts)
 
     def register_item_set(self,item_set):
         """
