@@ -1119,6 +1119,7 @@ def compute_follow_sets(grammar):
 
 def dump_rule(key,rule):
     print("{}  -> {}".format(key,str(rule)))
+    print("{} .reg_info.index: {}".format(key, str(rule.reg_info.index)))
     print("{} .first: {}".format(key, [str(i) for i in rule.first]))
     print("{} .derives_empty: {}".format(key, str(rule.derives_empty())))
     print("{} .follow: {}".format(key, [str(i) for i in rule.follow]))
@@ -2186,9 +2187,11 @@ class Grammar:
 
         self.remove_unused_rules()
 
-    def dedup_rhs(self):
+    def dedup_rhs(self,inline_stop=set(),verbose=False):
         """
         If two nonterminals have the same right hand side, combine them.
+
+        Don't combine any rules named in inline_stop.
         """
 
         # Map an object index to the nonterminal that first defines it.
@@ -2196,18 +2199,12 @@ class Grammar:
         # Map a rule name to the rule name it should be replaced by.
         replacement = dict()
 
-        for A in reversed(self.preorder()):
-            A_rule = self.rules[A]
-            A_index = A_rule.reg_info.index
-            if A_index in index_to_name:
-                replacement[A] = index_to_name[A_index]
-            else:
-                index_to_name[A_index] = A
-
+        def process_replacement(grammar,name,replacement_dict):
             # Update this rule with any scheduled replacements.
+            rule = self.rules[name]
             changed_rule = False
             new_options = []
-            for option in A_rule.as_container():
+            for option in rule.as_container():
                 changed_parts = False
                 parts = []
                 for x in option.as_container():
@@ -2219,7 +2216,25 @@ class Grammar:
                         parts.append(x)
                 new_options.append(self.MakeSeq(parts) if changed_parts else option)
             if changed_rule:
-                self.rules[A] = self.MakeChoice(new_options)
+                self.rules[name] = self.MakeChoice(new_options)
+
+        for A in reversed(self.preorder()):
+            if A not in inline_stop:
+                A_rule = self.rules[A]
+                A_index = A_rule.reg_info.index
+                if verbose:
+                    print("   {} {} ".format(A,A_index))
+                if A_index in index_to_name:
+                    if verbose:
+                        print("Replace {} with {}".format(A,index_to_name[A_index]))
+                    replacement[A] = index_to_name[A_index]
+                else:
+                    index_to_name[A_index] = A
+            process_replacement(self,A,replacement)
+
+
+        for A in self.preorder():
+            process_replacement(self,A,replacement)
 
         self.remove_unused_rules()
 

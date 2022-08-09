@@ -101,9 +101,9 @@ def main():
         g.epsilon_refactor()
         inline_stop = {'ident','member_ident','ident_pattern_token'}
         g.inline_single_choice_with_nonterminal(inline_stop)
-        g.dedup_rhs()
+        g.dedup_rhs(inline_stop)
         g.inline_single_choice_with_nonterminal(inline_stop)
-        g.dedup_rhs()
+        g.dedup_rhs(inline_stop)
         print(g.pretty_str(po))
         #g.dump()
         sys.exit(0)
