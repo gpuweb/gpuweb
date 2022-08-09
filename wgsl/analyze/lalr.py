@@ -99,11 +99,13 @@ def main():
         g.left_refactor('ident',set())
 
         g.epsilon_refactor()
-        inline_stop = {'ident'}
+        inline_stop = {'ident','member_ident','ident_pattern_token'}
         g.inline_single_choice_with_nonterminal(inline_stop)
         g.dedup_rhs()
         g.inline_single_choice_with_nonterminal(inline_stop)
+        g.dedup_rhs()
         print(g.pretty_str(po))
+        #g.dump()
         sys.exit(0)
 
     g = Grammar.Load(json_text, 'translation_unit')
