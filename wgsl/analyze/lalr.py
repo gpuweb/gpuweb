@@ -86,7 +86,8 @@ def main():
         g = Grammar(json_text, 'translation_unit')
         g.canonicalize()
         g.eliminate_immediate_recursion()
-        g.left_refactor('unary_expression')
+        stop_at = {'expression','element_count_expression'}
+        g.left_refactor('unary_expression',stop_at)
         g.epsilon_refactor()
         g.inline_single_choice_with_nonterminal()
         g.dedup_rhs()

@@ -1890,12 +1890,14 @@ class Grammar:
                 self.rules[rest_name] = self.MakeChoice(rest_parts)
 
 
-    def left_refactor(self,target_rule_name):
+    def left_refactor(self,target_rule_name,stop_at_set):
         """
         Refactor the grammar, shifting uses of 'target_rule_name' in the first
         position out to the invoking context.
 
-        That is, when 'target_rule_name' names nonterminal X, then when:
+        That is, when 'target_rule_name' names nonterminal X,
+        and 'A' is not in 'stop_at_set',
+        and when:
 
             A -> X alpha1 | ... | X alphaN
             B -> A beta1 | A beta2 | gamma
@@ -1925,6 +1927,8 @@ class Grammar:
         while len(candidates) > 0:
             for A in list(candidates):
                 candidates.remove(A)
+                if A in stop_at_set:
+                    continue
                 rule = self.rules[A]
                 (starts,others,terms,empties) = rule.partition(target_rule_name)
                 if len(starts) > 0 and (len(others)+len(terms)+len(empties) == 0):
