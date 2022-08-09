@@ -96,6 +96,7 @@ def main():
         g.eliminate_immediate_recursion()
         stop_at = {'expression','element_count_expression'}
         g.left_refactor('unary_expression',stop_at)
+        g.left_refactor('ident',set())
 
         g.epsilon_refactor()
         g.inline_single_choice_with_nonterminal()
