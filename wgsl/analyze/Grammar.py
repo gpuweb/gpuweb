@@ -2041,6 +2041,43 @@ class Grammar:
 
         self.remove_unused_rules()
 
+    def dedup_rhs(self):
+        """
+        If two nonterminals have the same right hand side, combine them.
+        """
+
+        # Map an object index to the nonterminal that first defines it.
+        index_to_name = dict()
+        # Map a rule name to the rule name it should be replaced by.
+        replacement = dict()
+
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A]
+            A_index = A_rule.reg_info.index
+            if A_index in index_to_name:
+                replacement[A] = index_to_name[A_index]
+            else:
+                index_to_name[A_index] = A
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule.as_container():
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.append(self.MakeSymbolName(replacement[x.content]))
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
     def inline_single_choice_with_nonterminal(self):
         """
         Inline a rule when it only has one option, and at least one of the

@@ -89,6 +89,7 @@ def main():
         g.left_refactor('unary_expression')
         g.epsilon_refactor()
         g.inline_single_choice_with_nonterminal()
+        g.dedup_rhs()
         print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
 
