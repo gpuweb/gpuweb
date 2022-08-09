@@ -143,6 +143,33 @@ def raiseRE(s):
 #  First(X):  Where X is a Phrase, First(X) is the set over Terminals or Empty that
 #    begin the Phrases that may be derived from X.
 
+class PrintOption:
+    def __init__(self,multi_line_choice=True):
+        self.multi_line_choice = multi_line_choice
+        self.is_canonical = False
+
+        def MakeNone():
+            return None
+
+        # Maps 'A' to 'B' when A is of the form:
+        #   A -> gamma | epsilon
+        # Anywhere you want to print 'A', print '(gamma) ?' instead
+        self.replace_with_optional = dict()
+        # Maps 'A' to phrase 'gamma' when A is of the form:
+        #   A -> gamma A | epsilon
+        # Anywhere you want to print 'A', print '(gamma) *' instead
+        self.replace_with_starred = dict()
+
+        # Must be a grammar if either .replace_with_optional or .replace_with_starred
+        # are non-empty.
+        self.grammar = None
+
+    def clone(self):
+        result = PrintOption()
+        result.multi_line_choice = self.multi_line_choice
+        result.is_canonical = self.is_canonical
+        return result
+
 class Rule(RegisterableObject):
     def __init__(self,**kwargs):
         super().__init__(**kwargs)
@@ -230,29 +257,41 @@ class Rule(RegisterableObject):
         assert isinstance(i,int)
         return self.class_id + CLASSES_BUCKET_SIZE * i
 
-    def pretty_str(rule,multi_line_choice=False,is_canonical=True):
+    def pretty_str(rule,print_option=PrintOption()):
         """Returns a pretty string for a node"""
         if rule.is_terminal() or rule.is_empty():
             return str(rule)
         if rule.is_symbol_name():
-            return rule.content
+            name = rule.content
+            def with_meta(phrase,metachar,print_option):
+                content = " ".join([x.pretty_str(print_option) for x in phrase])
+                if len(phrase) > 1:
+                    return "( {} ){}".format(content, metachar)
+                return "{} {}".format(content, metachar)
+            if name in print_option.replace_with_starred:
+                phrase = print_option.replace_with_starred[name]
+                return with_meta(phrase,'*',print_option)
+            if name in print_option.replace_with_optional:
+                phrase = print_option.replace_with_optional[name]
+                return with_meta(phrase,'?',print_option)
+            return name
         if isinstance(rule,Choice):
-            parts = [i.pretty_str(multi_line_choice,is_canonical) for i in rule]
-            if multi_line_choice:
+            parts = [i.pretty_str(print_option) for i in rule]
+            if print_option.multi_line_choice:
                 parts.sort()
-            nl = "\n" if multi_line_choice else ""
+            nl = "\n" if print_option.multi_line_choice else ""
             joiner = nl + " | "
-            prefixer = "\n   " if multi_line_choice else ""
+            prefixer = "\n   " if print_option.multi_line_choice else ""
             inside = prefixer + joiner.join([p for p in parts])
-            if is_canonical:
+            if print_option.is_canonical:
                 return inside
             else:
                 # If it's not canonical, then it can have nesting.
                 return "(" + inside + nl + ")"
         if isinstance(rule,Seq):
-            return " ".join([i.pretty_str(multi_line_choice,is_canonical) for i in rule])
+            return " ".join([i.pretty_str(print_option) for i in rule])
         if isinstance(rule,Repeat1):
-            return "( " + "".join([i.pretty_str(multi_line_choice,is_canonical) for i in rule]) + " )+"
+            return "( " + "".join([i.pretty_str(print_option) for i in rule]) + " )+"
         raise RuntimeError("unexpected node: {}".format(str(rule)))
 
     def partition(self,rule_name):
@@ -282,6 +321,16 @@ class Rule(RegisterableObject):
                 else:
                     empties.append(x)
         return (start_with_rule, start_with_other_rule, start_with_terminal, empties)
+
+    def partition_epsilon(self):
+        non_empties = []
+        empties = []
+        for x in self.as_container():
+            if x.is_empty():
+                empties.append(x)
+            else:
+                non_empties.append(x)
+        return (non_empties,empties)
 
 
 class ContainerRule(Rule):
@@ -1688,16 +1737,40 @@ class Grammar:
         dump_grammar(self.rules)
         print(self.registry)
 
-    def pretty_str(self,multi_line_choice=False):
+    def pretty_str(self,print_option=PrintOption()):
         """
         Returns a pretty string form of the grammar.
         It's still in canonical form: nonterminals are at most a choice over
         a sequence of leaves.
         """
 
+        po = print_option.clone()
+        po.is_canonical = self.is_canonical
+        po.grammar = self
+
+        for name, rule in self.rules.items():
+            (nonempties,empties) = rule.partition_epsilon()
+            if len(nonempties)==1 and len(empties)==1:
+                # Looks like:   A -> alpha | empty
+                phrase = nonempties[0].as_container()
+                last = phrase[-1]
+                if last.is_symbol_name() and last.content == name:
+                    # Looks like:   A -> alpha A | empty
+                    # Where A appears, replace it with (alpha)*
+                    assert len(phrase) > 1
+                    po.replace_with_starred[name] = phrase[0:-1]
+                else:
+                    # Looks like:   A -> alpha | empty
+                    # Where A appears, replace it with (alpha)?
+                    po.replace_with_optional[name] = phrase
+
         parts = []
         for key in sorted(self.rules):
-            parts.append("{}: {}\n".format(key,self.rules[key].pretty_str(multi_line_choice,self.is_canonical)))
+            if key in po.replace_with_optional:
+                continue
+            if key in po.replace_with_starred:
+                continue
+            parts.append("{}: {}\n".format(key,self.rules[key].pretty_str(po)))
         return "".join(parts)
 
     def register_item_set(self,item_set):
@@ -1997,23 +2070,13 @@ class Grammar:
         Then replace A by B in all rules.
         """
 
-        def partition_epsilon(rule):
-            non_empties = []
-            empties = []
-            for x in rule.as_container():
-                if x.is_empty():
-                    empties.append(x)
-                else:
-                    non_empties.append(x)
-            return (non_empties,empties)
-
         has_empty = set()
         # Map a rule name to the rule name it should be replaced by.
         replacement = dict()
 
         for A in reversed(self.preorder()):
             A_rule = self.rules[A]
-            (non_empties,empties) = partition_epsilon(A_rule)
+            (non_empties,empties) = A_rule.partition_epsilon()
             if len(empties) > 0:
                 has_empty.add(A)
                 # We've visited descendants already. See if this is an inlining case.

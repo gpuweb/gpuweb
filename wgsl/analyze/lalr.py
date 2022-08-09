@@ -43,7 +43,7 @@ import re
 import subprocess
 import sys
 
-from Grammar import Grammar
+from Grammar import Grammar, PrintOption
 
 
 def main():
@@ -91,7 +91,8 @@ def main():
         g.epsilon_refactor()
         g.inline_single_choice_with_nonterminal()
         g.dedup_rhs()
-        print(g.pretty_str(multi_line_choice=True))
+        po = PrintOption(multi_line_choice=True)
+        print(g.pretty_str(po))
         sys.exit(0)
 
     g = Grammar.Load(json_text, 'translation_unit')
