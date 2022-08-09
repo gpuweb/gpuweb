@@ -8617,9 +8617,14 @@ For each function, two tags are computed:
   * A <dfn noexport>call site tag</dfn> describing the control flow uniformity requirements on the [=call sites=] of the function, and
   * A <dfn noexport>function tag</dfn> describing the function's effects on uniformity.
 
-Additionally, for each [=formal parameter=] of a function, a <dfn
-noexport>parameter tag</dfn> is computed that describes the uniformity
-requirement of the parameter value.
+Additionally, for each [=formal parameter=] of a function, a parameter tag is
+computed and, if the parameter is a [=address spaces/function=] address space
+pointer, a pointer parameter tag is also computed.
+The <dfn noexport>parameter tag</dfn> describes the uniformity requirement of
+the parameter value.
+The <dfn noexport>pointer parameter tag</dfn> describes whether the parameter
+becomes [=uniform value|non-uniform=] during the execution of the funciton
+call.
 
 <table class='data'>
   <caption>[=Call site tag=] values</caption>
@@ -8656,11 +8661,25 @@ requirement of the parameter value.
       <td>The parameter value has no uniformity requirement.
 </table>
 
+<table class='data'>
+  <caption>[=Pointer parameter tag=] values</caption>
+  <thead>
+    <tr><th>Pointer Parameter Tag<th>Description
+  </thead>
+  <tr><td><dfn noexport>PointerParameterMayBeNonUniform</dfn>
+      <td>The value of the pointer parameter may be [=uniform value|non-uniform=] after the function call.
+  <tr><td><dfn noexport>PointerParameterNoRestriction</dfn>
+      <td>The pointer parameter's uniformity is unaffected by the function call.
+</table>
+
 The following algorithm describes how to compute these tags for a given function:
 
 * Create nodes called "RequiredToBeUniform", "MayBeNonUniform", "CF_start", and if the function has a [=return type=] a node called "Value_return".
 * Create one node for each parameter of the function which we'll call "arg_i".
-* Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next sections ([[#uniformity-statements]], [[#uniformity-function-calls]], [[#uniformity-expressions]]), using CF_start as the starting control-flow for the function's body.
+* Desugar pointer parameters in the [=address spaces/function=] address space as described in [[#pointer-func-vars-values]].
+    * For each of these parameters, create a "Value_return_i" node.
+* Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next sections ([[#func-var-value-analysis]], [[#uniformity-statements]], [[#uniformity-function-calls]], [[#uniformity-expressions]]), using CF_start as the starting control-flow for the function's body.
+* For each "Value_return_i" node, record which "arg_i" nodes are reachable from it.
 * Look at which nodes are reachable from "RequiredToBeUniform".
     * If this set includes the node "MayBeNonUniform", then reject the program.
     * If this set includes "CF_start", then the [=call site tag=] for the function is [=CallSiteRequiredToBeUniform=].
@@ -8670,10 +8689,191 @@ The following algorithm describes how to compute these tags for a given function
 * If "Value_return" exists, look at which nodes are reachable from it
     * If this set includes "MayBeNonUniform", then the [=function tag=] is [=ReturnValueMayBeNonUniform=].
     * For each "arg_i" in this set, the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniformForReturnValue=].
+* For each "Value_return_i" node, look at which nodes are reachable from it
+    * If this set includes "MayBeNonUniform", the corresponding [=pointer parameter tag=] is [=PointerParameterMayBeNonUniform=].
+    * Otherwise, the corresponding [=pointer parameter tag=] is [=PointerParameterNoRestriction=].
 * If the [=function tag=] has not been assigned, then it is [=NoRestriction=].
 * For each parameter, if it has not been assigned a [=parameter tag=], then it is [=ParameterNoRestriction=].
 
 Note: The entire graph can be destroyed at this point. The tags listed above are all that we need to remember to analyze callers of this function.
+
+### Function-scope Variable Value Analysis ### {#func-var-value-analysis}
+
+The value of each [=function scope|function-scope=] [=variable=] at a
+particular statement can be analyzed in terms of the assignments that reach it
+and, potentially, its initial value.
+
+An assignment is a <dfn noexport>full assignment</dfn> if:
+* The variable's [=effective-value-type=] is a [=scalar=] type, or
+* the variable's [=effective-value-type=] is a [=composite=] type and each
+    [=component=] of the composite is assigned a value.
+
+Otherwise, an assignment is a <dfn noexport>partial assignment</dfn>.
+
+When the uniformity rules in subsequent sections refer to the value for a
+function-scope variable used as an RValue, it means the value of the variable
+prior to evaluation of the RValue expression.
+When the uniformity rules in subsequent sections refer to the value for a
+function-scope variable used as an LValue, it means the value of the variable
+after execution of the statement the expression appears in.
+
+Multiple assignments to a variable might reach a use of that variable due to
+[[#control-flow|control-flow statements]] or partial assignments.
+The analysis joins multiple assignments reaching out of control-flow statements
+by unioning the set of assignments that reach each control-flow exit.
+
+The following table describes the rules for joining assignments.
+In the uniformity graph, each join is an edge from the result node to node
+representing the source of the value.
+It is written in terms of an arbitrary variable `x`. It uses the following
+notations:
+* *Vin*(*S*) is the value of `x` prior the execution of the statement *S*.
+* *Vout*(*S*) is the value of `x` after the execution of the statement *S*.
+* *Vout*(*prev*) is the value of `x` prior to the execution of the current statement.
+* *Vin*(*next*) is the value of `x` prior to the execution of the next statement.
+* *V*(*e*) is a value node for an expression as in the subsequent sections.
+* *V*(*0*) is the zero value of `x`'s [=effective-value-type=].
+
+<table class='data'>
+  <caption>Rules for joining multiple assignments to a function-scope variable.
+  <thead>
+    <tr><th>Statement
+        <th>Result
+        <th>Edges from the Result
+  </thead>
+  <tr><td class='nowrap'>
+          var *x*;
+      <td>*Vin*(*next*)
+      <td>*V*(*0*)
+  <tr><td class='nowrap'>
+          var *x* = *e*;<br>
+      <td rowspan=3>*Vin*(*next*)
+      <td rowspan=3>*V*(*e*)
+
+          Note: This is a [=full assignment=] to *x*.
+  <tr><td class='nowrap'>
+          *x* = *e*;<br>
+  <tr><td class='nowrap'>
+          **p* = *e*;<br>
+          where *p* is a [=let-declaration=] initialized to &*x*
+  <tr><td class='nowrap'>
+          *f*(*x*) = *e*;<br>
+      <td rowspan=3>*Vout*(*s*)
+      <td rowspan=3>*V*(*e*), *V*(*prev*)
+
+          Note: This is a [=partial assignment=] to *x*.
+
+          Note: Partial assignments include the previous value since only a subset of components are updated.
+  <tr><td class='nowrap'>
+          **p* = *e*;<br>
+          where *p* is a [=let-declaration=] initialized to &*f*(*x*)<br>
+  <tr><td class='nowrap'>
+          **f*(*p*) = *e*;<br>
+          where *p* is a [=let-declaration=] initialized to &*f*(*x*) or &*x*
+  <tr><td>*s1* *s2*<br>
+          where *Next* is in behavior of *s1*.
+
+          Note: *s1* often ends in a semicolon.
+      <td>*Vin*(*s2*)
+      <td>*Vout*(*s1*)
+  <tr><td class='nowrap'>
+          if *e* *s1* else *s2*<br>
+          where *Next* is in the behaviors of both *s1* and *s2*
+      <td>*Vin*(*next*)
+      <td>*Vout*(*s1*), *Vout*(*s2*)
+  <tr><td class='nowrap'>
+          if *e* *s1* else *s2*<br>
+          where *Next* is in the behavior of *s1*, but not *s2*
+      <td>*Vin*(*next*)
+      <td>*Vout*(*s1*)
+  <tr><td class='nowrap'>if *e* *s1* else *s2*<br>
+          where *Next* is in the behavior of *s2*, but not *s1*
+      <td>*Vin*(*next*)
+      <td>*Vout*(*s2*)
+  <tr><td>loop { *s1* continuing { *s2* } }
+      <td>*Vin*(*s1*)
+      <td>*Vout*(*prev*), *Vout*(*s2*)
+  <tr><td>loop { *s1* continuing { *s2* } }
+      <td>*Vin*(*s2*)
+      <td>*Vout*(*s1*),<br>
+          *Vout*(*s*<sub>i</sub>)<br>
+          for all *s*<sub>i</sub> in *s1* whose behavior is {*Continue*} and transfer control to *s2*
+  <tr><td>loop { *s1* continuing { *s2* } }
+      <td>*Vin*(*next*)
+      <td>*Vout*(*s2*),<br>
+          *Vout*(*s*<sub>i</sub>)<br>
+          for all *s*<sub>i</sub> in *s1* whose behavior is {*Break*} and transfer control to *next*
+  <tr><td>switch *e* {<br>
+            case _: *s1*<br>
+            case _: *s2*<br>
+            ...<br>
+            case _: *s3*<br>
+          }<br>
+          where *Fallthrough* is not in the behavior of *s*<sub>i-1</sub>
+      <td>*Vin*(*s*<sub>i</sub>)
+      <td>*Vout*(*prev*)
+  <tr><td>switch *e* {<br>
+            case _: *s1*<br>
+            case _: *s2*<br>
+            ...<br>
+            case _: *s3*<br>
+          }<br>
+          where *Fallthrough* is in the behavior of *s*<sub>i-1</sub>
+      <td>*Vin*(*s*<sub>i</sub>)
+      <td>*Vout*(*prev*), *Vout*(*s*<sub>i-1</sub>)
+  <tr><td>switch *e* {<br>
+            case _: *s1*<br>
+            case _: *s2*<br>
+            ...<br>
+            case _: *s3*<br>
+          }<br>
+      <td>*Vin*(*next*)
+      <td>*Vout*(*s*<sub>i</sub>),<br>
+          for all *s*<sub>i</sub> whose behaviour is {*Break*}, and<br>
+          *Vout*(*s*<sub>j</sub>)<br>
+          for all statements in *s*<sub>j</sub> whose behavior is {*Break*} and trasfer control to *next*
+</table>
+
+For all other statements (except function calls), *Vin*(*next*) is equivalent
+to *Vout*(*prev*).
+
+Note: The same desugarings apply as in [[#behaviors|statement behavior analysis]].
+
+#### Pointers to Function-scope Variables #### {#pointer-func-vars-values}
+
+Each pointer [=formal parameter|parameter=] in the [=address spaces/function=]
+address space is desugared as a local variable declaration whose initial value
+is equivalent to dereferencing the parameter.
+
+Whenever a [=let-declaration=]'s [=effective-value-type=] is a [=address
+spaces/function=] address space pointer, the initializer expression is recorded
+and any [=identifier=] that [=resolves=] to the declaration is substituted with
+that initializer (wrapped in a [[#parenthesized-expressions|parenthesized
+expression]]) before applying the rules in the previous section.  That is,
+function address space pointers are viewed as aliases to a local variable
+declaration.
+The alias may produce either [=full assignment|full=] or [=partial
+assignment|partial=] assignments depending on the initializer substitutions.
+
+<div class='example wgsl' heading='pointers in the value analysis'>
+  <xmp highlight='rust'>
+    fn foo(p : ptr<function, array<f32, 4>>) -> f32 {
+      let p1 = p;
+      let p2 = &((*p1)[1]);
+      *p2 = 5;
+      return (*p1)[0];
+    }
+
+    // This is the equivalent version of foo for the analysis.
+    fn foo_for_analysis(p : ptr<function, array<f32, 4>>) -> f32 {
+      var p_var = *p;         // Introduce variable for p.
+      let p1 = &p_var;        // Use the variable for p1
+      let p2 = &(p_var[1]);   // Substitute p1's initializer
+      *(&(p_var[1])) = 5;     // Substitute p2's initializer
+      return (*(&p_var))[0];  // Substitute p1's initializer
+    }
+  </xmp>
+</div>
 
 ### Uniformity rules for statements ### {#uniformity-statements}
 
@@ -8764,6 +8964,9 @@ When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `
       <td rowspan=2>
       <td rowspan=2>*CF*
       <td rowspan=2>
+      Note: If x is a [=address spaces/function=] address space variable, *CF*
+      is used as the zero value initializer in the
+      [[#func-var-value-analysis|value analysis]].
   <tr><td class="nowrap">break;
   <tr><td class="nowrap">break if *e*;
       <td>
@@ -8771,34 +8974,49 @@ When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `
       <td>*CF'*
       <td>
   <tr><td class="nowrap">continue;
-      <td rowspan=3>
-      <td rowspan=3>
-      <td rowspan=3>*CF*
-      <td rowspan=3>
-  <tr><td class="nowrap">discard;
+      <td rowspan=2>
+      <td rowspan=2>
+      <td rowspan=2>*CF*
+      <td rowspan=2>
   <tr><td class="nowrap">return;
+      <td>
+      <td>
+      <td>*CF*
+      <td>
+      For each [=address spaces/function=] address space pointer parameter *i*,
+      *Value_return_i* -> *Vin*(*prev*) (see [[#func-var-value-analysis]])
   <tr><td class="nowrap">return *e*;
       <td>
       <td class="nowrap">(*CF*, *e*) => (*CF'*, *V*)
       <td>*CF'*
       <td>*Value_return* -> *V*
+
+      For each [=address spaces/function=] address space pointer parameter *i*,
+      *Value_return_i* -> *Vin*(*prev*) (see [[#func-var-value-analysis]])
   <tr><td class="nowrap">*e2* = *e1*;
       <td>
       <td class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)<br>
           LValue: (*CF1*, *e2*) => (*CF2*, *L2*)
       <td>*CF2*
       <td>*L2* -> *V1*
+
+      Note: *L2* is the result value from the [[#func-var-value-analysis|value analysis]].
   <tr><td class="nowrap">_ = *e*
       <td>
       <td class="nowrap">(*CF*, *e*) => (*CF'*, *V*)
       <td>*CF'*
       <td>
   <tr><td class="nowrap">let x = *e*;
-      <td rowspan=2>
-      <td rowspan=2 class="nowrap">(*CF*, *e*) => (*CF'*, V)
-      <td rowspan=2>*CF'*
-      <td rowspan=2>
+      <td>
+      <td>(*CF*, *e*) => (*CF'*, *V*)
+      <td>*CF'*
+      <td>
   <tr><td class="nowrap">var x = *e*;
+      <td>
+      <td>(*CF*, *e*) => (*CF'*, *V*)
+      <td>*CF'*
+      <td>Note: If x is a [=address spaces/function=] address space variable,
+      *V* is used as the result value in the [[#func-var-value-analysis|value analysis]].
 </table>
 
 Analysis of [[#for-statement|for]] and [[#while-statement|while]] loops follows
@@ -8820,8 +9038,10 @@ The most complex rule is for function calls:
 - For each argument *i*:
     - If the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform=], then add an edge from RequiredToBeUniform to arg_i
     - Otherwise if the [=parameter tag=] is [=ParameterRequiredToBeUniformForReturnValue=], then add an edge from Result to arg_i
+    - If the corresponding [=pointer parameter tag=] is [=PointerParameterMayBeNonUniform=], then add ad edge from *Vout*(*call*) to MayBeNonUniform
+    - If the parameter is a pointer in the [=address spaces/function=] address space, add an edge from *Vout*(*call*) to each corresponding arg_i for the reachable parameters recorded previously
 
-Note: Notice that this rule only requires adding a number of edges bounded by 3 + the number of parameters of the functions, independently of how complex the implementation of the function might be. This is key to the linear complexity of the overall algorithm.
+Note: Refer to [[#func-var-value-analysis]] for the definition of *Vout*(*call*).
 
 Most built-in functions have tags of:
 - A [=call site tag=] of [=CallSiteNoRestriction=].
@@ -8867,31 +9087,41 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td>
       <td class="nowrap">*CF*, *CF*
       <td>
-   <tr><td>reference to function-scope variable, [=const-declaration=],
+   <tr><td>reference to function-scope variable "x"
+      <td>*Result*
+      <td class>*X* is the node corresponding to the value of "x" at the input to the statement containing this expression
+      <td class="nowrap">*CF*, *Result*
+      <td class>*Result* -> {*CF*, *X*}
+
+      Note: *X* is equivalent to *Vout*(*prev*) for "x"<br>
+      (see [[#func-var-value-analysis]])
+   <tr><td>reference to [=const-declaration=],
       [=let-declaration=], or non-built-in parameter "x"
       <td>*Result*
-      <td class="nowrap">*X* is the node corresponding to "x"
+      <td>*X* is the node corresponding to "x"
       <td class="nowrap">*CF*, *Result*
       <td class="nowrap">*Result* -> {*CF*, *X*}
-   <tr><td class="nowrap">reference to uniform built-in value "x"
+   <tr><td>reference to uniform built-in value "x"
       <td>
       <td>
       <td class="nowrap">*CF*, *CF*
       <td>
-   <tr><td class="nowrap">reference to non-uniform built-in value "x"
+   <tr><td>reference to non-uniform built-in value "x"
       <td>
       <td>
-      <td class="nowrap">*CF*, *MayBeNonUniform*
+      <td class="nowrap">*CF*,<br>
+      *MayBeNonUniform*
       <td>
-   <tr><td class="nowrap">reference to read-only module-scope variable "x"
+   <tr><td>reference to read-only module-scope variable "x"
       <td>
       <td>
       <td class="nowrap">*CF*, *CF*
       <td>
-   <tr><td class="nowrap">reference to non-read-only module-scope variable "x"
+   <tr><td>reference to non-read-only module-scope variable "x"
       <td>
       <td>
-      <td class="nowrap">*CF*, *MayBeNonUniform*
+      <td class="nowrap">*CF*,<br>
+      *MayBeNonUniform*
       <td>
    <tr><td class="nowrap">*op* *e*,<br> where *op* is a unary operator
       <td rowspan=2>
@@ -8919,15 +9149,24 @@ All other ones (see [[#builtin-values]]) are considered non-uniform.
   <thead>
     <tr><th>Expression<th>New nodes<th>Recursive analyses<th>Resulting control flow node, variable node<th>New edges
   </thead>
-  <tr><td>reference to function-scope variable, [=const-declaration=], [=let-declaration=], or parameter "x"
+   <tr><td>reference to function-scope variable "x"
+      <td>*Result*
+      <td>*X* is the node corresponding to the value of "x" at the output of the statement containing this expression.
+      <td class="nowrap">*CF*, *Result*
+      <td class>*Result* -> {*CF*, *X*}
+
+      Note: *X* is equivalent to *Vin*(*next*) for "x"<br>
+      (see [[#func-var-value-analysis]])
+  <tr><td>reference to [=const-declaration=], [=let-declaration=], or parameter "x"
       <td>
-      <td class="nowrap">*X* is the node corresponding to "x"
+      <td>*X* is the node corresponding to "x"
       <td class="nowrap">*CF*, *X*
       <td>
-  <tr><td class="nowrap">reference to module-scope variable "x"
+  <tr><td>reference to module-scope variable "x"
       <td>
       <td>
-      <td class="nowrap">*CF*, *MayBeNonUniform*
+      <td class="nowrap">*CF*,<br>
+      *MayBeNonUniform*
       <td>
   <tr><td class="nowrap">*e*.field
       <td>
