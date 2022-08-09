@@ -161,6 +161,11 @@ class PrintOption:
         #   A -> gamma A | epsilon
         # Anywhere you want to print 'A', print '(gamma) *' instead
         self.replace_with_starred = dict()
+        # Maps 'A' to phrase 'gamma' when A is of the form:
+        #   A -> gamma
+        # Anywhere you want to print 'A', print 'gamma' instead
+        # Expect this to be populated where gamma is `X | Y`
+        self.replace_with_nested = dict()
 
         # Must be a grammar if either .replace_with_optional or .replace_with_starred
         # are non-empty.
@@ -174,6 +179,7 @@ class PrintOption:
         result.print_terminals = self.print_terminals
         result.replace_with_optional = self.replace_with_optional
         result.replace_with_starred = self.replace_with_starred
+        result.replace_with_nested = self.replace_with_nested
         result.grammar = self.grammar
         return result
 
@@ -281,6 +287,11 @@ class Rule(RegisterableObject):
             if name in print_option.replace_with_optional:
                 phrase = print_option.replace_with_optional[name]
                 return with_meta(phrase,'?',print_option)
+            if name in print_option.replace_with_nested:
+                po = print_option.clone()
+                po.multi_line_choice = False
+                content = po.replace_with_nested[name].pretty_str(po)
+                return "( {} )".format(content)
             return name
         if isinstance(rule,Choice):
             parts = [i.pretty_str(print_option) for i in rule]
@@ -1777,11 +1788,26 @@ class Grammar:
                 if len(phrase)==1 and phrase[0].is_token():
                     token_rules.add(name)
 
+        for name, rule in self.rules.items():
+            # We only care about rules generated during canonicalization
+            if name.find('.') > 0 or name.find('/') > 0:
+                options = rule.as_container()
+                if len(options) != 2:
+                    continue
+                if any([len(x.as_container())!=1 for x in options]):
+                    continue
+                if any([(not x.as_container()[0].is_symbol_name()) for x in options]):
+                    continue
+                # Rule looks like   A -> X | Y
+                po.replace_with_nested[name] = rule
+
         parts = []
         for key in sorted(self.rules):
             if key in po.replace_with_optional:
                 continue
             if key in po.replace_with_starred:
+                continue
+            if key in po.replace_with_nested:
                 continue
             if (not po.print_terminals) and (key in token_rules):
                 continue
