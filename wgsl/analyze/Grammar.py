@@ -1994,13 +1994,14 @@ class Grammar:
 
         Then create/update rules:
 
-            A.postX -> alpha1 | ... | alphaN
-            B -> X A.postX beta1 | X A.postX beta2 | gamma
+            A.post.X -> alpha1 | ... | alphaN
+            B -> X A.post.X beta1 | X A.post.X beta2 | gamma
 
         Repeat until settling.
 
         Remove unreachable rules.
         """
+        name_suffix = ".post.{}".format(target_rule_name)
 
         # Map a rule name X to a set of rules Y where X appears
         # as a first nonterminal in one of Y's options.
@@ -2022,7 +2023,7 @@ class Grammar:
                 if len(starts) > 0 and (len(others)+len(terms)+len(empties) == 0):
                     #print("processing {}".format(A))
                     # Create the new rule.
-                    new_rule_name = "{}.post.{}".format(A,target_rule_name)
+                    new_rule_name = "{}{}".format(A,name_suffix)
                     # Form alpha1 ... alphaN
                     new_options = []
                     for option in rule:
@@ -2064,7 +2065,43 @@ class Grammar:
                     #print()
             #print()
         #print()
+
         self.remove_unused_rules()
+
+        # Now look for opportunities to reabsorb.
+        # In the WGSL grammar, this only occurs in the prefix of a Seq,
+        # and only for relational_expression
+        #
+        # If we have a rule like:
+        #
+        #   B -> X A.post.X beta1 | ... | X A.post.X beta2
+        #
+        # Then replace it with:
+        #
+        #   B -> A beta1 | ... | A beta2
+        #
+        for name, rule in self.rules.items():
+            (starts,others,terms,empties) = rule.partition(target_rule_name)
+            # Each options must start with X
+            if len(others) + len(terms) + len(empties) > 0:
+                continue
+            assert len(starts) > 0
+            # Each option must have at least two symbols
+            if any([len(option.as_container()) < 2 for option in starts]):
+                continue
+            # The second element must be the same across all options
+            if len(set([option.as_container()[1].reg_info.index for option in starts])) > 1:
+                continue
+            common = starts[0].as_container()[1]
+            if not common.is_symbol_name() or common.content.find(name_suffix) < 0:
+                continue
+            # Find the 'A' as in 'A.post.X'
+            replace_with = self.MakeSymbolName(common.content[0:common.content.find(name_suffix)])
+            # Rewrite the rule
+            parts = []
+            for option in starts:
+                parts.append(self.MakeSeq([replace_with] + option[2:]))
+            self.rules[name] = self.MakeChoice(parts)
 
 
     def remove_unused_rules(self):

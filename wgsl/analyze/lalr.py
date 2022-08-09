@@ -88,17 +88,19 @@ def main():
         sys.exit(0)
     if args.recursive:
         g = Grammar(json_text, 'translation_unit')
+        po = PrintOption(multi_line_choice=True)
+        po.more_newlines = True
+        po.print_terminals = args.print_terminals
+
         g.canonicalize()
         g.eliminate_immediate_recursion()
         stop_at = {'expression','element_count_expression'}
         g.left_refactor('unary_expression',stop_at)
+
         g.epsilon_refactor()
         g.inline_single_choice_with_nonterminal()
         g.dedup_rhs()
         g.inline_single_choice_with_nonterminal()
-        po = PrintOption(multi_line_choice=True)
-        po.more_newlines = True
-        po.print_terminals = args.print_terminals
         print(g.pretty_str(po))
         sys.exit(0)
 
