@@ -350,6 +350,48 @@ class Rule(RegisterableObject):
                 non_empties.append(x)
         return (non_empties,empties)
 
+    def as_starred(self, name):
+        """
+        Returns whether this rule is equivalent to:
+
+            A -> (alpha1 ... alphaN)*
+
+        That is, if the rule is of the form:
+
+            A -> alpha1 ... alphaN A | epsilon
+
+        then return [ alpha1 ... alphaN ]
+        Otherwise return None
+        """
+        (nonempties,empties) = self.partition_epsilon()
+        if len(nonempties)==1 and len(empties)==1:
+            # Looks like:   A -> alpha | empty
+            phrase = nonempties[0].as_container()
+            last = phrase[-1]
+            if last.is_symbol_name() and last.content == name:
+                # Looks like:   A -> alpha A | empty
+                return phrase[0:-1]
+        return None
+
+    def as_optional(self):
+        """
+        Returns whether this rule is equivalent to:
+
+            A -> (alpha1 ... alphaN)?
+
+        That is, if the rule is of the form:
+
+            A -> alpha1 ... alphaN | epsilon
+
+        then return [ alpha1 ... alphaN ]
+        Otherwise return None
+        """
+        (nonempties,empties) = self.partition_epsilon()
+        if len(nonempties)==1 and len(empties)==1:
+            # Looks like:   A -> alpha | empty
+            return nonempties[0].as_container()
+        return None
+
 
 class ContainerRule(Rule):
     """
@@ -1770,22 +1812,17 @@ class Grammar:
         token_rules = set()
 
         for name, rule in self.rules.items():
-            (nonempties,empties) = rule.partition_epsilon()
-            if len(nonempties)==1 and len(empties)==1:
-                # Looks like:   A -> alpha | empty
-                phrase = nonempties[0].as_container()
-                last = phrase[-1]
-                if last.is_symbol_name() and last.content == name:
-                    # Looks like:   A -> alpha A | empty
-                    # Where A appears, replace it with (alpha)*
-                    assert len(phrase) > 1
-                    po.replace_with_starred[name] = phrase[0:-1]
-                else:
-                    # Looks like:   A -> alpha | empty
-                    # Where A appears, replace it with (alpha)?
-                    po.replace_with_optional[name] = phrase
-            if len(nonempties)==1:
-                phrase = nonempties[0].as_container()
+            starred_phrase = rule.as_starred(name)
+            if starred_phrase is not None:
+                po.replace_with_starred[name] = starred_phrase
+                continue
+            optional_phrase = rule.as_optional()
+            if optional_phrase is not None:
+                po.replace_with_optional[name] = optional_phrase
+                continue
+            options = rule.as_container()
+            if len(options)==1:
+                phrase = options[0].as_container()
                 if len(phrase)==1 and phrase[0].is_token():
                     token_rules.add(name)
 
