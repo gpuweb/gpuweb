@@ -2403,6 +2403,21 @@ class Grammar:
 
         self.remove_unused_rules()
 
+    def refactor_post(self,post_name):
+        """
+        If there are rules
+            X -> ...
+            X.post.POST
+
+        Then set
+            X -> POST X.post.POST
+        """
+        for name in list(self.rules):
+            related_post = "{}.post.{}".format(name,post_name)
+            if related_post in self.rules:
+                parts = [self.MakeSymbolName(x) for x in [post_name, related_post]]
+                self.rules[name] = self.MakeChoice([self.MakeSeq(parts)])
+
 
     def hoist_until(self,target_rule_name,stop_at_set):
         """

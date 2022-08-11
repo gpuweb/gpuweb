@@ -114,6 +114,7 @@ def main():
             g.inline_specific({ 'short_circuit_and_expression.post.unary_expression', 'short_circuit_or_expression.post.unary_expression'})
 
         g.inline_single_starrable()
+        g.refactor_post('unary_expression')
 
         g.dedup_rhs(inline_stop)
         g.rotate_one_or_mores()
