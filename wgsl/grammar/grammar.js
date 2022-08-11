@@ -308,12 +308,14 @@ module.exports = grammar({
         else_clause: $ => seq($.else, $.compound_statement),
         switch_statement: $ => seq($.switch, $.expression, $.brace_left, repeat1($.switch_body), $.brace_right),
         switch_body: $ => choice(
-            seq($.case, $.case_selectors, optional($.colon), $.case_compound_statement),
-            seq($.default, optional($.colon), $.case_compound_statement)
+            seq($.case, $.case_selectors, optional($.colon), $.compound_statement),
+            seq($.default, optional($.colon), $.compound_statement)
         ),
-        case_selectors: $ => seq($.expression, optional(repeat1(seq($.comma, $.expression))), optional($.comma)),
-        case_compound_statement: $ => seq($.brace_left, optional(repeat1($.statement)), optional($.fallthrough_statement), $.brace_right),
-        fallthrough_statement: $ => seq($.fallthrough, $.semicolon),
+        case_selectors: $ => seq($.case_selector, optional(repeat1(seq($.comma, $.case_selector))), optional($.comma)),
+        case_selector: $ => choice(
+            $.default,
+            $.expression
+        ),
         loop_statement: $ => seq($.loop, $.brace_left, optional(repeat1($.statement)), optional($.continuing_statement), $.brace_right),
         for_statement: $ => seq($.for, $.paren_left, $.for_header, $.paren_right, $.compound_statement),
         for_header: $ => seq(optional($.for_init), $.semicolon, optional($.expression), $.semicolon, optional($.for_update)),
@@ -419,7 +421,6 @@ module.exports = grammar({
         discard: $ => token('discard'),
         else: $ => token('else'),
         enable: $ => token('enable'),
-        fallthrough: $ => token('fallthrough'),
         false: $ => token('false'),
         fn: $ => token('fn'),
         for: $ => token('for'),
@@ -595,6 +596,7 @@ module.exports = grammar({
             token('extends'),
             token('extern'),
             token('external'),
+            token('fallthrough'),
             token('filter'),
             token('final'),
             token('finally'),
