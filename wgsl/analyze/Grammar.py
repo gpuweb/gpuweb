@@ -2414,34 +2414,44 @@ class Grammar:
         """
         When a rule looks like:
 
-            A -> (a1 ... aN)* a1 ... aN
+            A -> prefix (a1 ... aN)* a1 ... aN suffix
 
         then rewrite it as:
 
-            A -> a1 ... aN (a1 ... aN)*
+            A -> prefix a1 ... aN (a1 ... aN)* suffix
         """
 
-        for name, rule in self.rules.items():
-            changed = False
-            new_parts = []
-            for option in [x.as_container() for x in rule.as_container()]:
-                changed_part = False
-                (first,rest) = (option[0],option[1:])
-                if first.is_symbol_name():
-                    first_as_starred = self.rules[first.content].as_starred(first.content)
-                    if first_as_starred is not None:
-                        # Compare keys
-                        first_keys = [x.reg_info.index for x in first_as_starred]
-                        rest_keys = [x.reg_info.index for x in rest]
-                        if first_keys == rest_keys:
-                            # Rotate
-                            new_parts.append(self.MakeSeq(rest + [first]))
-                            changed_part = True
-                            changed = True
-                if not changed_part:
-                    new_parts.append(option)
-            if changed:
-                self.rules[name] = self.MakeChoice(new_parts)
+        for name in self.rules:
+            changed_rule = False
+            new_options = []
+            for raw_option in [x for x in self.rules[name].as_container()]:
+                option = raw_option.as_container()
+                keep_going = True
+                while keep_going:
+                    keep_going = False
+                    # See if we can rotate option[pivot] with what follows it.
+                    for ipivot in range(0,len(option)-1):
+                        (prefix,pivot,rest) = (option[0:ipivot],option[ipivot],option[ipivot+1:])
+                        if pivot.is_symbol_name():
+                            pivot_as_starred = self.rules[pivot.content].as_starred(pivot.content)
+                            #print(" {}  {} {} ... {}".format(name,ipivot,pivot.content,raw_option.pretty_str(PrintOption())))
+                            if pivot_as_starred is None:
+                                continue
+                            rest_prefix = rest[0:len(pivot_as_starred)]
+                            rest_tail = rest[len(pivot_as_starred):]
+                            # Compare keys
+                            pivot_keys = [x.reg_info.index for x in pivot_as_starred]
+                            rest_prefix_keys = [x.reg_info.index for x in rest_prefix]
+                            if pivot_keys == rest_prefix_keys:
+                                # Rotate
+                                option = self.MakeSeq(prefix + rest_prefix + [pivot] + rest_tail)
+                                changed_rule = True
+                                keep_going = True
+                                #print("  rotated")
+                                break
+                new_options.append(option)
+            if changed_rule:
+                self.rules[name] = self.MakeChoice(new_options)
 
 
     def LL1(self):
