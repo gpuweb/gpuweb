@@ -104,6 +104,8 @@ def main():
         g.dedup_rhs(inline_stop)
         g.inline_single_choice_with_nonterminal(inline_stop)
         g.dedup_rhs(inline_stop)
+        g.rotate_one_or_mores()
+
         print(g.pretty_str(po))
         #g.dump()
         sys.exit(0)

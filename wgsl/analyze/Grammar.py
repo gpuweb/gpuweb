@@ -1812,6 +1812,7 @@ class Grammar:
         token_rules = set()
 
         for name, rule in self.rules.items():
+            # Star-able is also optional-abl, so starrable must come first.
             starred_phrase = rule.as_starred(name)
             if starred_phrase is not None:
                 po.replace_with_starred[name] = starred_phrase
@@ -2408,6 +2409,39 @@ class Grammar:
                         self.rules[candidate_rule_name] = self.MakeChoice(replacement)
                         #print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
                         keep_going = True
+
+    def rotate_one_or_mores(self):
+        """
+        When a rule looks like:
+
+            A -> (a1 ... aN)* a1 ... aN
+
+        then rewrite it as:
+
+            A -> a1 ... aN (a1 ... aN)*
+        """
+
+        for name, rule in self.rules.items():
+            changed = False
+            new_parts = []
+            for option in [x.as_container() for x in rule.as_container()]:
+                changed_part = False
+                (first,rest) = (option[0],option[1:])
+                if first.is_symbol_name():
+                    first_as_starred = self.rules[first.content].as_starred(first.content)
+                    if first_as_starred is not None:
+                        # Compare keys
+                        first_keys = [x.reg_info.index for x in first_as_starred]
+                        rest_keys = [x.reg_info.index for x in rest]
+                        if first_keys == rest_keys:
+                            # Rotate
+                            new_parts.append(self.MakeSeq(rest + [first]))
+                            changed_part = True
+                            changed = True
+                if not changed_part:
+                    new_parts.append(option)
+            if changed:
+                self.rules[name] = self.MakeChoice(new_parts)
 
 
     def LL1(self):
