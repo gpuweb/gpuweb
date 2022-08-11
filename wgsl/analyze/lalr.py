@@ -67,6 +67,11 @@ def main():
                            default=False,
                            dest='print_terminals',
                            action="store_true")
+    argparser.add_argument('-aggressive',
+                           help='aggressively inline single uses',
+                           default=True,
+                           dest='aggressive',
+                           action="store_true")
     argparser.add_argument('-ll',
                            help='compute LL(1) parser table and associated conflicts',
                            action="store_true")
@@ -99,10 +104,17 @@ def main():
         g.left_refactor('ident',set())
 
         g.epsilon_refactor()
+
         inline_stop = {'ident','member_ident','ident_pattern_token'}
-        g.inline_single_choice_with_nonterminal(inline_stop)
-        g.dedup_rhs(inline_stop)
-        g.inline_single_choice_with_nonterminal(inline_stop)
+        if args.aggressive:
+            g.inline_single_choice_with_nonterminal(inline_stop)
+            g.dedup_rhs(inline_stop)
+            g.inline_single_choice_with_nonterminal(inline_stop)
+        else:
+            g.inline_specific({ 'short_circuit_and_expression.post.unary_expression', 'short_circuit_or_expression.post.unary_expression'})
+
+        g.inline_single_starrable()
+
         g.dedup_rhs(inline_stop)
         g.rotate_one_or_mores()
 

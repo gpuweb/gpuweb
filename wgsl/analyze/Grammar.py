@@ -149,6 +149,9 @@ class PrintOption:
         self.is_canonical = False
         self.more_newlines = False # Extra newline between rules
         self.print_terminals = True
+        # Should emission inline rules that were created during canonicalization?
+        # They contain a '/' in their name.
+        self.inline_synthetic = True
 
         def MakeNone():
             return None
@@ -177,6 +180,7 @@ class PrintOption:
         result.is_canonical = self.is_canonical
         result.more_newlines = self.more_newlines
         result.print_terminals = self.print_terminals
+        result.inline_synthetic = self.inline_synthetic
         result.replace_with_optional = self.replace_with_optional
         result.replace_with_starred = self.replace_with_starred
         result.replace_with_nested = self.replace_with_nested
@@ -291,6 +295,11 @@ class Rule(RegisterableObject):
                 po = print_option.clone()
                 po.multi_line_choice = False
                 content = po.replace_with_nested[name].pretty_str(po)
+                return "( {} )".format(content)
+            if print_option.inline_synthetic and name.find("/") >=0:
+                po = print_option.clone()
+                po.multi_line_choice = False
+                content = po.grammar.rules[name].pretty_str(po)
                 return "( {} )".format(content)
             return name
         if isinstance(rule,Choice):
@@ -2296,6 +2305,84 @@ class Grammar:
                 # Skip inlining token definitions.
                 if any([x.is_symbol_name() for x in rhs]):
                     replacement[A] = rhs
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule:
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.extend(replacement[x.content])
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
+    def inline_single_starrable(self):
+        """
+        Inline a rule when it only has one option, and its content starrable.
+
+            A -> B
+            B -> beta B | epsilon
+
+        Replace A by B
+        """
+
+        # Map a rule name to the phrase it should be replaced with.
+        replacement = dict()
+
+        # Process descendants first
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A].as_container()
+            if len(A_rule) == 1:
+                option = A_rule[0].as_container()
+                if len(option) == 1:
+                    first = option[0]
+                    if first.is_symbol_name():
+                        first_name = first.content
+                        if self.rules[first_name].as_starred(first_name) is not None:
+                            replacement[A] = [first]
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule:
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.extend(replacement[x.content])
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
+    def inline_specific(self,specific_set):
+        """
+        Inline a set of rules. They must have only one option in the choice.
+        """
+
+        # Map a rule name to the phrase it should be replaced with.
+        replacement = dict()
+
+        # Process descendants first
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A].as_container()
+            if A in specific_set:
+                assert(len(A_rule)==1)
+                replacement[A] = A_rule.as_container()[0].as_container()
 
             # Update this rule with any scheduled replacements.
             changed_rule = False
