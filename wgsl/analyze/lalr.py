@@ -124,7 +124,7 @@ def main():
 
         # Get ready for potential LL analysis
         g.compute_first()
-        #g.compute_follow()
+        g.compute_follow()
 
         #g.dump()
     else:

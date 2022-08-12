@@ -2349,6 +2349,9 @@ class Grammar:
         # Map a rule name to the phrase it should be replaced with.
         replacement = dict()
 
+        # Needed for computing follow sets
+        excepting_set = set(excepting_set) | {self.start_symbol}
+
         # Process descendants first
         for A in reversed(self.preorder()):
             A_rule = self.rules[A].as_container()
