@@ -126,7 +126,6 @@ def main():
 
         print(g.pretty_str(po))
         #g.dump()
-        sys.exit(0)
     else:
         g = Grammar.Load(json_text, 'translation_unit')
 
