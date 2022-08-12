@@ -308,9 +308,11 @@ module.exports = grammar({
         else_clause: $ => seq($.else, $.compound_statement),
         switch_statement: $ => seq($.switch, $.expression, $.brace_left, repeat1($.switch_body), $.brace_right),
         switch_body: $ => choice(
-            seq($.case, $.case_selectors, optional($.colon), $.compound_statement),
-            seq($.default, optional($.colon), $.compound_statement)
+            $.case_clause,
+            $.default_alone_clause
         ),
+        case_clause: $ => seq($.case, $.case_selectors, optional($.colon), $.compound_statement),
+        default_alone_clause: $ => seq($.default, optional($.colon), $.compound_statement),
         case_selectors: $ => seq($.case_selector, optional(repeat1(seq($.comma, $.case_selector))), optional($.comma)),
         case_selector: $ => choice(
             $.default,
