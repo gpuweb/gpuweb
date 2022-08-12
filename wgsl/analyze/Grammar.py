@@ -656,9 +656,18 @@ class LLReduce:
         self.A = A
         self.rhs = rhs
 
+        po = PrintOption()
+        po.is_canonical = True
+        po.inline_synthetic = False
+        self.print_option = po
+
     def __str__(self):
+        if isinstance(self.rhs,Rule):
+            return "{} -> {}".format(self.A,self.rhs.pretty_str(self.po))
         return "{} -> {}".format(self.A,str(self.rhs))
 
+    def pretty_str(self,options=PrintOption()):
+        return "{} -> {}".format(self.A,self.rhs.pretty_str(options))
 
 @functools.total_ordering
 class Item(RegisterableObject):
