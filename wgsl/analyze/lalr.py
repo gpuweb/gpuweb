@@ -91,6 +91,7 @@ def main():
         g = Grammar(json_text, 'translation_unit')
         print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
+
     if args.recursive:
         g = Grammar(json_text, 'translation_unit')
         po = PrintOption(multi_line_choice=True)
@@ -119,11 +120,16 @@ def main():
         g.dedup_rhs(inline_stop)
         g.rotate_one_or_mores()
 
+        # Get ready for potential LL analysis
+        g.compute_first()
+        #g.compute_follow()
+
         print(g.pretty_str(po))
         #g.dump()
         sys.exit(0)
+    else:
+        g = Grammar.Load(json_text, 'translation_unit')
 
-    g = Grammar.Load(json_text, 'translation_unit')
     if args.lalr:
         print("=Grammar:\n")
         print(g.pretty_str())

@@ -191,6 +191,9 @@ class Rule(RegisterableObject):
     def __init__(self,**kwargs):
         super().__init__(**kwargs)
         self.name = self.__class__.__name__
+        self.reset_first_follow()
+
+    def reset_first_follow(self):
         self.first = set()
         self.follow = set()
         self.known_to_derive_empty = False
@@ -942,7 +945,6 @@ def canonicalize_grammar(grammar,empty):
 
     return result
 
-
 def compute_first_sets(grammar,rules):
     """
     Computes the First set for each node in the grammar.
@@ -951,6 +953,7 @@ def compute_first_sets(grammar,rules):
     Args:
         rules: a GrammarDict in Canonical Form
     """
+    grammar.reset_first_follow()
 
     names_of_non_terminals = []
     grammar.end_of_text.first = set({grammar.end_of_text})
@@ -1785,6 +1788,10 @@ class Grammar:
         """
         self.rules = canonicalize_grammar(self,self.empty)
         self.is_canonical = True
+
+    def reset_first_follow(self):
+        for _, rule in self.rules.items():
+            rule.reset_first_follow()
 
     def compute_first(self):
         """
