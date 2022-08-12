@@ -2152,7 +2152,12 @@ class Grammar:
                             assert option.is_container() and (len(option)>1)
                             new_options.append(self.MakeSeq(option[1:]))
                     self.rules[new_rule_name] = self.MakeChoice(new_options)
-                    #print("created {} -> {}".format(new_rule_name,self.rules[new_rule_name].pretty_str(True)))
+                    #print("created 1 {} -> {}".format(new_rule_name,self.rules[new_rule_name].pretty_str(po)))
+
+                    # Rewrite A itself.
+                    self_parts = [self.MakeSymbolName(x) for x in [target_rule_name,new_rule_name]]
+                    self.rules[A] = self.MakeChoice([self.MakeSeq(self_parts)])
+                    #print("created 2 {} -> {}".format(A,self.rules[A].pretty_str(po)))
 
                     # Update bookkeeping for appears_first_in
                     for option in new_options:
@@ -2163,7 +2168,10 @@ class Grammar:
                     # Replace the old rule everywhere it appears in the first
                     # position
                     for parent_name in list(appears_first_in[A]):
-                        #print("< parent {} -> {}".format(parent_name,self.rules[parent_name].pretty_str(True)))
+                        if parent_name == A:
+                            # Already processed above
+                            continue
+                        #print("< parent {} -> {}".format(parent_name,self.rules[parent_name].pretty_str(po)))
                         parent = self.rules[parent_name]
                         (starts,others,terms,empties) = parent.partition(A)
                         new_options = []
@@ -2175,7 +2183,7 @@ class Grammar:
                             new_options.append(self.MakeSeq(parts))
                         new_options.extend(others+terms+empties)
                         self.rules[parent_name] = self.MakeChoice(new_options)
-                        #print("> parent {} -> {}".format(parent_name,self.rules[parent_name].pretty_str(True)))
+                        #print("> parent {} -> {}".format(parent_name,self.rules[parent_name].pretty_str(po)))
                         appears_first_in[A].remove(parent_name)
                         appears_first_in[target_rule_name].add(parent_name)
                         # Set up transitive closure.
