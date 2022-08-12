@@ -62,6 +62,10 @@ wgsl.simple.txt : $(ANALYZER) $(WGSL_GRAMMAR)
 .PHONY: recursive
 recursive : $(ANALYZER) $(WGSL_GRAMMAR)
 	@python3 $(ANALYZE_SCRIPT) -recursive grammar/src/grammar.json
+# Print a simple (uncanonicalized form) of the grammar and check LL(1)
+.PHONY: recursive_ll
+recursive_ll : $(ANALYZER) $(WGSL_GRAMMAR)
+	@python3 $(ANALYZE_SCRIPT) -recursive -ll grammar/src/grammar.json
 
 ## The following targets are used when developing the grammar analyzer
 
