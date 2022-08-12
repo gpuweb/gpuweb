@@ -92,11 +92,12 @@ def main():
         print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
 
+    po = PrintOption(multi_line_choice=True)
+    po.more_newlines = True
+    po.print_terminals = args.print_terminals
+
     if args.recursive:
         g = Grammar(json_text, 'translation_unit')
-        po = PrintOption(multi_line_choice=True)
-        po.more_newlines = True
-        po.print_terminals = args.print_terminals
 
         g.canonicalize()
         g.eliminate_immediate_recursion()
@@ -115,6 +116,7 @@ def main():
             g.inline_specific({ 'short_circuit_and_expression.post.unary_expression', 'short_circuit_or_expression.post.unary_expression'})
 
         g.inline_single_starrable()
+
         g.refactor_post('unary_expression')
 
         g.dedup_rhs(inline_stop)
@@ -124,7 +126,6 @@ def main():
         g.compute_first()
         #g.compute_follow()
 
-        print(g.pretty_str(po))
         #g.dump()
     else:
         g = Grammar.Load(json_text, 'translation_unit')
@@ -158,7 +159,7 @@ def main():
         if args.verbose:
             g.dump()
         else:
-            print(g.pretty_str())
+            print(g.pretty_str(po))
 
     sys.exit(0)
 
