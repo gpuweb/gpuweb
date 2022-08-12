@@ -586,7 +586,7 @@ class Shift(Action):
 
 class Reduce(Action):
     """
-    A Reduce is an parser reduction action.
+    A Reduce is an LR parser reduction action.
 
     It represents the event where:
     - the parser has just recognized the full right hand side of some production
@@ -634,6 +634,31 @@ class Conflict:
 
     def __str__(self):
         return "[#{} {}] {} vs. {}".format(self.item_set.core_index,str(self.terminal),self.prev_action.pretty_str(),self.action.pretty_str())
+
+class LLReduce:
+    """
+    An LLReduce is an LL parser reduction action.
+
+    It represents an event where the
+    - the parser should, where the production is [ A -> rhs ]:
+       - remove the top len(rhs) symbols on its stack
+       - match those len(rhs) symbols to the symbols in rhs
+       - place A on the stack
+    """
+    def __init__(self,A,rhs):
+        """
+        Args:
+            A: a string naming the nonterminal
+            rhs: a Rule
+        """
+        isinstance(A,str) or raiseRE("expected nonterminal name as a string")
+        isinstance(rhs,Rule) or raiseRE("expected rule")
+        self.A = A
+        self.rhs = rhs
+
+    def __str__(self):
+        return "{} -> {}".format(self.A,str(self.rhs))
+
 
 @functools.total_ordering
 class Item(RegisterableObject):
@@ -2574,7 +2599,7 @@ class Grammar:
         Returns: a 2-tuple:
             an LL(1) parser table
                 Key is tuple (lhs,rhs) where lhs is the name of the nonterminal
-                and rhs is the Rule for the right-hands side being reduced:
+                and rhs is the Rule for the right-hand side being reduced:
                 It may be a SymbolName, a Token, or a Sequence of Symbols and Tokens
             a list of conflicts
         """
@@ -2592,20 +2617,21 @@ class Grammar:
 
         for lhs, rule in self.rules.items():
             if rule.is_container():
-                # Top-level terminals are Choice nodes.
+                # Top-level rules are Choice nodes.
                 if not isinstance(rule,Choice):
                     raise RuntimeError("expected Choice node for "+
                        +"'{}' rule, got: {}".format(lhs,rule))
-                # For each terminal A -> alpha,
+                # For each rule A -> alpha,
                 for rhs in rule:
-                    # For each terminal x in First(alpha), add
-                    # A -> alpha to M[A,x]
-                    phrase = rhs if rhs.is_container() else [rhs]
-                    for x in first(self,phrase):
+                    for x in first(self,rhs.as_container()):
                         if x.is_empty():
+                            # Add A -> alpha to M[A,b] for each terminal
+                            # b in Follow(A)
                             for f in rule.follow:
                                 add(lhs,f,LLReduce(lhs,rhs))
                         else:
+                            # For each terminal x in First(alpha), add
+                            # A -> alpha to M[A,x]
                             add(lhs,x,LLReduce(lhs,rhs))
         return (table,conflicts)
 
