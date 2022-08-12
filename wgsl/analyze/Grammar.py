@@ -663,7 +663,7 @@ class LLReduce:
 
     def __str__(self):
         if isinstance(self.rhs,Rule):
-            return "{} -> {}".format(self.A,self.rhs.pretty_str(self.po))
+            return "{} -> {}".format(self.A,self.rhs.pretty_str(self.print_option))
         return "{} -> {}".format(self.A,str(self.rhs))
 
     def pretty_str(self,options=PrintOption()):
@@ -2126,7 +2126,11 @@ class Grammar:
                 first = option.as_container()[0]
                 if first.is_symbol_name():
                     appears_first_in[first.content].add(name)
+        #print("appears first dict\n{}\n\n".format(appears_first_in))
 
+        po = PrintOption()
+        po.is_canonical = self.is_canonical
+        po.inline_synthetic = False
         candidates = set(self.rules.keys())
         while len(candidates) > 0:
             for A in list(candidates):
