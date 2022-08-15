@@ -133,9 +133,6 @@ def main():
         g.refactor_post('ident')
         g.rotate_one_or_mores()
 
-        print(g.pretty_str(po))
-        sys.exit(0)
-
         # Get ready for potential LL analysis
         g.compute_first()
         g.compute_follow()
