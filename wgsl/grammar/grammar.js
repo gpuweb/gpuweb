@@ -323,15 +323,11 @@ module.exports = grammar({
         for_header: $ => seq(optional($.for_init), $.semicolon, optional($.expression), $.semicolon, optional($.for_update)),
         for_init: $ => choice(
             $.variable_statement,
-            $.increment_statement,
-            $.decrement_statement,
-            $.assignment_statement,
+            $.variable_updating_statement,
             $.func_call_statement
         ),
         for_update: $ => choice(
-            $.increment_statement,
-            $.decrement_statement,
-            $.assignment_statement,
+            $.variable_updating_statement,
             $.func_call_statement
         ),
         while_statement: $ => seq($.while, $.expression, $.compound_statement),
@@ -356,11 +352,14 @@ module.exports = grammar({
             seq($.break_statement, $.semicolon),
             seq($.continue_statement, $.semicolon),
             seq($.discard, $.semicolon),
-            seq($.assignment_statement, $.semicolon),
+            seq($.variable_updating_statement, $.semicolon),
             $.compound_statement,
-            seq($.increment_statement, $.semicolon),
-            seq($.decrement_statement, $.semicolon),
             seq($.static_assert_statement, $.semicolon)
+        ),
+        variable_updating_statement: $ => choice(
+            $.assignment_statement,
+            $.increment_statement,
+            $.decrement_statement
         ),
         function_decl: $ => seq(optional(repeat1($.attribute)), $.function_header, $.compound_statement),
         function_header: $ => seq($.fn, $.ident, $.paren_left, optional($.param_list), $.paren_right, optional(seq($.arrow, optional(repeat1($.attribute)), $.type_decl))),
