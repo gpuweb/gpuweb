@@ -122,9 +122,6 @@ def main():
 
         g.inline_single_starrable()
 
-        g.refactor_post('unary_expression')
-
-        g.dedup_rhs(inline_stop)
         g.rotate_one_or_mores()
 
         # Get ready for potential LL analysis
