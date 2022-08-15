@@ -11,7 +11,6 @@ These proposals are **not stable** and may change at any time. They may be:
 
 - In-development proposals which are not easily contained in a GitHub pull request, HackMD, or similar.
 - Inactive proposals which are not under active consideration but could be considered later.
-- Interactions with other draft Web specifications, such as WebCodecs.
 
 If the group agrees that it never intends to consider a proposal in the future, it should be
 removed from this directory (and may be migrated outside of the WebGPU community group).
