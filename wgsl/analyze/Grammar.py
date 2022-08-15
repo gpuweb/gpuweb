@@ -2249,7 +2249,11 @@ class Grammar:
             if not common.is_symbol_name() or common.content.find(name_suffix) < 0:
                 continue
             # Find the 'A' as in 'A.post.X'
-            replace_with = self.MakeSymbolName(common.content[0:common.content.find(name_suffix)])
+            replace_with_name = common.content[0:common.content.find(name_suffix)]
+            if replace_with_name == name:
+                # Don't undo a refactoring that we just finished making
+                continue
+            replace_with = self.MakeSymbolName(replace_with_name)
             # Rewrite the rule
             parts = []
             for option in starts:
