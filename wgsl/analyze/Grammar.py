@@ -1900,7 +1900,8 @@ class Grammar:
                 continue
             if (not po.print_terminals) and (key in token_rules):
                 continue
-            parts.append("{}: {}".format(key,self.rules[key].pretty_str(po)))
+            space = "" if po.multi_line_choice else " "
+            parts.append("{}:{}{}".format(key,space,self.rules[key].pretty_str(po)))
         return ("\n\n" if po.more_newlines else "\n").join(parts)
 
     def register_item_set(self,item_set):
