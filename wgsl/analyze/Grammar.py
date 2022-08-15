@@ -326,10 +326,10 @@ class Rule(RegisterableObject):
             if print_option.multi_line_choice:
                 if print_option.bikeshed:
                     nl = "\n\n"
-                    prefixer = "\n\n | "
+                    prefixer = "\n | "
                 else:
                     nl = "\n"
-                    prefixer = "\n   "
+                    prefixer = "   "
             else:
                 nl = ""
                 prefixer = ""
@@ -1926,7 +1926,7 @@ class Grammar:
             space = "" if po.multi_line_choice else " "
             if po.bikeshed:
                 key_content = "  <dfn for='right_syntax'>{}</dfn>".format(key)
-                content = "<div class='syntax' noexport='true'>\n{}:{}\n</div>".format(key_content,rule_content)
+                content = "<div class='syntax' noexport='true'>\n{}:\n{}\n</div>".format(key_content,rule_content)
             else:
                 content = "{}:{}{}".format(key,space,rule_content)
             parts.append(content)
