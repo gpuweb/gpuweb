@@ -329,7 +329,7 @@ class Rule(RegisterableObject):
                     prefixer = "\n | "
                 else:
                     nl = "\n"
-                    prefixer = "   "
+                    prefixer = "\n   "
             else:
                 nl = ""
                 prefixer = ""
