@@ -96,6 +96,7 @@ def main():
     po.more_newlines = True
     po.print_terminals = args.print_terminals
 
+    printed = False
     if args.recursive:
         g = Grammar(json_text, 'translation_unit')
 
@@ -126,7 +127,9 @@ def main():
         g.compute_first()
         g.compute_follow()
 
-        #g.dump()
+        print(g.pretty_str(po))
+        printed = True
+
     else:
         g = Grammar.Load(json_text, 'translation_unit')
 
@@ -145,6 +148,7 @@ def main():
         sys.exit(0)
 
     elif args.ll:
+
         (table,conflicts) = g.LL1()
 
         for key, reduction in table.items():
@@ -159,7 +163,8 @@ def main():
         if args.verbose:
             g.dump()
         else:
-            print(g.pretty_str(po))
+            if not printed:
+                print(g.pretty_str(po))
 
     sys.exit(0)
 
