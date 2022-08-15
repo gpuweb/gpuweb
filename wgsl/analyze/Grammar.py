@@ -283,7 +283,10 @@ class Rule(RegisterableObject):
     def pretty_str(rule,print_option=PrintOption()):
         """Returns a pretty string for a node"""
         if rule.is_terminal() or rule.is_empty():
-            return str(rule)
+            content = str(rule)
+            if print_option.bikeshed:
+                return "`{}`".format(content)
+            return content
         if rule.is_symbol_name():
             name = rule.content
             def with_meta(phrase,metachar,print_option):
@@ -307,14 +310,30 @@ class Rule(RegisterableObject):
                 po.multi_line_choice = False
                 content = po.grammar.rules[name].pretty_str(po)
                 return "( {} )".format(content)
+
+            # Print ourselves
+            if print_option.bikeshed:
+                context = 'right_syntax'
+                if print_option.grammar.rules[name].is_token():
+                    context = 'syntax'
+                return "[={}/{}=]".format(context,name)
             return name
         if isinstance(rule,Choice):
             parts = [i.pretty_str(print_option) for i in rule]
             if print_option.multi_line_choice:
                 parts.sort()
-            nl = "\n" if print_option.multi_line_choice else ""
+
+            if print_option.multi_line_choice:
+                if print_option.bikeshed:
+                    nl = "\n\n"
+                    prefixer = "\n\n | "
+                else:
+                    nl = "\n"
+                    prefixer = "\n   "
+            else:
+                nl = ""
+                prefixer = ""
             joiner = nl + " | "
-            prefixer = "\n   " if print_option.multi_line_choice else ""
             inside = prefixer + joiner.join([p for p in parts])
             if print_option.is_canonical:
                 return inside
@@ -598,7 +617,7 @@ class Reduce(Action):
        - remove the top len(alpha) symbols and state IDs on its stack
        - match those len(alpha) symbols to the symbols in alpha
        - read the state id S on top of the stack, and push onto the stack:
-           nonterminal N, and 
+           nonterminal N, and
            goto[S, N] as the next state ID
     """
     def __init__(self,item,index):
@@ -1557,7 +1576,7 @@ class ItemSet:
                 next_item = grammar.MakeItem(item.lhs, item.rule, item.position+1)
                 edge.add(item,next_item,LookaheadSet(self.id_to_lookahead[item_id]))
             changed_initial = True
-            
+
         # The first time around, construct the destination item sets for each edge.
         # On subsequent rounds, propagate lookaheads from our own ItemSet to next item sets.
         goto_list = []
@@ -1895,6 +1914,7 @@ class Grammar:
 
         parts = []
         for key in sorted(self.rules):
+            rule_content = self.rules[key].pretty_str(po)
             if key in po.replace_with_optional:
                 continue
             if key in po.replace_with_starred:
@@ -1904,8 +1924,14 @@ class Grammar:
             if (not po.print_terminals) and (key in token_rules):
                 continue
             space = "" if po.multi_line_choice else " "
-            parts.append("{}:{}{}".format(key,space,self.rules[key].pretty_str(po)))
-        return ("\n\n" if po.more_newlines else "\n").join(parts)
+            if po.bikeshed:
+                key_content = "  <dfn for='right_syntax'>{}</dfn>".format(key)
+                content = "<div class='syntax' noexport='true'>\n{}:{}\n</div>".format(key_content,rule_content)
+            else:
+                content = "{}:{}{}".format(key,space,rule_content)
+            parts.append(content)
+        content = ("\n\n" if po.more_newlines else "\n").join(parts)
+        return content
 
     def register_item_set(self,item_set):
         """
@@ -2052,7 +2078,7 @@ class Grammar:
         """
         assert self.is_canonical
         # Eliminate immediate left recursion
-        #    Replace rules 
+        #    Replace rules
         #            A -> A alpha1 | A alpha2 | beta1 | beta2
         #    with
         #            A -> beta1 A' | beta2 A'
@@ -2156,12 +2182,10 @@ class Grammar:
                             assert option.is_container() and (len(option)>1)
                             new_options.append(self.MakeSeq(option[1:]))
                     self.rules[new_rule_name] = self.MakeChoice(new_options)
-                    #print("created 1 {} -> {}".format(new_rule_name,self.rules[new_rule_name].pretty_str(po)))
 
                     # Rewrite A itself.
                     self_parts = [self.MakeSymbolName(x) for x in [target_rule_name,new_rule_name]]
                     self.rules[A] = self.MakeChoice([self.MakeSeq(self_parts)])
-                    #print("created 2 {} -> {}".format(A,self.rules[A].pretty_str(po)))
 
                     # Update bookkeeping for appears_first_in
                     for option in new_options:
@@ -2175,7 +2199,6 @@ class Grammar:
                         if parent_name == A:
                             # Already processed above
                             continue
-                        #print("< parent {} -> {}".format(parent_name,self.rules[parent_name].pretty_str(po)))
                         parent = self.rules[parent_name]
                         (starts,others,terms,empties) = parent.partition(A)
                         new_options = []
@@ -2187,7 +2210,6 @@ class Grammar:
                             new_options.append(self.MakeSeq(parts))
                         new_options.extend(others+terms+empties)
                         self.rules[parent_name] = self.MakeChoice(new_options)
-                        #print("> parent {} -> {}".format(parent_name,self.rules[parent_name].pretty_str(po)))
                         appears_first_in[A].remove(parent_name)
                         appears_first_in[target_rule_name].add(parent_name)
                         # Set up transitive closure.
@@ -2596,7 +2618,6 @@ class Grammar:
                         (prefix,pivot,rest) = (option[0:ipivot],option[ipivot],option[ipivot+1:])
                         if pivot.is_symbol_name():
                             pivot_as_starred = self.rules[pivot.content].as_starred(pivot.content)
-                            #print(" {}  {} {} ... {}".format(name,ipivot,pivot.content,raw_option.pretty_str(PrintOption())))
                             if pivot_as_starred is None:
                                 continue
                             rest_prefix = rest[0:len(pivot_as_starred)]
