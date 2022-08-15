@@ -1914,6 +1914,9 @@ class Grammar:
 
         parts = []
         for key in sorted(self.rules):
+            if key == LANGUAGE:
+                # This is synthetic, for analysis
+                continue
             rule_content = self.rules[key].pretty_str(po)
             if key in po.replace_with_optional:
                 continue
