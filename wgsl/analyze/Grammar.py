@@ -313,7 +313,7 @@ class Rule(RegisterableObject):
 
             # Print ourselves
             if print_option.bikeshed:
-                context = 'right_syntax'
+                context = 'recursive descent syntax'
                 if print_option.grammar.rules[name].is_token():
                     context = 'syntax'
                 return "[={}/{}=]".format(context,name)
@@ -1925,7 +1925,7 @@ class Grammar:
                 continue
             space = "" if po.multi_line_choice else " "
             if po.bikeshed:
-                key_content = "  <dfn for='right_syntax'>{}</dfn>".format(key)
+                key_content = "  <dfn for='recursive descent syntax'>{}</dfn>".format(key)
                 content = "<div class='syntax' noexport='true'>\n{}:\n{}\n</div>".format(key_content,rule_content)
             else:
                 content = "{}:{}{}".format(key,space,rule_content)
