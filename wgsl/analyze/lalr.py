@@ -114,7 +114,7 @@ def main():
 
         g.epsilon_refactor()
 
-        inline_stop = {'ident','member_ident','ident_pattern_token'}
+        inline_stop = {'ident','member_ident','ident_pattern_token','optionally_typed_ident'}
         if args.aggressive:
             g.inline_single_choice_with_nonterminal(inline_stop)
             g.dedup_rhs(inline_stop)

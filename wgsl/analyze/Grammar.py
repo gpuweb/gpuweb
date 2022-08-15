@@ -2224,20 +2224,24 @@ class Grammar:
             #print()
         #print()
 
+        #self.absorb_post(target_rule_name)
         self.remove_unused_rules()
 
-        # Now look for opportunities to reabsorb.
-        # In the WGSL grammar, this only occurs in the prefix of a Seq,
-        # and only for relational_expression
+
+
+    def left_absorb_post(self,target_rule_name):
+        # Look for opportunities to reabsorb.
         #
         # If we have a rule like:
         #
         #   B -> X A.post.X beta1 | ... | X A.post.X beta2
+        # where B is not A
         #
         # Then replace it with:
         #
         #   B -> A beta1 | ... | A beta2
         #
+        name_suffix = ".post.{}".format(target_rule_name)
         for name, rule in self.rules.items():
             (starts,others,terms,empties) = rule.partition(target_rule_name)
             # Each options must start with X
@@ -2256,7 +2260,7 @@ class Grammar:
             # Find the 'A' as in 'A.post.X'
             replace_with_name = common.content[0:common.content.find(name_suffix)]
             if replace_with_name == name:
-                # Don't undo a refactoring that we just finished making
+                # Don't create a left-recursion
                 continue
             replace_with = self.MakeSymbolName(replace_with_name)
             # Rewrite the rule
@@ -2264,6 +2268,7 @@ class Grammar:
             for option in starts:
                 parts.append(self.MakeSeq([replace_with] + option[2:]))
             self.rules[name] = self.MakeChoice(parts)
+        self.remove_unused_rules()
 
 
     def remove_unused_rules(self):
