@@ -1,6 +1,7 @@
 #!/bin/bash
 
-function usage() {
+usage()
+{
     echo "Usage: $0 input_file output_file"
     echo
     echo "Copies input_file to output_file if output_file does not exist or"
