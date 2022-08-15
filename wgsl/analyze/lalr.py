@@ -62,6 +62,9 @@ def main():
     argparser.add_argument('-recursive',
                            help='dump a grammar suitable for recursive descent parsing',
                            action="store_true")
+    argparser.add_argument('-bs',
+                           help='output of -recursive as bikeshed source',
+                           action="store_true")
     argparser.add_argument('-terminals',
                            help='print terminals in output of -recursive',
                            default=False,
@@ -95,6 +98,7 @@ def main():
     po = PrintOption(multi_line_choice=True)
     po.more_newlines = True
     po.print_terminals = args.print_terminals
+    po.bikeshed = args.bs
 
     printed = False
     if args.recursive:

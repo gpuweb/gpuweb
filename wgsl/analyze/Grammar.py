@@ -152,6 +152,8 @@ class PrintOption:
         # Should emission inline rules that were created during canonicalization?
         # They contain a '/' in their name.
         self.inline_synthetic = True
+        # Emit Bikeshed source
+        self.bikeshed = False
 
         def MakeNone():
             return None
@@ -181,6 +183,7 @@ class PrintOption:
         result.more_newlines = self.more_newlines
         result.print_terminals = self.print_terminals
         result.inline_synthetic = self.inline_synthetic
+        result.bikeshed = self.bikeshed
         result.replace_with_optional = self.replace_with_optional
         result.replace_with_starred = self.replace_with_starred
         result.replace_with_nested = self.replace_with_nested
