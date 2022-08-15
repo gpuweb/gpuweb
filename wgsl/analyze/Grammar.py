@@ -992,6 +992,8 @@ def canonicalize_grammar(grammar,empty):
                         if made_a_new_seq_part:
                             parts.append(grammar.MakeSeq(seq_parts))
                             made_a_new_one = True
+                        else:
+                            parts.append(item)
                 if made_a_new_one:
                     rhs = grammar.MakeChoice(parts)
                     result[key] = rhs
@@ -2487,6 +2489,52 @@ class Grammar:
                     else:
                         parts.append(x)
                 new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
+    def inline_when_toplevel_prefix(self,specific_set):
+        """
+        When:
+
+          'A' is in specific_set, and
+
+            A -> alpha1 | alpha2
+
+          'A' appears first as a choice in another rule:
+
+            B -> A beta | others...
+
+          Inline A into B:
+
+            B -> alpha1 beta | alpha2 beta | others...
+
+        """
+
+        # Map a rule name to the phrase it should be replaced with.
+        replacement = dict()
+
+        # Process descendants first
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A].as_container()
+            if A in specific_set:
+                replacement[A] = A_rule
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule:
+                option_parts = option.as_container()
+                first = option_parts[0]
+                if first.is_symbol_name() and first.content in replacement:
+                    for repl_option in replacement[first.content]:
+                        parts = [x for x in repl_option.as_container()]
+                        parts = parts + option_parts[1:]
+                        new_options.append(self.MakeSeq(parts))
+                    changed_rule = True
+                else:
+                    new_options.append(option)
             if changed_rule:
                 self.rules[A] = self.MakeChoice(new_options)
 

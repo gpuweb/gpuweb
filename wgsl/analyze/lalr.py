@@ -105,10 +105,12 @@ def main():
         g = Grammar(json_text, 'translation_unit')
 
         g.canonicalize()
+
         g.eliminate_immediate_recursion()
         stop_at = {'expression','element_count_expression'}
         g.left_refactor('unary_expression',stop_at)
         g.left_refactor('ident',set())
+
 
         g.epsilon_refactor()
 
@@ -120,10 +122,19 @@ def main():
         else:
             g.inline_specific({ 'short_circuit_and_expression.post.unary_expression', 'short_circuit_or_expression.post.unary_expression'})
 
+        # Bring together with other (star|and)* rules
+        g.inline_when_toplevel_prefix({'assignment_statement'})
+
+        # Bring together with other rules starting with attribute
+        g.inline_when_toplevel_prefix({'global_constant_decl'})
+
         g.inline_single_starrable()
 
         g.refactor_post('ident')
         g.rotate_one_or_mores()
+
+        print(g.pretty_str(po))
+        sys.exit(0)
 
         # Get ready for potential LL analysis
         g.compute_first()
