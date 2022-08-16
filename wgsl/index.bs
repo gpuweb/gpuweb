@@ -7920,7 +7920,7 @@ Note: The [=attribute/const=] attribute cannot be applied to user-declared funct
 Note: Recursion is disallowed because cycles are not permitted among any kinds
 of declarations.
 
-### Aliasing Memory Views ### {#function-aliasing}
+### Alias Analysis ### {#alias-analysis}
 
 [=Memory locations=] can be accessed during the execution of a function using [=memory views=].
 Within a function, each [=memory view=] has a particular root identifier.
@@ -7937,56 +7937,64 @@ variables=] for each root identifier.
 
 Two root identifiers <dfn noexport>alias</dfn> when they have the same
 [=originating variable=].
-It is a [=dynamic error=] if:
-* more than one aliased root identifiers access the same [=memory locations=], and
-* at least one access is a [=write access|write=], and
-* both accesses occur during the execution of the same call of the function
+A WGSL program [=shader-creation error|must not=] contain any potential aliases.
+The program is analyzed from the leaves of the callgraph upwards (e.g. topological order).
+For each function the analysis records the following sets:
+* [=module scope|Module-scope=] variables that are [=write access|written=].
+    Including any module-scope variables that are written in functions called from this function.
+* [=module scope|Module-scope=] variables that are [=read access|read=].
+    Including any module-scope variables that are read in functions called from this function.
+* Pointer parameters that are [=write access|written=].
+* Pointer parameters that are [=read access|read=].
 
-Note: This aliasing restriction applies to memory locations written by
-[=function calls=] made in the function.
+At each [=call site=] of a function, it is a [=shader-creation error=] if either:
+* Two arguments of pointer type have the same root identifier and either
+    corresponding parameter is in the written parameter set.
+* An argument of pointer type has a root identifier that is a global variable where:
+    * the corresponding parameter is in the set of written pointer parameters
+        and the modue-scope variable is in either the written or read set of
+        module-scope variables for the called function, or
+    * the corresponding parameter is in the set of read pointer parameters and
+        the module-scope variable is in the written set of module-scope
+        variables for the called function.
 
-Note: [=Originating variables=] cannot have aliased [=memory locations=].
-See [[#var-decls]] and [[#resource-interface]].
-
-<div class='example wgsl' heading='Aliased memory views'>
+<div class='example wgsl' heading='Alias analysis'>
   <xmp highlight='rust'>
     var x : i32 = 0;
 
-    fn foo() {
-      bar(&x, &x); // Both p and q parameters are aliases of x.
+    fn f1(p1 : ptr<function, i32>, p2 : ptr<function, i32>) {
+      *p1 = *p2;
     }
 
-    // This function produces a dynamic error because of the aliased
-    // memory accesses.
-    fn bar(p : ptr<private, i32>, q : ptr<private, i32>) {
-      if (x == 0) {
-        *p = 1;
-      } else {
-        *q = 2;
-      }
-    }
-  </xmp>
-</div>
-
-<div class='example wgsl' heading='Aliasing in a helper function'>
-  <xmp highlight='rust'>
-    var x : i32 = 0;
-
-    fn baz(p : ptr<private, i32>) {
-      *p = 2;
+    fn f2() {
+      var a : i32 = 0;
+      f1(&a, &a);  // Invalid. Cannot pass two pointer parameters
+                   // with the same root identifier when one or
+                   // more are written.
     }
 
-    // This function produces a dynamic error if x == 0, because x is read and
-    // written through different root identifiers even though the write occurs
-    // in the scope of baz.
-    fn bar(p : ptr<private, i32>) {
-      if (x == 0) {
-        baz(p);
-      }
+    fn f3(p1 : ptr<function, i32>, p2 : ptr<function, i32>) -> i32 {
+      return *p1 + *p2;
     }
 
-    fn foo() {
-      bar(&x); // p in bar is aliased to x.
+    fn f4() {
+      var a : i32 = 0;
+      let b = f3(&a, &a); // Valid. p1 and p2 in f3 are both only read.
+    }
+
+    fn f5(p : ptr<private, i32>) {
+      x = *p;
+    }
+
+    fn f6(p : ptr<private, i32>) -> i32 {
+      return x + *p;
+    }
+
+    fn f7() {
+      let a = f6(&x); // Invalid. x is written as a global variable and
+                      // read as a parameter.
+      let b = f7(&x); // Valid. x is only read as both a parameter and
+                      // a variable.
     }
   </xmp>
 </div>
