@@ -51,6 +51,8 @@ partial interface GPURenderPassEncoder {
     - If the query set type is `"pipeline-statistics"` but the feature is not enabled, throws a `TypeError`.
 - In `resolveQuerySet()`:
     When resolving a pipeline statistics query, each result is written as a `GPUSize64`, and the number and order of the results written to GPU buffer matches the number and order of `GPUPipelineStatisticName`s specified in `GPUQuerySetDescriptor.pipelineStatistics`.
+- In `GPUComputePassEncoder`/`GPURenderPassEncoder`.`end()`:
+    - Fails if a pipeline statistics query is still open.
 
 ## WGSL Spec Changes
 
