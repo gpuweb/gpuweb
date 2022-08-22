@@ -9,10 +9,11 @@ TR: https://www.w3.org/TR/webgpu/
 Repository: gpuweb/gpuweb
 !Participate: <a href="https://github.com/gpuweb/gpuweb/issues/new">File an issue</a> (<a href="https://github.com/gpuweb/gpuweb/issues">open issues</a>)
 
-Editor: Dzmitry Malyshau, Mozilla https://www.mozilla.org, dmalyshau@mozilla.com, w3cid 96977
 Editor: Kai Ninomiya, Google https://www.google.com, kainino@google.com, w3cid 99487
 Editor: Brandon Jones, Google https://www.google.com, bajones@google.com, w3cid 87824
-Former Editor: Justin Fan, Apple https://www.apple.com, justin_fan@apple.com, w3cid 115633
+Editor: Myles C. Maxfield, Apple Inc. https://www.apple.com, mmaxfield@apple.com, w3cid 77180
+Former Editor: Dzmitry Malyshau, Mozilla https://www.mozilla.org, dmalyshau@mozilla.com, w3cid 96977
+Former Editor: Justin Fan, Apple Inc. https://www.apple.com, justin_fan@apple.com, w3cid 115633
 Abstract: WebGPU exposes an API for performing operations, such as rendering and computation, on a Graphics Processing Unit.
 Markup Shorthands: markdown yes
 Markup Shorthands: dfn yes
@@ -607,13 +608,14 @@ more trusted since the user navigated to it, or is staying on it).
 
 ## Privacy Considerations ## {#privacy-considerations}
 
+<p tracking-vector>
 The privacy considerations for WebGPU are similar to those of WebGL. GPU APIs are complex and must
 expose various aspects of a device's capabilities out of necessity in order to enable developers to
 take advantage of those capabilities effectively. The general mitigation approach involves
 normalizing or binning potentially identifying information and enforcing uniform behavior where
 possible.
 
-### Machine-specific limits ### {#privacy-machine-limits}
+### Machine-specific features and limits ### {#privacy-machine-limits}
 
 WebGPU can expose a lot of detail on the underlying GPU architecture and the device geometry.
 This includes available physical adapters, many limits on the GPU and CPU resources
@@ -1322,6 +1324,9 @@ describe WebGPU functionality that differs between different implementations,
 typically due to hardware or system software constraints.
 A [=capability=] is either a [=feature=] or a [=limit=].
 
+<p tracking-vector>
+For privacy considerations, see [[#privacy-machine-limits]].
+
 ### Features ### {#features}
 
 A <dfn dfn>feature</dfn> is a set of optional WebGPU functionality that is not supported
@@ -1682,6 +1687,10 @@ None of the members in {{GPUAdapterInfo}} are guaranteed to be populated. It is 
 agent's discretion which values to reveal, and it is likely that on some devices none of the values
 will be populated. As such, applications **must** be able to handle any possible {{GPUAdapterInfo}} values,
 including the absence of those values.
+
+<p tracking-vector>
+For privacy considerations, see [[#privacy-adapter-identifiers]].
+</p>
 
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
@@ -2672,7 +2681,7 @@ enum GPUBufferMapState {
 
                 1. If |this|.{{GPUBuffer/[[mapping]]}} is not `null`,
                     return {{GPUBufferMapState/"mapped"}}.
-                1. If |this|.{{GPUBuffer/[[map_requests]]}} is not empty,
+                1. If |this|.{{GPUBuffer/[[pending_map]]}} is not `null`,
                     return {{GPUBufferMapState/"pending"}}.
                 1. Return {{GPUBufferMapState/"unmapped"}}.
             </div>
@@ -2702,26 +2711,17 @@ enum GPUBufferMapState {
 
         Issue: This is device-timeline state.
 
-    : <dfn>\[[map_requests]]</dfn>, of type [=ordered map=]&lt;unique id, [=map request status=]&gt;
+    : <dfn>\[[pending_map]]</dfn>, of type {{Promise}}&lt;void&gt; or `null`, initially `null`
     ::
-        The <dfn dfn for=>map request status</dfn> of each outstanding map request:
+        The {{Promise}} returned by the currently-pending {{GPUBuffer/mapAsync()}} call.
 
-        <dl dfn-type=dfn dfn-for="map request status">
-            : "<dfn>open</dfn>"
-            ::
-                The map request is in flight and may still succeed.
-
-            : "<dfn>cancelled</dfn>"
-            ::
-                The map request has been cancelled by {{GPUBuffer/unmap()}} and will reject when it completes.
-        </dl>
-
-        Requests are removed from this map when they complete.
+        There is never more than one pending map, because {{GPUBuffer/mapAsync()}}
+        will refuse immediately if a request is already in flight.
 
     : <dfn>\[[mapping]]</dfn>, of type [=active buffer mapping=] or `null`, initially `null`
     ::
         Set iff the buffer is currently mapped for use by {{GPUBuffer/getMappedRange()}}.
-        Null otherwise (even if there are outstanding {{GPUBuffer/[[map_requests]]}}).
+        Null otherwise (even if there is a {{GPUBuffer/[[pending_map]]}}).
 
         An <dfn dfn for=>active buffer mapping</dfn> is a structure with the following fields:
 
@@ -3120,6 +3120,17 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
         Maps the given range of the {{GPUBuffer}} and resolves the returned {{Promise}} when the
         {{GPUBuffer}}'s content is ready to be accessed with {{GPUBuffer/getMappedRange()}}.
 
+        The resolution of the returned {{Promise}} **only** indicates that the buffer has been mapped.
+        It does not guarantee the completion of any other operations visible to the [=content timeline=],
+        and in particular does not imply that any other {{Promise}} returned from
+        {{GPUQueue/onSubmittedWorkDone()}} or {{GPUBuffer/mapAsync()}} on other {{GPUBuffer}}s
+        have resolved.
+
+        The resolution of the {{Promise}} returned from {{GPUQueue/onSubmittedWorkDone()}}
+        **does** imply the completion of
+        {{GPUBuffer/mapAsync()}} calls made prior to that call,
+        on {{GPUBuffer}}s last used exclusively on that queue.
+
         <div algorithm=GPUBuffer.mapAsync>
             <div data-timeline=content>
                 **Called on:** {{GPUBuffer}} |this|.
@@ -3137,9 +3148,10 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                 [=Content timeline=] steps:
 
                 1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
-                1. Let |requestID| be a new unique ID identifying this map request.
+                1. If |this|.{{GPUBuffer/[[pending_map]]}} is not `null`:
+                    1. Return [=a promise rejected with=] {{OperationError}}.
                 1. Let |p| be a new {{Promise}}.
-                1. [=map/Set=] |this|.{{GPUBuffer/[[map_requests]]}}[|requestID|] to "[=map request status/open=]".
+                1. Set |this|.{{GPUBuffer/[[pending_map]]}} to |p|.
                 1. Issue the |validation steps| on the [=Device timeline=] of
                     |this|.{{GPUObjectBase/[[device]]}}.
                 1. Return |p|.
@@ -3178,18 +3190,32 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                         <div data-timeline=content>
                             [=Content timeline=] steps:
 
-                            1. [=Assert=] |this|.{{GPUBuffer/[[map_requests]]}}[|requestID|] [=map/exists=].
-                            1. [=map/Remove=] |this|.{{GPUBuffer/[[map_requests]]}}[|requestID|].
+                            1. If |this|.{{GPUBuffer/[[pending_map]]}} is `null`:
+
+                                Note: The map has been cancelled by {{GPUBuffer/unmap()}}.
+
+                                1. [=Assert=] |this|.{{GPUBuffer/[[mapping]]}} is `null`.
+                                1. Return.
+                            1. [=Assert=] |this|.{{GPUBuffer/[[pending_map]]}} == |p|.
                             1. [=Assert=] |p| is pending.
                             1. [=Reject=] |p| with an {{OperationError}}.
+                            1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`.
                         </div>
 
                     1. [$Generate a validation error$].
                     1. Return.
 
                 1. Set |this|.{{GPUBuffer/[[deviceTimelineState]]}} to "[=buffer device timeline state/unavailable=]".
-                1. Once all <span data-timeline=queue>currently-enqueued operations using |this| (on any queue)</span>
-                    are completed, issue the subsequent steps on the <span data-timeline=device>current timeline</span>.
+                1. At an unspecified point:
+
+                    - after the completion of
+                        <span data-timeline=queue>currently-enqueued operations that use |this|</span>,
+                    - and no later than the next [=device timeline=] operation after the
+                        [=device timeline=] becomes informed of the completion of
+                        <span data-timeline=queue>all currently-enqueued operations</span>
+                        (regardless of whether they use |this|),
+
+                    issue the subsequent steps on the <span data-timeline=device>current timeline</span>.
 
                     Note: Since the buffer is mapped, its contents cannot change between this completion and {{GPUBuffer/unmap()}}.
 
@@ -3200,24 +3226,24 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                 1. Let |deviceTimelineStateAtCompletion| be |this|.{{GPUBuffer/[[deviceTimelineState]]}}.
 
-                    Note: If at this point the buffer has become "[=buffer device timeline state/available=]"
-                    again due to an {{GPUBuffer/unmap()}} call, then the corresponding request status
-                    below will also be "[=map request status/cancelled=]", so mapping will not complete below.
+                    Note: If, and only if, at this point the buffer has become "[=buffer device timeline state/available=]"
+                    again due to an {{GPUBuffer/unmap()}} call, then {{GPUBuffer/[[pending_map]]}} below will be null,
+                    so mapping will not succeed in the steps below.
                 1. Let |dataForMappedRegion| be the contents of |this| starting at offset |offset|, for |rangeSize| bytes.
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
             <div data-timeline=content>
                 [=Content timeline=] steps:
 
-                1. Let |requestStatus| be |this|.{{GPUBuffer/[[map_requests]]}}[|requestID|].
-                1. [=map/Remove=] |this|.{{GPUBuffer/[[map_requests]]}}[|requestID|].
-                1. [=Assert=] |p| is pending.
-                1. If |requestStatus| is "[=map request status/cancelled=]":
-                    1. Reject |p| with an {{AbortError}}.
-                    1. Return.
+                1. If |this|.{{GPUBuffer/[[pending_map]]}} is `null`:
 
-                    Issue(gpuweb/gpuweb#3271): This describes one possible behavior.
-                    Need to discuss whether it's the right one.
+                    Note: The map has been cancelled by {{GPUBuffer/unmap()}}.
+
+                    1. [=Assert=] |deviceTimelineStateAtCompletion| is "[=buffer device timeline state/available=]".
+                    1. [=Assert=] |this|.{{GPUBuffer/[[mapping]]}} is `null`.
+                    1. Return.
+                1. [=Assert=] |this|.{{GPUBuffer/[[pending_map]]}} == |p|.
+                1. [=Assert=] |p| is pending.
                 1. [=Assert=] |deviceTimelineStateAtCompletion| is "[=buffer device timeline state/unavailable=]".
                 1. Let |mapping| be [$initialize an active buffer mapping$]
                     with mode |mode| and range <code>[|offset|, |offset| + |rangeSize|]</code>.
@@ -3311,12 +3337,9 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                 [=Content timeline=] steps:
 
-                1. For each |requestID| in the [=map/keys=] of |this|.{{GPUBuffer/[[map_requests]]}}:
-                    1. Set |this|.{{GPUBuffer/[[map_requests]]}}[|requestID|] to [=map request status/cancelled=].
-
-                    Issue(gpuweb/gpuweb#3271): This describes one possible behavior.
-                    Need to discuss whether it's the right one.
-
+                1. If |this|.{{GPUBuffer/[[pending_map]]}} is not `null`:
+                    1. [=Reject=] |this|.{{GPUBuffer/[[pending_map]]}} with an {{AbortError}}.
+                    1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`.
                 1. Let |updatedBufferContents| be `null`.
                 1. If |this|.{{GPUBuffer/[[mapping]]}} is not `null`:
 
@@ -11811,6 +11834,10 @@ GPUQueue includes GPUObjectBase;
     ::
         Returns a {{Promise}} that resolves once this queue finishes processing all the work submitted
         up to this moment.
+
+        Resolution of this {{Promise}} implies the completion of
+        {{GPUBuffer/mapAsync()}} calls made prior to that call,
+        on {{GPUBuffer}}s last used exclusively on that queue.
 
         <div algorithm=GPUQueue.onSubmittedWorkDone>
             <div data-timeline=content>
