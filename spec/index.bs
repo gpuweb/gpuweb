@@ -12551,9 +12551,9 @@ of WebGPU calls, typically for debugging purposes or to make an operation more f
 
 [=GPU error scope=] has the following internal slots:
 <dl dfn-type=attribute dfn-for="GPU error scope">
-    : <dfn>\[[error]]</dfn>, of type {{GPUError}}?, initially `null`
+    : <dfn>\[[errors]]</dfn>, of type [=list=]&lt;{{GPUError}}&gt;, initially []
     ::
-        The first {{GPUError}}, if any, observed while the [=GPU error scope=] was current.
+        The {{GPUError}}s, if any, observed while the [=GPU error scope=] was current.
 
     : <dfn>\[[filter]]</dfn>, of type {{GPUErrorFilter}}
     ::
@@ -12654,9 +12654,8 @@ partial interface GPUDevice {
         <div class=device-timeline>
             1. Let |scope| be the [$current error scope$] for |error| and |device|.
             1. If |scope| is not `undefined`:
-                1. If |scope|.{{GPU error scope/[[error]]}} is `null`, set
-                    |scope|.{{GPU error scope/[[error]]}} to |error|.
-                1. Stop.
+                1. [=list/Append=] |error| to |scope|.{{GPU error scope/[[errors]]}}.
+                1. Return.
             1. Otherwise issue the following steps to the [=Content timeline=]:
 
                 <div class=content-timeline>
@@ -12708,7 +12707,9 @@ partial interface GPUDevice {
     : <dfn>popErrorScope()</dfn>
     ::
         Pops a [=GPU error scope=] off the {{GPUDevice/[[errorScopeStack]]}} for |this|
-        and resolves to a {{GPUError}} if one was observed by the error scope.
+        and resolves to **any** {{GPUError}} observed by the error scope, or `null` if none.
+
+        There is no guarantee of the ordering of promise resolution.
 
         <div algorithm=GPUDevice.popErrorScope>
             <div data-timeline=content>
@@ -12718,12 +12719,13 @@ partial interface GPUDevice {
 
                 [=Content timeline=] steps:
 
+                1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
                 1. Let |promise| be [=a new promise=].
-                1. Issue the |resolve steps| on the [=Device timeline=] of |this|.
+                1. Issue the |check steps| on the [=Device timeline=] of |this|.
                 1. Return |promise|.
             </div>
             <div data-timeline=device>
-                [=Device timeline=] |resolve steps|:
+                [=Device timeline=] |check steps|:
 
                 1. If any of the following requirements are unmet,
                     [=reject=] |promise| with an {{OperationError}} and stop.
@@ -12733,9 +12735,50 @@ partial interface GPUDevice {
                         - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] &gt; 0.
                     </div>
 
+                    Then:
+
+                    1. Issue the following steps on <var data-timeline=content>contentTimeline</var>:
+
+                        <div data-timeline=content>
+                            [=Content timeline=] steps:
+
+                            1. [=Reject=] |promise| with an {{OperationError}}.
+                        </div>
+
+                    1. Return.
+
                 1. Let |scope| be the result of [=stack/pop|popping=] an [=list/item=] off of
                     |this|.{{GPUDevice/[[errorScopeStack]]}}.
-                1. [=Resolve=] |promise| with |scope|.{{GPU error scope/[[error]]}}.
+                1. Let |error| be **any** one of the items in |scope|.{{GPU error scope/[[errors]]}},
+                    or `null` if there are none.
+
+                    For any two errors E1 and E2 in the list, if E2 was caused by E1, E2 **should
+                    not** be the one selected.
+
+                    Note:
+                    For example, if E1 comes from `t` = {{GPUDevice/createTexture()}}, and
+                    E2 comes from `t`.{{GPUTexture/createView()}} because `t` was [=invalid=],
+                    E1 should be be preferred since it will be easier for a developer to understand
+                    what went wrong.
+                    Since both of these are {{GPUValidationError}}s, the only difference will be in
+                    the {{GPUError/message}} field, which is meant only to be read by humans anyway.
+
+                1. At an **unspecified point now or in the future**,
+                    issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+
+                    Note:
+                    By allowing {{GPUDevice/popErrorScope()}} calls to resolve in any order, with
+                    any of the errors observed by the scope, this spec allows validation to complete
+                    out of order, as long as any state observations are made at the appropriate
+                    point in adherence to this spec. For example, this allows implementations to
+                    perform shader compilation, which depends only on non-stateful inputs, to be
+                    completed on a background thread in parallel with other device-timeline work,
+                    and report any resulting errors later.
+            </div>
+            <div data-timeline=content>
+                [=Content timeline=] steps:
+
+                1. [=Resolve=] |promise| with |error|.
             </div>
         </div>
 </dl>
