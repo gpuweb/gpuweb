@@ -1589,6 +1589,11 @@ applications should generally request the "worst" limits that work for their con
         {{GPURenderPassDescriptor}}.{{GPURenderPassDescriptor/colorAttachments}},
         and {{GPURenderPassLayout}}.{{GPURenderPassLayout/colorFormats}}.
 
+    <tr><td><dfn>maxTotalColorAttachmentDepth</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>32
+    <tr class=row-continuation><td colspan=4>
+        The maximum number of bytes necessary to hold a pixel, across all color attachments.
+
     <tr><td><dfn>maxComputeWorkgroupStorageSize</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16384 bytes
     <tr class=row-continuation><td colspan=4>
@@ -1660,6 +1665,7 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxInterStageShaderComponents;
     readonly attribute unsigned long maxInterStageShaderVariables;
     readonly attribute unsigned long maxColorAttachments;
+    readonly attribute unsigned long maxTotalColorAttachmentDepth;
     readonly attribute unsigned long maxComputeWorkgroupStorageSize;
     readonly attribute unsigned long maxComputeInvocationsPerWorkgroup;
     readonly attribute unsigned long maxComputeWorkgroupSizeX;
@@ -7345,6 +7351,17 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 
             Otherwise:
             - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
+    - [$Validating GPUFragmentState's total color attachment depth$](|device|, |descriptor|.{{GPUFragmentState/targets}}) succeeds.
+</div>
+
+<div algorithm>
+    <dfn abstract-op>Validating GPUFragmentState's total color attachment depth</dfn>({{GPUDevice}} |device|, sequence<{{GPUColorTargetState}}?> |targets|)
+
+    1. Let |formats| be an empty sequence<{{GPUTextureFormat}}>
+    1. For each |target| in |targets|:
+        1. If |target| is {{undefined}}, continue.
+        1. Append |target|.{{GPUColorTargetState/format}} to |formats|.
+    1. [$Calculating total color attachment depth$](|formats|) must be &le; |device|.{{device/[[limits]]}}.{{supported limits/maxTotalColorAttachmentDepth}}.
 </div>
 
 Note:
@@ -10193,6 +10210,8 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 
         1. |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} must meet the [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$] rules.
 
+    1. [$Validating GPURenderPassDescriptor's total color attachment depth$](|device|, |this|.{{GPURenderPassDescriptor/colorAttachments}}) succeeds.
+
     1. All {{GPURenderPassColorAttachment/view}}s in non-`null` members of |this|.{{GPURenderPassDescriptor/colorAttachments}},
         and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}}
         if present, must have equal {{GPUTexture/sampleCount}}s.
@@ -10231,6 +10250,16 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 
     Note: the [$GPURenderPassDescriptor/Valid Usage$] guarantees that all of the render extents
     of the attachments are the same, so we can take any of them, assuming the descriptor is valid.
+</div>
+
+<div algorithm>
+    <dfn abstract-op>Validating GPURenderPassDescriptor's total color attachment depth</dfn>({{GPUDevice}} |device|, sequence<{{GPURenderPassColorAttachment}}?> |colorAttachments|)
+
+    1. Let |formats| be an empty sequence<{{GPUTextureFormat}}>
+    1. For each |colorAttachment| in |colorAttachments|:
+        1. If |colorAttachment| is {{undefined}}, continue.
+        1. Append |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}} to |formats|.
+    1. [$Calculating total color attachment depth$](|formats|) must be &le; |device|.{{device/[[limits]]}}.{{supported limits/maxTotalColorAttachmentDepth}}.
 </div>
 
 #### Color Attachments #### {#color-attachments}
@@ -10357,6 +10386,36 @@ dictionary GPURenderPassColorAttachment {
         |view|.{{GPUTextureView/[[texture]]}}.
 
     where |descriptor| is |view|.{{GPUTextureView/[[descriptor]]}}.
+</div>
+
+<div algorithm>
+    <dfn abstract-op>Calculating total color attachment depth</dfn>(|formats|)
+
+    **Arguments:**
+
+    - sequence<{{GPUTextureFormat}}> |formats|
+
+    **Returns:** {{GPUSize32}}
+
+    1. Let |total| be 0.
+    1. For each |format| in |formats|
+        1. [=Assert=]: |format| is a [=color renderable format=].
+        1. Let |texelBlockSize| be the [=Texel block size=] of |format|.
+        1. Let |componentSize| be the [=component width=] of |format|.
+        1. If |componentSize| is [=mixed component width=]:
+            1. Set |texelBlockSize| to 8.
+            1. Set |componentSize| to 4.
+        1. Otherwise, divide |componentSize| by 8 (to convert bits to bytes).
+        1. If |format| is any of the following formats, then set |texelBlockSize| to 8.
+            - {{GPUTextureFormat/"rgba8unorm-srgb"}}
+            - {{GPUTextureFormat/"rgba8unorm"}}
+            - {{GPUTextureFormat/"bgra8unorm-srgb"}}
+            - {{GPUTextureFormat/"bgra8unorm"}}
+            - {{GPUTextureFormat/"rgba8snorm"}}
+        1. Round |total| up to the smallest multiple of |componentSize| greater than or equal to |total|.
+        1. Add |texelBlockSize| to |total|.
+    1. Return |total|.
+
 </div>
 
 #### Depth/Stencil Attachments #### {#depth-stencil-attachments}
@@ -11437,6 +11496,7 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
                             - |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} must not be `null`.
                         - For each |colorFormat| in |descriptor|.{{GPURenderPassLayout/colorFormats}}:
                             - |colorFormat| is `null`, or it must be a [=color renderable format=].
+                        - [$Validating GPURenderBundleEncoderDescriptor's total color attachment depth$](|this|, |descriptor|.{{GPURenderPassLayout/colorFormats}}) succeeds.
                         - Let |depthStencilFormat| be |descriptor|.{{GPURenderPassLayout/depthStencilFormat}}.
                         - If |depthStencilFormat| is not `null`:
                             - |depthStencilFormat| must be a [=depth-or-stencil format=].
@@ -11454,6 +11514,16 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
             </div>
         </div>
 </dl>
+
+<div algorithm>
+    <dfn abstract-op>Validating GPURenderBundleEncoderDescriptor's total color attachment depth</dfn>({{GPUDevice}} |device|, sequence<{{GPUTextureFormat}}?> |colorFormats|)
+
+    1. Let |formats| be an empty sequence<{{GPUTextureFormat}}>
+    1. For each |colorFormat| in |colorFormats|:
+        1. If |colorFormat| is {{undefined}}, continue.
+        1. Append |colorFormat| to |formats|.
+    1. [$Calculating total color attachment depth$](|formats|) must be &le; |device|.{{device/[[limits]]}}.{{supported limits/maxTotalColorAttachmentDepth}}.
+</div>
 
 ### Encoding ### {#render-bundle-encoding}
 
@@ -13886,6 +13956,8 @@ The {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/STORAGE_BINDING}
 specify support for {{GPUTextureUsage/RENDER_ATTACHMENT|GPUTextureUsage.RENDER_ATTACHMENT}}
 and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage respectively.
 
+In the below table, the <dfn dfn>component width</dfn> of a format is equal to the value in the "X-bits per component" header of the section that format lies within.
+
 <table class=data>
     <thead class=stickyheader>
         <tr>
@@ -14164,7 +14236,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>16
-    <tr><th class=stickyheader>mixed component width<th><th><th><th><th><th>
+    <tr><th class=stickyheader><dfn dfn>mixed component width</dfn><th><th><th><th><th><th>
     <tr>
         <td>{{GPUTextureFormat/rgb10a2unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
