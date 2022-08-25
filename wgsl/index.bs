@@ -8600,7 +8600,27 @@ See [[#statements]] and [[#function-calls]].
 
 ## Uniformity ## {#uniformity}
 
-### Terminology and concepts ### {#uniformity-concepts}
+[[#collective-operations|Collective operations]] (e.g. barriers and
+derivatives) require coordination among different invocations running
+concurrently on the GPU.  To ensure correct and portable behavior, WGSL
+requires that these operations can be statically analyzed to not have any
+control dependencies such that a non-empty strict subset of invocations will
+execute the operation (i.e. the operation must be executed in [=uniform control
+flow=]).
+Non-uniform control dependencies arise from [[#control-flow|control flow]]
+statements whose behavior depends on [=uniform value|non-uniform values=].
+These non-uniform values can be traced back to certain sources that cannot be
+statically proven to be uniform.
+These sources include, but are not limited to:
+* Mutable [=module scope|module-scope=] [=variables=]
+* Most [=built-in values=], except [=built-in values/num_workgroups=] and [=built-in values/workgroup_id=]
+* [=user-defined input datum|User-defined inputs=]
+* Certain [=built-in functions=] (see [[#uniformity-function-calls]])
+
+The remainder of this section is devoted to a description of this static
+analysis an implementation will perform to validate the WGSL program.
+
+### Terminology and Concepts ### {#uniformity-concepts}
 
 The following definitions are merely informative, trying to give an intuition for what the analysis in the next subsection is computing.
 The analysis is what actually defines these concepts, and when a program is valid or breaks the uniformity rules.
@@ -8617,10 +8637,11 @@ For a given group of invocations:
 - If invocations hold the same value for a local variable at every point where it is live,
     it is said to be a <dfn noexport>uniform variable</dfn>.
 
-### Uniformity analysis overview ### {#uniformity-overview}
+### Uniformity Analysis Overview ### {#uniformity-overview}
 
-Some functions (e.g. barriers and derivatives) are only safe to call in [=uniform control flow=].
-In this section we specify an analysis that verifies that these functions are only called in such a context.
+The remaining subsections specify a static analysis that verifies that
+[[#collective-operations|collective operations]] are only executed in [=uniform
+control flow=].
 
 <div class="note">Note: This analysis has the following desirable properties:
       - Sound (meaning that it rejects every program that would break the uniformity requirements of builtins)
@@ -8629,7 +8650,7 @@ In this section we specify an analysis that verifies that these functions are on
       - If the analysis refuses a program, it provides a straightforward chain of implications that can be used by the user agent to craft a good error message
 </div>
 
-The analysis analyzes each function, verifying that there is a context where it is safe to call this function. It rejects the program as invalid if there is no such context.
+Each function is analyzed, verifying that there is a context where it is safe to call this function. It rejects the program as invalid if there is no such context.
 
 At the same time, it computes metadata about the function to help analyze its callers in turn.
 This means that the call graph must first be built, and functions must be analyzed from the leaves upwards, i.e. from functions that call no function outside the standard library toward the entry point.
@@ -8638,7 +8659,7 @@ There is no risk of being trapped in a cycle, as recurrence is forbidden in the 
 
 Note: another way of saying the same thing is that we do a topological sort of functions ordered by the "is a (possibly indirect) callee of" partial order, and analyze them in that order.
 
-### Analyzing the uniformity requirements of a function ### {#uniformity-function}
+### Analyzing the Uniformity Requirements of a Function ### {#uniformity-function}
 
 Each function is analyzed in two phases.
 
@@ -8931,7 +8952,7 @@ assignment|partial=] assignments depending on the initializer substitutions.
   </xmp>
 </div>
 
-### Uniformity rules for statements ### {#uniformity-statements}
+### Uniformity Rules for Statements ### {#uniformity-statements}
 
 The rules for analyzing statements take as argument both the statement itself and the node corresponding to control flow at the beginning of it (which we'll note "CF" below) and return both of the following:
 
@@ -9076,9 +9097,16 @@ from their respective desugaring translations to [[#loop-statement|loop]] statem
 
 In [[#switch-statement|switch]], a [=default-alone clause=] block is treated exactly like a [=case clause=] with regards to uniformity.
 
-Note: If the set of behaviors (see [[#behaviors]]) for an if, switch, or loop statement is {Next}, this means that we either did not diverge within the statement, or we reconverged, so we pick the node corresponding to control flow at the start of the statement as the node corresponding to control flow at the exit of the statement.
+GPUs are incentivized to minimize the amount of [=uniform control
+flow|non-uniform control flow=]; however, the points at which invocations can
+be said to be uniform varies depending on a number of factors.
+WGSL's static analysis conservatively assumes a return to uniform control flow
+occuring at the end of if, switch and loop statements if the
+[[#behaviors|behavior]] for the statement is {Next}.
+This is modelled in the preceding table as the resulting control flow node
+being the same as input control flow node.
 
-### Uniformity rules for function calls ### {#uniformity-function-calls}
+### Uniformity Rules for Function Calls ### {#uniformity-function-calls}
 
 The most complex rule is for function calls:
 - For each argument, apply the corresponding expression rule, with the control flow at the exit of the previous argument (using the control flow at the beginning of the function call for the first argument). Name the corresponding value nodes "arg_i" and the corresponding control flow nodes "CF_i"
@@ -9107,7 +9135,11 @@ Here is the list of exceptions:
     [=CallSiteNoRestriction=], a [=function tag=] of [=NoRestriction=] and
     the input parameter `p` has a [=parameter tag=] of [=ParameterNoRestriction=]
 
-### Uniformity rules for expressions ### {#uniformity-expressions}
+Note: A WGSL implementation will ensure that if control flow prior to a
+function call is [=uniform control flow|uniform=], it will also be uniform
+after the function call.
+
+### Uniformity Rules for Expressions ### {#uniformity-expressions}
 
 The rules for analyzing expressions take as argument both the expression itself and the node corresponding to control flow at the beginning of it (which we'll note "CF" below) and return the following:
 
@@ -9196,6 +9228,10 @@ The following built-in input variables are considered uniform:
 
 All other ones (see [[#builtin-values]]) are considered non-uniform.
 
+Note: An author should avoid grouping the uniform built-in values together with
+other non-uniform inputs because the analysis does not analyze the [=components=]
+of a [=composite=] type separately.
+
 <table class='data'>
   <caption>Uniformity rules for expressions in lvalue positions</caption>
   <thead>
@@ -9233,7 +9269,7 @@ All other ones (see [[#builtin-values]]) are considered non-uniform.
       <td class="nowrap">*L1* -> *V2*
 </table>
 
-### Annotating the uniformity of every point in the control-flow ### {#uniformity-optional-diagnosis-mode}
+### Annotating the Uniformity of Every Point in the Control-flow ### {#uniformity-optional-diagnosis-mode}
 
 This entire subsection is non-normative.
 
