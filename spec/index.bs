@@ -48,9 +48,13 @@ spec: ECMA-262; urlPrefix: https://tc39.es/ecma262/#
         text: agent; url: agent
         text: surrounding agent; url: surrounding-agent
         text: agent cluster; url: sec-agent-clusters
+        text: ?; url: sec-returnifabrupt-shorthands
+        text: !; url: sec-returnifabrupt-shorthands
+        text: Data Block; url: sec-data-blocks
     type: abstract-op
         text: DetachArrayBuffer; url: sec-detacharraybuffer
         text: AllocateArrayBuffer; url: sec-allocatearraybuffer
+        text: CreateByteDataBlock; url: sec-createbytedatablock
     type: attribute
         for: ArrayBuffer
             text: [[ArrayBufferDetachKey]]; url: sec-properties-of-the-arraybuffer-instances
@@ -1323,6 +1327,9 @@ A [=device=] has the following internal slots:
 
 Any time the user agent needs to revoke access to a device, it calls
 [=lose the device=](device, `undefined`).
+For example, if an operation fails with side effects that would observably
+change the state of objects on the device or potentially corrupt internal
+implementation/driver state, the device should be lost to prevent further access.
 
 <div algorithm>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
@@ -2749,16 +2756,11 @@ enum GPUBufferMapState {
         An <dfn dfn for=>active buffer mapping</dfn> is a structure with the following fields:
 
         <dl dfn-type=dfn dfn-for="active buffer mapping">
-            : <dfn>data</dfn>, of type {{ArrayBuffer}}
+            : <dfn>data</dfn>, of type [=Data Block=]
             ::
-                The mapping for this {{GPUBuffer}}. The {{ArrayBuffer}} isn't directly accessible
-                and is instead accessed through views into it, called the mapped ranges, that are
+                The mapping for this {{GPUBuffer}}. This data is accessed through {{ArrayBuffer}}s
+                which are views onto this data, returned by {{GPUBuffer/getMappedRange()}} and
                 stored in [=active buffer mapping/views=].
-
-                Note: This is just a memory allocation; this {{ArrayBuffer}} object is not exposed directly.
-
-                Issue: Specify {{GPUBuffer/[[mapping]]}} in term of `DataBlock` similarly
-                to [$AllocateArrayBuffer$]?
 
             : <dfn>mode</dfn>, of type {{GPUMapModeFlags}}
             ::
@@ -2774,6 +2776,31 @@ enum GPUBufferMapState {
                 The {{ArrayBuffer}}s returned via {{GPUBuffer/getMappedRange()}} to the application.
                 They are tracked so they can be detached when {{GPUBuffer/unmap()}} is called.
         </dl>
+
+        <div algorithm>
+            To <dfn abstract-op for=>initialize an active buffer mapping</dfn> with mode |mode| and
+            range |range|:
+
+            1. Let |size| be |range|[1] - |range|[0].
+            1. Let |data| be [=?=] [$CreateByteDataBlock$](|size|).
+
+                <div class=note>
+                    Note:
+                    This may result in a {{RangeError}} being thrown.
+                    For consistency and predictability:
+
+                    - For any size at which `new ArrayBuffer()` would succeed at a given moment,
+                        this allocation **should** succeed at that moment.
+                    - For any size at which `new ArrayBuffer()` *deterministically* throws a
+                        {{RangeError}}, this allocation **should** as well.
+                </div>
+
+            1. Return an [=active buffer mapping=] with:
+                - [=active buffer mapping/data=] set to |data|.
+                - [=active buffer mapping/mode=] set to |mode|.
+                - [=active buffer mapping/range=] set to |range|.
+                - [=active buffer mapping/views=] set to `[]`.
+        </div>
 </dl>
 
 <div class=example>
@@ -2947,13 +2974,10 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 1. Let |b| be a new {{GPUBuffer}} object.
                 1. Set |b|.{{GPUBuffer/size}} to |descriptor|.{{GPUBufferDescriptor/size}}.
                 1. Set |b|.{{GPUBuffer/usage}} to |descriptor|.{{GPUBufferDescriptor/usage}}.
-                1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`,
-                    set |b|.{{GPUBuffer/[[mapping]]}} to an [=active buffer mapping=] with:
-                    - [=active buffer mapping/data=] set to a new {{ArrayBuffer}} of size |b|.{{GPUBuffer/size}}.
-                    - [=active buffer mapping/mode=] set to {{GPUMapMode/WRITE}}.
-                    - [=active buffer mapping/range=] set to <code>[0, |descriptor|.{{GPUBufferDescriptor/size}}]</code>.
-                    - [=active buffer mapping/views=] set to `[]`.
-
+                1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
+                    1. Set |b|.{{GPUBuffer/[[mapping]]}} to
+                        [=?=] [$initialize an active buffer mapping$] with mode {{GPUMapMode/WRITE}}
+                        and range <code>[0, |descriptor|.{{GPUBufferDescriptor/size}}]</code>.
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |b|.
             </div>
@@ -2989,7 +3013,13 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
 
                     1. Set |b|.{{GPUBuffer/[[deviceTimelineState]]}} to "[=buffer device timeline state/available=]".
 
-                1. Set each byte of |b|'s allocation to zero.
+                1. Create a device allocation for |b| where each byte is zero.
+
+                    If the allocation fails without side-effects,
+                    (generate an error),
+                    make |b| [=invalid=], and return.
+
+                    Issue(gpuweb/gpuweb#3123): Generate the appropriate error here.
             </div>
         </div>
 </dl>
@@ -3245,13 +3275,15 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                 1. [=Assert=] |this|.{{GPUBuffer/[[pending_map]]}} == |p|.
                 1. [=Assert=] |p| is pending.
                 1. [=Assert=] |deviceTimelineStateAtCompletion| is "[=buffer device timeline state/unavailable=]".
-                1. Let |m| be a new {{ArrayBuffer}} of size |rangeSize|.
-                1. Set the content of |m| to |dataForMappedRegion|.
-                1. Set |this|.{{GPUBuffer/[[mapping]]}} to an [=active buffer mapping=] with:
-                    - [=active buffer mapping/data=] set to |m|.
-                    - [=active buffer mapping/mode=] set to |mode|.
-                    - [=active buffer mapping/range=] set to <code>[|offset|, |offset| + |rangeSize|]</code>.
-                    - [=active buffer mapping/views=] set to `[]`.
+                1. Let |mapping| be [$initialize an active buffer mapping$]
+                    with mode |mode| and range <code>[|offset|, |offset| + |rangeSize|]</code>.
+
+                    If this allocation fails:
+
+                    1. [=Reject=] |p| with a {{RangeError}}.
+                    1. Return.
+                1. Set the content of |mapping|.[=active buffer mapping/data=] to |dataForMappedRegion|.
+                1. Set |this|.{{GPUBuffer/[[mapping]]}} to |mapping|.
                 1. [=Resolve=] |p|.
             </div>
         </div>
@@ -3288,25 +3320,31 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                         - |rangeSize| is a multiple of 4.
                         - |offset| &ge; |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0].
                         - |offset| + |rangeSize| &le; |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][1].
-                        - [|offset|, |offset| + |rangeSize|) does not overlap another range in |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=].
+                        - [|offset|, |offset| + |rangeSize|) does not overlap another range in
+                            |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=].
 
                         Note: It is always valid to get mapped ranges of a {{GPUBuffer}} that is
                         {{GPUBufferDescriptor/mappedAtCreation}}, even if it is [=invalid=], because
                         the [=Content timeline=] might not know it is invalid.
                     </div>
 
-                1. Let |m| be a new {{ArrayBuffer}} of size |rangeSize|, pointing at the content
-                    at offset (|offset| - {{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0])
-                    of |this|.{{GPUBuffer/[[mapping]]}}.
+                1. Let |data| be |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/data=].
 
-                1. Set |m|.{{ArrayBuffer/[[ArrayBufferDetachKey]]}} to "WebGPUBufferMapping".
+                1. Let |view| be [=!=] [=ArrayBuffer/create|create an ArrayBuffer=] of size |rangeSize|,
+                    but with its pointer mutably referencing the content of |data| at offset
+                    (|offset| - {{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0]).
+
+                    Note: A {{RangeError}} may not be thrown here, because the |data| has already
+                    been allocated during {{GPUBuffer/mapAsync()}} or {{GPUDevice/createBuffer()}}.
+
+                1. Set |view|.{{ArrayBuffer/[[ArrayBufferDetachKey]]}} to "WebGPUBufferMapping".
 
                     Note: This causes a {{TypeError}} to be thrown if an attempt is made to
                     [$DetachArrayBuffer$], except by {{GPUBuffer/unmap()}}.
 
-                1. [=list/Append=] |m| to |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=].
+                1. [=list/Append=] |view| to |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=].
 
-                1. Return |m|.
+                1. Return |view|.
 
                 Note: User agents should consider issuing a developer-visible warning if
                 {{GPUBuffer/getMappedRange()}} succeeds without having checked the status of
@@ -3338,7 +3376,8 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     1. For each {{ArrayBuffer}} |ab| in |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=]:
                         1. Perform [$DetachArrayBuffer$](|ab|, "WebGPUBufferMapping").
                     1. If |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/mode=] contains {{GPUMapMode/WRITE}}:
-                        1. Set |updatedBufferContents| to the content of |this|.{{GPUBuffer/[[mapping]]}}.
+                        1. Set |updatedBufferContents| to the content of
+                            |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/data=].
 
                         Note: When a buffer is mapped without the {{GPUMapMode/WRITE}} mode, then
                         unmapped, any local modifications done by the application to the mapped ranges
