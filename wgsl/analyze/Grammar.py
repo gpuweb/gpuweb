@@ -45,6 +45,7 @@ Represent and process a grammar:
 import json
 import functools
 from ObjectRegistry import RegisterableObject, ObjectRegistry
+from collections import defaultdict
 
 EPSILON = u"\u03b5"
 MIDDLE_DOT = u"\u00b7"
@@ -142,10 +143,60 @@ def raiseRE(s):
 #  First(X):  Where X is a Phrase, First(X) is the set over Terminals or Empty that
 #    begin the Phrases that may be derived from X.
 
+class PrintOption:
+    def __init__(self,multi_line_choice=True):
+        self.multi_line_choice = multi_line_choice
+        self.is_canonical = False
+        self.more_newlines = False # Extra newline between rules
+        self.print_terminals = True
+        # Should emission inline rules that were created during canonicalization?
+        # They contain a '/' in their name.
+        self.inline_synthetic = True
+        # Emit Bikeshed source
+        self.bikeshed = False
+
+        def MakeNone():
+            return None
+
+        # Maps 'A' to 'B' when A is of the form:
+        #   A -> gamma | epsilon
+        # Anywhere you want to print 'A', print '(gamma) ?' instead
+        self.replace_with_optional = dict()
+        # Maps 'A' to phrase 'gamma' when A is of the form:
+        #   A -> gamma A | epsilon
+        # Anywhere you want to print 'A', print '(gamma) *' instead
+        self.replace_with_starred = dict()
+        # Maps 'A' to phrase 'gamma' when A is of the form:
+        #   A -> gamma
+        # Anywhere you want to print 'A', print 'gamma' instead
+        # Expect this to be populated where gamma is `X | Y`
+        self.replace_with_nested = dict()
+
+        # Must be a grammar if either .replace_with_optional or .replace_with_starred
+        # are non-empty.
+        self.grammar = None
+
+    def clone(self):
+        result = PrintOption()
+        result.multi_line_choice = self.multi_line_choice
+        result.is_canonical = self.is_canonical
+        result.more_newlines = self.more_newlines
+        result.print_terminals = self.print_terminals
+        result.inline_synthetic = self.inline_synthetic
+        result.bikeshed = self.bikeshed
+        result.replace_with_optional = self.replace_with_optional
+        result.replace_with_starred = self.replace_with_starred
+        result.replace_with_nested = self.replace_with_nested
+        result.grammar = self.grammar
+        return result
+
 class Rule(RegisterableObject):
     def __init__(self,**kwargs):
         super().__init__(**kwargs)
         self.name = self.__class__.__name__
+        self.reset_first_follow()
+
+    def reset_first_follow(self):
         self.first = set()
         self.follow = set()
         self.known_to_derive_empty = False
@@ -162,8 +213,11 @@ class Rule(RegisterableObject):
     def is_terminal(self):
         return isinstance(self, (EndOfText, Token))
 
-    def is_nonterminal(self):
+    def is_container(self):
         return isinstance(self, ContainerRule)
+
+    def as_container(self):
+        return self if self.is_container() else [self]
 
     def is_symbol_name(self):
         return isinstance(self, SymbolName)
@@ -225,6 +279,152 @@ class Rule(RegisterableObject):
         # in the bottom decimal digit.
         assert isinstance(i,int)
         return self.class_id + CLASSES_BUCKET_SIZE * i
+
+    def pretty_str(rule,print_option=PrintOption()):
+        """Returns a pretty string for a node"""
+        if rule.is_terminal() or rule.is_empty():
+            content = str(rule)
+            if print_option.bikeshed:
+                return "`{}`".format(content)
+            return content
+        if rule.is_symbol_name():
+            name = rule.content
+            def with_meta(phrase,metachar,print_option):
+                content = " ".join([x.pretty_str(print_option) for x in phrase])
+                if len(phrase) > 1:
+                    return "( {} ){}".format(content, metachar)
+                return "{} {}".format(content, metachar)
+            if name in print_option.replace_with_starred:
+                phrase = print_option.replace_with_starred[name]
+                return with_meta(phrase,'*',print_option)
+            if name in print_option.replace_with_optional:
+                phrase = print_option.replace_with_optional[name]
+                return with_meta(phrase,'?',print_option)
+            if name in print_option.replace_with_nested:
+                po = print_option.clone()
+                po.multi_line_choice = False
+                content = po.replace_with_nested[name].pretty_str(po)
+                return "( {} )".format(content)
+            if print_option.inline_synthetic and name.find("/") >=0:
+                po = print_option.clone()
+                po.multi_line_choice = False
+                content = po.grammar.rules[name].pretty_str(po)
+                return "( {} )".format(content)
+
+            # Print ourselves
+            if print_option.bikeshed:
+                context = 'recursive descent syntax'
+                if print_option.grammar.rules[name].is_token():
+                    context = 'syntax'
+                return "[={}/{}=]".format(context,name)
+            return name
+        if isinstance(rule,Choice):
+            parts = [i.pretty_str(print_option) for i in rule]
+            if print_option.multi_line_choice:
+                parts.sort()
+
+            if print_option.multi_line_choice:
+                if print_option.bikeshed:
+                    nl = "\n\n"
+                    prefixer = "\n | "
+                else:
+                    nl = "\n"
+                    prefixer = "\n   "
+            else:
+                nl = ""
+                prefixer = ""
+            joiner = nl + " | "
+            inside = prefixer + joiner.join([p for p in parts])
+            if print_option.is_canonical:
+                return inside
+            else:
+                # If it's not canonical, then it can have nesting.
+                return "(" + inside + nl + ")"
+        if isinstance(rule,Seq):
+            return " ".join([i.pretty_str(print_option) for i in rule])
+        if isinstance(rule,Repeat1):
+            return "( " + "".join([i.pretty_str(print_option) for i in rule]) + " )+"
+        raise RuntimeError("unexpected node: {}".format(str(rule)))
+
+    def partition(self,rule_name):
+        """
+        Partitions a rule into four lists:
+            Sequences that start with nonterminal rule_name
+            Sequences that start with nonterminal other than rule_name
+            Sequences that start with terminal
+            Empty
+        """
+        start_with_rule = []
+        start_with_other_rule = []
+        start_with_terminal = []
+        empties = []
+        #print("partitioning {}".format(" ".join([str(x) for x in rule.as_container()])))
+        for x in self.as_container():
+            first = x.as_container()[0]
+            if first.is_symbol_name():
+                #print( "    first.content |{}| vs |{}|".format(first.content,rule_name))
+                if first.content == rule_name:
+                    start_with_rule.append(x)
+                else:
+                    start_with_other_rule.append(x)
+            else:
+                if x.is_terminal():
+                    start_with_terminal.append(x)
+                else:
+                    empties.append(x)
+        return (start_with_rule, start_with_other_rule, start_with_terminal, empties)
+
+    def partition_epsilon(self):
+        non_empties = []
+        empties = []
+        for x in self.as_container():
+            if x.is_empty():
+                empties.append(x)
+            else:
+                non_empties.append(x)
+        return (non_empties,empties)
+
+    def as_starred(self, name):
+        """
+        Returns whether this rule is equivalent to:
+
+            A -> (alpha1 ... alphaN)*
+
+        That is, if the rule is of the form:
+
+            A -> alpha1 ... alphaN A | epsilon
+
+        then return [ alpha1 ... alphaN ]
+        Otherwise return None
+        """
+        (nonempties,empties) = self.partition_epsilon()
+        if len(nonempties)==1 and len(empties)==1:
+            # Looks like:   A -> alpha | empty
+            phrase = nonempties[0].as_container()
+            last = phrase[-1]
+            if last.is_symbol_name() and last.content == name:
+                # Looks like:   A -> alpha A | empty
+                return phrase[0:-1]
+        return None
+
+    def as_optional(self):
+        """
+        Returns whether this rule is equivalent to:
+
+            A -> (alpha1 ... alphaN)?
+
+        That is, if the rule is of the form:
+
+            A -> alpha1 ... alphaN | epsilon
+
+        then return [ alpha1 ... alphaN ]
+        Otherwise return None
+        """
+        (nonempties,empties) = self.partition_epsilon()
+        if len(nonempties)==1 and len(empties)==1:
+            # Looks like:   A -> alpha | empty
+            return nonempties[0].as_container()
+        return None
 
 
 class ContainerRule(Rule):
@@ -408,7 +608,7 @@ class Shift(Action):
 
 class Reduce(Action):
     """
-    A Reduce is an parser reduction action.
+    A Reduce is an LR parser reduction action.
 
     It represents the event where:
     - the parser has just recognized the full right hand side of some production
@@ -417,7 +617,7 @@ class Reduce(Action):
        - remove the top len(alpha) symbols and state IDs on its stack
        - match those len(alpha) symbols to the symbols in alpha
        - read the state id S on top of the stack, and push onto the stack:
-           nonterminal N, and 
+           nonterminal N, and
            goto[S, N] as the next state ID
     """
     def __init__(self,item,index):
@@ -456,6 +656,40 @@ class Conflict:
 
     def __str__(self):
         return "[#{} {}] {} vs. {}".format(self.item_set.core_index,str(self.terminal),self.prev_action.pretty_str(),self.action.pretty_str())
+
+class LLReduce:
+    """
+    An LLReduce is an LL parser reduction action.
+
+    It represents an event where the
+    - the parser should, where the production is [ A -> rhs ]:
+       - remove the top len(rhs) symbols on its stack
+       - match those len(rhs) symbols to the symbols in rhs
+       - place A on the stack
+    """
+    def __init__(self,A,rhs):
+        """
+        Args:
+            A: a string naming the nonterminal
+            rhs: a Rule
+        """
+        isinstance(A,str) or raiseRE("expected nonterminal name as a string")
+        isinstance(rhs,Rule) or raiseRE("expected rule")
+        self.A = A
+        self.rhs = rhs
+
+        po = PrintOption()
+        po.is_canonical = True
+        po.inline_synthetic = False
+        self.print_option = po
+
+    def __str__(self):
+        if isinstance(self.rhs,Rule):
+            return "{} -> {}".format(self.A,self.rhs.pretty_str(self.print_option))
+        return "{} -> {}".format(self.A,str(self.rhs))
+
+    def pretty_str(self,options=PrintOption()):
+        return "{} -> {}".format(self.A,self.rhs.pretty_str(options))
 
 @functools.total_ordering
 class Item(RegisterableObject):
@@ -758,6 +992,8 @@ def canonicalize_grammar(grammar,empty):
                         if made_a_new_seq_part:
                             parts.append(grammar.MakeSeq(seq_parts))
                             made_a_new_one = True
+                        else:
+                            parts.append(item)
                 if made_a_new_one:
                     rhs = grammar.MakeChoice(parts)
                     result[key] = rhs
@@ -767,7 +1003,6 @@ def canonicalize_grammar(grammar,empty):
 
     return result
 
-
 def compute_first_sets(grammar,rules):
     """
     Computes the First set for each node in the grammar.
@@ -776,6 +1011,7 @@ def compute_first_sets(grammar,rules):
     Args:
         rules: a GrammarDict in Canonical Form
     """
+    grammar.reset_first_follow()
 
     names_of_non_terminals = []
     grammar.end_of_text.first = set({grammar.end_of_text})
@@ -871,6 +1107,11 @@ def without_empty(s):
     """
     return {i for i in s if not i.is_empty()}
 
+def list_without_empty(L):
+    """
+    Returns a copy of list s without Empty
+    """
+    return [i for i in L if not i.is_empty()]
 
 def derives_empty(rules,phrase):
     """
@@ -990,6 +1231,7 @@ def compute_follow_sets(grammar):
 
 def dump_rule(key,rule):
     print("{}  -> {}".format(key,str(rule)))
+    print("{} .reg_info.index: {}".format(key, str(rule.reg_info.index)))
     print("{} .first: {}".format(key, [str(i) for i in rule.first]))
     print("{} .derives_empty: {}".format(key, str(rule.derives_empty())))
     print("{} .follow: {}".format(key, [str(i) for i in rule.follow]))
@@ -1336,7 +1578,7 @@ class ItemSet:
                 next_item = grammar.MakeItem(item.lhs, item.rule, item.position+1)
                 edge.add(item,next_item,LookaheadSet(self.id_to_lookahead[item_id]))
             changed_initial = True
-            
+
         # The first time around, construct the destination item sets for each edge.
         # On subsequent rounds, propagate lookaheads from our own ItemSet to next item sets.
         goto_list = []
@@ -1539,8 +1781,7 @@ class Grammar:
         # Augment the grammar:
         self.rules[LANGUAGE] = self.MakeSeq([self.MakeSymbolName(start_symbol), self.end_of_text])
 
-        # This is reset during canonicalization
-        self.pretty_str_requires_parens = True
+        self.is_canonical = False # Updated during canonicalization
 
     def MakeEmpty(self):
         return self.empty
@@ -1604,7 +1845,11 @@ class Grammar:
         Rewrites this Grammar's rules so they are in Canonical Form.
         """
         self.rules = canonicalize_grammar(self,self.empty)
-        self.pretty_str_requires_parens = False
+        self.is_canonical = True
+
+    def reset_first_follow(self):
+        for _, rule in self.rules.items():
+            rule.reset_first_follow()
 
     def compute_first(self):
         """
@@ -1627,35 +1872,71 @@ class Grammar:
         dump_grammar(self.rules)
         print(self.registry)
 
-    def pretty_str(self):
+    def pretty_str(self,print_option=PrintOption()):
         """
         Returns a pretty string form of the grammar.
         It's still in canonical form: nonterminals are at most a choice over
         a sequence of leaves.
         """
-        def pretty_str(rule):
-            """Returns a pretty string for a node"""
-            if rule.is_terminal() or rule.is_empty():
-                return str(rule)
-            if rule.is_symbol_name():
-                return rule.content
-            if isinstance(rule,Choice):
-                parts = [pretty_str(i) for i in rule]
-                inside = " | ".join([pretty_str(i) for i in rule])
-                if self.pretty_str_requires_parens:
-                    return "(\n   " + "\n | ".join([p for p in parts]) + "\n)"
-                else:
-                    return " | ".join([p for p in parts])
-            if isinstance(rule,Seq):
-                return " ".join([pretty_str(i) for i in rule])
-            if isinstance(rule,Repeat1):
-                return "( " + "".join([pretty_str(i) for i in rule]) + " )+"
-            raise RuntimeError("unexpected node: {}".format(str(rule)))
+
+        po = print_option.clone()
+        po.is_canonical = self.is_canonical
+        po.grammar = self
+
+        token_rules = set()
+
+        for name, rule in self.rules.items():
+            # Star-able is also optional-abl, so starrable must come first.
+            starred_phrase = rule.as_starred(name)
+            if starred_phrase is not None:
+                po.replace_with_starred[name] = starred_phrase
+                continue
+            optional_phrase = rule.as_optional()
+            if optional_phrase is not None:
+                po.replace_with_optional[name] = optional_phrase
+                continue
+            options = rule.as_container()
+            if len(options)==1:
+                phrase = options[0].as_container()
+                if len(phrase)==1 and phrase[0].is_token():
+                    token_rules.add(name)
+
+        for name, rule in self.rules.items():
+            # We only care about rules generated during canonicalization
+            if name.find('.') > 0 or name.find('/') > 0:
+                options = rule.as_container()
+                if len(options) != 2:
+                    continue
+                if any([len(x.as_container())!=1 for x in options]):
+                    continue
+                if any([(not x.as_container()[0].is_symbol_name()) for x in options]):
+                    continue
+                # Rule looks like   A -> X | Y
+                po.replace_with_nested[name] = rule
 
         parts = []
         for key in sorted(self.rules):
-            parts.append("{}: {}\n".format(key,pretty_str(self.rules[key])))
-        return "".join(parts)
+            if key == LANGUAGE:
+                # This is synthetic, for analysis
+                continue
+            rule_content = self.rules[key].pretty_str(po)
+            if key in po.replace_with_optional:
+                continue
+            if key in po.replace_with_starred:
+                continue
+            if key in po.replace_with_nested:
+                continue
+            if (not po.print_terminals) and (key in token_rules):
+                continue
+            space = "" if po.multi_line_choice else " "
+            if po.bikeshed:
+                key_content = "  <dfn for='recursive descent syntax'>{}</dfn>".format(key)
+                content = "<div class='syntax' noexport='true'>\n{}:\n{}\n</div>".format(key_content,rule_content)
+            else:
+                content = "{}:{}{}".format(key,space,rule_content)
+            parts.append(content)
+        content = ("\n\n" if po.more_newlines else "\n").join(parts)
+        return content
 
     def register_item_set(self,item_set):
         """
@@ -1688,6 +1969,734 @@ class Grammar:
         """Returns a unique integer for the string"""
         return self.registry.register_string(string)
 
+    def preorder(self):
+        """
+        Returns the names of rules, in order, based on the preorder traversal
+        starting from the LANGUAGE start node.
+
+        Assumes the grammar is in canonical form
+        """
+        assert self.is_canonical
+        # Names of visited nodes
+        visited = set()
+        # Names of nodes to visit
+        worklist = [LANGUAGE]
+
+        result = []
+        while len(worklist) > 0:
+            successors = []
+            for rule_name in worklist:
+                if rule_name in visited:
+                    continue
+                result.append(rule_name)
+                visited.add(rule_name)
+
+                rule = self.rules[rule_name].as_container()
+                for rhs in rule:
+                    phrase = rhs.as_container()
+                    # Note: this tolerates duplicates among siblings.
+                    successors.extend([x.content for x in phrase if x.is_symbol_name() and x.content not in visited])
+            worklist = successors
+        return result
+
+    def eliminate_left_recursion(self,stop_at_set):
+        """
+        Algorithm 4.1 from the Dragon Book.
+
+        Assume the grammar has no cycles. A cycle exists if there is a rule
+            X ->+ X
+
+        Adapted to handle epsilon rules.
+
+        Algorithm (but avoiding updating rules in stop_at_set)
+        1. Arrange the nonterminals into a defined ordering A1 ... An
+        2. Break self-cycles in the first position via more than one step.
+           for i = 1 to n:
+              for j = 1 to i-1:
+                 # Break backedges from Ai to Aj:
+                 replace production of the form Ai -> Aj gamma
+                 by productions   Ai -> delta1 gamma | delta2 gamma | ... | deltaK gamma
+                 where   Aj -> delta1 | delta2 | ... | deltaK
+                 are all the current Aj productions
+        3. Eliminate immediate left recursion
+        """
+        assert self.is_canonical
+
+        # Determine a definite ordering of the rules.
+        # Use a DFS so we only have essential backedges.
+        preorder_names = self.preorder()
+        preorder_index = dict()
+        for name in preorder_names:
+            preorder_index[name] = len(preorder_index)
+
+        # Break self-cycles via more than one step
+        for i in range(1,len(preorder_names)):
+            rule_name = preorder_names[i]
+            if rule_name in stop_at_set:
+                continue
+            rule = self.rules[rule_name]
+            replacement = []
+            changed = False
+            for rhs in rule.as_container():
+                phrase = rhs.as_container()
+                first = phrase[0]
+                rest = phrase[1:]
+                if first.is_symbol_name():
+                    first_name = first.content
+                    j = preorder_index[first_name]
+                    if (j < i) and (first_name not in stop_at_set):
+                        # Break this backedge
+                        Aj = self.rules[first_name].as_container()
+                        if len(rest) == 0:
+                            # Add Aj's alternatives to  Ai's alternatives.
+                            # Aj is a choice node
+                            # The elements of Aj are already of suitable class.
+                            replacement.extend([delta for delta in Aj])
+                        else:
+                            # Rest is non-empty
+                            for delta in Aj:
+                                replacement.append(self.MakeSeq(list_without_empty(delta.as_container()) + rest))
+                        changed = True
+                    else:
+                        # Pass it through. It's not a backedge, or we've been
+                        # asked to stop here.
+                        replacement.append(rhs)
+                else:
+                    # First thing is not a symbol name. Pass it through
+                    replacement.append(rhs)
+            if changed:
+                # Update with the new rule.
+                self.rules[rule_name] = self.MakeChoice(replacement)
+
+        # Finally, eliminate immediate left recursion.
+        self.eliminate_immediate_recursion(self)
+
+
+    def eliminate_immediate_recursion(self):
+        """
+        Algorithm 4.1 from the Dragon Book.
+
+        Assume the grammar has no cycles. A cycle exists if there is a rule
+            X ->+ X
+
+        Adapted to handle epsilon rules.
+        """
+        assert self.is_canonical
+        # Eliminate immediate left recursion
+        #    Replace rules
+        #            A -> A alpha1 | A alpha2 | beta1 | beta2
+        #    with
+        #            A -> beta1 A' | beta2 A'
+        #            A' -> alpha1 A' | alpha2 A' | epsilon
+        #
+        #    When A can produce epsilon directly:
+        #            A -> A alpha1 | A alpha2 | beta1 | beta2 | epsilon
+        #    with
+        #            A -> beta1 A' | beta2 A' | A'
+        #            A' -> alpha1 A' | alpha2 A' | epsilon
+        preorder_names = self.preorder()
+        for rule_name in preorder_names:
+            rule = self.rules[rule_name]
+            changed = False
+            has_immediate_left_recursion =  False
+            for rhs in rule.as_container():
+                first = rhs.as_container()[0]
+                if first.is_symbol_name() and first.content is rule_name:
+                    has_immediate_left_recursion = True
+                    break
+            if has_immediate_left_recursion:
+                self_parts = []  # Becomes new right-hand-side for A
+                rest_name = "{}.rest".format(rule_name)
+                assert rest_name not in self.rules
+                rest_parts = []  # Becomes new right-hand-side for A'
+                for rhs in rule.as_container():
+                    phrase = rhs.as_container()
+                    first = phrase[0]
+                    rest = phrase[1:]
+                    if first.is_symbol_name() and first.content is rule_name:
+                        rest_parts.append(self.MakeSeq(rest + [self.MakeSymbolName(rest_name)]))
+                    else:
+                        # TODO: use list_without_empty to shorten this
+                        if len(phrase) > 0 and phrase[0].is_empty():
+                            # beta is epsilon
+                            assert len(phrase) == 1
+                            self_parts.append( self.MakeSymbolName(rest_name) )
+                        else:
+                            self_parts.append( self.MakeSeq([x for x in phrase] + [self.MakeSymbolName(rest_name)]) )
+                rest_parts.append(self.MakeEmpty())
+                self.rules[rule_name] = self.MakeChoice(self_parts)
+                self.rules[rest_name] = self.MakeChoice(rest_parts)
+
+
+    def left_refactor(self,target_rule_name,stop_at_set):
+        """
+        Refactor the grammar, shifting uses of 'target_rule_name' in the first
+        position out to the invoking context.
+
+        That is, when 'target_rule_name' names nonterminal X,
+        and 'A' is not in 'stop_at_set',
+        and when:
+
+            A -> X alpha1 | ... | X alphaN
+            B -> A beta1 | A beta2 | gamma
+
+        where no options in gamma begins with A.
+
+        Then create/update rules:
+
+            A.post.X -> alpha1 | ... | alphaN
+            B -> X A.post.X beta1 | X A.post.X beta2 | gamma
+
+        Repeat until settling.
+
+        Remove unreachable rules.
+        """
+        name_suffix = ".post.{}".format(target_rule_name)
+
+        # Map a rule name X to a set of rules Y where X appears
+        # as a first nonterminal in one of Y's options.
+        appears_first_in = defaultdict(set)
+        for name, rule in self.rules.items():
+            for option in rule.as_container():
+                first = option.as_container()[0]
+                if first.is_symbol_name():
+                    appears_first_in[first.content].add(name)
+        #print("appears first dict\n{}\n\n".format(appears_first_in))
+
+        po = PrintOption()
+        po.is_canonical = self.is_canonical
+        po.inline_synthetic = False
+        candidates = set(self.rules.keys())
+        while len(candidates) > 0:
+            for A in list(candidates):
+                candidates.remove(A)
+                if A in stop_at_set:
+                    continue
+                rule = self.rules[A]
+                (starts,others,terms,empties) = rule.partition(target_rule_name)
+                if len(starts) > 0 and (len(others)+len(terms)+len(empties) == 0):
+                    #print("processing {}".format(A))
+                    # Create the new rule.
+                    new_rule_name = "{}{}".format(A,name_suffix)
+                    # Form alpha1 ... alphaN
+                    new_options = []
+                    for option in rule:
+                        if len(option.as_container()) == 1:
+                            new_options.append(self.MakeEmpty())
+                        else:
+                            assert option.is_container() and (len(option)>1)
+                            new_options.append(self.MakeSeq(option[1:]))
+                    self.rules[new_rule_name] = self.MakeChoice(new_options)
+
+                    # Rewrite A itself.
+                    self_parts = [self.MakeSymbolName(x) for x in [target_rule_name,new_rule_name]]
+                    self.rules[A] = self.MakeChoice([self.MakeSeq(self_parts)])
+
+                    # Update bookkeeping for appears_first_in
+                    for option in new_options:
+                        first = option.as_container()[0]
+                        if first.is_symbol_name():
+                            appears_first_in[first.content].add(new_rule_name)
+
+                    # Replace the old rule everywhere it appears in the first
+                    # position
+                    for parent_name in list(appears_first_in[A]):
+                        if parent_name == A:
+                            # Already processed above
+                            continue
+                        parent = self.rules[parent_name]
+                        (starts,others,terms,empties) = parent.partition(A)
+                        new_options = []
+                        for option in starts:
+                            parts = []
+                            parts.append(self.MakeSymbolName(target_rule_name))
+                            parts.append(self.MakeSymbolName(new_rule_name))
+                            parts.extend(option.as_container()[1:])
+                            new_options.append(self.MakeSeq(parts))
+                        new_options.extend(others+terms+empties)
+                        self.rules[parent_name] = self.MakeChoice(new_options)
+                        appears_first_in[A].remove(parent_name)
+                        appears_first_in[target_rule_name].add(parent_name)
+                        # Set up transitive closure.
+                        candidates.add(parent_name)
+
+                    #print()
+            #print()
+        #print()
+
+        #self.absorb_post(target_rule_name)
+        self.remove_unused_rules()
+
+
+
+    def left_absorb_post(self,target_rule_name):
+        # Look for opportunities to reabsorb.
+        #
+        # If we have a rule like:
+        #
+        #   B -> X A.post.X beta1 | ... | X A.post.X beta2
+        # where B is not A
+        #
+        # Then replace it with:
+        #
+        #   B -> A beta1 | ... | A beta2
+        #
+        name_suffix = ".post.{}".format(target_rule_name)
+        for name, rule in self.rules.items():
+            (starts,others,terms,empties) = rule.partition(target_rule_name)
+            # Each options must start with X
+            if len(others) + len(terms) + len(empties) > 0:
+                continue
+            assert len(starts) > 0
+            # Each option must have at least two symbols
+            if any([len(option.as_container()) < 2 for option in starts]):
+                continue
+            # The second element must be the same across all options
+            if len(set([option.as_container()[1].reg_info.index for option in starts])) > 1:
+                continue
+            common = starts[0].as_container()[1]
+            if not common.is_symbol_name() or common.content.find(name_suffix) < 0:
+                continue
+            # Find the 'A' as in 'A.post.X'
+            replace_with_name = common.content[0:common.content.find(name_suffix)]
+            if replace_with_name == name:
+                # Don't create a left-recursion
+                continue
+            replace_with = self.MakeSymbolName(replace_with_name)
+            # Rewrite the rule
+            parts = []
+            for option in starts:
+                parts.append(self.MakeSeq([replace_with] + option[2:]))
+            self.rules[name] = self.MakeChoice(parts)
+        self.remove_unused_rules()
+
+
+    def remove_unused_rules(self):
+        reachable = set(self.preorder())
+        for name in list(self.rules.keys()):
+            if name not in reachable:
+                del self.rules[name]
+
+    def epsilon_refactor(self):
+        """
+        Inline the following kinds of cases:
+
+        When this occurs:
+
+            A ->  B | epsilon
+            B ->  beta1 | beta2 | epsilon
+
+        Then replace A by B in all rules.
+        """
+
+        has_empty = set()
+        # Map a rule name to the rule name it should be replaced by.
+        replacement = dict()
+
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A]
+            (non_empties,empties) = A_rule.partition_epsilon()
+            if len(empties) > 0:
+                has_empty.add(A)
+                # We've visited descendants already. See if this is an inlining case.
+                if len(non_empties) == 1:
+                    # Does it look like 'B'?
+                    option = non_empties[0].as_container()
+                    if len(option) == 1:
+                        first = option[0]
+                        if first.is_symbol_name() and first.content in has_empty:
+                            replacement[A] = first.content
+                            #print("  replacing {} with {}".format(A,first.content))
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule.as_container():
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.append(self.MakeSymbolName(replacement[x.content]))
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
+    def dedup_rhs(self,inline_stop=set(),verbose=False):
+        """
+        If two nonterminals have the same right hand side, combine them.
+
+        Don't combine any rules named in inline_stop.
+        """
+
+        # Map an object index to the nonterminal that first defines it.
+        index_to_name = dict()
+        # Map a rule name to the rule name it should be replaced by.
+        replacement = dict()
+
+        def process_replacement(grammar,name,replacement_dict):
+            # Update this rule with any scheduled replacements.
+            rule = self.rules[name]
+            changed_rule = False
+            new_options = []
+            for option in rule.as_container():
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.append(self.MakeSymbolName(replacement[x.content]))
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[name] = self.MakeChoice(new_options)
+
+        for A in reversed(self.preorder()):
+            if A not in inline_stop:
+                A_rule = self.rules[A]
+                A_index = A_rule.reg_info.index
+                if verbose:
+                    print("   {} {} ".format(A,A_index))
+                if A_index in index_to_name:
+                    if verbose:
+                        print("Replace {} with {}".format(A,index_to_name[A_index]))
+                    replacement[A] = index_to_name[A_index]
+                else:
+                    index_to_name[A_index] = A
+            process_replacement(self,A,replacement)
+
+
+        for A in self.preorder():
+            process_replacement(self,A,replacement)
+
+        self.remove_unused_rules()
+
+    def inline_single_choice_with_nonterminal(self,excepting_set=set()):
+        """
+        Inline a rule when it only has one option, and at least one of the
+        symbols is a symbol name.
+
+        Don't inline any symbol named by excepting_set.
+        """
+
+        # Map a rule name to the phrase it should be replaced with.
+        replacement = dict()
+
+        # Needed for computing follow sets
+        excepting_set = set(excepting_set) | {self.start_symbol}
+
+        # Process descendants first
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A].as_container()
+            if (len(A_rule) == 1) and (A not in excepting_set):
+                # There is only one option in the choice
+                rhs = A_rule[0].as_container()
+                # Skip inlining token definitions.
+                if any([x.is_symbol_name() for x in rhs]):
+                    replacement[A] = rhs
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule:
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.extend(replacement[x.content])
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
+    def inline_single_starrable(self):
+        """
+        Inline a rule when it only has one option, and its content starrable.
+
+            A -> B
+            B -> beta B | epsilon
+
+        Replace A by B
+        """
+
+        # Map a rule name to the phrase it should be replaced with.
+        replacement = dict()
+
+        # Process descendants first
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A].as_container()
+            if len(A_rule) == 1:
+                option = A_rule[0].as_container()
+                if len(option) == 1:
+                    first = option[0]
+                    if first.is_symbol_name():
+                        first_name = first.content
+                        if self.rules[first_name].as_starred(first_name) is not None:
+                            replacement[A] = [first]
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule:
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.extend(replacement[x.content])
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
+    def inline_specific(self,specific_set):
+        """
+        Inline a set of rules. They must have only one option in the choice.
+        """
+
+        # Map a rule name to the phrase it should be replaced with.
+        replacement = dict()
+
+        # Process descendants first
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A].as_container()
+            if A in specific_set:
+                assert(len(A_rule)==1)
+                replacement[A] = A_rule.as_container()[0].as_container()
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule:
+                changed_parts = False
+                parts = []
+                for x in option.as_container():
+                    if x.is_symbol_name() and x.content in replacement:
+                        parts.extend(replacement[x.content])
+                        changed_parts = True
+                        changed_rule = True
+                    else:
+                        parts.append(x)
+                new_options.append(self.MakeSeq(parts) if changed_parts else option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
+    def inline_when_toplevel_prefix(self,specific_set):
+        """
+        When:
+
+          'A' is in specific_set, and
+
+            A -> alpha1 | alpha2
+
+          'A' appears first as a choice in another rule:
+
+            B -> A beta | others...
+
+          Inline A into B:
+
+            B -> alpha1 beta | alpha2 beta | others...
+
+        """
+
+        # Map a rule name to the phrase it should be replaced with.
+        replacement = dict()
+
+        # Process descendants first
+        for A in reversed(self.preorder()):
+            A_rule = self.rules[A].as_container()
+            if A in specific_set:
+                replacement[A] = A_rule
+
+            # Update this rule with any scheduled replacements.
+            changed_rule = False
+            new_options = []
+            for option in A_rule:
+                option_parts = option.as_container()
+                first = option_parts[0]
+                if first.is_symbol_name() and first.content in replacement:
+                    for repl_option in replacement[first.content]:
+                        parts = [x for x in repl_option.as_container()]
+                        parts = parts + option_parts[1:]
+                        new_options.append(self.MakeSeq(parts))
+                    changed_rule = True
+                else:
+                    new_options.append(option)
+            if changed_rule:
+                self.rules[A] = self.MakeChoice(new_options)
+
+        self.remove_unused_rules()
+
+    def refactor_post(self,post_name):
+        """
+        If there are rules
+            X -> ...
+            X.post.POST
+
+        Then set
+            X -> POST X.post.POST
+        """
+        for name in list(self.rules):
+            related_post = "{}.post.{}".format(name,post_name)
+            if related_post in self.rules:
+                parts = [self.MakeSymbolName(x) for x in [post_name, related_post]]
+                self.rules[name] = self.MakeChoice([self.MakeSeq(parts)])
+
+
+    def hoist_until(self,target_rule_name,stop_at_set):
+        """
+        Hoists the rules for a a nonterminal into its ancestors.
+
+        When target_rule_name holds the name for nonterminal X, and
+        there is a rule:
+
+            A -> X alpha1 | B alpha2 | rest
+            B -> beta1 | beta2
+
+        and 'B' is a nonterminal that is not X,
+        and 'A' is not in stop_at_set,
+
+        Then replace A with:
+
+            A -> X alpha1 | beta1 alpha2 | beta2 alpha2 | rest
+
+        Repeat until settling.
+        Eventually all options in A will start with X:
+
+            A -> X alpha1 | X ...1 | X ...2 | rest
+
+        The target_rule_name must be chosen to avoid infinite replacement.
+        """
+        assert self.is_canonical
+
+
+        def expand_first(grammar,rule):
+            """
+                When rule is
+                    Seq(A rest)
+                and A -> A1 | ... | An
+                Return [ A1 rest | ... | An rest ]
+
+                If Ai is epsilon, then its corresponding term is just 'rest'
+            """
+            result = []
+            # Hoist the rule for 'other' nonterminal.
+            phrase = rule.as_container()
+            first = phrase[0]
+            assert first.is_symbol_name() and (first.content != target_rule_name)
+            #print("  elaborating rule for {} ".format(first.content))
+            rest = phrase[1:]
+            other_rule = self.rules[first.content]
+            for other_rhs in other_rule.as_container():
+                result.append(grammar.MakeSeq(list_without_empty(other_rhs.as_container()) + rest))
+            return result
+
+
+        # Process in reverse order to reduce duplication.
+        order_of_attack = list(reversed(self.preorder()))
+        keep_going = True
+        ancestors = set()
+        while keep_going:
+            keep_going = False
+            #print("hoisting worklist: {}".format(" ".join(order_of_attack)))
+
+            for candidate_rule_name in order_of_attack:
+                rule = self.rules[candidate_rule_name]
+                #print("consider {}".format(candidate_rule_name))
+                (with_target_rule_name,other_rules,term,empty) = rule.partition(target_rule_name)
+                #print("  {}   {}  {}  {}".format(len(with_target_rule_name),len(other_rules),len(term), len(empty)))
+                if len(with_target_rule_name) > 0 and len(other_rules) > 0:
+                    #print("  need to hoist")
+                    # Need to hoist
+                    replacement = with_target_rule_name
+                    for other in other_rules:
+                        replacement.extend(expand_first(self,other))
+                    replacement.extend(term)
+                    replacement.extend(empty)
+                    self.rules[candidate_rule_name] = self.MakeChoice(replacement)
+                    #print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
+                    keep_going = True
+                    if candidate_rule_name not in stop_at_set:
+                        ancestors.add(candidate_rule_name)
+
+            for candidate_rule_name in order_of_attack:
+                for ancestor in ancestors:
+                    rule = self.rules[candidate_rule_name]
+                    (with_ancestor,other_rules,term,empty) = rule.partition(ancestor)
+                    #print("  {}   {}  {}  {}".format(len(with_ancestor),len(other_rules),len(term), len(empty)))
+                    if len(with_ancestor) > 0:
+                        #print("    expanding ancestor {}".format(ancestor))
+                        replacement = []
+                        for a_rule in with_ancestor:
+                            replacement.extend(expand_first(self,a_rule))
+                        replacement.extend(other_rules)
+                        replacement.extend(term)
+                        replacement.extend(empty)
+                        self.rules[candidate_rule_name] = self.MakeChoice(replacement)
+                        #print("setting {} to {}".format(candidate_rule_name,str(self.rules[candidate_rule_name])))
+                        keep_going = True
+
+    def rotate_one_or_mores(self):
+        """
+        When a rule looks like:
+
+            A -> prefix (a1 ... aN)* a1 ... aN suffix
+
+        then rewrite it as:
+
+            A -> prefix a1 ... aN (a1 ... aN)* suffix
+        """
+
+        for name in self.rules:
+            changed_rule = False
+            new_options = []
+            for raw_option in [x for x in self.rules[name].as_container()]:
+                option = raw_option.as_container()
+                keep_going = True
+                while keep_going:
+                    keep_going = False
+                    # See if we can rotate option[pivot] with what follows it.
+                    for ipivot in range(0,len(option)-1):
+                        (prefix,pivot,rest) = (option[0:ipivot],option[ipivot],option[ipivot+1:])
+                        if pivot.is_symbol_name():
+                            pivot_as_starred = self.rules[pivot.content].as_starred(pivot.content)
+                            if pivot_as_starred is None:
+                                continue
+                            rest_prefix = rest[0:len(pivot_as_starred)]
+                            rest_tail = rest[len(pivot_as_starred):]
+                            # Compare keys
+                            pivot_keys = [x.reg_info.index for x in pivot_as_starred]
+                            rest_prefix_keys = [x.reg_info.index for x in rest_prefix]
+                            if pivot_keys == rest_prefix_keys:
+                                # Rotate
+                                option = self.MakeSeq(prefix + rest_prefix + [pivot] + rest_tail)
+                                changed_rule = True
+                                keep_going = True
+                                #print("  rotated")
+                                break
+                new_options.append(option)
+            if changed_rule:
+                self.rules[name] = self.MakeChoice(new_options)
+
+
     def LL1(self):
         """
         Constructs an LL(1) parser table and associated conflicts (if any).
@@ -1699,7 +2708,7 @@ class Grammar:
         Returns: a 2-tuple:
             an LL(1) parser table
                 Key is tuple (lhs,rhs) where lhs is the name of the nonterminal
-                and rhs is the Rule for the right-hands side being reduced:
+                and rhs is the Rule for the right-hand side being reduced:
                 It may be a SymbolName, a Token, or a Sequence of Symbols and Tokens
             a list of conflicts
         """
@@ -1716,21 +2725,22 @@ class Grammar:
                 table[action_key] = action
 
         for lhs, rule in self.rules.items():
-            if rule.is_nonterminal():
-                # Top-level terminals are Choice nodes.
+            if rule.is_container():
+                # Top-level rules are Choice nodes.
                 if not isinstance(rule,Choice):
-                    raise RuntimeException("expected Choice node for "+
+                    raise RuntimeError("expected Choice node for "+
                        +"'{}' rule, got: {}".format(lhs,rule))
-                # For each terminal A -> alpha,
+                # For each rule A -> alpha,
                 for rhs in rule:
-                    # For each terminal x in First(alpha), add
-                    # A -> alpha to M[A,x]
-                    phrase = rhs if rhs.is_nonterminal() else [rhs]
-                    for x in first(self,phrase):
+                    for x in first(self,rhs.as_container()):
                         if x.is_empty():
+                            # Add A -> alpha to M[A,b] for each terminal
+                            # b in Follow(A)
                             for f in rule.follow:
                                 add(lhs,f,LLReduce(lhs,rhs))
                         else:
+                            # For each terminal x in First(alpha), add
+                            # A -> alpha to M[A,x]
                             add(lhs,x,LLReduce(lhs,rhs))
         return (table,conflicts)
 

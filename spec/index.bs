@@ -48,9 +48,13 @@ spec: ECMA-262; urlPrefix: https://tc39.es/ecma262/#
         text: agent; url: agent
         text: surrounding agent; url: surrounding-agent
         text: agent cluster; url: sec-agent-clusters
+        text: ?; url: sec-returnifabrupt-shorthands
+        text: !; url: sec-returnifabrupt-shorthands
+        text: Data Block; url: sec-data-blocks
     type: abstract-op
         text: DetachArrayBuffer; url: sec-detacharraybuffer
         text: AllocateArrayBuffer; url: sec-allocatearraybuffer
+        text: CreateByteDataBlock; url: sec-createbytedatablock
     type: attribute
         for: ArrayBuffer
             text: [[ArrayBufferDetachKey]]; url: sec-properties-of-the-arraybuffer-instances
@@ -813,14 +817,18 @@ dictionary GPUObjectDescriptorBase {
         The initial value of {{GPUObjectBase/label|GPUObjectBase.label}}.
 </dl>
 
-## Invalid Internal Objects &amp; Contagious Invalidity ## {#invalidity}
+## Asynchrony ## {#asynchrony}
 
-Object creation operations in WebGPU are internally asynchronous, so they don't fail with exceptions.
-Instead, returned objects may refer to [=internal objects=] which are either
-<dfn dfn>valid</dfn> or <dfn dfn>invalid</dfn>.
-An [=invalid=] object may never become [=valid=] at a later time.
-Some objects may become [=invalid=] during their lifetime, while most may only
-be [=invalid=] from creation.
+### Invalid Internal Objects &amp; Contagious Invalidity ### {#invalidity}
+
+Object creation operations in WebGPU don't return promises, but nonetheless are internally
+asynchronous. Returned objects refer to [=internal objects=] which are manipulated on a
+[=device timeline=]. Rather than fail with exceptions or rejections, most errors that occur on a
+[=device timeline=] are communicated through {{GPUError}}s generated on the associated [=device=].
+
+[=Internal objects=] are either <dfn dfn>valid</dfn> or <dfn dfn>invalid</dfn>.
+An [=invalid=] object will never become [=valid=] at a later time,
+but some [=valid=] objects may become [=invalid=].
 
 Objects are [=invalid=] from creation if it wasn't possible to create them.
 This can happen, for example, if the [=object descriptor=] doesn't describe a valid
@@ -844,6 +852,32 @@ like buffer state "[=buffer device timeline state/destroyed=]".
         - |object|.{{GPUObjectBase/[[device]]}} must equal |targetObject|.{{GPUObjectBase/[[device]]}}.
     </div>
 </div>
+
+### Promise Ordering ### {#promise-ordering}
+
+Several operations in WebGPU return promises.
+
+- {{GPU}}.{{GPU/requestAdapter()}}
+- {{GPUAdapter}}.{{GPUAdapter/requestDevice()}}
+- {{GPUAdapter}}.{{GPUAdapter/requestAdapterInfo()}}
+- {{GPUDevice}}.{{GPUDevice/createComputePipelineAsync()}}
+- {{GPUDevice}}.{{GPUDevice/createRenderPipelineAsync()}}
+- {{GPUBuffer}}.{{GPUBuffer/mapAsync()}}
+- {{GPUShaderModule}}.{{GPUShaderModule/compilationInfo()}}
+- {{GPUQueue}}.{{GPUQueue/onSubmittedWorkDone()}}
+- {{GPUDevice}}.{{GPUDevice/lost}}
+- {{GPUDevice}}.{{GPUDevice/popErrorScope()}}
+
+WebGPU does not make any guarantees about the order in which these promises settle
+(resolve or reject), except for the following:
+
+- <div algorithm="mapAsync-onSubmittedWorkDone ordering">
+        If |p1| = |b|.{{GPUBuffer/mapAsync()}} is called before
+        |p2| = |q|.{{GPUQueue/onSubmittedWorkDone()}},
+        and |b| was last used exclusively on |q|, then |p1| must settle before |p2|.
+    </div>
+
+Applications must not rely on any other promise settlement ordering.
 
 ## Coordinate Systems ## {#coordinate-systems}
 
@@ -1293,6 +1327,9 @@ A [=device=] has the following internal slots:
 
 Any time the user agent needs to revoke access to a device, it calls
 [=lose the device=](device, `undefined`).
+For example, if an operation fails with side effects that would observably
+change the state of objects on the device or potentially corrupt internal
+implementation/driver state, the device should be lost to prevent further access.
 
 <div algorithm>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
@@ -1526,6 +1563,12 @@ applications should generally request the "worst" limits that work for their con
         The maximum number of {{GPUVertexState/buffers}}
         when creating a {{GPURenderPipeline}}.
 
+    <tr><td><dfn>maxBufferSize</dfn>
+        <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>268435456 bytes (256 MiB)
+    <tr class=row-continuation><td colspan=4>
+        The maximum size of {{GPUBufferDescriptor/size}}
+        when creating a {{GPUBuffer}}.
+
     <tr><td><dfn>maxVertexAttributes</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16
     <tr class=row-continuation><td colspan=4>
@@ -1558,6 +1601,11 @@ applications should generally request the "worst" limits that work for their con
         {{GPURenderPipelineDescriptor}}.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}},
         {{GPURenderPassDescriptor}}.{{GPURenderPassDescriptor/colorAttachments}},
         and {{GPURenderPassLayout}}.{{GPURenderPassLayout/colorFormats}}.
+
+    <tr><td><dfn>maxColorAttachmentBytesPerPixel</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>32
+    <tr class=row-continuation><td colspan=4>
+        The maximum number of bytes necessary to hold a pixel, across all color attachments.
 
     <tr><td><dfn>maxComputeWorkgroupStorageSize</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16384 bytes
@@ -1625,11 +1673,13 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long minUniformBufferOffsetAlignment;
     readonly attribute unsigned long minStorageBufferOffsetAlignment;
     readonly attribute unsigned long maxVertexBuffers;
+    readonly attribute unsigned long long maxBufferSize;
     readonly attribute unsigned long maxVertexAttributes;
     readonly attribute unsigned long maxVertexBufferArrayStride;
     readonly attribute unsigned long maxInterStageShaderComponents;
     readonly attribute unsigned long maxInterStageShaderVariables;
     readonly attribute unsigned long maxColorAttachments;
+    readonly attribute unsigned long maxColorAttachmentBytesPerPixel;
     readonly attribute unsigned long maxComputeWorkgroupStorageSize;
     readonly attribute unsigned long maxComputeInvocationsPerWorkgroup;
     readonly attribute unsigned long maxComputeWorkgroupSizeX;
@@ -2719,16 +2769,11 @@ enum GPUBufferMapState {
         An <dfn dfn for=>active buffer mapping</dfn> is a structure with the following fields:
 
         <dl dfn-type=dfn dfn-for="active buffer mapping">
-            : <dfn>data</dfn>, of type {{ArrayBuffer}}
+            : <dfn>data</dfn>, of type [=Data Block=]
             ::
-                The mapping for this {{GPUBuffer}}. The {{ArrayBuffer}} isn't directly accessible
-                and is instead accessed through views into it, called the mapped ranges, that are
+                The mapping for this {{GPUBuffer}}. This data is accessed through {{ArrayBuffer}}s
+                which are views onto this data, returned by {{GPUBuffer/getMappedRange()}} and
                 stored in [=active buffer mapping/views=].
-
-                Note: This is just a memory allocation; this {{ArrayBuffer}} object is not exposed directly.
-
-                Issue: Specify {{GPUBuffer/[[mapping]]}} in term of `DataBlock` similarly
-                to [$AllocateArrayBuffer$]?
 
             : <dfn>mode</dfn>, of type {{GPUMapModeFlags}}
             ::
@@ -2744,6 +2789,31 @@ enum GPUBufferMapState {
                 The {{ArrayBuffer}}s returned via {{GPUBuffer/getMappedRange()}} to the application.
                 They are tracked so they can be detached when {{GPUBuffer/unmap()}} is called.
         </dl>
+
+        <div algorithm>
+            To <dfn abstract-op for=>initialize an active buffer mapping</dfn> with mode |mode| and
+            range |range|:
+
+            1. Let |size| be |range|[1] - |range|[0].
+            1. Let |data| be [=?=] [$CreateByteDataBlock$](|size|).
+
+                <div class=note>
+                    Note:
+                    This may result in a {{RangeError}} being thrown.
+                    For consistency and predictability:
+
+                    - For any size at which `new ArrayBuffer()` would succeed at a given moment,
+                        this allocation **should** succeed at that moment.
+                    - For any size at which `new ArrayBuffer()` *deterministically* throws a
+                        {{RangeError}}, this allocation **should** as well.
+                </div>
+
+            1. Return an [=active buffer mapping=] with:
+                - [=active buffer mapping/data=] set to |data|.
+                - [=active buffer mapping/mode=] set to |mode|.
+                - [=active buffer mapping/range=] set to |range|.
+                - [=active buffer mapping/views=] set to `[]`.
+        </div>
 </dl>
 
 <div class=example>
@@ -2807,6 +2877,8 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
             |device|'s [=allowed buffer usages=], return `false`.
         1. If both the {{GPUBufferUsage/MAP_READ}} and {{GPUBufferUsage/MAP_WRITE}} bits of
             |descriptor|'s {{GPUBufferDescriptor/usage}} attribute are set, return `false`.
+        1. If |descriptor|.{{GPUBufferDescriptor/size}} is greater than
+            |device|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBufferSize}}, return `false`.
         1. Return `true`.
 </div>
 
@@ -2917,13 +2989,10 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 1. Let |b| be a new {{GPUBuffer}} object.
                 1. Set |b|.{{GPUBuffer/size}} to |descriptor|.{{GPUBufferDescriptor/size}}.
                 1. Set |b|.{{GPUBuffer/usage}} to |descriptor|.{{GPUBufferDescriptor/usage}}.
-                1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`,
-                    set |b|.{{GPUBuffer/[[mapping]]}} to an [=active buffer mapping=] with:
-                    - [=active buffer mapping/data=] set to a new {{ArrayBuffer}} of size |b|.{{GPUBuffer/size}}.
-                    - [=active buffer mapping/mode=] set to {{GPUMapMode/WRITE}}.
-                    - [=active buffer mapping/range=] set to <code>[0, |descriptor|.{{GPUBufferDescriptor/size}}]</code>.
-                    - [=active buffer mapping/views=] set to `[]`.
-
+                1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
+                    1. Set |b|.{{GPUBuffer/[[mapping]]}} to
+                        [=?=] [$initialize an active buffer mapping$] with mode {{GPUMapMode/WRITE}}
+                        and range <code>[0, |descriptor|.{{GPUBufferDescriptor/size}}]</code>.
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |b|.
             </div>
@@ -2959,7 +3028,13 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
 
                     1. Set |b|.{{GPUBuffer/[[deviceTimelineState]]}} to "[=buffer device timeline state/available=]".
 
-                1. Set each byte of |b|'s allocation to zero.
+                1. Create a device allocation for |b| where each byte is zero.
+
+                    If the allocation fails without side-effects,
+                    (generate an error),
+                    make |b| [=invalid=], and return.
+
+                    Issue(gpuweb/gpuweb#3123): Generate the appropriate error here.
             </div>
         </div>
 </dl>
@@ -3215,13 +3290,15 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                 1. [=Assert=] |this|.{{GPUBuffer/[[pending_map]]}} == |p|.
                 1. [=Assert=] |p| is pending.
                 1. [=Assert=] |deviceTimelineStateAtCompletion| is "[=buffer device timeline state/unavailable=]".
-                1. Let |m| be a new {{ArrayBuffer}} of size |rangeSize|.
-                1. Set the content of |m| to |dataForMappedRegion|.
-                1. Set |this|.{{GPUBuffer/[[mapping]]}} to an [=active buffer mapping=] with:
-                    - [=active buffer mapping/data=] set to |m|.
-                    - [=active buffer mapping/mode=] set to |mode|.
-                    - [=active buffer mapping/range=] set to <code>[|offset|, |offset| + |rangeSize|]</code>.
-                    - [=active buffer mapping/views=] set to `[]`.
+                1. Let |mapping| be [$initialize an active buffer mapping$]
+                    with mode |mode| and range <code>[|offset|, |offset| + |rangeSize|]</code>.
+
+                    If this allocation fails:
+
+                    1. [=Reject=] |p| with a {{RangeError}}.
+                    1. Return.
+                1. Set the content of |mapping|.[=active buffer mapping/data=] to |dataForMappedRegion|.
+                1. Set |this|.{{GPUBuffer/[[mapping]]}} to |mapping|.
                 1. [=Resolve=] |p|.
             </div>
         </div>
@@ -3258,25 +3335,31 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                         - |rangeSize| is a multiple of 4.
                         - |offset| &ge; |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0].
                         - |offset| + |rangeSize| &le; |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][1].
-                        - [|offset|, |offset| + |rangeSize|) does not overlap another range in |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=].
+                        - [|offset|, |offset| + |rangeSize|) does not overlap another range in
+                            |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=].
 
                         Note: It is always valid to get mapped ranges of a {{GPUBuffer}} that is
                         {{GPUBufferDescriptor/mappedAtCreation}}, even if it is [=invalid=], because
                         the [=Content timeline=] might not know it is invalid.
                     </div>
 
-                1. Let |m| be a new {{ArrayBuffer}} of size |rangeSize|, pointing at the content
-                    at offset (|offset| - {{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0])
-                    of |this|.{{GPUBuffer/[[mapping]]}}.
+                1. Let |data| be |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/data=].
 
-                1. Set |m|.{{ArrayBuffer/[[ArrayBufferDetachKey]]}} to "WebGPUBufferMapping".
+                1. Let |view| be [=!=] [=ArrayBuffer/create|create an ArrayBuffer=] of size |rangeSize|,
+                    but with its pointer mutably referencing the content of |data| at offset
+                    (|offset| - {{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0]).
+
+                    Note: A {{RangeError}} may not be thrown here, because the |data| has already
+                    been allocated during {{GPUBuffer/mapAsync()}} or {{GPUDevice/createBuffer()}}.
+
+                1. Set |view|.{{ArrayBuffer/[[ArrayBufferDetachKey]]}} to "WebGPUBufferMapping".
 
                     Note: This causes a {{TypeError}} to be thrown if an attempt is made to
                     [$DetachArrayBuffer$], except by {{GPUBuffer/unmap()}}.
 
-                1. [=list/Append=] |m| to |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=].
+                1. [=list/Append=] |view| to |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=].
 
-                1. Return |m|.
+                1. Return |view|.
 
                 Note: User agents should consider issuing a developer-visible warning if
                 {{GPUBuffer/getMappedRange()}} succeeds without having checked the status of
@@ -4331,8 +4414,7 @@ enum GPUTextureFormat {
 
 <p id=depthPlus>
 The depth component of the {{GPUTextureFormat/"depth24plus"}} and {{GPUTextureFormat/"depth24plus-stencil8"}}
-formats may be implemented as either a 24-bit unsigned normalized value (like "depth24unorm")
-or a 32-bit IEEE 754 floating point value (like {{GPUTextureFormat/"depth32float"}}).
+formats may be implemented as either a [=24-bit depth=] value or a {{GPUTextureFormat/"depth32float"}} value.
 </p>
 
 Issue(gpuweb/gpuweb#1887): add something on GPUAdapter(?) that gives an estimate of the bytes per texel of
@@ -4342,12 +4424,15 @@ The {{GPUTextureFormat/stencil8}} format may be implemented as
 either a real "stencil8", or "depth24stencil8", where the depth aspect is
 hidden and inaccessible.
 
-Note:
-While the precision of depth32float channels is strictly higher than the precision of
-depth24unorm channels for all values in the representable range (0.0 to 1.0),
-note that the set of representable values is not an exact superset:
-for depth24unorm, 1 ULP has a constant value of 1 / (2<sup>24</sup> &minus; 1);
-for depth32float, 1 ULP has a variable value no greater than 1 / (2<sup>24</sup>).
+<div class=note>
+    Note:
+    While the precision of depth32float channels is strictly higher than the precision of
+    [=24-bit depth=] channels for all values in the representable range (0.0 to 1.0),
+    note that the set of representable values is not an exact superset.
+
+    - For [=24-bit depth=], 1 ULP has a constant value of 1 / (2<sup>24</sup> &minus; 1).
+    - For depth32float, 1 ULP has a variable value no greater than 1 / (2<sup>24</sup>).
+</div>
 
 A <dfn>renderable format</dfn> is either a <dfn>color renderable format</dfn>, or a [=depth-or-stencil format=].
 If a format is listed in [[#plain-color-formats]] with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability, it is a
@@ -4512,14 +4597,14 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
 
                 1. Let |source| be |descriptor|.{{GPUExternalTextureDescriptor/source}}.
 
-                1. Let |usability| be the result of
-                    [=check the usability of the image argument|checking the usability of=] |source|
-                    (which may throw an exception).
-
-                1. If |usability| is `bad`, throw an {{InvalidStateError}} and stop.
-
                 1. If |source| <l spec=html>[=is not origin-clean=]</l>,
                     throw a {{SecurityError}} and stop.
+
+                1. Let |usability| be [=?=] [=check the usability of the image argument=](|source|).
+
+                1. If |usability| is not `good`:
+                    1. [$Generate a validation error$].
+                    1. Return an [=invalid=] {{GPUExternalTexture}}.
 
                 1. Let |data| be the result of converting the current image contents of |source| into
                     the color space |descriptor|.{{GPUExternalTextureDescriptor/colorSpace}}
@@ -4921,7 +5006,7 @@ GPUBindGroupLayout includes GPUObjectBase;
     ::
 </dl>
 
-### Creation ### {#bind-group-layout-creation}
+### Bind Group Layout Creation ### {#bind-group-layout-creation}
 
 A {{GPUBindGroupLayout}} is created via {{GPUDevice/createBindGroupLayout()|GPUDevice.createBindGroupLayout()}}.
 
@@ -5698,7 +5783,7 @@ Issue: should this example and the note be moved to some "best practices" docume
 
 Note: the expected usage of the {{GPUPipelineLayout}} is placing the most common and the least frequently changing bind groups at the "bottom" of the layout, meaning lower bind group slot numbers, like 0 or 1. The more frequently a bind group needs to change between draw calls, the higher its index should be. This general guideline allows the user agent to minimize state changes between draw calls, and consequently lower the CPU overhead.
 
-### Creation ### {#pipeline-layout-creation}
+### Pipeline Layout Creation ### {#pipeline-layout-creation}
 
 A {{GPUPipelineLayout}} is created via {{GPUDevice/createPipelineLayout()|GPUDevice.createPipelineLayout()}}.
 
@@ -6194,7 +6279,7 @@ interface mixin GPUPipelineBase {
                             |this|.{{GPUPipelineBase/[[layout]]}}.{{GPUPipelineLayout/[[bindGroupLayouts]]}}
                     </div>
 
-                1. Update |layout| to reference the same internal object as
+                1. Initialize |layout| so it is a copy of
                     |this|.{{GPUPipelineBase/[[layout]]}}.{{GPUPipelineLayout/[[bindGroupLayouts]]}}[|index|].
 
                 Issue: Specify this more properly once we have internal objects for {{GPUBindGroupLayout}}.
@@ -6664,7 +6749,7 @@ GPUComputePipeline includes GPUObjectBase;
 GPUComputePipeline includes GPUPipelineBase;
 </script>
 
-### Creation ### {#compute-pipeline-creation}
+### Compute Pipeline Creation ### {#compute-pipeline-creation}
 
 A {{GPURenderPipelineDescriptor}} describes a compute [=pipeline=]. See
 [[#computing-operations]] for additional details.
@@ -6849,7 +6934,7 @@ GPURenderPipeline includes GPUPipelineBase;
     :: True if the pipeline writes to the stencil component of the depth/stencil attachment
 </dl>
 
-### Creation ### {#render-pipeline-creation}
+### Render Pipeline Creation ### {#render-pipeline-creation}
 
 A {{GPURenderPipelineDescriptor}} describes a render [=pipeline=] by configuring each
 of the [=render stages=]. See [[#rendering-operations]] for additional details.
@@ -7317,6 +7402,17 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 
             Otherwise:
             - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
+    - [$Validating GPUFragmentState's color attachment bytes per pixel$](|device|, |descriptor|.{{GPUFragmentState/targets}}) succeeds.
+</div>
+
+<div algorithm>
+    <dfn abstract-op>Validating GPUFragmentState's color attachment bytes per pixel</dfn>({{GPUDevice}} |device|, sequence&lt;{{GPUColorTargetState}}?&gt; |targets|)
+
+    1. Let |formats| be an empty [=list=]&lt;{{GPUTextureFormat}}?&gt;
+    1. For each |target| in |targets|:
+        1. If |target| is `undefined`, continue.
+        1. [=list/Append=] |target|.{{GPUColorTargetState/format}} to |formats|.
+    1. [$Calculating color attachment bytes per pixel$](|formats|) must be &le; |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachmentBytesPerPixel}}.
 </div>
 
 Note:
@@ -8256,7 +8352,7 @@ GPUCommandBuffer includes GPUObjectBase;
         buffer is submitted.
 </dl>
 
-### Creation ### {#command-buffer-creation}
+### Command Buffer Creation ### {#command-buffer-creation}
 
 <script type=idl>
 dictionary GPUCommandBufferDescriptor : GPUObjectDescriptorBase {
@@ -8379,7 +8475,7 @@ GPUCommandEncoder includes GPUCommandsMixin;
 GPUCommandEncoder includes GPUDebugCommandsMixin;
 </script>
 
-### Creation ### {#command-encoder-creation}
+### Command Encoder Creation ### {#command-encoder-creation}
 
 <script type=idl>
 dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
@@ -9751,7 +9847,7 @@ GPUComputePassEncoder includes GPUBindingCommandsMixin;
         The timestamp attachments which need to be executed when the pass ends.
 </dl>
 
-### Creation ### {#compute-pass-encoder-creation}
+### Compute Pass Encoder Creation ### {#compute-pass-encoder-creation}
 
 <script type=idl>
 enum GPUComputePassTimestampLocation {
@@ -10088,7 +10184,7 @@ When a {{GPURenderPassEncoder}} is created, it has the following default state:
     - `x, y` = `0, 0`
     - `width, height` = the dimensions of the pass's render targets
 
-### Creation ### {#render-pass-encoder-creation}
+### Render Pass Encoder Creation ### {#render-pass-encoder-creation}
 
 <script type=idl>
 enum GPURenderPassTimestampLocation {
@@ -10165,6 +10261,8 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 
         1. |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} must meet the [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$] rules.
 
+    1. [$Validating GPURenderPassDescriptor's color attachment bytes per pixel$](|device|, |this|.{{GPURenderPassDescriptor/colorAttachments}}) succeeds.
+
     1. All {{GPURenderPassColorAttachment/view}}s in non-`null` members of |this|.{{GPURenderPassDescriptor/colorAttachments}},
         and |this|.{{GPURenderPassDescriptor/depthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}}
         if present, must have equal {{GPUTexture/sampleCount}}s.
@@ -10203,6 +10301,16 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 
     Note: the [$GPURenderPassDescriptor/Valid Usage$] guarantees that all of the render extents
     of the attachments are the same, so we can take any of them, assuming the descriptor is valid.
+</div>
+
+<div algorithm>
+    <dfn abstract-op>Validating GPURenderPassDescriptor's color attachment bytes per pixel</dfn>({{GPUDevice}} |device|, sequence&lt;{{GPURenderPassColorAttachment}}?&gt; |colorAttachments|)
+
+    1. Let |formats| be an empty [=list=]&lt;{{GPUTextureFormat}}?&gt;
+    1. For each |colorAttachment| in |colorAttachments|:
+        1. If |colorAttachment| is `undefined`, continue.
+        1. [=list/Append=] |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}} to |formats|.
+    1. [$Calculating color attachment bytes per pixel$](|formats|) must be &le; |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachmentBytesPerPixel}}.
 </div>
 
 #### Color Attachments #### {#color-attachments}
@@ -10311,6 +10419,8 @@ dictionary GPURenderPassColorAttachment {
             and |this|.{{GPURenderPassColorAttachment/view}} must match.
         - |resolveViewDescriptor|.{{GPUTextureViewDescriptor/format}} must equal
             |renderViewDescriptor|.{{GPUTextureViewDescriptor/format}}.
+        - |resolveTexture|.{{GPUTextureDescriptor/format}} must equal
+            |renderTexture|.{{GPUTextureDescriptor/format}}.
         - |resolveViewDescriptor|.{{GPUTextureViewDescriptor/format}} must support resolve according to [[#plain-color-formats]].
 </div>
 
@@ -10327,6 +10437,26 @@ dictionary GPURenderPassColorAttachment {
         |view|.{{GPUTextureView/[[texture]]}}.
 
     where |descriptor| is |view|.{{GPUTextureView/[[descriptor]]}}.
+</div>
+
+<div algorithm>
+    <dfn abstract-op>Calculating color attachment bytes per pixel</dfn>(|formats|)
+
+    **Arguments:**
+
+    - sequence<{{GPUTextureFormat}}?> |formats|
+
+    **Returns:** {{GPUSize32}}
+
+    1. Let |total| be 0.
+    1. For each non-null |format| in |formats|
+        1. [=Assert=]: |format| is a [=color renderable format=].
+        1. Let |renderTargetPixelByteCost| be the [=render target pixel byte cost=] of |format|.
+        1. Let |renderTargetComponentAlignment| be the [=render target component alignment=] of |format|.
+        1. Round |total| up to the smallest multiple of |renderTargetComponentAlignment| greater than or equal to |total|.
+        1. Add |renderTargetPixelByteCost| to |total|.
+    1. Return |total|.
+
 </div>
 
 #### Depth/Stencil Attachments #### {#depth-stencil-attachments}
@@ -11347,7 +11477,7 @@ GPURenderBundle includes GPUObjectBase;
         The number of draw commands in this {{GPURenderBundle}}.
 </dl>
 
-### Creation ### {#render-bundle-creation}
+### Render Bundle Creation ### {#render-bundle-creation}
 
 <script type=idl>
 dictionary GPURenderBundleDescriptor : GPUObjectDescriptorBase {
@@ -11407,6 +11537,7 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
                             - |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} must not be `null`.
                         - For each |colorFormat| in |descriptor|.{{GPURenderPassLayout/colorFormats}}:
                             - |colorFormat| is `null`, or it must be a [=color renderable format=].
+                        - [$Calculating color attachment bytes per pixel$](|descriptor|.{{GPURenderPassLayout/colorFormats}}) must be &le; |this|.{{device/[[limits]]}}.{{supported limits/maxColorAttachmentBytesPerPixel}}.
                         - Let |depthStencilFormat| be |descriptor|.{{GPURenderPassLayout/depthStencilFormat}}.
                         - If |depthStencilFormat| is not `null`:
                             - |depthStencilFormat| must be a [=depth-or-stencil format=].
@@ -11693,9 +11824,6 @@ GPUQueue includes GPUObjectBase;
                 [=Content timeline=] steps:
 
                 1. Let |sourceImage| be |source|.{{GPUImageCopyExternalImage/source}}
-                1. Run [=Check the usability of the image argument=](|sourceImage|).
-                    If it throws an exception, stop.
-                    If it does not return `good`, throw an {{InvalidStateError}} and stop.
                 1. If |sourceImage| <l spec=html>[=is not origin-clean=]</l>,
                     throw a {{SecurityError}} and stop.
                 1. If any of the following requirements are unmet, throw an {{OperationError}} and stop.
@@ -11708,6 +11836,7 @@ GPUQueue includes GPUObjectBase;
                         - |source|.|origin|.[=Origin3D/z=] + |copySize|.[=Extent3D/depthOrArrayLayers=]
                             must be &le; 1.
                     </div>
+                1. Let |usability| be [=?=] [=check the usability of the image argument=](|source|).
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.
             </div>
             <div data-timeline=device>
@@ -11717,6 +11846,7 @@ GPUQueue includes GPUObjectBase;
                 1. If any of the following requirements are unmet, [$generate a validation error$] and stop.
 
                     <div class=validusage>
+                        - |usability| must be `good`.
                         - |destination|.{{GPUImageCopyTexture/texture}} must be [$valid to use with$] |this|.
                         - [$validating GPUImageCopyTexture$](destination, copySize) must return `true`.
                         - [=validating texture copy range=](destination, copySize) must return `true`.
@@ -13866,6 +13996,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
             <th>resolve
             <th>{{GPUTextureUsage/STORAGE_BINDING}}
             <th>[=Texel block size=] (Bytes)
+            <th><dfn dfn>Render target pixel byte cost</dfn> (Bytes)
+            <th><dfn dfn>Render target component alignment</dfn> (Bytes)
     </thead>
     <tr><th class=stickyheader>8-bit per component<th><th><th><th><th><th>
     <tr>
@@ -13876,6 +14008,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>
         <td>1
+        <td>1
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/r8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -13884,6 +14018,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td><!-- Vulkan -->
         <td>1
+        <td><!-- no render target -->
+        <td><!-- no render target -->
     <tr>
         <td>{{GPUTextureFormat/r8uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -13891,6 +14027,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
+        <td>1
+        <td>1
         <td>1
     <tr>
         <td>{{GPUTextureFormat/r8sint}}
@@ -13900,6 +14038,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>1
+        <td>1
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/rg8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -13908,6 +14048,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Vulkan -->
         <td>2
+        <td>2
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/rg8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -13916,6 +14058,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td><!-- Vulkan -->
         <td>2
+        <td><!-- no render target -->
+        <td><!-- no render target -->
     <tr>
         <td>{{GPUTextureFormat/rg8uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -13924,6 +14068,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>2
+        <td>2
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/rg8sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -13932,6 +14078,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>2
+        <td>2
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/rgba8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -13940,6 +14088,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>&checkmark;
         <td>4
+        <td>8
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/rgba8unorm-srgb}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -13948,6 +14098,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>
         <td>4
+        <td>8
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/rgba8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -13956,6 +14108,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>4
+        <td><!-- no render target --> <!-- If we add render target support for this in the future, rgba8snorm has to be a special case where the render target pixel byte cost = 8 -->
+        <td><!-- no render target -->
     <tr>
         <td>{{GPUTextureFormat/rgba8uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -13964,6 +14118,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>&checkmark;
         <td>4
+        <td>4
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/rgba8sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -13972,6 +14128,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>&checkmark;
         <td>4
+        <td>4
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/bgra8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -13980,6 +14138,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>If {{GPUFeatureName/"bgra8unorm-storage"}} is enabled
         <td>4
+        <td>8
+        <td>1
     <tr>
         <td>{{GPUTextureFormat/bgra8unorm-srgb}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -13988,6 +14148,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>
         <td>4
+        <td>8
+        <td>1
     <tr><th class=stickyheader>16-bit per component<th><th><th><th><th><th>
     <tr>
         <td>{{GPUTextureFormat/r16uint}}
@@ -13997,6 +14159,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>2
+        <td>2
+        <td>2
     <tr>
         <td>{{GPUTextureFormat/r16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14004,6 +14168,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
+        <td>2
+        <td>2
         <td>2
     <tr>
         <td>{{GPUTextureFormat/r16float}}
@@ -14013,6 +14179,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>
         <td>2
+        <td>2
+        <td>2
     <tr>
         <td>{{GPUTextureFormat/rg16uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14021,6 +14189,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>4
+        <td>4
+        <td>2
     <tr>
         <td>{{GPUTextureFormat/rg16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14029,6 +14199,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>4
+        <td>4
+        <td>2
     <tr>
         <td>{{GPUTextureFormat/rg16float}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14037,6 +14209,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Vulkan -->
         <td>4
+        <td>4
+        <td>2
     <tr>
         <td>{{GPUTextureFormat/rgba16uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14045,6 +14219,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>&checkmark;
         <td>8
+        <td>8
+        <td>2
     <tr>
         <td>{{GPUTextureFormat/rgba16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14053,6 +14229,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>&checkmark;
         <td>8
+        <td>8
+        <td>2
     <tr>
         <td>{{GPUTextureFormat/rgba16float}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14061,6 +14239,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>&checkmark;
         <td>8
+        <td>8
+        <td>2
     <tr><th class=stickyheader>32-bit per component<th><th><th><th><th><th>
     <tr>
         <td>{{GPUTextureFormat/r32uint}}
@@ -14070,6 +14250,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>4
+        <td>4
+        <td>4
     <tr>
         <td>{{GPUTextureFormat/r32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14077,6 +14259,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
+        <td>4
+        <td>4
         <td>4
     <tr>
         <td>{{GPUTextureFormat/r32float}}
@@ -14086,6 +14270,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>&checkmark;
         <td>4
+        <td>4
+        <td>4
     <tr>
         <td>{{GPUTextureFormat/rg32uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14094,6 +14280,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>8
+        <td>8
+        <td>4
     <tr>
         <td>{{GPUTextureFormat/rg32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14102,6 +14290,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>8
+        <td>8
+        <td>4
     <tr>
         <td>{{GPUTextureFormat/rg32float}}
         <td>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14110,6 +14300,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>8
+        <td>8
+        <td>4
     <tr>
         <td>{{GPUTextureFormat/rgba32uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14118,6 +14310,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>16
+        <td>16
+        <td>4
     <tr>
         <td>{{GPUTextureFormat/rgba32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14126,6 +14320,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>16
+        <td>16
+        <td>4
     <tr>
         <td>{{GPUTextureFormat/rgba32float}}
         <td>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14134,6 +14330,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>&checkmark;
         <td>16
+        <td>16
+        <td>4
     <tr><th class=stickyheader>mixed component width<th><th><th><th><th><th>
     <tr>
         <td>{{GPUTextureFormat/rgb10a2unorm}}
@@ -14143,12 +14341,16 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>
         <td>4
+        <td>8
+        <td>4
     <tr>
         <td>{{GPUTextureFormat/rg11b10ufloat}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td colspan=2>If {{GPUFeatureName/"rg11b10ufloat-renderable"}} is enabled
         <td>
         <td><!-- Vulkan -->
+        <td>4
+        <td>8
         <td>4
 </table>
 
@@ -14242,6 +14444,9 @@ be used with {{GPUSamplerBindingType/"comparison"}} samplers (which may use filt
         <td>{{GPUTextureFormat/stencil8}}
 </table>
 
+<dfn dfn>24-bit depth</dfn> refers to a 24-bit unsigned normalized depth format with a range from
+0.0 to 1.0, which would be spelled "depth24unorm" if exposed.
+
 #### Reading and Sampling Depth/Stencil Textures #### {#reading-depth-stencil}
 
 It is [$validating shader binding|possible$] to bind a depth-aspect {{GPUTextureView}}
@@ -14275,7 +14480,7 @@ value), depending on hardware.
 
 #### Copying Depth/Stencil Textures #### {#copying-depth-stencil}
 
-The texel values of depth32float formats
+The depth aspects of depth32float formats
 ({{GPUTextureFormat/"depth32float"}} and {{GPUTextureFormat/"depth32float-stencil8"}}
 have a limited range.
 As a result, copies into such textures are only valid from other textures of the same format.
@@ -14283,7 +14488,7 @@ As a result, copies into such textures are only valid from other textures of the
 
 The depth aspects of depth24plus formats
 ({{GPUTextureFormat/"depth24plus"}} and {{GPUTextureFormat/"depth24plus-stencil8"}})
-have opaque representations (implemented as either "depth24unorm" or "depth32float").
+have opaque representations (implemented as either [=24-bit depth=] or {{GPUTextureFormat/"depth32float"}}).
 As a result, depth-aspect [=image copies=] are not allowed with these formats.
 
 <div class=note>

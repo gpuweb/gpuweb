@@ -8,8 +8,8 @@ clean:
 	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
 
 # Generate spec HTML from Bikeshed source.
-index.pre.html: index.bs
-	DIE_ON=everything bash ../tools/invoke-bikeshed.sh index.pre.html index.bs
+index.pre.html: index.bs wgsl.recursive.bs.include
+	DIE_ON=everything bash ../tools/invoke-bikeshed.sh index.pre.html index.bs wgsl.recursive.bs.include
 
 GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html
@@ -55,9 +55,25 @@ simple: wgsl.simple.txt
 wgsl.lalr.txt : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -lalr grammar/src/grammar.json >$@
 
-
 wgsl.simple.txt : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -simple grammar/src/grammar.json >$@
+
+# Print a simple (uncanonicalized form) of the grammar
+.PHONY: recursive
+recursive : $(ANALYZER) $(WGSL_GRAMMAR)
+	@python3 $(ANALYZE_SCRIPT) -recursive grammar/src/grammar.json
+.PHONY: recursive_bs
+recursive_bs : $(ANALYZER) $(WGSL_GRAMMAR)
+	@python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json
+
+wgsl.recursive.bs.include : $(ANALYZER) $(WGSL_GRAMMAR)
+	python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json >$@.pre
+	sh ../tools/copy-if-different.sh $@.pre $@
+
+# Print a simple (uncanonicalized form) of the grammar and check LL(1)
+.PHONY: recursive_ll
+recursive_ll : $(ANALYZER) $(WGSL_GRAMMAR)
+	@python3 $(ANALYZE_SCRIPT) -recursive -ll grammar/src/grammar.json
 
 ## The following targets are used when developing the grammar analyzer
 
