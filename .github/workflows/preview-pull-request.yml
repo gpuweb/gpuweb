@@ -23,6 +23,7 @@ jobs:
         run: |
           PR=$(curl https://api.github.com/search/issues?q=${{ github.event.workflow_run.head_sha }} |
           grep -Po "(?<=${{ github.event.workflow_run.repository.full_name }}\/pulls\/)\d*" | head -1)
+          echo "This PR is #$PR of ${{ github.event.workflow_run.repository.name }} from ${{ github.event.workflow_run.repository.owner.login }}. Therefore, https://github.com/${{ github.event.workflow_run.repository.owner.login }}/${{ github.event.workflow_run.repository.name }}/pull/$PR should be the location of the PR. If no longer valid, please provide feedback."
           echo "PR=$PR" >> $GITHUB_ENV
 
       # Replaces base specs with head specs
@@ -32,30 +33,6 @@ jobs:
         run: |
           git fetch https://github.com/${{ github.event.workflow_run.head_repository.full_name }} ${{ github.event.workflow_run.head_sha }}
           git ls-tree ${{ github.event.workflow_run.head_sha }} --full-tree --name-only -r spec/ wgsl/ explainer/ correspondence/ | grep "\.\(bs\|svg\|png\|jpg\)$" | xargs git checkout ${{ github.event.workflow_run.head_sha }} --
-
-      # Adds Firebase config files to directory
-      - name: Init Firebase
-        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
-        run: |
-          cat << EOF >> .firebaserc
-          {
-            "projects": {
-              "default": "gpuweb-prs"
-            }
-          }
-          EOF
-          cat << EOF >> firebase.json
-          {
-            "hosting": {
-              "public": "out",
-              "ignore": [
-                "firebase.json",
-                "**/.*",
-                "**/node_modules/**"
-              ]
-            }
-          }
-          EOF
 
       # Builds Bikeshed specs
       - name: Build Bikeshed
@@ -69,28 +46,59 @@ jobs:
           sed -i -e "s,gpuweb/wgsl/</a><br><a href=\"${GHC}/$(git rev-parse HEAD)/wgsl/index.bs\">${GHC}/$(git rev-parse HEAD)/wgsl/index.bs</a>,gpuweb/wgsl/</a><br><a href=\"${GHCU}/${{ github.event.workflow_run.head_sha }}/wgsl/index.bs\">${GHCU}/${{ github.event.workflow_run.head_sha }}/wgsl/index.bs</a>," out/wgsl/index.html
           sed -i -e "s,gpuweb.github.io/gpuweb/</a><br><a href=\"${GHC}/$(git rev-parse HEAD)/spec/index.bs\">${GHC}/$(git rev-parse HEAD)/spec/index.bs</a>,gpuweb.github.io/gpuweb/</a><br><a href=\"${GHCU}/${{ github.event.workflow_run.head_sha }}/spec/index.bs\">${GHCU}/${{ github.event.workflow_run.head_sha }}/spec/index.bs</a>," out/index.html
 
-      # Deploys PR to Firebase
+      # Extracts preview repository
+      # This step exists as preparation for GitHub Actions non-secret environment variables per repository.
+      # Until then, creating a repository with this exact name is necessary. Secret environment variables are
+      # well-protected and tracked by GitHub, so it is not possible to publicize them easily and reliably
+      # as a source of configuration.
+      - name: Find PR Preview Repo
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
+        env:
+          PR_PREVIEW_REPO: "gpuweb-pr-previews"
+        run: |
+          if curl -f -s -o /dev/null https://github.com/${{ github.event.workflow_run.repository.owner.login }}/$PR_PREVIEW_REPO ; then echo "Previews will live in https://${{ github.event.workflow_run.repository.owner.login }}.github.io/$PR_PREVIEW_REPO/gpuweb/gpuweb/$PR/" ; echo "PR_PREVIEW_REPO=$PR_PREVIEW_REPO" >> $GITHUB_ENV ; else exit 0 ; fi
+
+      # Deploys PR to preview
       - name: Deploy PR
         id: deployment
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
+        uses: peaceiris/actions-gh-pages@v3
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR && env.PR_PREVIEW_REPO && env.DEPLOY_KEY != '' }}
         with:
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          expires: 10d
-          channelId: prs-${{ env.PR }}-${{ github.event.workflow_run.head_sha }}
+          deploy_key: ${{ secrets.DEPLOY_KEY }}
+          publish_dir: out
+          destination_dir: gpuweb/gpuweb/${{ env.PR }}
+          external_repository: ${{ github.event.workflow_run.repository.owner.login }}/${{ env.PR_PREVIEW_REPO }}
+          publish_branch: main
+          keep_files: true
 
-      # Comments on PR
-      # TODO: Possible to make this edit, delete, or flag-as-outdated its past comment?
-      - name: Comment PR
-        uses: peter-evans/create-or-update-comment@v1
-        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
+      - name: Find Previous Comment
+        uses: peter-evans/find-comment@v2
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR && env.PR_PREVIEW_REPO && env.DEPLOY_KEY != '' }}
+        id: previous-comment
         with:
           issue-number: ${{ env.PR }}
+          comment-author: 'github-actions[bot]'
+          body-includes: pr;head;sha;base
+
+      # Comments on PR
+      - name: Comment PR
+        uses: peter-evans/create-or-update-comment@v2
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR && env.PR_PREVIEW_REPO && env.DEPLOY_KEY != '' }}
+        with:
+          comment-id: ${{ steps.previous-comment.outputs.comment-id }}
+          issue-number: ${{ env.PR }}
+          edit-mode: replace
           body: |
             Previews, as seen when this [build job](https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}) started (${{ github.event.workflow_run.head_sha }}):
-            [**WebGPU**](${{ steps.deployment.outputs.details_url }}/) <sub>[**`webgpu.idl`**](${{ steps.deployment.outputs.details_url }}/webgpu.idl.txt) | [**Explainer**](${{ steps.deployment.outputs.details_url }}/explainer/) | [**Correspondence Reference**](${{ steps.deployment.outputs.details_url }}/correspondence/)</sub>
-            [**WGSL**](${{ steps.deployment.outputs.details_url }}/wgsl/) <sub>[**`grammar.js`**](${{ steps.deployment.outputs.details_url }}/wgsl/grammar/grammar.js) | [**`wgsl.lalr.txt`**](${{ steps.deployment.outputs.details_url }}/wgsl/wgsl.lalr.txt)</sub>
+            [**WebGPU**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/) <sub>[**`webgpu.idl`**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/webgpu.idl.txt) | [**Explainer**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/explainer/) | [**Correspondence Reference**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/correspondence/)</sub>
+            [**WGSL**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/wgsl/) <sub>[**`grammar.js`**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/wgsl/grammar/grammar.js) | [**`wgsl.lalr.txt`**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/wgsl/wgsl.lalr.txt)</sub>
             <!--
-            pr;head;sha
-            ${{ env.PR }};${{ github.event.workflow_run.head_repository.full_name }};${{ github.event.workflow_run.head_sha }}
+            pr;head;sha;base
+            ${{ env.PR }};${{ github.event.workflow_run.head_repository.full_name }};${{ github.event.workflow_run.head_sha }};${{ github.event.workflow_run.repository.full_name }}
             -->
