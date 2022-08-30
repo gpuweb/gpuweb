@@ -1558,6 +1558,29 @@ applications should generally request the "worst" limits that work for their con
         allowed in {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
         when creating a {{GPUPipelineLayout}}.
 
+    <tr><td><dfn>maxBindingsPerBindGroup</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>640
+    <tr class=row-continuation><td colspan=4>
+        The maximum allowed number of {{GPUBindGroupLayoutEntry}}.{{GPUBindGroupLayoutEntry/binding}}
+        values when creating a {{GPUBindGroupLayout}}.
+
+        The [=supported limit=] for an [=adapter=] must be &ge;
+        ([=max bindings per shader stage=] &times; [=max shader stages per pipeline=]) for the same
+        [=adapter=].
+
+        <dfn dfn for=>max bindings per shader stage</dfn> is
+        ({{supported limits/maxSampledTexturesPerShaderStage}} +
+        {{supported limits/maxSamplersPerShaderStage}} +
+        {{supported limits/maxStorageBuffersPerShaderStage}} +
+        {{supported limits/maxStorageTexturesPerShaderStage}} +
+        {{supported limits/maxUniformBuffersPerShaderStage}}).
+
+        <dfn dfn for=>max shader stages per pipeline</dfn> is `2`, because a
+        {{GPURenderPipeline}} supports both a vertex and fragment shader.
+
+        Note: 640 "ought to be enough for anybody" who is using the default
+        [=exceeds the binding slot limits|binding slot limits=].
+
     <tr><td><dfn>maxDynamicUniformBuffersPerPipelineLayout</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
     <tr class=row-continuation><td colspan=4>
@@ -1668,6 +1691,10 @@ applications should generally request the "worst" limits that work for their con
         The maximum size of {{GPUBufferDescriptor/size}}
         when creating a {{GPUBuffer}}.
 
+        The [=supported limit=] for an [=adapter=] must be
+        &ge; {{supported limits/maxUniformBufferBindingSize}} and
+        &ge; {{supported limits/maxStorageBufferBindingSize}}.
+
     <tr><td><dfn>maxVertexAttributes</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16
     <tr class=row-continuation><td colspan=4>
@@ -1760,6 +1787,7 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxTextureDimension3D;
     readonly attribute unsigned long maxTextureArrayLayers;
     readonly attribute unsigned long maxBindGroups;
+    readonly attribute unsigned long maxBindingsPerBindGroup;
     readonly attribute unsigned long maxDynamicUniformBuffersPerPipelineLayout;
     readonly attribute unsigned long maxDynamicStorageBuffersPerPipelineLayout;
     readonly attribute unsigned long maxSampledTexturesPerShaderStage;
@@ -2094,6 +2122,7 @@ interface GPU {
 
                 [=Content timeline=] steps:
 
+                1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
                 1. Let |promise| be [=a new promise=].
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |promise|.
@@ -2101,16 +2130,26 @@ interface GPU {
             <div data-timeline=device>
                 [=Device timeline=] |initialization steps|:
 
+                1. Let |adapter| be `null`.
                 1. If the user agent chooses to return an adapter, it should:
-                    1. Create a [=valid=] [=adapter=] |adapter|, chosen according to
+                    1. Set |adapter| to a [=valid=] [=adapter=], chosen according to
                         the rules in [[#adapter-selection]] and the criteria in |options|.
+
+                        The [=supported limits=] of the adapter must adhere to the requirements
+                        defined in [[#limits]].
 
                     1. If |adapter| meets the criteria of a [=fallback adapter=] set
                         |adapter|.{{adapter/[[fallback]]}} to `true`.
 
+                1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+            </div>
+            <div data-timeline=content>
+                [=Content timeline=] steps:
+
+                1. If |adapter| is not `null`:
                     1. [=Resolve=] |promise| with a new {{GPUAdapter}} encapsulating |adapter|.
 
-                1. Otherwise, |promise| [=resolves=] with `null`.
+                1. Otherwise, [=Resolve=] |promise| with `null`.
             </div>
             <!-- If we add ways to make invalid adapter requests (aside from those
                 that violate IDL rules), specify that they reject the promise. -->
@@ -2345,6 +2384,7 @@ interface GPUAdapter {
 
                 [=Content timeline=] steps:
 
+                1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
                 1. Let |promise| be [=a new promise=].
                 1. Let |adapter| be |this|.{{GPUAdapter/[[adapter]]}}.
                 1. Issue the |initialization steps| to the [=Device timeline=] of |this|.
@@ -2353,21 +2393,28 @@ interface GPUAdapter {
             <div data-timeline=device>
                 [=Device timeline=] |initialization steps|:
 
-                1. If any of the following requirements are unmet,
-                    [=reject=] |promise| with a {{TypeError}} and stop.
+                1. If any of the following requirements are unmet:
 
                     <div class=validusage>
                         - The set of values in |descriptor|.{{GPUDeviceDescriptor/requiredFeatures}}
                             must be a subset of those in |adapter|.{{adapter/[[features]]}}.
                     </div>
 
+                    Then issue the following steps on <var data-timeline=content>contentTimeline</var>
+                    and return:
+
+                        <div data-timeline=content>
+                            [=Content timeline=] steps:
+
+                            1. [=Reject=] |promise| with a {{TypeError}}.
+                        </div>
+
                     Note: This is the same error that is produced if a feature name isn't known
                     by the browser at all (in its {{GPUFeatureName}} definition).
                     This converges the behavior when the browser doesn't support a feature
                     with the behavior when a particular adapter doesn't support a feature.
 
-                1. If any of the following requirements are unmet,
-                    [=reject=] |promise| with an {{OperationError}} and stop.
+                1. If any of the following requirements are unmet:
 
                     <div class=validusage>
                         - Each key in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}
@@ -2379,6 +2426,15 @@ interface GPUAdapter {
                                 |adapter|.{{adapter/[[limits]]}}.
                             - If the limit's [=limit class|class=] is [=limit class/alignment=],
                                 |value| must be a power of 2.
+                    </div>
+
+                    Then issue the following steps on <var data-timeline=content>contentTimeline</var>
+                    and return:
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Reject=] |promise| with an {{OperationError}}.
                     </div>
 
                 1. If |adapter| is [=invalid=],
@@ -2395,11 +2451,15 @@ interface GPUAdapter {
                         most or all cases when this occurs. Applications should perform
                         reinitialization logic starting with {{GPU/requestAdapter()}}.
 
-                    1. [=Resolve=] |promise| with a new {{GPUDevice}} encapsulating |device|,
-                        and stop.
+                    Otherwise:
+                        1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
 
-                1. [=Resolve=] |promise| with a new {{GPUDevice}} object encapsulating
-                    [=a new device=] with the capabilities described by |descriptor|.
+                1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+            </div>
+            <div data-timeline=content>
+                [=Content timeline=] steps:
+
+                1. [=Resolve=] |promise| with a new {{GPUDevice}} object |device|.
             </div>
         </div>
 
@@ -3481,21 +3541,26 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                 1. If |this|.{{GPUBuffer/[[pending_map]]}} is not `null`:
                     1. [=Reject=] |this|.{{GPUBuffer/[[pending_map]]}} with an {{AbortError}}.
                     1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`.
+
+                1. If |this|.{{GPUBuffer/[[mapping]]}} is `null`:
+                    1. Return.
+
+                1. For each {{ArrayBuffer}} |ab| in |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=]:
+                    1. Perform [$DetachArrayBuffer$](|ab|, "WebGPUBufferMapping").
+
                 1. Let |bufferUpdate| be `null`.
-                1. If |this|.{{GPUBuffer/[[mapping]]}} is not `null`:
 
-                    1. For each {{ArrayBuffer}} |ab| in |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/views=]:
-                        1. Perform [$DetachArrayBuffer$](|ab|, "WebGPUBufferMapping").
-                    1. If |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/mode=] contains {{GPUMapMode/WRITE}}:
-                        1. Set |bufferUpdate| to {
-                            `data`: |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/data=],
-                            `offset`: |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0]
-                            }.
+                1. If |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/mode=] contains {{GPUMapMode/WRITE}}:
+                    1. Set |bufferUpdate| to {
+                        `data`: |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/data=],
+                        `offset`: |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0]
+                        }.
 
-                        Note: When a buffer is mapped without the {{GPUMapMode/WRITE}} mode, then
-                        unmapped, any local modifications done by the application to the mapped ranges
-                        {{ArrayBuffer}} are discarded and will not affect the content of later mappings.
-                    1. Set |this|.{{GPUBuffer/[[mapping]]}} to `null`.
+                    Note: When a buffer is mapped without the {{GPUMapMode/WRITE}} mode, then
+                    unmapped, any local modifications done by the application to the mapped ranges
+                    {{ArrayBuffer}} are discarded and will not affect the content of later mappings.
+
+                1. Set |this|.{{GPUBuffer/[[mapping]]}} to `null`.
 
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}.
             </div>
@@ -3513,18 +3578,6 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                                 with the data |bufferUpdate|.`data`.
                         </div>
                 1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/available=]".
-                1. If any of the following requirements are unmet, [$generate a validation error$] and stop.
-
-                    <div class=validusage>
-                        - |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] must be "[=buffer internals/state/unavailable=]".
-
-                        Note: It is valid to unmap an [=invalid=] {{GPUBuffer}} that is
-                        {{GPUBufferDescriptor/mappedAtCreation}} because the [=Content timeline=]
-                        might not know it is [=invalid=]. Unmapping allows the temporary memory
-                        |this|.{{GPUBuffer/[[mapping]]}}.[=active buffer mapping/data=] to be freed.
-                    </div>
-
-                    Issue(gpuweb/gpuweb#3251): This validation isn't really necessary because it's not guarding anything.
             </div>
         </div>
 </dl>
@@ -5503,11 +5556,12 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
 
                     <div class=validusage>
                         - |this| is [=valid=].
+                        - Let |limits| be |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.
                         - The {{GPUBindGroupLayoutEntry/binding}} of each entry in |descriptor| is unique.
-                        - The {{GPUBindGroupLayoutEntry/binding}} of each entry in |descriptor| must be &lt; 65536.
+                        - The {{GPUBindGroupLayoutEntry/binding}} of each entry in |descriptor| must be &lt;
+                            |limits|.{{supported limits/maxBindingsPerBindGroup}}.
                         - |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}} must not
-                            [=exceeds the binding slot limits|exceed the binding slot limits=]
-                            of |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.
+                            [=exceeds the binding slot limits|exceed the binding slot limits=] of |limits|.
                         - For each {{GPUBindGroupLayoutEntry}} |entry| in |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
                             - Let |bufferLayout| be |entry|.{{GPUBindGroupLayoutEntry/buffer}}
                             - Let |samplerLayout| be |entry|.{{GPUBindGroupLayoutEntry/sampler}}
@@ -6945,6 +6999,7 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 
                 [=Content timeline=] steps:
 
+                1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
                 1. Let |promise| be [=a new promise=].
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |promise|.
@@ -6955,8 +7010,13 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
                 1. Let |pipeline| be a new {{GPUComputePipeline}} created as if
                     |this|.{{GPUDevice/createComputePipeline()}} was called with |descriptor|;
 
-                1. When |pipeline| is ready to be used or has been made [=invalid=], [=resolve=]
-                    |promise| with |pipeline|.
+                1. When |pipeline| is ready to be used or has been made [=invalid=], issue the
+                    subsequent steps on <var data-timeline=content>contentTimeline</var>.
+            </div>
+            <div data-timeline=content>
+                [=Content timeline=] steps:
+
+                1. [=Resolve=] |promise| with |pipeline|.
             </div>
         </div>
 </dl>
@@ -7163,6 +7223,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
 
                 [=Content timeline=] steps:
 
+                1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
                 1. Let |promise| be [=a new promise=].
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |promise|.
@@ -7173,10 +7234,14 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
                 1. Let |pipeline| be a new {{GPURenderPipeline}} created as if
                     |this|.{{GPUDevice/createRenderPipeline()}} was called with |descriptor|;
 
-                1. When |pipeline| is ready to be used or has been made [=invalid=], [=resolve=]
-                    |promise| with |pipeline|.
+                1. When |pipeline| is ready to be used or has been made [=invalid=], issue the
+                    subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
+            <div data-timeline=content>
+                [=Content timeline=] steps:
 
+                1. [=Resolve=] |promise| with |pipeline|.
+            </div>
         </div>
 </dl>
 
@@ -12038,12 +12103,20 @@ GPUQueue includes GPUObjectBase;
 
                 [=Content timeline=] steps:
 
+                1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
                 1. Let |promise| be [=a new promise=].
-                1. Issue the |resolve steps| on the [=Queue timeline=] of |this|.
+                1. Issue the |synchronization steps| on the [=Device timeline=] of |this|.
                 1. Return |promise|.
             </div>
-            <div data-timeline=queue>
-                [=Queue timeline=] |resolve steps|:
+            <div data-timeline=device>
+                [=Device timeline=] |synchronization steps|:
+
+                1. When the [=device timeline=] becomes informed of the completion of all
+                    <span data-timeline=queue>currently-enqueued operations</span> on |this|:
+                    1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+            </div>
+            <div data-timeline=content>
+                [=Content timeline=] steps:
 
                 1. [=Resolve=] |promise|.
             </div>
@@ -12954,6 +13027,7 @@ partial interface GPUDevice {
 
                 [=Content timeline=] steps:
 
+                1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
                 1. Let |promise| be [=a new promise=].
                 1. Issue the |resolve steps| on the [=Device timeline=] of |this|.
                 1. Return |promise|.
@@ -12961,12 +13035,20 @@ partial interface GPUDevice {
             <div data-timeline=device>
                 [=Device timeline=] |resolve steps|:
 
-                1. If any of the following requirements are unmet,
-                    [=reject=] |promise| with an {{OperationError}} and stop.
+                1. If any of the following requirements are unmet:
 
                     <div class=validusage>
                         - |this| must not be [=lose the device|lost=].
                         - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] &gt; 0.
+                    </div>
+
+                    Then issue the following steps on <var data-timeline=content>contentTimeline</var>
+                    and return:
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Reject=] |promise| with an {{OperationError}}.
                     </div>
 
                 1. Let |scope| be the result of [=stack/pop|popping=] an [=list/item=] off of
@@ -13012,11 +13094,11 @@ interface GPUUncapturedErrorEvent : Event {
         DOMString type,
         GPUUncapturedErrorEventInit gpuUncapturedErrorEventInitDict
     );
-    readonly attribute GPUError error;
+    [SameObject] readonly attribute GPUError error;
 };
 
 dictionary GPUUncapturedErrorEventInit : EventInit {
-    [SameObject] required GPUError error;
+    required GPUError error;
 };
 </script>
 
