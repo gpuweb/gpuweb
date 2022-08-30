@@ -165,6 +165,7 @@ div.content-timeline, div.device-timeline, div.queue-timeline {
 }
 
 span[data-timeline],
+dfn[data-timeline],
 var[data-timeline],
 a[data-timeline],
 [href="#content-timeline"],
@@ -175,11 +176,20 @@ a[data-timeline],
     border-width: 0 0 .2em 0;
     text-decoration: none;
 }
+dl[data-timeline],
 div[data-timeline] {
     border-style: solid;
-    border-width: 1px 0 0 .75em;
     border-radius: 1em 0 0 1em;
     padding: .5em;
+}
+dl[data-timeline] {
+    border-width: 0 0 0 .25em !important;
+}
+div[data-timeline] {
+    border-width: 1px 0 0 .75em;
+}
+div.algorithm[data-timeline] {
+    border-width: 1px 1px 1px .75em;
 }
 div.algorithm > div[data-timeline] {
     /* Remove unnecessary padding in this common case. Makes the border of the
@@ -202,6 +212,9 @@ div.algorithm > div[data-timeline] {
 [data-timeline="queue"],
 [href="#queue-timeline"] {
     border-color: #c900f1 !important;
+}
+[data-timeline="const"] {
+    border-color: rgba(186, 186, 186, 30%) !important;
 }
 
 /*
@@ -743,21 +756,39 @@ In this specification, the following syntactic shorthands are used:
 ::
     The phrasing "`x` ?? `y`" means "`x`, if `x` is not null/undefined, and `y` otherwise".
 
-### Internal Objects ### {#webgpu-internal-objects}
-
-An <dfn dfn>internal object</dfn> is a conceptual, non-exposed WebGPU object.
-[=Internal objects=] track the state of an API object and hold any underlying implementation.
-If the state of a particular [=internal object=] can change in parallel from multiple [=agents=],
-those changes are always atomic with respect to all [=agents=].
-
-Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
+: <dfn dfn>slot-backed attribute</dfn>
+::
+    A WebIDL attribute which is backed by an internal slot of the same name.
+    It may or may not be mutable.
 
 ### WebGPU Interfaces ### {#webgpu-interfaces}
 
-A <dfn dfn>WebGPU interface</dfn> is an exposed interface which encapsulates an [=internal object=].
-It provides the interface through which the [=internal object=]'s state is changed.
+A <dfn dfn>WebGPU interface</dfn> defines a WebGPU object. It can be used:
 
-Any interface which includes {{GPUObjectBase}} is a [=WebGPU interface=].
+- On the [=content timeline=] where it was created, where it is a JavaScript-exposed WebIDL interface.
+- On all other timelines, where only [=immutable properties=] can be accessed.
+
+The following special property types can be defined on [=WebGPU interfaces=]:
+
+: <dfn dfn data-timeline=const>immutable property</dfn>
+::
+    A read-only slot set during initialization of the object. It can be accessed from any timeline.
+
+    Note: Since the slot is immutable, implementations may have a copy on multiple timelines, as needed.
+    [=Immutable properties=] are defined in this way to avoid describing multiple copies in this spec.
+
+    If named `[[with brackets]]`, it is an internal slot.
+    If named `withoutBrackets`, it is a `readonly` [=slot-backed attribute=].
+
+: <dfn dfn data-timeline=content>content timeline property</dfn>
+::
+    A property which is only accessible from the [=content timeline=]
+    where the object was created.
+
+    If named `[[with brackets]]`, it is an internal slot.
+    If named `withoutBrackets`, it is a [=slot-backed attribute=].
+
+Any interface which includes <dfn interface>GPUObjectBase</dfn> is a [=WebGPU interface=].
 
 <script type=idl>
 interface mixin GPUObjectBase {
@@ -765,9 +796,24 @@ interface mixin GPUObjectBase {
 };
 </script>
 
-{{GPUObjectBase}} has the following attributes:
+{{GPUObjectBase}} has the following [=immutable properties=]:
 
-<dl dfn-type=attribute dfn-for=GPUObjectBase>
+<dl dfn-type=attribute dfn-for=GPUObjectBase data-timeline=const>
+    : <dfn>\[[internals]]</dfn>, of type [=internal object=], readonly, overridable
+    ::
+        The [=internal object=]. Its contents can only be used on the [=device timeline=].
+
+        For each interface that subtypes {{GPUObjectBase}}, this may be overridden with a subtype
+        of [=internal object=]. This slot is initially set to an uninitialized object of that type.
+
+    : <dfn>\[[device]]</dfn>, of type [=device=], readonly
+    ::
+        An internal slot holding the [=device=] which owns the [=internal object=].
+</dl>
+
+{{GPUObjectBase}} has the following [=content timeline properties=]:
+
+<dl dfn-type=attribute dfn-for=GPUObjectBase data-timeline=content>
     : <dfn>label</dfn>
     ::
         Initially the empty string.
@@ -775,18 +821,17 @@ interface mixin GPUObjectBase {
         A developer-provided label which can be used by the browser, OS, or other tools to help
         identify the underlying [=internal object=] to the developer. Examples include displaying
         the label in error/warning messages, browser developer tools, and platform debugging
-        utilities. The user agent is free to choose if and how it will use this label.
+        utilities.
 
-        Note: {{GPUObjectBase/label}} is defined as a {{USVString}} because some user agents may
-        supply it to the debug facilities of the underlying native APIs.
-</dl>
+        <div class=note>
+            Note:
+            The user agent is free to choose if and how it will use this label.
+            For this reason, this specification does not define how the label is propagated to the
+            [=device timeline=].
 
-{{GPUObjectBase}} has the following internal slots:
-
-<dl dfn-type=attribute dfn-for=GPUObjectBase>
-    : <dfn>\[[device]]</dfn>, of type [=device=], readonly
-    ::
-        An internal slot holding the [=device=] which owns the [=internal object=].
+            It is defined as a {{USVString}} because some user agents may
+            supply it to the debug facilities of the underlying native APIs.
+        </div>
 </dl>
 
 <div class=note>
@@ -805,6 +850,21 @@ interface mixin GPUObjectBase {
     favored over relying on garbage collection if predictable release of allocated resources is
     needed.
 </div>
+
+### Internal Objects ### {#webgpu-internal-objects}
+
+An <dfn dfn>internal object</dfn> tracks state of WebGPU objects that may only be used on
+the [=device timeline=], in [=device timeline slots=], which may be mutable.
+
+: <dfn dfn data-timeline=device>device timeline slot</dfn>
+::
+    An internal slot which is only accessible from the [=device timeline=].
+
+All reads/writes to the mutable state of an [=internal object=] occur from steps executing on a
+single well-ordered [=device timeline=]. These steps may have been issued from a
+[=content timeline=] algorithm on any of multiple [=agents=].
+
+Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
 
 ### Object Descriptors ### {#object-descriptors}
 
@@ -845,7 +905,7 @@ object, or if there is not enough memory to allocate a resource.
 [=Internal objects=] of *most* types cannot become [=invalid=] after they are created, but still
 may become unusable, e.g. if the owning device is [=lose the device|lost=] or
 {{GPUDevice/destroy()|destroyed}}, or the object has a special internal state,
-like buffer state "[=buffer device timeline state/destroyed=]".
+like buffer state "[=buffer internals/state/destroyed=]".
 
 [=Internal objects=] of some types *can* become [=invalid=] after they are created; specifically,
 [=devices=], [=adapters=], {{GPUCommandBuffer}}s, and command/pass/bundle encoders.
@@ -925,17 +985,49 @@ has components working on different timelines in parallel:
     on the compute units of the GPU. It includes actual draw, copy,
     and compute jobs that run on the GPU.
 
-<div class=algorithm>
-    This is an example algorithm.
+<div class=example style="background: var(--bg)">
+    The following show the styling of steps and values associated with each timeline.
+    This styling is non-normative; the specification text always describes the association.
 
-    <div data-timeline=content>
-        Steps executed on the [=content timeline=] look like this.
-    </div>
-    <div data-timeline=device>
-        Steps executed on the [=device timeline=] look like this.
-    </div>
-    <div data-timeline=queue>
-        Steps executed on the [=queue timeline=] look like this.
+    <dl data-timeline=const>
+        : <dfn>Immutable value example definition</dfn>
+        :: Can be used on any timeline.
+    </dl>
+
+    <dl data-timeline=content>
+        : <dfn>Content-timeline example definition</dfn>
+        :: Can only be used on the content timeline.
+    </dl>
+
+    <dl data-timeline=device>
+        : <dfn>Device-timeline example definition</dfn>
+        :: Can only be used on the device timeline.
+    </dl>
+
+    <dl data-timeline=queue>
+        : <dfn>Queue-timeline example definition</dfn>
+        :: Can only be used on the queue timeline.
+    </dl>
+
+    <div class=algorithm>
+        <div data-timeline=content>
+            Steps executed on the [=content timeline=] look like this.
+
+            [=Immutable value example definition=].
+            [=Content-timeline example definition=].
+        </div>
+        <div data-timeline=device>
+            Steps executed on the [=device timeline=] look like this.
+
+            [=Immutable value example definition=].
+            [=Device-timeline example definition=].
+        </div>
+        <div data-timeline=queue>
+            Steps executed on the [=queue timeline=] look like this.
+
+            [=Immutable value example definition=].
+            [=Queue-timeline example definition=].
+        </div>
     </div>
 </div>
 
@@ -2712,8 +2804,6 @@ Those not defined here are defined elsewhere in this document.
 
 ## <dfn interface>GPUBuffer</dfn> ## {#buffer-interface}
 
-Issue: define <dfn dfn>buffer</dfn> (internal object)
-
 A {{GPUBuffer}} represents a block of memory that can be used in GPU operations.
 Data is stored in linear layout, meaning that each byte of the allocation can be
 addressed by its offset from the start of the {{GPUBuffer}}, subject to alignment
@@ -2748,23 +2838,24 @@ enum GPUBufferMapState {
 };
 </script>
 
-{{GPUBuffer}} has the following attributes:
+{{GPUBuffer}} has the following [=immutable properties=]:
 
-<dl dfn-type=attribute dfn-for=GPUBuffer>
+<dl dfn-type=attribute dfn-for=GPUBuffer data-timeline=const>
     : <dfn>size</dfn>
     ::
         The length of the {{GPUBuffer}} allocation in bytes.
-
-        This attribute is backed by an immutable internal slot of the same name, and
-        always returns its value.
 
     : <dfn>usage</dfn>
     ::
         The allowed usages for this {{GPUBuffer}}.
 
-        This attribute is backed by an immutable internal slot of the same name, and
-        always returns its value.
+    : <dfn>\[[internals]]</dfn>, of type [=buffer internals=], readonly, {{GPUObjectBase/[[internals]]|override}}
+    ::
+</dl>
 
+{{GPUBuffer}} has the following [=content timeline properties=]:
+
+<dl dfn-type=attribute dfn-for=GPUBuffer data-timeline=content>
     : <dfn>mapState</dfn>
     ::
         The current <dfn enum for=>GPUBufferMapState</dfn> of the buffer:
@@ -2797,30 +2888,6 @@ enum GPUBufferMapState {
                 1. Return {{GPUBufferMapState/"unmapped"}}.
             </div>
         </div>
-</dl>
-
-{{GPUBuffer}} has the following internal slots:
-
-<dl dfn-type=attribute dfn-for=GPUBuffer>
-    : <dfn>\[[deviceTimelineState]]</dfn>, of type [=buffer device timeline state=]
-    ::
-        The current <dfn dfn for=>buffer device timeline state</dfn> of the buffer:
-
-        <dl dfn-type=dfn dfn-for="buffer device timeline state">
-            : "<dfn>available</dfn>"
-            ::
-                The buffer may be used in queue operations (unless it is [=invalid=]).
-
-            : "<dfn>unavailable</dfn>"
-            ::
-                The buffer may not be used in queue operations due to being mapped.
-
-            : "<dfn>destroyed</dfn>"
-            ::
-                The buffer may not be used in any operations due to being {{GPUBuffer/destroy()}}ed.
-        </dl>
-
-        Issue: This is device-timeline state.
 
     : <dfn>\[[pending_map]]</dfn>, of type {{Promise}}&lt;void&gt; or `null`, initially `null`
     ::
@@ -2884,6 +2951,29 @@ enum GPUBufferMapState {
         </div>
 </dl>
 
+{{GPUBuffer}}'s [=internal object=] is <dfn dfn>buffer internals</dfn>, which
+extends [=internal object=] with the following [=device timeline slots=]:
+
+<dl dfn-type=dfn dfn-for="buffer internals" data-timeline=device>
+    : <dfn>state</dfn>
+    ::
+        The current internal state of the buffer:
+
+        <dl dfn-type=dfn dfn-for="buffer internals/state">
+            : "<dfn>available</dfn>"
+            ::
+                The buffer may be used in queue operations (unless it is [=invalid=]).
+
+            : "<dfn>unavailable</dfn>"
+            ::
+                The buffer may not be used in queue operations due to being mapped.
+
+            : "<dfn>destroyed</dfn>"
+            ::
+                The buffer may not be used in any operations due to being {{GPUBuffer/destroy()}}ed.
+        </dl>
+</dl>
+
 <div class=example>
     <figure>
         <figcaption>Mapping and unmapping a buffer.</figcaption>
@@ -2900,8 +2990,6 @@ enum GPUBufferMapState {
     Issue: Add diagrams showing the cancellation of a buffer mapping (with unmap arriving
     at the device timeline either before or after it responds to a mapAsync).
 </div>
-
-{{GPUBuffer}} is a reference to an internal buffer object.
 
 ## Buffer Creation ## {#buffer-creation}
 
@@ -3091,11 +3179,11 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 and may be discarded or recycled.
 
                 1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
-                    1. Set |b|.{{GPUBuffer/[[deviceTimelineState]]}} to "[=buffer device timeline state/unavailable=]".
+                    1. Set |b|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/unavailable=]".
 
                     Else:
 
-                    1. Set |b|.{{GPUBuffer/[[deviceTimelineState]]}} to "[=buffer device timeline state/available=]".
+                    1. Set |b|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/available=]".
 
                 1. Create a device allocation for |b| where each byte is zero.
 
@@ -3160,8 +3248,8 @@ once all previously submitted operations using it are complete.
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. Set |this|.{{GPUBuffer/[[deviceTimelineState]]}} to
-                    "[=buffer device timeline state/destroyed=]".
+                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to
+                    "[=buffer internals/state/destroyed=]".
             </div>
         </div>
 
@@ -3289,7 +3377,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                         - |offset| is a multiple of 8.
                         - |rangeSize| is a multiple of 4.
                         - |offset| + |rangeSize| &le; |this|.{{GPUBuffer/size}}
-                        - |this|.{{GPUBuffer/[[deviceTimelineState]]}} is "[=buffer device timeline state/available=]".
+                        - |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] is "[=buffer internals/state/available=]".
                         - |mode| contains exactly one of {{GPUMapMode/READ}} or {{GPUMapMode/WRITE}}.
                         - If |mode| contains {{GPUMapMode/READ}} then |this|.{{GPUBuffer/usage}} must contain {{GPUBufferUsage/MAP_READ}}.
                         - If |mode| contains {{GPUMapMode/WRITE}} then |this|.{{GPUBuffer/usage}} must contain {{GPUBufferUsage/MAP_WRITE}}.
@@ -3319,7 +3407,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     1. [$Generate a validation error$].
                     1. Return.
 
-                1. Set |this|.{{GPUBuffer/[[deviceTimelineState]]}} to "[=buffer device timeline state/unavailable=]".
+                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/unavailable=]".
                 1. At an unspecified point:
 
                     - after the completion of
@@ -3338,9 +3426,9 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. Let |deviceTimelineStateAtCompletion| be |this|.{{GPUBuffer/[[deviceTimelineState]]}}.
+                1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=].
 
-                    Note: If, and only if, at this point the buffer has become "[=buffer device timeline state/available=]"
+                    Note: If, and only if, at this point the buffer has become "[=buffer internals/state/available=]"
                     again due to an {{GPUBuffer/unmap()}} call, then {{GPUBuffer/[[pending_map]]}} below will be null,
                     so mapping will not succeed in the steps below.
                 1. Let |dataForMappedRegion| be the contents of |this| starting at offset |offset|, for |rangeSize| bytes.
@@ -3353,12 +3441,12 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     Note: The map has been cancelled by {{GPUBuffer/unmap()}}.
 
-                    1. [=Assert=] |deviceTimelineStateAtCompletion| is "[=buffer device timeline state/available=]".
+                    1. [=Assert=] |internalStateAtCompletion| is "[=buffer internals/state/available=]".
                     1. [=Assert=] |this|.{{GPUBuffer/[[mapping]]}} is `null`.
                     1. Return.
                 1. [=Assert=] |this|.{{GPUBuffer/[[pending_map]]}} == |p|.
                 1. [=Assert=] |p| is pending.
-                1. [=Assert=] |deviceTimelineStateAtCompletion| is "[=buffer device timeline state/unavailable=]".
+                1. [=Assert=] |internalStateAtCompletion| is "[=buffer internals/state/unavailable=]".
                 1. Let |mapping| be [$initialize an active buffer mapping$]
                     with mode |mode| and range <code>[|offset|, |offset| + |rangeSize|]</code>.
 
@@ -3490,7 +3578,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                             1. Update the contents of |this| at offset |bufferUpdate|.`offset`
                                 with the data |bufferUpdate|.`data`.
                         </div>
-                1. Set |this|.{{GPUBuffer/[[deviceTimelineState]]}} to "[=buffer device timeline state/available=]".
+                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/available=]".
             </div>
         </div>
 </dl>
@@ -8748,7 +8836,7 @@ dictionary GPUImageDataLayout {
 </script>
 
 A {{GPUImageDataLayout}} is a layout of <dfn dfn>images</dfn> within some linear memory.
-It's used when copying data between a [=texture=] and a [=buffer=], or when scheduling a
+It's used when copying data between a [=texture=] and a {{GPUBuffer}}, or when scheduling a
 write into a [=texture=] from the {{GPUQueue}}.
 
 - For {{GPUTextureDimension/2d}} textures, data is copied between one or multiple contiguous [=images=] and [=array layers=].
@@ -11786,7 +11874,7 @@ GPUQueue includes GPUObjectBase;
 
                     <div class=validusage>
                         - |buffer| is [$valid to use with$] |this|.
-                        - |buffer|.{{GPUBuffer/[[deviceTimelineState]]}} is "[=buffer device timeline state/available=]".
+                        - |buffer|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] is "[=buffer internals/state/available=]".
                         - |buffer|.{{GPUBuffer/usage}} includes {{GPUBufferUsage/COPY_DST}}.
                         - |bufferOffset|, converted to bytes, is a multiple of 4 bytes.
                         - |bufferOffset| + |contentsSize|, converted to bytes, &le; |buffer|.{{GPUBuffer/size}} bytes.
@@ -11978,7 +12066,7 @@ GPUQueue includes GPUObjectBase;
                     <div class=validusage>
                         - Every {{GPUCommandBuffer}} in |commandBuffers| is [$valid to use with$] |this|.
                         - For every {{GPUBuffer}} |b| referenced in any element of |commandBuffers|,
-                            |b|.{{GPUBuffer/[[deviceTimelineState]]}} is "[=buffer device timeline state/available=]".
+                            |b|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] is "[=buffer internals/state/available=]".
                         - Every {{GPUQuerySet}} referenced in a command in any element of |commandBuffers| is
                             in the [=query set state/available=] state. For occlusion queries,
                             {{GPURenderPassDescriptor/occlusionQuerySet}} in {{GPUCommandEncoder/beginRenderPass()}}
@@ -12759,11 +12847,10 @@ partial interface GPUDevice {
 <dl dfn-type=attribute dfn-for=GPUDevice>
     : <dfn>lost</dfn>
     ::
-        A promise which is created with the device, remains pending for the lifetime of the device,
-        then resolves when the device is lost.
+        A [=slot-backed attribute=] holding a promise which is created with the device, remains
+        pending for the lifetime of the device, then resolves when the device is lost.
 
-        This attribute is backed by an immutable internal slot of the same name, initially set
-        to [=a new promise=], and always returns its value.
+        Upon initialization, it is set to [=a new promise=].
 </dl>
 
 ## Error Scopes ## {#error-scopes}
@@ -13021,11 +13108,8 @@ dictionary GPUUncapturedErrorEventInit : EventInit {
 <dl dfn-type=attribute dfn-for=GPUUncapturedErrorEvent>
     : <dfn>error</dfn>
     ::
-        Object representing the error that was uncaptured.
+        A [=slot-backed attribute=] holding an object representing the error that was uncaptured.
         This has the same type as errors returned by {{GPUDevice/popErrorScope()}}.
-
-        This attribute is backed by an immutable internal slot of the same name, and
-        always returns its value.
 </dl>
 
 <script type=idl>
@@ -14782,6 +14866,10 @@ Eventually all of these should disappear but they are useful to avoid warning wh
 [=Origin2D/x=] [=Origin2D/y=]
 [=RenderPassDescriptor/renderExtent=]
 [=vertex buffer=]
+[=buffer internals/state=]
+[=buffer internals/state/available=]
+[=buffer internals/state/unavailable=]
+[=buffer internals/state/destroyed=]
 
 <script>
 // Small script to collect all xrefs that refer to different timelines and highlight
