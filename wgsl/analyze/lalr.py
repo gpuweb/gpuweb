@@ -43,7 +43,7 @@ import re
 import subprocess
 import sys
 
-from Grammar import Grammar
+from Grammar import Grammar, PrintOption
 
 
 def main():
@@ -58,6 +58,22 @@ def main():
                            action="store_true")
     argparser.add_argument('-simple',
                            help='dump the grammar without canonicalization',
+                           action="store_true")
+    argparser.add_argument('-recursive',
+                           help='dump a grammar suitable for recursive descent parsing',
+                           action="store_true")
+    argparser.add_argument('-bs',
+                           help='output of -recursive as bikeshed source',
+                           action="store_true")
+    argparser.add_argument('-terminals',
+                           help='print terminals in output of -recursive',
+                           default=False,
+                           dest='print_terminals',
+                           action="store_true")
+    argparser.add_argument('-aggressive',
+                           help='aggressively inline single uses',
+                           default=True,
+                           dest='aggressive',
                            action="store_true")
     argparser.add_argument('-ll',
                            help='compute LL(1) parser table and associated conflicts',
@@ -74,13 +90,59 @@ def main():
     with open(args.json_file) as infile:
         json_text = "".join(infile.readlines())
 
-
     if args.simple:
         g = Grammar(json_text, 'translation_unit')
-        print(g.pretty_str())
+        print(g.pretty_str(multi_line_choice=True))
         sys.exit(0)
 
-    g = Grammar.Load(json_text, 'translation_unit')
+    po = PrintOption(multi_line_choice=True)
+    po.more_newlines = True
+    po.print_terminals = args.print_terminals
+    po.bikeshed = args.bs
+
+    printed = False
+    if args.recursive:
+        g = Grammar(json_text, 'translation_unit')
+
+        g.canonicalize()
+
+        g.eliminate_immediate_recursion()
+        stop_at = {'expression','element_count_expression'}
+        g.left_refactor('unary_expression',stop_at)
+        g.left_refactor('ident',set())
+
+
+        g.epsilon_refactor()
+
+        inline_stop = {'ident','member_ident','ident_pattern_token','optionally_typed_ident'}
+        if args.aggressive:
+            g.inline_single_choice_with_nonterminal(inline_stop)
+            g.dedup_rhs(inline_stop)
+            g.inline_single_choice_with_nonterminal(inline_stop)
+        else:
+            g.inline_specific({ 'short_circuit_and_expression.post.unary_expression', 'short_circuit_or_expression.post.unary_expression'})
+
+        # Bring together with other (star|and)* rules
+        g.inline_when_toplevel_prefix({'assignment_statement'})
+
+        # Bring together with other rules starting with attribute
+        g.inline_when_toplevel_prefix({'global_constant_decl'})
+
+        g.inline_single_starrable()
+
+        g.refactor_post('ident')
+        g.rotate_one_or_mores()
+
+        # Get ready for potential LL analysis
+        g.compute_first()
+        g.compute_follow()
+
+        print(g.pretty_str(po))
+        printed = True
+
+    else:
+        g = Grammar.Load(json_text, 'translation_unit')
+
     if args.lalr:
         print("=Grammar:\n")
         print(g.pretty_str())
@@ -96,6 +158,7 @@ def main():
         sys.exit(0)
 
     elif args.ll:
+
         (table,conflicts) = g.LL1()
 
         for key, reduction in table.items():
@@ -110,7 +173,8 @@ def main():
         if args.verbose:
             g.dump()
         else:
-            print(g.pretty_str())
+            if not printed:
+                print(g.pretty_str(po))
 
     sys.exit(0)
 
