@@ -26,11 +26,36 @@ HEADER = """
 
 """.lstrip()
 
-scanner_filename = sys.argv[1]
-scanner_file = open(scanner_filename, "r")
-# Break up the input into lines, and skip empty lines.
-scanner_lines = [j for i in [i.split("\n")
-                             for i in scanner_file.readlines()] for j in i if len(j) > 0]
+
+def read_lines_from_file(filename, exclusions):
+    """Returns the text lines from the given file.
+    Processes bikeshed path includes, except for files named the exclusion list.
+    Skips empty lines.
+    """
+    file = open(filename, "r")
+    # Break up the input into lines, and skip empty lines.
+    parts = [j for i in [i.split("\n") for i in file.readlines()] for j in i if len(j) > 0]
+    result = []
+    include_re = re.compile('path:\s+(\S+)')
+    for line in parts:
+        m = include_re.match(line)
+        if m:
+            included_file = m.group(1)
+            if included_file not in exclusions:
+                print("including {}".format(included_file))
+                result.extend(read_lines_from_file(included_file,exclusions))
+                continue
+        result.append(line)
+    return result
+
+scanner_lines = read_lines_from_file(sys.argv[1], {'wgsl.recursive.bs.include'})
+
+# Skip lines like:
+#  <pre class=include>
+#  </pre>
+scanner_lines = filter(lambda s: not s.startswith("</pre>") and not s.startswith("<pre class=include"), scanner_lines)
+
+
 # Replace comments in rule text
 scanner_lines = [re.sub('<!--.*-->', '', line) for line in scanner_lines]
 
