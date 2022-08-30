@@ -9300,7 +9300,7 @@ The function call is made within an if statement whose condition depends on a
 non-uniform value (i.e. the built-in value `position`).
 The invalid dependency chain is highlighted in red.
 
-<div class='example wgsl' heading='WGSL'>
+<div class='example wgsl' heading='WGSL invalid textureSample'>
   <xmp highlight='rust'>
     @group(0) @binding(0) var t : texture_2d<f32>;
     @group(0) @binding(1) var s : sampler;
@@ -9308,6 +9308,7 @@ The invalid dependency chain is highlighted in red.
     @fragment
     fn main(@builtin(position) pos : vec4<f32>) {
       if (pos.x < 0.5) {
+        // Invalid textureSample function call.
         _ = textureSample(t, s, pos.xy);
       }
     }
@@ -9320,7 +9321,8 @@ The invalid dependency chain is highlighted in red.
 </figure>
 
 The example also shows that uniformity of the control flow after the if
-statement is the same as the uniformity prior to the if statement.
+statement is the same as the uniformity prior to the if statement (CF_return
+being connected to CF_start).
 That is, the control flow is once again uniform after the if statement (because
 it is guaranteed to start as uniform control flow at the beginning of the entry
 point).
@@ -9329,6 +9331,189 @@ program would have been valid.
 Likewise, if the condition of the if statement were a uniform value (e.g. each
 invocation read the same value from a [=uniform buffer=]), the program would
 also have been valid.
+
+#### Function-scope Variable Uniformity #### {#uniformity-example2}
+
+This example show both a valid and an invalid
+[[#sync-builtin-functions|barrier]] function call that depend on the value of a
+function-scope variable.
+The `workgroupBarrier` is invalid because the value of `x` is derived from the
+mutable module-scope variable `a`.
+The `storageBarrier` is valid because the value of `x` is derived from the
+immutable module-scope variable `b`. 
+This example highlights the [[#func-var-value-analysis|value analysis']]
+ability to separate different periods of uniformity in a function-scope
+variable's lifetime.
+This example also clearly shows that uniformity returns to the control flow
+after the first [=statement/if=] statement as that section of the graph is
+independent from the second if statement.
+
+<div class='example wgsl' heading='WGSL using function variable'>
+  <xmp highlight='rust'>
+    @group(0) @binding(0) var<storage, read_write> a : i32;
+    @group(0) @binding(1) var<uniform> b : i32;
+
+    @compute @workgroup_size(16,1,1)
+    fn main() {
+      var x : i32;
+      x = a;
+      if x > 0 {
+        // Invalid barrier function call.
+        workgroupBarrier();
+      }
+      x = b;
+      if x < 0 {
+        // Valid barrier function call.
+        storageBarrier();
+      }
+    }
+  </xmp>
+</div>
+
+<figure>
+  <figcaption>Uniformity graph</figcaption>
+  <object type="image/svg+xml" data="img/uniformity_2.mmd.svg"></object>
+</figure>
+
+Note: The subgraphs are only included in the example for ease of understanding.
+
+
+#### Composite Value Analysis Limitations #### {#uniformity-example3}
+
+One limitation of the uniformity analysis is that it does not track the
+[=components=] of a [=composite=] value independently.
+That is, any non-uniform component value will cause the analysis to treat the
+entire composite value as non-uniform.
+This example illustrates this issue and a potential workaround that shader
+authors can employ to avoid this limitation.
+
+<div class='example wgsl' heading='Invalid composite value WGSL'>
+  <xmp highlight='rust'>
+    struct Inputs {
+      // workgroup_id is a uniform built-in value.
+      @builtin(workgroup_id) wgid : vec3<u32>,
+      // local_invocation_index is a non-uniform built-in value.
+      @builtin(local_invocation_index) lid : u32
+    }
+    
+    @compute @workgroup_size(16,1,1)
+    fn main(inputs : Inputs) {
+      // This comparison is always uniform,
+      // but the analysis cannot determine that.
+      if inputs.wgid.x == 1 {
+        workgroupBarrier();
+      }
+    }
+  </xmp>
+</div>
+
+<figure>
+  <figcaption>Invalid uniformity graph</figcaption>
+  <object type="image/svg+xml" data="img/uniformity_3.mmd.svg"></object>
+</figure>
+
+The easiest way to work around this limitation of the analysis is to split the
+composite up so that values that are known to be uniform are separate from
+value that are known to be non-uniform.
+In the alternative WGSL below, splitting the two built-in values into separate
+parameters satisfies the uniformity analysis.
+This can be seen by the lack of a path from RequiredToBeUniform to
+MayBeNonUniform in the graph.
+
+<div class='example wgsl' heading='Valid alternative WGSL'>
+  <xmp highlight='rust'>
+    @compute @workgroup_size(16,1,1)
+    fn main(@builtin(workgroup_id) wgid : vec3<u32>,
+            @builtin(local_invocation_index) lid : u32) {
+      // The uniformity analysis can now correctly determine this comparison is
+      // always uniform.
+      if wgid.x == 1 {
+        // Valid barrier function call.
+        workgroupBarrier();
+      }
+    }
+  </xmp>
+</div>
+
+<figure>
+  <figcaption>Valid alternative uniformity graph</figcaption>
+  <object type="image/svg+xml" data="img/uniformity_3b.mmd.svg"></object>
+</figure>
+
+#### Uniformity in a Loop #### {#uniformity-example4}
+
+In this example, there is an invalid `workgroupBarrier` function call in a
+loop.
+The non-uniform built-in value `local_invocation_index` is the ultimate cause
+despite the fact that it appears after the barrier in the loop.
+This occurs, because on later iterations some of the invocations in the
+workgroup will have exited the loop prematurely while others attempt to execute
+the barrier.
+The analysis models the inter-iteration dependencies as edge where the control
+at the start of the loop body (CF_loop_body) depends on the control flow at the
+end of the loop body (CF_after_if).
+
+<div class='example wgsl' heading='Loop uniformity WGSL'>
+  <xmp highlight='rust'>
+    @compute @workgroup_size(16,1,1)
+    fn main(@builtin(local_invocation_index) lid : u32) {
+      for (var i = 0u; i < 10; i++) {
+        workgroupBarrier();
+        if (lid + i) > 7 {
+          break;
+        }
+      }
+    }
+  </xmp>
+</div>
+
+<figure>
+  <figcaption>Uniformity graph</figcaption>
+  <object type="image/svg+xml" data="img/uniformity_4.mmd.svg"></object>
+</figure>
+
+#### User-defined Function Calls #### {#uniformity-example5}
+
+This example is modification of the [[#uniformity-example1|first example]] that
+uses a user-defined function call.
+The analysis tags both parameters of `scale` as
+[=ParameterRequiredToBeUniformForReturnValue=].
+This leads to the path in `main` between the return value of the `scale`
+function call and the built-in value position.
+That path is a subpath of the overall invalid path from RequiredToBeUniform to
+MayBeNonUniform.
+
+<div class='example wgsl' heading='User-defined funtion call uniformity WGSL'>
+  <xmp highlight='rust'>
+    fn scale(in1 : f32, in2 : f32) -> f32 {
+      let v = in1 / in2;
+      return v;
+    }
+    
+    @group(0) @binding(0) var t : texture_2d<f32>;
+    @group(0) @binding(1) var s : sampler;
+    
+    @fragment
+    fn main(@builtin(position) pos : vec4<f32>) {
+      let tmp = scale(pos.x, 0.5);
+      if tmp > 1.0 {
+        _ = textureSample(t, s, pos.xy);
+      }
+    }
+  </xmp>
+</div
+
+<figure>
+  <figcaption>Uniformity graph for scale</figcaption>
+  <object type="image/svg+xml" data="img/uniformity_5scale.mmd.svg"></object>
+</figure>
+
+<figure>
+  <figcaption>Uniformity graph for main</figcaption>
+  <object type="image/svg+xml" data="img/uniformity_5main.mmd.svg"></object>
+</figure>
+
+Note: The subgraphs are only included in the example for ease of understanding.
 
 ## Compute Shaders and Workgroups ## {#compute-shader-workgroups}
 
