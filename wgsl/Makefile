@@ -8,8 +8,9 @@ clean:
 	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
 
 # Generate spec HTML from Bikeshed source.
-index.pre.html: index.bs wgsl.recursive.bs.include
-	DIE_ON=everything bash ../tools/invoke-bikeshed.sh index.pre.html index.bs wgsl.recursive.bs.include
+WGSL_SOURCES:=index.bs $(wildcard wgsl.*.bs.include)
+index.pre.html: $(WGSL_SOURCES)
+	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
 GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html
