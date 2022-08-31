@@ -616,7 +616,6 @@ module.exports = grammar({
             token('inout'),
             token('instanceof'),
             token('interface'),
-            token('invariant'),
             token('layout'),
             token('line'),
             token('lineadj'),
