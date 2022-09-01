@@ -34,18 +34,6 @@ jobs:
           git fetch https://github.com/${{ github.event.workflow_run.head_repository.full_name }} ${{ github.event.workflow_run.head_sha }}
           git ls-tree ${{ github.event.workflow_run.head_sha }} --full-tree --name-only -r spec/ wgsl/ explainer/ correspondence/ | grep "\.\(bs\|include\|svg\|png\|jpg\)$" | xargs git checkout ${{ github.event.workflow_run.head_sha }} --
 
-      # Builds Bikeshed specs
-      - name: Build Bikeshed
-        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
-        run: |
-          export PATH="$(python3 -m site --user-base)/bin:${PATH}"
-          sh tools/install-dependencies.sh bikeshed wgsl
-          BIKESHED_DISALLOW_ONLINE=1 make -j out
-          export GHC=https://github.com/gpuweb/gpuweb/blob
-          export GHCU=https://github.com/${{ github.event.workflow_run.head_repository.full_name }}/blob
-          sed -i -e "s,gpuweb/wgsl/</a><br><a href=\"${GHC}/$(git rev-parse HEAD)/wgsl/index.bs\">${GHC}/$(git rev-parse HEAD)/wgsl/index.bs</a>,gpuweb/wgsl/</a><br><a href=\"${GHCU}/${{ github.event.workflow_run.head_sha }}/wgsl/index.bs\">${GHCU}/${{ github.event.workflow_run.head_sha }}/wgsl/index.bs</a>," out/wgsl/index.html
-          sed -i -e "s,gpuweb.github.io/gpuweb/</a><br><a href=\"${GHC}/$(git rev-parse HEAD)/spec/index.bs\">${GHC}/$(git rev-parse HEAD)/spec/index.bs</a>,gpuweb.github.io/gpuweb/</a><br><a href=\"${GHCU}/${{ github.event.workflow_run.head_sha }}/spec/index.bs\">${GHCU}/${{ github.event.workflow_run.head_sha }}/spec/index.bs</a>," out/index.html
-
       # Extracts preview repository
       # This step exists as preparation for GitHub Actions non-secret environment variables per repository.
       # Until then, creating a repository with this exact name is necessary. Secret environment variables are
@@ -57,6 +45,18 @@ jobs:
           PR_PREVIEW_REPO: "gpuweb-pr-previews"
         run: |
           if curl -f -s -o /dev/null https://github.com/${{ github.event.workflow_run.repository.owner.login }}/$PR_PREVIEW_REPO ; then echo "Previews will live in https://${{ github.event.workflow_run.repository.owner.login }}.github.io/$PR_PREVIEW_REPO/gpuweb/gpuweb/$PR/" ; echo "PR_PREVIEW_REPO=$PR_PREVIEW_REPO" >> $GITHUB_ENV ; else exit 0 ; fi
+
+      # Builds Bikeshed specs
+      - name: Build Bikeshed
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR }}
+        run: |
+          export PATH="$(python3 -m site --user-base)/bin:${PATH}"
+          sh tools/install-dependencies.sh bikeshed wgsl
+          BIKESHED_DISALLOW_ONLINE=1 make -j out
+          export GHC=https://github.com/gpuweb/gpuweb/blob
+          export GHCU=https://github.com/${{ github.event.workflow_run.head_repository.full_name }}/blob
+          sed -i -e "s,gpuweb/wgsl/</a><br><a href=\"${GHC}/$(git rev-parse HEAD)/wgsl/index.bs\">${GHC}/$(git rev-parse HEAD)/wgsl/index.bs</a>,gpuweb/wgsl/</a><br><a href=\"${GHCU}/${{ github.event.workflow_run.head_sha }}/wgsl/index.bs\">${GHCU}/${{ github.event.workflow_run.head_sha }}/wgsl/index.bs</a>," out/wgsl/index.html
+          sed -i -e "s,gpuweb.github.io/gpuweb/</a><br><a href=\"${GHC}/$(git rev-parse HEAD)/spec/index.bs\">${GHC}/$(git rev-parse HEAD)/spec/index.bs</a>,gpuweb.github.io/gpuweb/</a><br><a href=\"${GHCU}/${{ github.event.workflow_run.head_sha }}/spec/index.bs\">${GHCU}/${{ github.event.workflow_run.head_sha }}/spec/index.bs</a>," out/index.html
 
       # Deploys PR to preview
       - name: Deploy PR
@@ -84,6 +84,18 @@ jobs:
           comment-author: 'github-actions[bot]'
           body-includes: pr;head;sha;base
 
+      - name: Fetch Preview Commit
+        env:
+          CDN_BASE: "https://raw.githack.com"
+          RAW_BASE: "https://raw.githubusercontent.com"
+        if: ${{ github.event.workflow_run.event == 'pull_request' && env.PR && env.PR_PREVIEW_REPO }}
+        run: |
+          sleep 1 # Wait
+          HASH=$(git ls-remote https://github.com/${{ github.event.workflow_run.repository.owner.login }}/${{ env.PR_PREVIEW_REPO }} HEAD | cut -f1)
+          SUFFIX=${{ github.event.workflow_run.repository.owner.login }}/${{ env.PR_PREVIEW_REPO }}/$HASH/gpuweb/gpuweb/${{ env.PR }}
+          echo "CDN_URL=$CDN_BASE/$SUFFIX" >> $GITHUB_ENV
+          echo "RAW_URL=$RAW_BASE/$SUFFIX" >> $GITHUB_ENV
+
       # Comments on PR
       - name: Comment PR
         uses: peter-evans/create-or-update-comment@v2
@@ -96,8 +108,8 @@ jobs:
           edit-mode: replace
           body: |
             Previews, as seen when this [build job](https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}) started (${{ github.event.workflow_run.head_sha }}):
-            [**WebGPU**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/) <sub>[**`webgpu.idl`**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/webgpu.idl.txt) | [**Explainer**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/explainer/) | [**Correspondence Reference**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/correspondence/)</sub>
-            [**WGSL**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/wgsl/) <sub>[**`grammar.js`**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/wgsl/grammar/grammar.js) | [**`wgsl.lalr.txt`**](https://${{ github.event.workflow_run.repository.owner.login }}.github.io/${{ env.PR_PREVIEW_REPO }}/gpuweb/gpuweb/${{ env.PR }}/wgsl/wgsl.lalr.txt)</sub>
+            [**WebGPU**](${{ env.CDN_URL }}/) <sub>[**`webgpu.idl`**](${{ env.RAW_URL }}/webgpu.idl.txt) | [**Explainer**](${{ env.CDN_URL }}/explainer/) | [**Correspondence Reference**](${{ env.CDN_URL }}/correspondence/)</sub>
+            [**WGSL**](${{ env.CDN_URL }}/wgsl/) <sub>[**`grammar.js`**](${{ env.RAW_URL }}/wgsl/grammar/grammar.js) | [**`wgsl.lalr.txt`**](${{ env.RAW_URL }}/wgsl/wgsl.lalr.txt)</sub>
             <!--
             pr;head;sha;base
             ${{ env.PR }};${{ github.event.workflow_run.head_repository.full_name }};${{ github.event.workflow_run.head_sha }};${{ github.event.workflow_run.repository.full_name }}
