@@ -529,7 +529,7 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
     grammar_package.write('        "nan": "^2.15.0"\n')
     grammar_package.write('    },\n')
     grammar_package.write('    "devDependencies": {\n')
-    grammar_package.write('        "tree-sitter-cli": "^0.20.0"\n')
+    grammar_package.write('        "tree-sitter-cli": "^0.19.0"\n')
     grammar_package.write('    },\n')
     grammar_package.write('    "main": "bindings/node"\n')
     grammar_package.write('}\n')
