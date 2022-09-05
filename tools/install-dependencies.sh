@@ -10,7 +10,7 @@ for opt in "$@"; do
             code=0
             ;;
         wgsl)
-            pip3 install tree_sitter==0.20.0
+            pip3 install tree_sitter==0.20.1
             code=0
             ;;
         diagrams)
