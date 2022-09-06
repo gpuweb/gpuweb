@@ -7937,26 +7937,34 @@ variables=] for each root identifier.
 
 Two root identifiers <dfn noexport>alias</dfn> when they have the same
 [=originating variable=].
-A WGSL program [=shader-creation error|must not=] contain any potential aliases.
-The program is analyzed from the leaves of the callgraph upwards (e.g. topological order).
+Execution of a WGSL function [=shader-creation error|must not=] potentially
+access memory through aliased root identifiers, where one access is a write and
+the other is a read or a write.
+This is determined by analyzing the program from the leaves of the callgraph
+upwards (i.e. topological order).
 For each function the analysis records the following sets:
 * [=module scope|Module-scope=] variables that are [=write access|written=].
-    Including any module-scope variables that are written in functions called from this function.
+    This includes any module-scope variables that are written in functions called from this function.
 * [=module scope|Module-scope=] variables that are [=read access|read=].
-    Including any module-scope variables that are read in functions called from this function.
-* Pointer parameters that are [=write access|written=].
-* Pointer parameters that are [=read access|read=].
+    This includes any module-scope variables that are read in functions called from this function.
+* Pointer parameters used as root identifiers of memory views that are [=write
+    access|written=] in this function or in called functions.
+* Pointer parameters used as root identifiers of memory views that are [=read
+    access|read=] in this function or in called functions.
 
-At each [=call site=] of a function, it is a [=shader-creation error=] if either:
+At each [=call site=] of a function, it is a [=shader-creation error=] if any
+of the following occur: `
 * Two arguments of pointer type have the same root identifier and either
     corresponding parameter is in the written parameter set.
-* An argument of pointer type has a root identifier that is a global variable where:
-    * the corresponding parameter is in the set of written pointer parameters
-        and the modue-scope variable is in either the written or read set of
-        module-scope variables for the called function, or
-    * the corresponding parameter is in the set of read pointer parameters and
-        the module-scope variable is in the written set of module-scope
-        variables for the called function.
+* An argument of pointer type whose root identifier is a module-scope variable where:
+    * the corresponding pointer parameter is in the set of written pointer parameters, and
+    * the module-scope variable is in the read set for the called function.
+* An argument of pointer type whose root identifier is a module-scope variable where:
+    * the corresponding pointer parameter is in the set of written pointer parameters, and
+    * the module-scope variable is in the written set for the called function.
+* An argument of pointer type whose root identifier is a module-scope variable where:
+    * the corresponding pointer parameter is in the set of read pointer parameters, and
+    * the module-scope variable is in the written set for the called function.
 
 <div class='example wgsl' heading='Alias analysis'>
   <xmp highlight='rust'>
@@ -7966,34 +7974,38 @@ At each [=call site=] of a function, it is a [=shader-creation error=] if either
       *p1 = *p2;
     }
 
-    fn f2() {
-      var a : i32 = 0;
-      f1(&a, &a);  // Invalid. Cannot pass two pointer parameters
-                   // with the same root identifier when one or
-                   // more are written.
+    fn f2(p1 : ptr<function, i32>, p2 : ptr<function, i32>) {
+      f1(p1, p2);
     }
 
-    fn f3(p1 : ptr<function, i32>, p2 : ptr<function, i32>) -> i32 {
+    fn f3() {
+      var a : i32 = 0;
+      f2(&a, &a);  // Invalid. Cannot pass two pointer parameters
+                   // with the same root identifier when one or
+                   // more are written (even by a subfunction).
+    }
+
+    fn f4(p1 : ptr<function, i32>, p2 : ptr<function, i32>) -> i32 {
       return *p1 + *p2;
     }
 
-    fn f4() {
+    fn f5() {
       var a : i32 = 0;
-      let b = f3(&a, &a); // Valid. p1 and p2 in f3 are both only read.
+      let b = f4(&a, &a); // Valid. p1 and p2 in f3 are both only read.
     }
 
-    fn f5(p : ptr<private, i32>) {
+    fn f6(p : ptr<private, i32>) {
       x = *p;
     }
 
-    fn f6(p : ptr<private, i32>) -> i32 {
+    fn f7(p : ptr<private, i32>) -> i32 {
       return x + *p;
     }
 
-    fn f7() {
-      let a = f5(&x); // Invalid. x is written as a global variable and
+    fn f8() {
+      let a = f6(&x); // Invalid. x is written as a global variable and
                       // read as a parameter.
-      let b = f6(&x); // Valid. x is only read as both a parameter and
+      let b = f7(&x); // Valid. x is only read as both a parameter and
                       // a variable.
     }
   </xmp>
