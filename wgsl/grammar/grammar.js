@@ -51,27 +51,31 @@ module.exports = grammar({
             $.false
         ),
         int_literal: $ => choice(
-            token(/0[xX][0-9a-fA-F]+[iu]?/),
+            $.decimal_int_literal,
+            $.hex_int_literal
+        ),
+        decimal_int_literal: $ => choice(
             token(/0[iu]?/),
             token(/[1-9][0-9]*[iu]?/)
         ),
+        hex_int_literal: $ => token(/0[xX][0-9a-fA-F]+[iu]?/),
         float_literal: $ => choice(
             $.decimal_float_literal,
             $.hex_float_literal
         ),
         decimal_float_literal: $ => choice(
+            token(/0[fh]/),
+            token(/[1-9][0-9]*[fh]/),
             token(/[0-9]*\.[0-9]+([eE][+-]?[0-9]+)?[fh]?/),
             token(/[0-9]+\.[0-9]*([eE][+-]?[0-9]+)?[fh]?/),
-            token(/[0-9]+[eE][+-]?[0-9]+[fh]?/),
-            token(/0[fh]/),
-            token(/[1-9][0-9]*[fh]/)
+            token(/[0-9]+[eE][+-]?[0-9]+[fh]?/)
         ),
         hex_float_literal: $ => choice(
             token(/0[xX][0-9a-fA-F]*\.[0-9a-fA-F]+([pP][+-]?[0-9]+[fh]?)?/),
             token(/0[xX][0-9a-fA-F]+\.[0-9a-fA-F]*([pP][+-]?[0-9]+[fh]?)?/),
             token(/0[xX][0-9a-fA-F]+[pP][+-]?[0-9]+[fh]?/)
         ),
-        const_literal: $ => choice(
+        literal: $ => choice(
             $.int_literal,
             $.float_literal,
             $.bool_literal
@@ -189,7 +193,7 @@ module.exports = grammar({
         primary_expression: $ => choice(
             $.ident,
             seq($.callable, $.argument_expression_list),
-            $.const_literal,
+            $.literal,
             $.paren_expression,
             seq($.bitcast, $.less_than, $.type_decl, $.greater_than, $.paren_expression)
         ),
