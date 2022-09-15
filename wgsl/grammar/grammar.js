@@ -101,19 +101,19 @@ module.exports = grammar({
             seq($.attr, token('compute'))
         ),
         attrib_end: $ => seq(optional($.comma), $.paren_right),
-        array_type_decl: $ => seq($.array, $.less_than, $.type_decl, optional(seq($.comma, $.element_count_expression)), $.greater_than),
+        array_type: $ => seq($.array, $.less_than, $.type_specifier, optional(seq($.comma, $.element_count_expression)), $.greater_than),
         element_count_expression: $ => choice(
             $.additive_expression,
             $.bitwise_expression
         ),
         struct_decl: $ => seq($.struct, $.ident, $.struct_body_decl),
         struct_body_decl: $ => seq($.brace_left, $.struct_member, optional(repeat1(seq($.comma, $.struct_member))), optional($.comma), $.brace_right),
-        struct_member: $ => seq(optional(repeat1($.attribute)), $.member_ident, $.colon, $.type_decl),
+        struct_member: $ => seq(optional(repeat1($.attribute)), $.member_ident, $.colon, $.type_specifier),
         texture_and_sampler_types: $ => choice(
             $.sampler_type,
             $.depth_texture_type,
-            seq($.sampled_texture_type, $.less_than, $.type_decl, $.greater_than),
-            seq($.multisampled_texture_type, $.less_than, $.type_decl, $.greater_than),
+            seq($.sampled_texture_type, $.less_than, $.type_specifier, $.greater_than),
+            seq($.multisampled_texture_type, $.less_than, $.type_specifier, $.greater_than),
             seq($.storage_texture_type, $.less_than, $.texel_format, $.comma, $.access_mode, $.greater_than)
         ),
         sampler_type: $ => choice(
@@ -142,22 +142,22 @@ module.exports = grammar({
             $.texture_depth_cube_array,
             $.texture_depth_multisampled_2d
         ),
-        type_alias_decl: $ => seq($.type, $.ident, $.equal, $.type_decl),
-        type_decl: $ => choice(
+        type_alias_decl: $ => seq($.type, $.ident, $.equal, $.type_specifier),
+        type_specifier: $ => choice(
             $.ident,
-            $.type_decl_without_ident
+            $.type_specifier_without_ident
         ),
-        type_decl_without_ident: $ => choice(
+        type_specifier_without_ident: $ => choice(
             $.bool,
             $.float32,
             $.float16,
             $.int32,
             $.uint32,
-            seq($.vec_prefix, $.less_than, $.type_decl, $.greater_than),
-            seq($.mat_prefix, $.less_than, $.type_decl, $.greater_than),
-            seq($.pointer, $.less_than, $.address_space, $.comma, $.type_decl, optional(seq($.comma, $.access_mode)), $.greater_than),
-            $.array_type_decl,
-            seq($.atomic, $.less_than, $.type_decl, $.greater_than),
+            seq($.vec_prefix, $.less_than, $.type_specifier, $.greater_than),
+            seq($.mat_prefix, $.less_than, $.type_specifier, $.greater_than),
+            seq($.pointer, $.less_than, $.address_space, $.comma, $.type_specifier, optional(seq($.comma, $.access_mode)), $.greater_than),
+            $.array_type,
+            seq($.atomic, $.less_than, $.type_specifier, $.greater_than),
             $.texture_and_sampler_types
         ),
         vec_prefix: $ => choice(
@@ -183,7 +183,7 @@ module.exports = grammar({
             seq($.const, $.optionally_typed_ident, $.equal, $.expression)
         ),
         variable_decl: $ => seq($.var, optional($.variable_qualifier), $.optionally_typed_ident),
-        optionally_typed_ident: $ => seq($.ident, optional(seq($.colon, $.type_decl))),
+        optionally_typed_ident: $ => seq($.ident, optional(seq($.colon, $.type_specifier))),
         variable_qualifier: $ => seq($.less_than, $.address_space, optional(seq($.comma, $.access_mode)), $.greater_than),
         global_variable_decl: $ => seq(optional(repeat1($.attribute)), $.variable_decl, optional(seq($.equal, $.expression))),
         global_constant_decl: $ => choice(
@@ -195,11 +195,11 @@ module.exports = grammar({
             seq($.callable, $.argument_expression_list),
             $.literal,
             $.paren_expression,
-            seq($.bitcast, $.less_than, $.type_decl, $.greater_than, $.paren_expression)
+            seq($.bitcast, $.less_than, $.type_specifier, $.greater_than, $.paren_expression)
         ),
         callable: $ => choice(
             $.ident,
-            $.type_decl_without_ident,
+            $.type_specifier_without_ident,
             $.vec_prefix,
             $.mat_prefix,
             $.array
@@ -366,9 +366,9 @@ module.exports = grammar({
             $.decrement_statement
         ),
         function_decl: $ => seq(optional(repeat1($.attribute)), $.function_header, $.compound_statement),
-        function_header: $ => seq($.fn, $.ident, $.paren_left, optional($.param_list), $.paren_right, optional(seq($.arrow, optional(repeat1($.attribute)), $.type_decl))),
+        function_header: $ => seq($.fn, $.ident, $.paren_left, optional($.param_list), $.paren_right, optional(seq($.arrow, optional(repeat1($.attribute)), $.type_specifier))),
         param_list: $ => seq($.param, optional(repeat1(seq($.comma, $.param))), optional($.comma)),
-        param: $ => seq(optional(repeat1($.attribute)), $.ident, $.colon, $.type_decl),
+        param: $ => seq(optional(repeat1($.attribute)), $.ident, $.colon, $.type_specifier),
         enable_directive: $ => seq($.enable, $.extension_name, $.semicolon),
         address_space: $ => choice(
             $.function,
