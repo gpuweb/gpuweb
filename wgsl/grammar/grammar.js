@@ -101,7 +101,7 @@ module.exports = grammar({
             seq($.attr, token('compute'))
         ),
         attrib_end: $ => seq(optional($.comma), $.paren_right),
-        array_type: $ => seq($.array, $.less_than, $.type_specifier, optional(seq($.comma, $.element_count_expression)), $.greater_than),
+        array_type_specifier: $ => seq($.array, $.less_than, $.type_specifier, optional(seq($.comma, $.element_count_expression)), $.greater_than),
         element_count_expression: $ => choice(
             $.additive_expression,
             $.bitwise_expression
@@ -156,7 +156,7 @@ module.exports = grammar({
             seq($.vec_prefix, $.less_than, $.type_specifier, $.greater_than),
             seq($.mat_prefix, $.less_than, $.type_specifier, $.greater_than),
             seq($.pointer, $.less_than, $.address_space, $.comma, $.type_specifier, optional(seq($.comma, $.access_mode)), $.greater_than),
-            $.array_type,
+            $.array_type_specifier,
             seq($.atomic, $.less_than, $.type_specifier, $.greater_than),
             $.texture_and_sampler_types
         ),
