@@ -2101,6 +2101,58 @@ For various image sources of {{GPUImageCopyExternalImage}}:
 
 Note: Check browser implementation support for these features before relying on them.
 
+## Numeric conversions from JavaScript to WGSL ## {#conversions-to-wgsl}
+
+Several parts of the WebGPU API ([=pipeline-overridable=] {{GPUProgrammableStage/constants}} and
+render pass clear values) take numeric values from WebIDL ({{double}} or {{float}}) and convert
+them to WGSL values (`bool`, `i32`, `u32`, `f32`, `f16`).
+
+<div algorithm>
+    To convert an IDL value |idlValue| of type {{double}} or {{float}} <dfn abstract-op>to WGSL type</dfn> |T|,
+    possibly throwing a {{TypeError}}:
+
+    1. [=Assert=] |idlValue| is a finite value, since it is not {{unrestricted double}} or {{unrestricted float}}.
+
+    1. Let |v| be the result of [=!=] converting |idlValue| to [=converted to an ECMAScript value|an ECMAScript value=].
+        <!-- This back-conversion is just here so we can call back into the ES->IDL conversion definitions from WebIDL. -->
+
+    1. <dl class=switch>
+            : If |T| is `bool`
+            ::
+                Return the WGSL `bool` value corresponding to the result of [=!=] converting |v| to
+                [=converted to an IDL value|an IDL value=] of type {{boolean}}.
+
+                Note: Because of the intermediate conversion through {{double}} or {{float}},
+                non-numeric, non-boolean values like `[]` and `{}` convert differently than they
+                would directly to IDL {{boolean}}.
+
+            : If |T| is `i32`
+            ::
+                Return the WGSL `i32` value corresponding to the result of [=?=] converting |v| to
+                [=converted to an IDL value|an IDL value=] of type [{{EnforceRange}}] {{long}}.
+
+            : If |T| is `u32`
+            ::
+                Return the WGSL `u32` value corresponding to the result of [=?=] converting |v| to
+                [=converted to an IDL value|an IDL value=] of type [{{EnforceRange}}] {{unsigned long}}.
+
+            : If |T| is `f32`
+            ::
+                Return the WGSL `f32` value corresponding to the result of [=?=] converting |v| to
+                [=converted to an IDL value|an IDL value=] of type {{float}}.
+
+            : If |T| is `f16`
+            ::
+                1. Let |wgslF32| be the WGSL `f32` value corresponding to the result of [=?=] converting |v| to
+                    [=converted to an IDL value|an IDL value=] of type {{float}}.
+                1. Return <code>f16(|wgslF32|)</code>, the result of [=!=] converting the WGSL `f32` value
+                    to `f16` as defined in [=WGSL floating point conversion=].
+
+                Note: An error is not thrown if the value is out-of-range for `f16` but in-range for `f32`.
+        </dl>
+</div>
+
+
 # Initialization # {#initialization}
 
 ## navigator.gpu ## {#navigator-gpu}
@@ -6662,15 +6714,9 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         The key of each key-value pair must equal the identifier string of one such constant.
         When the pipeline is executed, that constant will have the specified value.
 
-        Values are specified as <dfn typedef for=>GPUPipelineConstantValue</dfn>, which is a
-        `double` which is converted to the WGSL data type of the corresponding pipeline-overridable
-        constant (`bool`, `i32`, `u32`, or `f32`) via [=converted to an IDL value|an IDL value=]
-        ({{boolean}}, {{long}}, {{unsigned long}}, or {{float}}).
-        If the {{GPUFeatureName/"shader-f16"}} [=feature=] is enabled, a
-        pipeline-overridable constant may be of WGSL data type `f16`. The specified
-        {{GPUPipelineConstantValue}} for a pipeline-overridable constant of `f16` is converted to
-        {{float}} via [=converted to an IDL value|an IDL value=], then converted to WGSL type `f16`
-        via WGSL f32 to f16 conversion defined in [=WGSL floating point conversion|WGSL specification=].
+        Values are specified as <dfn typedef for=>GPUPipelineConstantValue</dfn>, which is a {{double}}.
+        They are converted [$to WGSL type$] of the pipeline-overridable constant (`bool`/`i32`/`u32`/`f32`/`f16`).
+        If conversion fails, a validation error is generated.
 
         <div class=example>
             Pipeline-overridable constants defined in WGSL:
@@ -6744,11 +6790,12 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         1. If |sampler|.{{GPUSamplerBindingLayout/type}} is {{GPUSamplerBindingType/"filtering"}},
             then |texture|.{{GPUTextureBindingLayout/sampleType}} must be
             {{GPUTextureSampleType/"float"}}.
-    - For each |key| in the [=map/keys=] of
-        |descriptor|.{{GPUProgrammableStage/constants}}:
-        - |key| must equal the [=pipeline-overridable constant identifier string=] of
+    - For each |key| &rarr; |value| in |descriptor|.{{GPUProgrammableStage/constants}}:
+        1. |key| must equal the [=pipeline-overridable constant identifier string=] of
             some [=pipeline-overridable=] constant defined in the shader module
             |descriptor|.{{GPUProgrammableStage/module}} by the rules defined in [=WGSL identifier comparison=].
+            Let the type of that constant be |T|.
+        1. Converting the IDL value |value| [$to WGSL type$] |T| must not throw a {{TypeError}}.
     - For each [=pipeline-overridable constant identifier string=] |key| which is
         [=statically accessed=] by the shader entry point:
         - If the pipeline-overridable constant identified by |key|
