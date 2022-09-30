@@ -2101,6 +2101,91 @@ For various image sources of {{GPUImageCopyExternalImage}}:
 
 Note: Check browser implementation support for these features before relying on them.
 
+## Numeric conversions from JavaScript to WGSL ## {#conversions-to-wgsl}
+
+Several parts of the WebGPU API ([=pipeline-overridable=] {{GPUProgrammableStage/constants}} and
+render pass clear values) take numeric values from WebIDL ({{double}} or {{float}}) and convert
+them to WGSL values (`bool`, `i32`, `u32`, `f32`, `f16`).
+
+<div algorithm>
+    To convert an IDL value |idlValue| of type {{double}} or {{float}} <dfn abstract-op>to WGSL type</dfn> |T|,
+    possibly throwing a {{TypeError}}:
+
+    1. [=Assert=] |idlValue| is a finite value, since it is not {{unrestricted double}} or {{unrestricted float}}.
+
+    1. Let |v| be the ECMAScript Number resulting from [=!=] converting |idlValue| to
+        [=converted to an ECMAScript value|an ECMAScript value=].
+        <!-- This back-conversion is just here so we can call back into the ES->IDL conversion definitions from WebIDL. -->
+
+    1. <dl class=switch>
+            : If |T| is `bool`
+            ::
+                Return the WGSL `bool` value corresponding to the result of [=!=] converting |v| to
+                [=converted to an IDL value|an IDL value=] of type {{boolean}}.
+
+                Note:
+                This algorithm is called after the conversion from an ECMAScript value to an IDL
+                {{double}} or {{float}} value. If the original ECMAScript value was a non-numeric,
+                non-boolean value like `[]` or `{}`, then the WGSL `bool` result may be different
+                than if the ECMAScript value had been converted to IDL {{boolean}} directly.
+
+            : If |T| is `i32`
+            ::
+                Return the WGSL `i32` value corresponding to the result of [=?=] converting |v| to
+                [=converted to an IDL value|an IDL value=] of type [{{EnforceRange}}] {{long}}.
+
+            : If |T| is `u32`
+            ::
+                Return the WGSL `u32` value corresponding to the result of [=?=] converting |v| to
+                [=converted to an IDL value|an IDL value=] of type [{{EnforceRange}}] {{unsigned long}}.
+
+            : If |T| is `f32`
+            ::
+                Return the WGSL `f32` value corresponding to the result of [=?=] converting |v| to
+                [=converted to an IDL value|an IDL value=] of type {{float}}.
+
+            : If |T| is `f16`
+            ::
+                1. Let |wgslF32| be the WGSL `f32` value corresponding to the result of [=?=] converting |v| to
+                    [=converted to an IDL value|an IDL value=] of type {{float}}.
+                1. Return <code>f16(|wgslF32|)</code>, the result of [=!=] converting the WGSL `f32` value
+                    to `f16` as defined in [=WGSL floating point conversion=].
+
+                Note: An error is not thrown if the value is out-of-range for `f16` but in-range for `f32`.
+        </dl>
+</div>
+
+<div algorithm>
+    To convert a {{GPUColor}} |color| <dfn abstract-op>to a texel value of texture format</dfn> |format|,
+    possibly throwing a {{TypeError}}:
+
+    1. If the components of |format| ([=assert=] they all have the same type) are:
+
+        <dl class=switch>
+            : floating-point types or normalized types
+            :: Let |T| be `f32`.
+            : signed integer types
+            :: Let |T| be `i32`.
+            : unsigned integer types
+            :: Let |T| be `u32`.
+        </dl>
+
+    1. Let |wgslColor| be a WGSL value of type <code>vec4&lt;|T|&gt;</code>, where the 4
+        components are the RGBA channels of |color|, each [=?=] converted [$to WGSL type$] |T|.
+
+    1. Convert |wgslColor| to |format| using the same conversion rules as the [[#output-merging]]
+        step, and return the result.
+
+        Note:
+        For non-integer types, the exact choice of value is implementation-defined.
+        For normalized types, the value is clamped to the range of the type.
+
+    Note:
+    In other words, the value written will be as if it was written by a WGSL shader that
+    outputs the value represented as a `vec4` of `f32`, `i32`, or `u32`.
+</div>
+
+
 # Initialization # {#initialization}
 
 ## navigator.gpu ## {#navigator-gpu}
@@ -6662,15 +6747,9 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         The key of each key-value pair must equal the identifier string of one such constant.
         When the pipeline is executed, that constant will have the specified value.
 
-        Values are specified as <dfn typedef for=>GPUPipelineConstantValue</dfn>, which is a
-        `double` which is converted to the WGSL data type of the corresponding pipeline-overridable
-        constant (`bool`, `i32`, `u32`, or `f32`) via [=converted to an IDL value|an IDL value=]
-        ({{boolean}}, {{long}}, {{unsigned long}}, or {{float}}).
-        If the {{GPUFeatureName/"shader-f16"}} [=feature=] is enabled, a
-        pipeline-overridable constant may be of WGSL data type `f16`. The specified
-        {{GPUPipelineConstantValue}} for a pipeline-overridable constant of `f16` is converted to
-        {{float}} via [=converted to an IDL value|an IDL value=], then converted to WGSL type `f16`
-        via WGSL f32 to f16 conversion defined in [=WGSL floating point conversion|WGSL specification=].
+        Values are specified as <dfn typedef for=>GPUPipelineConstantValue</dfn>, which is a {{double}}.
+        They are converted [$to WGSL type$] of the pipeline-overridable constant (`bool`/`i32`/`u32`/`f32`/`f16`).
+        If conversion fails, a validation error is generated.
 
         <div class=example>
             Pipeline-overridable constants defined in WGSL:
@@ -6744,11 +6823,12 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         1. If |sampler|.{{GPUSamplerBindingLayout/type}} is {{GPUSamplerBindingType/"filtering"}},
             then |texture|.{{GPUTextureBindingLayout/sampleType}} must be
             {{GPUTextureSampleType/"float"}}.
-    - For each |key| in the [=map/keys=] of
-        |descriptor|.{{GPUProgrammableStage/constants}}:
-        - |key| must equal the [=pipeline-overridable constant identifier string=] of
+    - For each |key| &rarr; |value| in |descriptor|.{{GPUProgrammableStage/constants}}:
+        1. |key| must equal the [=pipeline-overridable constant identifier string=] of
             some [=pipeline-overridable=] constant defined in the shader module
             |descriptor|.{{GPUProgrammableStage/module}} by the rules defined in [=WGSL identifier comparison=].
+            Let the type of that constant be |T|.
+        1. Converting the IDL value |value| [$to WGSL type$] |T| must not throw a {{TypeError}}.
     - For each [=pipeline-overridable constant identifier string=] |key| which is
         [=statically accessed=] by the shader entry point:
         - If the pipeline-overridable constant identified by |key|
@@ -10548,48 +10628,12 @@ dictionary GPURenderPassColorAttachment {
     : <dfn>clearValue</dfn>
     ::
         Indicates the value to clear {{GPURenderPassColorAttachment/view}} to prior to executing the
-        render pass. If not [=map/exist|provided=] defaults to `{r: 0, g: 0, b: 0, a: 0}`. Ignored
+        render pass. If not [=map/exist|provided=], defaults to `{r: 0, g: 0, b: 0, a: 0}`. Ignored
         if {{GPURenderPassColorAttachment/loadOp}} is not {{GPULoadOp/"clear"}}.
 
-        The members of {{GPURenderPassColorAttachment/clearValue}} are all double values, so
-        they will first be converted to the fully qualified format type of
-        {{GPURenderPassColorAttachment/view}} before being set as the clear value of
-        {{GPURenderPassColorAttachment/view}}.
-
-        <div algorithm="clearValue to texture value">
-            Let |colorAttachmentFormat| be
-            {{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
-
-            |colorAttachmentFormat| has up to four components: `r`, `g`, `b`, and `a`, each
-            component containing one scalar value.
-
-            For each |componentType| of |colorAttachmentFormat| and corresponding component scalar
-            value |value| in {{GPURenderPassColorAttachment/clearValue}}:
-
-            1. If |componentType| is a:
-
-                <dl class=switch>
-                    : floating-point type or normalized type
-                    :: Convert |value| [=converted to an IDL value|to an IDL value=] of type {{unrestricted float}} (`f32`).
-                    : signed integer type
-                    :: Convert |value| [=converted to an IDL value|to an IDL value=] of type {{long long}} (`i32`).
-                    : unsigned integer type
-                    :: Convert |value| [=converted to an IDL value|to an IDL value=] of type {{unsigned long long}} (`u32`).
-                </dl>
-
-            1. Convert |value| to |componentType| using the same conversion rules as the [#Output Merging]
-                step, and return the result.
-
-            <div class=note>
-                Note:
-                In other words, the value written will be as if it was written by a WGSL shader that
-                outputs the |value| represented as WGSL's `f32`, `i32`, or `u32`, according to its type.
-
-                For non-integer types, the exact choice of value is implementation-defined.
-                For normalized types, this results in clamping to the range of the type.
-            </div>
-
-        </div>
+        The components of {{GPURenderPassColorAttachment/clearValue}} are all double values.
+        They are converted [$to a texel value of texture format$] matching the render attachment.
+        If conversion fails, a validation error is generated.
 
     : <dfn>loadOp</dfn>
     ::
@@ -10618,6 +10662,13 @@ dictionary GPURenderPassColorAttachment {
 
     - |renderViewDescriptor|.{{GPUTextureViewDescriptor/format}} must be a [=color renderable format=].
     - |this|.{{GPURenderPassColorAttachment/view}} must be a [$renderable texture view$].
+    - If |this|.{{GPURenderPassColorAttachment/loadOp}} is {{GPULoadOp/"clear"}}:
+        - Converting the IDL value |this|.{{GPURenderPassColorAttachment/clearValue}}
+            [$to a texel value of texture format$] |renderViewDescriptor|.{{GPUTextureViewDescriptor/format}}
+            must not throw a {{TypeError}}.
+
+            Note: An error is not thrown if the value is out-of-range for the format but in-range for
+            the corresponding WGSL primitive type (`f32`, `i32`, or `u32`).
     - If |this|.{{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
         - |renderTexture|.{{GPUTexture/sampleCount}} must be &gt; 1.
         - |resolveTexture|.{{GPUTexture/sampleCount}} must be 1.
