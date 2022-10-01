@@ -76,7 +76,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: pipeline-overridable; url: pipeline-overridable
         text: pipeline-overridable constant identifier string; url: pipeline-overridable-constant-identifier-string
         text: pipeline-overridable constant has a default value; url: pipeline-overridable-constant-has-a-default-value
-        text: statically accessed; url: statically-accessed
+        text: interface of a shader stage; url: interface-of-a-shader-stage
         text: pipeline output; url: pipeline-output
         text: pipeline input; url: pipeline-input
         text: builtin; url: builtin-variables
@@ -6582,15 +6582,9 @@ run the following steps:
 
     1. For each {{GPUProgrammableStage}} |stageDesc| in the descriptor used to create |pipeline|:
 
-        1. Let |stageInfo| be the "reflection information" for |stageDesc|.
-
-            Issue: Define the reflection information concept so that this spec can interface with the WGSL
-                spec and get information what the interface is for a {{GPUShaderModule}} for a specific
-                entrypoint.
-
         1. Let |shaderStage| be the {{GPUShaderStageFlags}} for |stageDesc|.{{GPUProgrammableStage/entryPoint}}
             in |stageDesc|.{{GPUProgrammableStage/module}}.
-        1. For each resource |resource| in |stageInfo|'s resource interface:
+        1. For each resource |resource| [=statically used=] by |stageDesc|:
 
             1. Let |group| be |resource|'s "group" decoration.
             1. Let |binding| be |resource|'s "binding" decoration.
@@ -6635,7 +6629,7 @@ run the following steps:
                     Else if the sampled type of |resource| is:
 
                     <dl class=switch>
-                        : `f32` and |resource| is statically used with a textureSample* builtin in the shader
+                        : `f32` and there exists a [=static use=] of |resource| with a `textureSample*` builtin in
                         :: Set |textureLayout|.{{GPUTextureBindingLayout/sampleType}} to {{GPUTextureSampleType/"float"}}
                         : `f32` otherwise
                         :: Set |textureLayout|.{{GPUTextureBindingLayout/sampleType}} to {{GPUTextureSampleType/"unfilterable-float"}}
@@ -6815,9 +6809,9 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     - |descriptor|.{{GPUProgrammableStage/module}} must contain
         an entry point, for shader stage |stage|,
         named |descriptor|.{{GPUProgrammableStage/entryPoint}}.
-    - For each |binding| that is [=statically used=] by the shader entry point:
+    - For each |binding| that is [=statically used=] by |descriptor|:
         - [$validating shader binding$](|binding|, |layout|) must return `true`.
-    - For each texture sampling shader call that is [=statically used=] by the entry point:
+    - For each texture and sampler [=statically used=] together in texture sampling call in |descriptor|:
         1. Let |texture| be the {{GPUBindGroupLayoutEntry}} corresponding to the sampled texture in the call.
         1. Let |sampler| be the {{GPUBindGroupLayoutEntry}} corresponding to the used sampler in the call.
         1. If |sampler|.{{GPUSamplerBindingLayout/type}} is {{GPUSamplerBindingType/"filtering"}},
@@ -6830,7 +6824,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
             Let the type of that constant be |T|.
         1. Converting the IDL value |value| [$to WGSL type$] |T| must not throw a {{TypeError}}.
     - For each [=pipeline-overridable constant identifier string=] |key| which is
-        [=statically accessed=] by the shader entry point:
+        [=statically used=] by |descriptor|:
         - If the pipeline-overridable constant identified by |key|
             [=pipeline-overridable constant has a default value|does not have a default value=],
             |descriptor|.{{GPUProgrammableStage/constants}} must [=map/contain=] |key|.
@@ -6996,9 +6990,13 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     within the bound region of the buffer.
 </div>
 
-A resource binding is considered to be <dfn dfn>statically used</dfn> by a shader entry point
-if and only if it's reachable by the control flow graph of the shader module,
-starting at the entry point.
+<div algorithm>
+    A resource binding, [=pipeline-overridable constant=], shader stage input, or shader stage output
+    is considered to be <dfn dfn lt="statically used|static use">statically used</dfn>
+    by a {{GPUProgrammableStage}} if it is present in the
+    [=interface of a shader stage|interface of the shader stage=] of the specified
+    {{GPUProgrammableStage/entryPoint}}, in the specified shader {{GPUProgrammableStage/module}}.
+</div>
 
 ## <dfn interface>GPUComputePipeline</dfn> ## {#compute-pipeline}
 
@@ -7722,8 +7720,6 @@ the values are ignored.
         - |component|.{{GPUBlendComponent/srcFactor}} and
             |component|.{{GPUBlendComponent/dstFactor}} must both be {{GPUBlendFactor/"one"}}.
 </div>
-
-Issue: define the area of reach for "statically used" things of `GPUProgrammableStage`
 
 ### Color Target State ### {#color-target-state}
 
@@ -8580,19 +8576,18 @@ dictionary GPUVertexAttribute {
             sizeof(|attrib|.{{GPUVertexAttribute/format}}).
         - |attrib|.{{GPUVertexAttribute/shaderLocation}} is &lt;
             |device|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexAttributes}}.
-    - For every vertex attribute in the shader reflection of |vertexStage|.{{GPUProgrammableStage/module}}
-        that is a [=pipeline input=] of |vertexStage|.{{GPUProgrammableStage/entryPoint}},
+    - For every vertex attribute |var| [=statically used=] by |vertexStage|,
         there is a corresponding |attrib| element of |descriptor|.{{GPUVertexBufferLayout/attributes}} for which
         all of the following are true:
-        - The shader format is compatible with |attrib|.{{GPUVertexAttribute/format}}'s [=vertex data type=]:
+        - The type |T| of |var| is compatible with |attrib|.{{GPUVertexAttribute/format}}'s [=vertex data type=]:
 
             <dl class=switch>
                 : "unorm", "snorm", or "float"
-                :: shader format must be `f32` or `vecN<f32>`.
+                :: |T| must be `f32` or `vecN<f32>`.
                 : "uint"
-                :: shader format must be `u32` or `vecN<u32>`.
+                :: |T| must be `u32` or `vecN<u32>`.
                 : "sint"
-                :: shader format must be `i32` or `vecN<i32>`.
+                :: |T| must be `i32` or `vecN<i32>`.
             </dl>
         - The shader location is |attrib|.{{GPUVertexAttribute/shaderLocation}}.
 </div>
