@@ -73,7 +73,6 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
         text: location; url: input-output-locations
         text: interpolation; url: interpolation
-        text: minimum binding size; url: minimum-binding-size
         text: pipeline-overridable; url: pipeline-overridable
         text: pipeline-overridable constant identifier string; url: pipeline-overridable-constant-identifier-string
         text: pipeline-overridable constant has a default value; url: pipeline-overridable-constant-has-a-default-value
@@ -91,12 +90,13 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: pipeline-creation error; url: pipeline-creation-error
         text: store type; url: store-type
         text: runtime-sized; url: runtime-sized
-        text: SizeOf; url: sizeof
         text: WGSL floating point conversion; url: floating-point-conversion
         text: WGSL identifier comparison; url: identifier-comparison
         text: WGSL scalar type; url: scalar-types
         text: @binding; url: attribute-binding
         text: @group; url: attribute-group
+    type: abstract-op
+        text: SizeOf; url: sizeof
 </pre>
 
 <style>
@@ -5495,15 +5495,15 @@ dictionary GPUBufferBindingLayout {
 
     : <dfn>minBindingSize</dfn>
     ::
-        Indicates the minimum buffer binding size.
+        Indicates the minimum size, in bytes, of a buffer bound to this binding.
 
         Bindings are always validated against this size in {{GPUDevice/createBindGroup()}}.
 
         If this *is not* `0`, pipeline creation additionally [$validating shader binding|validates$]
-        that this value is large enough for the bindings declared in the shader.
+        that this value &ge; the [=minimum buffer binding size=] of the variable.
 
-        If this *is* `0`, draw/dispatch commands additionally [$Validate encoder bind groups|validate$]
-        that each binding in the {{GPUBindGroup}} is large enough for the bindings declared in the shader.
+        If this *is* `0`, it is ignored, and instead draw/dispatch commands [$Validate encoder bind groups|validate$]
+        that each binding in the {{GPUBindGroup}} satisfies the [=minimum buffer binding size=] of the variable.
 
         Note:
         Similar execution-time validation is theoretically possible for other
@@ -5930,7 +5930,7 @@ following members:
                                         - |resource|.{{GPUBufferBinding/buffer}} is [$valid to use with$] |this|.
                                         - The bound part designated by |resource|.{{GPUBufferBinding/offset}} and
                                             |resource|.{{GPUBufferBinding/size}} resides inside the buffer and has non-zero size.
-                                        - [$effective buffer binding size$](|resource|), &ge;
+                                        - [$effective buffer binding size$](|resource|) &ge;
                                             |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}}.
 
                                         - If |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/type}} is
@@ -6610,9 +6610,7 @@ run the following steps:
 
                 1. Let |bufferLayout| be a new {{GPUBufferBindingLayout}}.
 
-                1. Set |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} to |resource|'s minimum buffer binding size.
-
-                    Issue: link to a definition for "minimum buffer binding size" in the "reflection information".
+                1. Set |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} to |resource|'s [=minimum buffer binding size=].
 
                 1. If |resource| is for a read-only storage buffer:
 
@@ -6871,12 +6869,8 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
 
                 ::
                     If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}} is not `0`,
-                    then it must be at least the [=minimum binding size=] for the associated buffer variable in the shader.
-                    If the variable has [=store type=] |T|, the minimum binding size is [=SizeOf=](|T|).
-                    In this calculation, if |T| is a [=runtime-sized=] array or contains a runtime-sized array,
-                    that array is assumed to have one element.
-                    Enforcing this lower bound ensures reads and writes via the buffer variable only access memory locations
-                    within the bound region of the buffer.
+                    then it must be at least the [=minimum buffer binding size=] for the associated
+                    buffer binding variable in the shader.
 
                 : {{GPUBindGroupLayoutEntry/sampler}}
                 ::
@@ -6982,6 +6976,22 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
                     The texel format `T` equals
                     |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/format}}.
             </dl>
+</div>
+
+<div algorithm>
+    The <dfn dfn>minimum buffer binding size</dfn> for a buffer binding variable |var| is computed as follows:
+
+    1. Let |T| be the [=store type=] of |var|.
+    1. If |T| is a [=runtime-sized=] array, or contains a runtime-sized array, replace
+        that `array<E>` with `array<E, 1>`.
+
+        Note: This ensures there's always enough memory for one element, which allows array
+        indices to be clamped to the length of the array resulting in an in-memory access.
+    1. Return [$SizeOf$](|T|).
+
+    Note:
+    Enforcing this lower bound ensures reads and writes via the buffer variable only access memory locations
+    within the bound region of the buffer.
 </div>
 
 A resource binding is considered to be <dfn dfn>statically used</dfn> by a shader entry point
@@ -9917,7 +9927,7 @@ It must only be included by interfaces which also include those mixins.
 
             Issue: Add validation that, for buffer bindings that weren't prevalidated with
             {{GPUBufferBindingLayout/minBindingSize}}, the binding ranges are large enough for
-            the shader's minimum binding size requirements.
+            the [=minimum buffer binding size=].
         </div>
     1. [$Encoder bind groups alias a writable resource$](|encoder|, |pipeline|) must be `false`.
 
