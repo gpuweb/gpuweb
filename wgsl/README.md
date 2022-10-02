@@ -49,7 +49,7 @@ make validate-examples
 ```
 
 This extracts the grammar from the specification source in `index.bs`, creates a Tree-sitter parser from the
-grammar, and then ensures that code samples from the specification can be parsd correctly.
+grammar, and then ensures that code samples from the specification can be parsed correctly.
 
 ### Validating the grammar is LALR(1)
 
@@ -57,7 +57,7 @@ grammar, and then ensures that code samples from the specification can be parsd 
 make lalr
 ```
 
-This produces an LALR(1) parse table for the WGSL grammarin an ad-hoc textual format.
+This produces an LALR(1) parse table for the WGSL grammar in an ad-hoc textual format.
 It will fail if it finds a conflict.
 
 Tree-sitter's JSON representation of the WGSL grammar is used as an input to this step,
