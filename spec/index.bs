@@ -73,11 +73,10 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
         text: location; url: input-output-locations
         text: interpolation; url: interpolation
-        text: minimum binding size; url: minimum-binding-size
         text: pipeline-overridable; url: pipeline-overridable
         text: pipeline-overridable constant identifier string; url: pipeline-overridable-constant-identifier-string
         text: pipeline-overridable constant has a default value; url: pipeline-overridable-constant-has-a-default-value
-        text: statically accessed; url: statically-accessed
+        text: interface of a shader stage; url: interface-of-a-shader-stage
         text: pipeline output; url: pipeline-output
         text: pipeline input; url: pipeline-input
         text: builtin; url: builtin-variables
@@ -91,12 +90,15 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: pipeline-creation error; url: pipeline-creation-error
         text: store type; url: store-type
         text: runtime-sized; url: runtime-sized
-        text: SizeOf; url: sizeof
         text: WGSL floating point conversion; url: floating-point-conversion
         text: WGSL identifier comparison; url: identifier-comparison
         text: WGSL scalar type; url: scalar-types
         text: @binding; url: attribute-binding
         text: @group; url: attribute-group
+        for: address spaces
+            text: workgroup; url: address-spaces-workgroup
+    type: abstract-op
+        text: SizeOf; url: sizeof
 </pre>
 
 <style>
@@ -5494,15 +5496,16 @@ dictionary GPUBufferBindingLayout {
 
     : <dfn>minBindingSize</dfn>
     ::
-        Indicates the minimum buffer binding size.
+        Indicates the minimum {{GPUBufferBinding/size}} of a buffer binding used with this bind point.
 
         Bindings are always validated against this size in {{GPUDevice/createBindGroup()}}.
 
         If this *is not* `0`, pipeline creation additionally [$validating shader binding|validates$]
-        that this value is large enough for the bindings declared in the shader.
+        that this value &ge; the [=minimum buffer binding size=] of the variable.
 
-        If this *is* `0`, draw/dispatch commands additionally [$Validate encoder bind groups|validate$]
-        that each binding in the {{GPUBindGroup}} is large enough for the bindings declared in the shader.
+        If this *is* `0`, it is ignored by pipeline creation, and instead draw/dispatch commands
+        [$Validate encoder bind groups|validate$] that each binding in the {{GPUBindGroup}}
+        satisfies the [=minimum buffer binding size=] of the variable.
 
         Note:
         Similar execution-time validation is theoretically possible for other
@@ -5929,7 +5932,7 @@ following members:
                                         - |resource|.{{GPUBufferBinding/buffer}} is [$valid to use with$] |this|.
                                         - The bound part designated by |resource|.{{GPUBufferBinding/offset}} and
                                             |resource|.{{GPUBufferBinding/size}} resides inside the buffer and has non-zero size.
-                                        - [$effective buffer binding size$](|resource|), &ge;
+                                        - [$effective buffer binding size$](|resource|) &ge;
                                             |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}}.
 
                                         - If |layoutBinding|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/type}} is
@@ -6576,15 +6579,9 @@ run the following steps:
 
     1. For each {{GPUProgrammableStage}} |stageDesc| in the descriptor used to create |pipeline|:
 
-        1. Let |stageInfo| be the "reflection information" for |stageDesc|.
-
-            Issue: Define the reflection information concept so that this spec can interface with the WGSL
-                spec and get information what the interface is for a {{GPUShaderModule}} for a specific
-                entrypoint.
-
         1. Let |shaderStage| be the {{GPUShaderStageFlags}} for |stageDesc|.{{GPUProgrammableStage/entryPoint}}
             in |stageDesc|.{{GPUProgrammableStage/module}}.
-        1. For each resource |resource| in |stageInfo|'s resource interface:
+        1. For each resource |resource| [=statically used=] by |stageDesc|:
 
             1. Let |group| be |resource|'s "group" decoration.
             1. Let |binding| be |resource|'s "binding" decoration.
@@ -6606,9 +6603,7 @@ run the following steps:
 
                 1. Let |bufferLayout| be a new {{GPUBufferBindingLayout}}.
 
-                1. Set |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} to |resource|'s minimum buffer binding size.
-
-                    Issue: link to a definition for "minimum buffer binding size" in the "reflection information".
+                1. Set |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} to |resource|'s [=minimum buffer binding size=].
 
                 1. If |resource| is for a read-only storage buffer:
 
@@ -6631,7 +6626,7 @@ run the following steps:
                     Else if the sampled type of |resource| is:
 
                     <dl class=switch>
-                        : `f32` and |resource| is statically used with a textureSample* builtin in the shader
+                        : `f32` and there exists a [=static use=] of |resource| with a `textureSample*` builtin in
                         :: Set |textureLayout|.{{GPUTextureBindingLayout/sampleType}} to {{GPUTextureSampleType/"float"}}
                         : `f32` otherwise
                         :: Set |textureLayout|.{{GPUTextureBindingLayout/sampleType}} to {{GPUTextureSampleType/"unfilterable-float"}}
@@ -6811,9 +6806,9 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     - |descriptor|.{{GPUProgrammableStage/module}} must contain
         an entry point, for shader stage |stage|,
         named |descriptor|.{{GPUProgrammableStage/entryPoint}}.
-    - For each |binding| that is [=statically used=] by the shader entry point:
+    - For each |binding| that is [=statically used=] by |descriptor|:
         - [$validating shader binding$](|binding|, |layout|) must return `true`.
-    - For each texture sampling shader call that is [=statically used=] by the entry point:
+    - For each texture and sampler [=statically used=] together in texture sampling call in |descriptor|:
         1. Let |texture| be the {{GPUBindGroupLayoutEntry}} corresponding to the sampled texture in the call.
         1. Let |sampler| be the {{GPUBindGroupLayoutEntry}} corresponding to the used sampler in the call.
         1. If |sampler|.{{GPUSamplerBindingLayout/type}} is {{GPUSamplerBindingType/"filtering"}},
@@ -6826,7 +6821,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
             Let the type of that constant be |T|.
         1. Converting the IDL value |value| [$to WGSL type$] |T| must not throw a {{TypeError}}.
     - For each [=pipeline-overridable constant identifier string=] |key| which is
-        [=statically accessed=] by the shader entry point:
+        [=statically used=] by |descriptor|:
         - If the pipeline-overridable constant identified by |key|
             [=pipeline-overridable constant has a default value|does not have a default value=],
             |descriptor|.{{GPUProgrammableStage/constants}} must [=map/contain=] |key|.
@@ -6867,12 +6862,8 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
 
                 ::
                     If |entry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/minBindingSize}} is not `0`,
-                    then it must be at least the [=minimum binding size=] for the associated buffer variable in the shader.
-                    If the variable has [=store type=] |T|, the minimum binding size is [=SizeOf=](|T|).
-                    In this calculation, if |T| is a [=runtime-sized=] array or contains a runtime-sized array,
-                    that array is assumed to have one element.
-                    Enforcing this lower bound ensures reads and writes via the buffer variable only access memory locations
-                    within the bound region of the buffer.
+                    then it must be at least the [=minimum buffer binding size=] for the associated
+                    buffer binding variable in the shader.
 
                 : {{GPUBindGroupLayoutEntry/sampler}}
                 ::
@@ -6980,9 +6971,29 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
             </dl>
 </div>
 
-A resource binding is considered to be <dfn dfn>statically used</dfn> by a shader entry point
-if and only if it's reachable by the control flow graph of the shader module,
-starting at the entry point.
+<div algorithm>
+    The <dfn dfn>minimum buffer binding size</dfn> for a buffer binding variable |var| is computed as follows:
+
+    1. Let |T| be the [=store type=] of |var|.
+    1. If |T| is a [=runtime-sized=] array, or contains a runtime-sized array, replace
+        that `array<E>` with `array<E, 1>`.
+
+        Note: This ensures there's always enough memory for one element, which allows array
+        indices to be clamped to the length of the array resulting in an in-memory access.
+    1. Return [$SizeOf$](|T|).
+
+    Note:
+    Enforcing this lower bound ensures reads and writes via the buffer variable only access memory locations
+    within the bound region of the buffer.
+</div>
+
+<div algorithm>
+    A resource binding, [=pipeline-overridable=] constant, shader stage input, or shader stage output
+    is considered to be <dfn dfn lt="statically used|static use">statically used</dfn>
+    by a {{GPUProgrammableStage}} if it is present in the
+    [=interface of a shader stage|interface of the shader stage=] of the specified
+    {{GPUProgrammableStage/entryPoint}}, in the specified shader {{GPUProgrammableStage/module}}.
+</div>
 
 ## <dfn interface>GPUComputePipeline</dfn> ## {#compute-pipeline}
 
@@ -7059,20 +7070,23 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
                     [$generate a validation error$], make |pipeline| [=invalid=], and stop.
 
                     <div class=validusage>
-                        - |layout| is [$valid to use with$] |this|.
+                        - |layout| must be [$valid to use with$] |this|.
                         - [$validating GPUProgrammableStage$]({{GPUShaderStage/COMPUTE}},
-                            |descriptor|.{{GPUComputePipelineDescriptor/compute}}, |layout|) succeeds.
-                        - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
-                            |device|.limits.{{supported limits/maxComputeWorkgroupStorageSize}} bytes of
-                            workgroup storage.
+                            |descriptor|.{{GPUComputePipelineDescriptor/compute}}, |layout|) must succeed.
+                        - Let |workgroupStorageUsed| be the sum of the [$SizeOf$](|T|) over each
+                            type |T| of all variables with address space "[=address spaces/workgroup=]"
+                            [=statically used=] by |descriptor|.{{GPUComputePipelineDescriptor/compute}}.
 
-                            Issue: Better define using static use, etc.
-                        - |descriptor|.{{GPUComputePipelineDescriptor/compute}} uses &le;
+                            |workgroupStorageUsed| must be &le;
+                            |device|.limits.{{supported limits/maxComputeWorkgroupStorageSize}}.
+
+                            Issue(gpuweb/gpuweb#3485): Does this need to account for padding?
+                        - |descriptor|.{{GPUComputePipelineDescriptor/compute}} must use &le;
                             |device|.limits.{{supported limits/maxComputeInvocationsPerWorkgroup}} per
                             workgroup.
 
-                        - |descriptor|.{{GPUComputePipelineDescriptor/compute}}'s `workgroup_size` attribute
-                            has each component &le; the corresponding component in
+                        - Each component of |descriptor|.{{GPUComputePipelineDescriptor/compute}}'s
+                            `workgroup_size` attribute must be &le; the corresponding component in
                             [|device|.limits.{{supported limits/maxComputeWorkgroupSizeX}},
                             |device|.limits.{{supported limits/maxComputeWorkgroupSizeY}},
                             |device|.limits.{{supported limits/maxComputeWorkgroupSizeZ}}].
@@ -7711,8 +7725,6 @@ the values are ignored.
         - |component|.{{GPUBlendComponent/srcFactor}} and
             |component|.{{GPUBlendComponent/dstFactor}} must both be {{GPUBlendFactor/"one"}}.
 </div>
-
-Issue: define the area of reach for "statically used" things of `GPUProgrammableStage`
 
 ### Color Target State ### {#color-target-state}
 
@@ -8569,19 +8581,18 @@ dictionary GPUVertexAttribute {
             sizeof(|attrib|.{{GPUVertexAttribute/format}}).
         - |attrib|.{{GPUVertexAttribute/shaderLocation}} is &lt;
             |device|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexAttributes}}.
-    - For every vertex attribute in the shader reflection of |vertexStage|.{{GPUProgrammableStage/module}}
-        that is a [=pipeline input=] of |vertexStage|.{{GPUProgrammableStage/entryPoint}},
+    - For every vertex attribute |var| [=statically used=] by |vertexStage|,
         there is a corresponding |attrib| element of |descriptor|.{{GPUVertexBufferLayout/attributes}} for which
         all of the following are true:
-        - The shader format is compatible with |attrib|.{{GPUVertexAttribute/format}}'s [=vertex data type=]:
+        - The type |T| of |var| is compatible with |attrib|.{{GPUVertexAttribute/format}}'s [=vertex data type=]:
 
             <dl class=switch>
                 : "unorm", "snorm", or "float"
-                :: shader format must be `f32` or `vecN<f32>`.
+                :: |T| must be `f32` or `vecN<f32>`.
                 : "uint"
-                :: shader format must be `u32` or `vecN<u32>`.
+                :: |T| must be `u32` or `vecN<u32>`.
                 : "sint"
-                :: shader format must be `i32` or `vecN<i32>`.
+                :: |T| must be `i32` or `vecN<i32>`.
             </dl>
         - The shader location is |attrib|.{{GPUVertexAttribute/shaderLocation}}.
 </div>
@@ -9920,7 +9931,7 @@ It must only be included by interfaces which also include those mixins.
 
             Issue: Add validation that, for buffer bindings that weren't prevalidated with
             {{GPUBufferBindingLayout/minBindingSize}}, the binding ranges are large enough for
-            the shader's minimum binding size requirements.
+            the [=minimum buffer binding size=].
         </div>
     1. [$Encoder bind groups alias a writable resource$](|encoder|, |pipeline|) must be `false`.
 
