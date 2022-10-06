@@ -71,6 +71,7 @@ spec: WEBGL-1; urlPrefix: https://www.khronos.org/registry/webgl/specs/latest/1.
         text: WebGLContextAttributes; url: WEBGLCONTEXTATTRIBUTES
 spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
+        text: f16; url: f16
         text: location; url: input-output-locations
         text: interpolation; url: interpolation
         text: pipeline-overridable; url: pipeline-overridable
@@ -97,6 +98,8 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: @group; url: attribute-group
         for: address spaces
             text: workgroup; url: address-spaces-workgroup
+        for: extension
+            text: f16; url: extension-f16
     type: abstract-op
         text: SizeOf; url: sizeof
 </pre>
@@ -1497,13 +1500,21 @@ Each {{GPUAdapter}} exposes a set of available features.
 Only those features may be requested in {{GPUAdapter/requestDevice()}}.
 
 Functionality that is part of a feature may only be used if the feature was requested at device
-creation.
-Dictionary members added to existing dictionaries by optional features are always optional at the
-WebIDL level; if the feature is not enabled, such members must not be set to non-default values.
+creation (in {{GPUDeviceDescriptor/requiredFeatures}}).
+Otherwise, using existing API surfaces in a new way **typically** results in a [$validation error$],
+and using <dfn dfn>optional API surfaces</dfn> results in the following:
 
-Note: Though enabling a feature won't add new IDL-required fields, it may not necessarily be
-backward-compatible with existing code.
-An optional feature can enable new validation which invalidates previously-valid code.
+- Using a new method or enum value always throws a {{TypeError}}.
+- Using a new dictionary member with a (correctly-typed) non-default value **typically**
+    results in a [$validation error$].
+- Using a new WGSL `enable` directive always results in a {{GPUDevice/createShaderModule()}}
+    [$validation error$].
+
+<div algorithm>
+    A {{GPUFeatureName}} |feature| is <dfn dfn>enabled for</dfn>
+    a {{GPUObjectBase}} |object| if and only if
+    |object|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} [=list/contains=] |feature|.
+</div>
 
 See the [[#feature-index|Feature Index]] for a description of the functionality each feature enables.
 
@@ -3013,7 +3024,7 @@ enum GPUBufferMapState {
 
     : <dfn>\[[mapping]]</dfn>, of type [=active buffer mapping=] or `null`, initially `null`
     ::
-        Set iff the buffer is currently mapped for use by {{GPUBuffer/getMappedRange()}}.
+        Set if and only if the buffer is currently mapped for use by {{GPUBuffer/getMappedRange()}}.
         Null otherwise (even if there is a {{GPUBuffer/[[pending_map]]}}).
 
         An <dfn dfn for=>active buffer mapping</dfn> is a structure with the following fields:
@@ -7388,7 +7399,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
         - [$validating GPUFragmentState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}}) succeeds.
         - If the "sample_mask" [=builtin=] is a [=pipeline output=] of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
             - |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}} is `false`.
-    - [$validating GPUPrimitiveState$](|descriptor|.{{GPURenderPipelineDescriptor/primitive}}, |device|.{{device/[[features]]}}) succeeds.
+    - [$validating GPUPrimitiveState$](|descriptor|.{{GPURenderPipelineDescriptor/primitive}}, |device|) succeeds.
     - If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is not `null`:
         - [$validating GPUDepthStencilState$](|descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}) succeeds.
     - [$validating GPUMultisampleState$](|descriptor|.{{GPURenderPipelineDescriptor/multisample}}) succeeds.
@@ -7509,17 +7520,17 @@ constructs and rasterizes primitives from its vertex inputs:
 
     : <dfn>unclippedDepth</dfn>
     ::
-        If true, indicates that depth clipping is disabled. See [[#depth-clip-control]] for additional details.
+        If true, indicates that [=depth clipping=] is disabled.
 
         Requires the {{GPUFeatureName/"depth-clip-control"}} feature to be enabled.
 </dl>
 
 <div algorithm>
-    <dfn abstract-op>validating GPUPrimitiveState</dfn>(|descriptor|, |features|)
+    <dfn abstract-op>validating GPUPrimitiveState</dfn>(|descriptor|, |device|)
         **Arguments:**
 
         - {{GPUPrimitiveState}} |descriptor|
-        - [=list=]&lt;{{GPUFeatureName}}&gt; |features|
+        - {{GPUDevice}} |device|
 
         Return `true` if all of the following conditions are satisfied:
 
@@ -7527,7 +7538,7 @@ constructs and rasterizes primitives from its vertex inputs:
             {{GPUPrimitiveTopology/"line-strip"}} or {{GPUPrimitiveTopology/"triangle-strip"}}:
             - |descriptor|.{{GPUPrimitiveState/stripIndexFormat}} is `undefined`
         - If |descriptor|.{{GPUPrimitiveState/unclippedDepth}} is `true`:
-            - |features| must [=list/contain=] {{GPUFeatureName/"depth-clip-control"}}.
+            - {{GPUFeatureName/"depth-clip-control"}} must be [=enabled for=] |device|.
 </div>
 
 <script type=idl>
@@ -8857,18 +8868,16 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
             <div data-timeline=device>
                 [=Device timeline=] |initialization steps|:
 
-                1. If any of the following conditions are unsatisfied
+                1. If any of the following requirements are unmet,
                     [$generate a validation error$], make |pass| [=invalid=], and stop.
 
                     <div class=validusage>
-                        - |this|.{{GPUCommandsMixin/[[state]]}} is "[=encoder state/open=]".
-                        - |descriptor| meets the
-                            [$GPURenderPassDescriptor/Valid Usage$] rules.
-                        - |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is empty, or
-                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} [=list/contain=]s
-                            {{GPUFeatureName/"timestamp-query"}}.
-                        - For each |timestampWrite| in |descriptor|.{{GPURenderPassDescriptor/timestampWrites}},
-                            - |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}} is [$valid to use with$] |this|.
+                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
+                        - |descriptor| must meet the [$GPURenderPassDescriptor/Valid Usage$] rules.
+                        - If |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is not [=list/is empty|empty=]:
+                            - {{GPUFeatureName/"timestamp-query"}} must be [=enabled for=] |this|.
+                        - For each |timestampWrite| in |descriptor|.{{GPURenderPassDescriptor/timestampWrites}}:
+                            - |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}} must be [$valid to use with$] |this|.
                     </div>
 
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
@@ -8930,16 +8939,15 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
             <div data-timeline=device>
                 [=Device timeline=] |initialization steps|:
 
-                1. If any of the following conditions are unsatisfied
+                1. If any of the following requirements are unmet,
                     [$generate a validation error$], make |pass| [=invalid=], and stop.
 
                     <div class=validusage>
-                        - |this|.{{GPUCommandsMixin/[[state]]}} is "[=encoder state/open=]".
-                        - |descriptor|.{{GPUComputePassDescriptor/timestampWrites}} is empty, or
-                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} [=list/contain=]s
-                            {{GPUFeatureName/"timestamp-query"}}.
-                        - For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}},
-                            - |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}} is [$valid to use with$] |this|.
+                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
+                        - If |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is not [=list/is empty|empty=]:
+                            - {{GPUFeatureName/"timestamp-query"}} must be [=enabled for=] |this|.
+                        - For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}}:
+                            - |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}} must be [$valid to use with$] |this|.
                     </div>
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
 
@@ -9620,8 +9628,8 @@ The following definitions and validation rules are used by these methods.
 
                 [=Content timeline=] steps:
 
-                1. If |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=]
-                    {{GPUFeatureName/"timestamp-query"}}, throw a {{TypeError}}.
+                1. If {{GPUFeatureName/"timestamp-query"}} is not [=enabled for=] |this|:
+                    1. Throw a {{TypeError}}.
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             </div>
             <div data-timeline=device>
@@ -12311,8 +12319,8 @@ dictionary GPUQuerySetDescriptor : GPUObjectDescriptorBase {
                 [=Content timeline=] steps:
 
                 1. If |descriptor|.{{GPUQuerySetDescriptor/type}} is {{GPUQueryType/"timestamp"}},
-                    but |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=]
-                    {{GPUFeatureName/"timestamp-query"}}, throw a {{TypeError}}.
+                    but {{GPUFeatureName/"timestamp-query"}} is not [=enabled for=] |this|:
+                    1. Throw a {{TypeError}}.
                 1. Let |q| be a new {{GPUQuerySet}} object.
                 1. Set |q|.{{GPUQuerySet/type}} to |descriptor|.{{GPUQuerySetDescriptor/type}}.
                 1. Set |q|.{{GPUQuerySet/count}} to |descriptor|.{{GPUQuerySetDescriptor/count}}.
@@ -12402,7 +12410,7 @@ Timestamp queries allow applications to write timestamps to a {{GPUQuerySet}}, u
 and then resolve timestamp values (in nanoseconds as a 64-bit unsigned integer) into
 a {{GPUBuffer}}, using {{GPUCommandEncoder}}.{{GPUCommandEncoder/resolveQuerySet()}}.
 
-Timestamp query requires {{GPUFeatureName/"timestamp-query"}} is available on the device.
+Timestamp query requires {{GPUFeatureName/"timestamp-query"}} to be [=enabled for=] the device.
 
 Note: The timestamp values may be zero if the physical device reset timestamp counter, please ignore it and the following values.
 
@@ -12998,7 +13006,7 @@ error, and is expected to fail the same way across all devices assuming the same
 {{device/[[features]]}} and {{device/[[limits]]}} are in use.
 
 <div algorithm>
-    To <dfn abstract-op lt="Generate a validation error|generate a validation error">generate a
+    To <dfn abstract-op lt="Generate a validation error|generate a validation error|validation error">generate a
     validation error</dfn> for {{GPUDevice}} |device|, run the following steps:
 
     <div data-timeline=content>
@@ -14247,38 +14255,29 @@ An <dfn dfn>Extent3D</dfn> is a {{GPUExtent3D}}.
 
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"depth-clip-control"</dfn> ## {#depth-clip-control}
 
-Issue: Define functionality when the {{GPUFeatureName/"depth-clip-control"}} [=feature=] is enabled.
+Allows [=depth clipping=] to be disabled.
 
-**Feature Dictionary Values**
+This feature adds the following [=optional API surfaces=]:
 
-The following dictionary values are supported if and only if the {{GPUFeatureName/"depth-clip-control"}}
-[=feature=] is enabled; otherwise, they must be set to their default values:
-
-- {{GPUPrimitiveState}}
+- New {{GPUPrimitiveState}} dictionary members:
     - {{GPUPrimitiveState/unclippedDepth}}
 
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"depth32float-stencil8"</dfn> ## {#depth32float-stencil8}
 
 Allows for explicit creation of textures of format {{GPUTextureFormat/"depth32float-stencil8"}}.
 
-**Feature Enums**
+This feature adds the following [=optional API surfaces=]:
 
-The following enums are supported if and only if the {{GPUFeatureName/"depth32float-stencil8"}}
-[=feature=] is enabled:
-
-- {{GPUTextureFormat}}
+- New {{GPUTextureFormat}} enum values:
     - {{GPUTextureFormat/"depth32float-stencil8"}}
 
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"texture-compression-bc"</dfn> ## {#texture-compression-bc}
 
 Allows for explicit creation of textures of BC compressed formats.
 
-**Feature Enums**
+This feature adds the following [=optional API surfaces=]:
 
-The following enums are supported if and only if the {{GPUFeatureName/"texture-compression-bc"}}
-[=feature=] is enabled:
-
-- {{GPUTextureFormat}}
+- New {{GPUTextureFormat}} enum values:
     - {{GPUTextureFormat/"bc1-rgba-unorm"}}
     - {{GPUTextureFormat/"bc1-rgba-unorm-srgb"}}
     - {{GPUTextureFormat/"bc2-rgba-unorm"}}
@@ -14298,12 +14297,9 @@ The following enums are supported if and only if the {{GPUFeatureName/"texture-c
 
 Allows for explicit creation of textures of ETC2 compressed formats.
 
-**Feature Enums**
+This feature adds the following [=optional API surfaces=]:
 
-The following enums are supported if and only if the {{GPUFeatureName/"texture-compression-etc2"}}
-[=feature=] is enabled:
-
-- {{GPUTextureFormat}}
+- New {{GPUTextureFormat}} enum values:
     - {{GPUTextureFormat/"etc2-rgb8unorm"}}
     - {{GPUTextureFormat/"etc2-rgb8unorm-srgb"}}
     - {{GPUTextureFormat/"etc2-rgb8a1unorm"}}
@@ -14319,12 +14315,9 @@ The following enums are supported if and only if the {{GPUFeatureName/"texture-c
 
 Allows for explicit creation of textures of ASTC compressed formats.
 
-**Feature Enums**
+This feature adds the following [=optional API surfaces=]:
 
-The following enums are supported if and only if the {{GPUFeatureName/"texture-compression-astc"}}
-[=feature=] is enabled:
-
-- {{GPUTextureFormat}}
+- New {{GPUTextureFormat}} enum values:
     - {{GPUTextureFormat/"astc-4x4-unorm"}}
     - {{GPUTextureFormat/"astc-4x4-unorm-srgb"}}
     - {{GPUTextureFormat/"astc-5x4-unorm"}}
@@ -14356,33 +14349,46 @@ The following enums are supported if and only if the {{GPUFeatureName/"texture-c
 
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"timestamp-query"</dfn> ## {#timestamp-query}
 
-Issue: Define functionality when the {{GPUFeatureName/"timestamp-query"}} [=feature=] is enabled.
+Adds the ability to query timestamps from GPU command buffers. See [[#timestamp]].
 
-**Feature Enums**
+This feature adds the following [=optional API surfaces=]:
 
-The following enums are supported if and only if the {{GPUFeatureName/"timestamp-query"}}
-[=feature=] is enabled:
-
-- {{GPUQueryType}}
+- New {{GPUQueryType}} values:
     - {{GPUQueryType/"timestamp"}}
+- New {{GPUCommandEncoder}} methods:
+    - {{GPUCommandEncoder/writeTimestamp()}}
+- New {{GPUComputePassDescriptor}} members:
+    - {{GPUComputePassDescriptor/timestampWrites}}
+- New {{GPURenderPassDescriptor}} members:
+    - {{GPURenderPassDescriptor/timestampWrites}}
 
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"indirect-first-instance"</dfn> ## {#indirect-first-instance}
 
-Removes the zero value restriction on `firstInstance` in [=indirect draw parameters=] and [=indirect drawIndexed parameters=].
-`firstInstance` is allowed to be non-zero if and only if the {{GPUFeatureName/"indirect-first-instance"}} [=feature=] is enabled.
+Allows the use of non-zero `firstInstance` values in [=indirect draw parameters=] and [=indirect drawIndexed parameters=].
+
+This feature adds no [=optional API surfaces=].
 
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"shader-f16"</dfn> ## {#shader-f16}
 
-Using "`enable f16;`" directive in WGSL code for a shader module is allowed if and only if the {{GPUFeatureName/"shader-f16"}} [=feature=] is enabled; otherwise using it must result in a compilation error when creating shader module.
+Allows the use of the half-precision floating-point type [=f16=] in WGSL.
+
+This feature adds the following [=optional API surfaces=]:
+
+- New WGSL extensions:
+    - [=extension/f16=]
 
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"bgra8unorm-storage"</dfn> ## {#bgra8unorm-storage}
 
 Allows the {{GPUTextureUsage/STORAGE_BINDING}} usage on textures with format {{GPUTextureFormat/"bgra8unorm"}}.
 
+This feature adds no [=optional API surfaces=].
+
 ## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"rg11b10ufloat-renderable"</dfn> ## {#rg11b10ufloat-renderable}
 
 Allows the {{GPUTextureUsage/RENDER_ATTACHMENT}} usage on textures with format {{GPUTextureFormat/"rg11b10ufloat"}},
 and also allows textures of that format to be multisampled.
+
+This feature adds no [=optional API surfaces=].
 
 # Appendices # {#appendices}
 
