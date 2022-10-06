@@ -1167,13 +1167,6 @@ A [=physical resource=] can be used on GPU with an <dfn dfn>internal usage</dfn>
         Allowed by texture {{GPUTextureUsage/RENDER_ATTACHMENT}}.
 </dl>
 
-Textures may consist of separate [=mipmap levels=] and [=array layers=],
-which can be used differently at any given time.
-Each such <dfn dfn>texture subresource</dfn> is uniquely identified by a
-[=texture=], [=mipmap level=], and
-(for {{GPUTextureDimension/2d}} textures only) [=array layer=],
-and [=aspect=].
-
 We define <dfn dfn>subresource</dfn> to be either a whole buffer, or a [=texture subresource=].
 
 <div algorithm="compatible usage list">
@@ -1211,6 +1204,8 @@ The [=subresources=] of textures included in the views provided to
 {{GPURenderPassColorAttachment/view|GPURenderPassColorAttachment.view}} and
 {{GPURenderPassColorAttachment/resolveTarget|GPURenderPassColorAttachment.resolveTarget}}
 are considered to be used as [=internal usage/attachment=] for the [=usage scope=] of this render pass.
+
+Issue: Move the following into the [[#textures]] section.
 
 The <dfn dfn>logical miplevel-specific texture extent</dfn> of a [=texture=] is the size of the
 [=texture=] in texels at a specific miplevel. It is calculated by this procedure:
@@ -3711,11 +3706,39 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
 # Textures and Texture Views # {#textures}
 
-Issue(gpuweb/gpuweb#2962): define <dfn dfn>texture</dfn> (internal object)
-
-Issue: define <dfn dfn>mipmap level</dfn>, <dfn dfn>array layer</dfn>, <dfn dfn>aspect</dfn>, <dfn dfn>slice</dfn> (concepts)
-
 ## <dfn interface>GPUTexture</dfn> ## {#texture-interface}
+
+Issue: Remove this definition: <dfn dfn>texture</dfn>
+
+One texture consists of one or more <dfn dfn>texture subresources</dfn>,
+each uniquely identified by a [=mipmap level=] and,
+for {{GPUTextureDimension/2d}} textures only, [=array layer=] and [=aspect=].
+
+A [=texture subresource=] is a [=subresource=]: each can be used in different
+[=internal usages=] within a single [=usage scope=].
+
+Each subresource in a <dfn dfn>mipmap level</dfn> is approximately half the size,
+in each spatial dimension, of the corresponding resource in the lesser level
+(see [=logical miplevel-specific texture extent=]).
+The subresource in level 0 has the dimensions of the texture itself.
+These are typically used to represent levels of detail of a texture.
+{{GPUSampler}} and WGSL provide facilities for selecting and interpolating between levels of
+detail, explicitly or automatically.
+
+A {{GPUTextureDimension/"2d"}} texture may be an array of <dfn dfn>array layer</dfn>s.
+Each subresource in a layer is the same size as the corresponding resources in other layers.
+For non-2d textures, all subresources have an array layer index of 0.
+
+Each subresource has an <dfn dfn>aspect</dfn>.
+Color textures have just one aspect: <dfn dfn for=aspect>color</dfn>.
+[=Depth-or-stencil format=] textures may have multiple aspects:
+a <dfn dfn for=aspect>depth</dfn> aspect,
+a <dfn dfn for=aspect>stencil</dfn> aspect, or both, and may be used in special ways, such as in
+{{GPURenderPassDescriptor/depthStencilAttachment}} and in {{GPUTextureSampleType/"depth"}} bindings.
+
+A {{GPUTextureDimension/"3d"}} texture may have multiple <dfn dfn>slice</dfn>s, each being the
+two-dimensional image at a particular `z` value in the texture.
+Slices are not separate subresources.
 
 {{GPUTexture}}s are created via {{GPUDevice/createTexture()}}.
 
@@ -4137,6 +4160,9 @@ all previously submitted operations using it are complete.
 
 ## <dfn interface>GPUTextureView</dfn> ## {#gpu-textureview}
 
+A {{GPUTextureView}} is a view onto some subset of the [=texture subresources=] defined by
+a particular {{GPUTexture}}.
+
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUTextureView {
@@ -4156,12 +4182,34 @@ GPUTextureView includes GPUObjectBase;
         The {{GPUTextureViewDescriptor}} describing this texture view.
 
         All optional fields of {{GPUTextureViewDescriptor}} are defined.
+
     : <dfn>\[[renderExtent]]</dfn>
     ::
         For renderable views, this is the effective {{GPUExtent3DDict}} for rendering.
 
         Note: this extent depends on the {{GPUTextureViewDescriptor/baseMipLevel}}.
 </dl>
+
+<div algorithm="texture view subresources">
+    The set of <dfn dfn for=GPUTextureView>subresources</dfn> of a texture view |view|,
+    with {{GPUTextureView/[[descriptor]]}} |desc|,
+    is the subset of the subresources of |view|.{{GPUTextureView/[[texture]]}}
+    for which each subresource |s| satisfies the following:
+
+    - The [=mipmap level=] of |s| is &ge;
+        |desc|.{{GPUTextureViewDescriptor/baseMipLevel}} and &lt;
+        |desc|.{{GPUTextureViewDescriptor/baseMipLevel}} +
+        |desc|.{{GPUTextureViewDescriptor/mipLevelCount}}.
+    - The [=array layer=] of |s| is &ge;
+        |desc|.{{GPUTextureViewDescriptor/baseArrayLayer}} and &lt;
+        |desc|.{{GPUTextureViewDescriptor/baseArrayLayer}} +
+        |desc|.{{GPUTextureViewDescriptor/arrayLayerCount}}.
+    - The [=aspect=] of |s| is in the [=GPUTextureAspect/set of aspects=] of
+        |desc|.{{GPUTextureViewDescriptor/aspect}}.
+
+    Two {{GPUTextureView}} objects are <dfn dfn>texture-view-aliasing</dfn> if and only if
+    their sets of subresources intersect.
+</div>
 
 ### Texture View Creation ### {#texture-view-creation}
 
@@ -4287,6 +4335,9 @@ enum GPUTextureViewDimension {
         - `texture_storage_3d`
 </dl>
 
+Each <dfn enum>GPUTextureAspect</dfn> value corresponds to a set of [=aspects=].
+The <dfn dfn for=GPUTextureAspect>set of aspects</dfn> are defined for each value below.
+
 <script type=idl>
 enum GPUTextureAspect {
     "all",
@@ -4303,15 +4354,21 @@ enum GPUTextureAspect {
         [=combined depth-stencil format=]s both the depth and stencil aspects will be accessible.
         [=Depth-or-stencil format=]s with a single aspect will only make that aspect accessible.
 
+        The [=GPUTextureAspect/set of aspects=] is [[=aspect/color=], [=aspect/depth=], [=aspect/stencil=]].
+
     : <dfn>"stencil-only"</dfn>
     ::
         Only the stencil aspect of a [=depth-or-stencil format=] format will be accessible to the
         texture view.
 
+        The [=GPUTextureAspect/set of aspects=] is [[=aspect/stencil=]].
+
     : <dfn>"depth-only"</dfn>
     ::
         Only the depth aspect of a [=depth-or-stencil format=] format will be accessible to the
         texture view.
+
+        The [=GPUTextureAspect/set of aspects=] is [[=aspect/depth=]].
 </dl>
 
 <dl dfn-type=method dfn-for=GPUTexture>
@@ -4502,34 +4559,6 @@ enum GPUTextureAspect {
                 : {{GPUTextureDimension/"2d"}}
                 :: Return |texture|.{{GPUTexture/depthOrArrayLayers}}.
             </dl>
-</div>
-
-<div algorithm>
-    - Let {{GPUTextureViewDescriptor}} |aDescriptor| = |a|.{{GPUTextureView/[[descriptor]]}}.
-    - Let {{GPUTextureViewDescriptor}} |bDescriptor| = |b|.{{GPUTextureView/[[descriptor]]}}.
-    - [=Assert=]: |aDescriptor|.{{GPUTextureViewDescriptor/mipLevelCount}} is not `undefined`.
-    - [=Assert=]: |bDescriptor|.{{GPUTextureViewDescriptor/mipLevelCount}} is not `undefined`.
-    - [=Assert=]: |aDescriptor|.{{GPUTextureViewDescriptor/arrayLayerCount}} is not `undefined`.
-    - [=Assert=]: |bDescriptor|.{{GPUTextureViewDescriptor/arrayLayerCount}} is not `undefined`.
-
-    Two {{GPUTextureView}} objects |a| and |b| are considered <dfn dfn>texture-view-aliasing</dfn> if and only if all of the following are true:
-
-    - |a|.{{GPUTextureView/[[texture]]}} == |b|.{{GPUTextureView/[[texture]]}}.
-    - |aDescriptor|.{{GPUTextureViewDescriptor/aspect}} == {{GPUTextureAspect/"all"}}, or
-        |bDescriptor|.{{GPUTextureViewDescriptor/aspect}} == {{GPUTextureAspect/"all"}}, or
-        |aDescriptor|.{{GPUTextureViewDescriptor/aspect}} == |bDescriptor|.{{GPUTextureViewDescriptor/aspect}}.
-    - The range formed by
-        |aDescriptor|.{{GPUTextureViewDescriptor/baseMipLevel}} and
-        |aDescriptor|.{{GPUTextureViewDescriptor/mipLevelCount}} intersects the range formed by
-        |bDescriptor|.{{GPUTextureViewDescriptor/baseMipLevel}} and
-        |bDescriptor|.{{GPUTextureViewDescriptor/mipLevelCount}}.
-    - The range formed by
-        |aDescriptor|.{{GPUTextureViewDescriptor/baseArrayLayer}} and
-        |aDescriptor|.{{GPUTextureViewDescriptor/arrayLayerCount}} intersects the range formed by
-        |bDescriptor|.{{GPUTextureViewDescriptor/baseArrayLayer}} and
-        |bDescriptor|.{{GPUTextureViewDescriptor/arrayLayerCount}}.
-
-    Issue: Describe this in terms of a "set of subresources of" algorithm.
 </div>
 
 ## Texture Formats ## {#texture-formats}
@@ -8890,10 +8919,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                     1. Let |depthStencilView| be |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}.
                     1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} and
                         {{GPURenderPassDepthStencilAttachment/stencilReadOnly}} are `true`:
-                        1. The [=texture subresources=] seen by |depthStencilView|
+                        1. The [=GPUTextureView/subresources=] of |depthStencilView|
                             are considered to be used as [=internal usage/attachment-read=] for the duration of the render pass.
-
-                            Issue: Describe this in terms of a "set of subresources of" algorithm.
                     1. Else, the [=texture subresource=] seen by |depthStencilView|
                         is considered to be used as [=internal usage/attachment=] for the duration of the render pass.
                     1. Set |pass|.{{GPURenderCommandsMixin/[[depthReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}}.
@@ -9589,21 +9616,18 @@ The following definitions and validation rules are used by these methods.
 
 <div algorithm>
     The <dfn abstract-op>set of subresources for texture copy</dfn>(|imageCopyTexture|, |copySize|)
-    is the set containing:
+    is the subset of subresources of |texture| = |imageCopyTexture|.{{GPUImageCopyTexture/texture}}
+    for which each subresource |s| satisfies the following:
 
-    - If |imageCopyTexture|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/dimension}}
-        is {{GPUTextureDimension/"2d"}}:
-
-        - For each |arrayLayer| of the |copySize|.[=Extent3D/depthOrArrayLayers=] [=array layers=]
-            starting at |imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/z=]:
-            - The [=subresource=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}} at
-                [=mipmap level=] |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}} and
-                [=array layer=] |arrayLayer|.
-
-        Otherwise:
-
-        - The [=subresource=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}} at
-            [=mipmap level=] |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}}.
+    - The [=mipmap level=] of |s| equals
+        |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}}.
+    - The [=aspect=] of |s| is in the [=GPUTextureAspect/set of aspects=] of
+        |imageCopyTexture|.{{GPUImageCopyTexture/aspect}}.
+    - If |texture|.{{GPUTexture/dimension}} is {{GPUTextureDimension/"2d"}}:
+        - The [=array layer=] of |s| is &ge;
+            |imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/z=] and &lt;
+            |imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/z=] +
+            |copySize|.[=Extent3D/depthOrArrayLayers=].
 </div>
 
 ## Queries ## {#command-encoder-queries}
