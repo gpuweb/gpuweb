@@ -10,6 +10,8 @@ import sys
 
 from tree_sitter import Language, Parser
 
+# TODO: Normalize space character in extract
+
 HEADER = """
 // Copyright (C) [$YEAR] World Wide Web Consortium,
 // (Massachusetts Institute of Technology, European Research Consortium for
