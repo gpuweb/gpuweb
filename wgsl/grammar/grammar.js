@@ -206,10 +206,10 @@ module.exports = grammar({
         ),
         paren_expression: $ => seq($.paren_left, $.expression, $.paren_right),
         argument_expression_list: $ => seq($.paren_left, optional(seq($.expression, optional(repeat1(seq($.comma, $.expression))), optional($.comma))), $.paren_right),
-        postfix_expression: $ => choice(
-            seq($.bracket_left, $.expression, $.bracket_right, optional($.postfix_expression)),
-            seq($.period, $.member_ident, optional($.postfix_expression)),
-            seq($.period, $.swizzle_name, optional($.postfix_expression))
+        component_or_swizzle_specifier: $ => choice(
+            seq($.bracket_left, $.expression, $.bracket_right, optional($.component_or_swizzle_specifier)),
+            seq($.period, $.member_ident, optional($.component_or_swizzle_specifier)),
+            seq($.period, $.swizzle_name, optional($.component_or_swizzle_specifier))
         ),
         unary_expression: $ => choice(
             $.singular_expression,
@@ -219,8 +219,8 @@ module.exports = grammar({
             seq($.star, $.unary_expression),
             seq($.and, $.unary_expression)
         ),
-        singular_expression: $ => seq($.primary_expression, optional($.postfix_expression)),
-        lhs_expression: $ => seq(optional(repeat1(choice($.star, $.and))), $.core_lhs_expression, optional($.postfix_expression)),
+        singular_expression: $ => seq($.primary_expression, optional($.component_or_swizzle_specifier)),
+        lhs_expression: $ => seq(optional(repeat1(choice($.star, $.and))), $.core_lhs_expression, optional($.component_or_swizzle_specifier)),
         core_lhs_expression: $ => choice(
             $.ident,
             seq($.paren_left, $.lhs_expression, $.paren_right)
