@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebGPU Cube Demo</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+  <script type="text/wgsl" id="shader">
+    struct Input {
+      @location(0) position: vec3<f32>,
+      @location(1) color: vec3<f32>,
+    }
+    struct Output {
+      @builtin(position) position: vec4<f32>,
+      @location(0) color: vec3<f32>,
+    }
+    @group(0) @binding(0) var<uniform> mvpMat: mat4x4<f32>;
+		@vertex
+		fn vs_main(input: Input) -> Output {
+      return Output(mvpMat * vec4<f32>(input.position, 1.0), input.color);
+		}
+		@fragment
+		fn fs_main(input: Output) -> @location(0) vec4<f32> {
+			return vec4<f32>(input.color, 1.0);
+		}
+	</script>
+</head>
+
+<body>
+  <canvas id="demo" width="600" height="600"></canvas>
+  <script>
+    const canvas = document.getElementById('demo');
+    const shaderCode = document.getElementById('shader').textContent;
+
+    const vertex = new Float32Array([
+      // top
+      1, 1, 1,
+      1, 1, -1,
+      -1, 1, -1,
+      -1, 1, -1,
+      -1, 1, 1,
+      1, 1, 1,
+      // bottom
+      1, -1, -1,
+      1, -1, 1,
+      -1, -1, 1,
+      -1, -1, 1,
+      -1, -1, -1,
+      1, -1, -1,
+      // left
+      -1, -1, 1,
+      -1, 1, 1,
+      -1, 1, -1,
+      -1, 1, -1,
+      -1, -1, -1,
+      -1, -1, 1,
+      // right
+      1, -1, 1,
+      1, -1, -1,
+      1, 1, -1,
+      1, 1, -1,
+      1, 1, 1,
+      1, -1, 1,
+      // front
+      1, -1, 1,
+      1, 1, 1,
+      -1, 1, 1,
+      -1, 1, 1,
+      -1, -1, 1,
+      1, -1, 1,
+      // back
+      1, 1, -1,
+      1, -1, -1,
+      -1, -1, -1,
+      -1, -1, -1,
+      -1, 1, -1,
+      1, 1, -1,
+    ]);
+    const color = new Float32Array([
+      // top
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      // bottom
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      // left
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      // right
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      // front
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      // back
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+    ]);
+
+    let device;
+    const context = canvas.getContext('webgpu');
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    const modelViewMat = mat4.create();
+    const projectionMat = mat4.create();
+
+    async function init() {
+      const adapter = await navigator.gpu.requestAdapter();
+
+      device = await adapter.requestDevice();
+      context.configure({ device, format, alphaMode: 'opaque' });
+
+      mat4.lookAt(modelViewMat, vec3.fromValues(3, 3, 3), vec3.create(), vec3.fromValues(0, 1, 0));
+      mat4.perspective(projectionMat, Math.PI * 2 / 5, canvas.width / canvas.height, 1, 100);
+    }
+
+    function createVertexBuffer(data) {
+      const vertexBuffer = device.createBuffer({
+        size: data.byteLength,
+        usage: GPUBufferUsage.VERTEX,
+        mappedAtCreation: true,
+      });
+
+      new Float32Array(vertexBuffer.getMappedRange()).set(data);
+      vertexBuffer.unmap();
+
+      return vertexBuffer;
+    }
+
+    function render() {
+      const mvpMat = mat4.create();
+      const mvpBuffer = device.createBuffer({
+        size: mvpMat.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      const bindGroupLayout = device.createBindGroupLayout({
+        entries: [{
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: 'uniform' },
+        }],
+      });
+      const bindGroup = device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [{
+          binding: 0,
+          resource: {
+            buffer: mvpBuffer,
+            offset: 0,
+            size: mvpMat.byteLength,
+          },
+        }],
+      });
+      const pipelineLayout = device.createPipelineLayout({
+        bindGroupLayouts: [bindGroupLayout],
+      });
+      const pipeline = device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: {
+          module: device.createShaderModule({ code: shaderCode }),
+          entryPoint: 'vs_main',
+          buffers: [{
+            arrayStride: 12,
+            attributes: [{
+              format: 'float32x3',
+              offset: 0,
+              shaderLocation: 0,
+            }],
+          }, {
+            arrayStride: 12,
+            attributes: [{
+              format: 'float32x3',
+              offset: 0,
+              shaderLocation: 1,
+            }],
+          }],
+        },
+        fragment: {
+          module: device.createShaderModule({ code: shaderCode }),
+          entryPoint: 'fs_main',
+          targets: [{ format }],
+        },
+        primitive: {
+          cullMode: 'back',
+        },
+      });
+      const vertexBuffer = createVertexBuffer(vertex);
+      const colorBuffer = createVertexBuffer(color);
+
+      function update() {
+        const now = Date.now() / 1000;
+
+        mat4.rotate(modelViewMat, modelViewMat, Math.PI / 180, vec3.fromValues(Math.sin(now), Math.cos(now), 0));
+        mat4.mul(mvpMat, projectionMat, modelViewMat);
+        device.queue.writeBuffer(mvpBuffer, 0, mvpMat);
+
+        const commandEncoder = device.createCommandEncoder();
+        const renderPassEncoder = commandEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        });
+        renderPassEncoder.setPipeline(pipeline);
+        renderPassEncoder.setBindGroup(0, bindGroup);
+        renderPassEncoder.setVertexBuffer(0, vertexBuffer);
+        renderPassEncoder.setVertexBuffer(1, colorBuffer);
+        renderPassEncoder.draw(vertex.length / 3);
+        renderPassEncoder.end();
+        device.queue.submit([commandEncoder.finish()]);
+        requestAnimationFrame(update);
+      }
+
+      requestAnimationFrame(update);
+    }
+
+    init().then(render);
+  </script>
+</body>
+
+</html>
