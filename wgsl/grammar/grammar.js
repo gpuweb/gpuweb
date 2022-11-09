@@ -220,7 +220,11 @@ module.exports = grammar({
             seq($.and, $.unary_expression)
         ),
         singular_expression: $ => seq($.primary_expression, optional($.component_or_swizzle_specifier)),
-        lhs_expression: $ => seq(optional(repeat1(choice($.star, $.and))), $.core_lhs_expression, optional($.component_or_swizzle_specifier)),
+        lhs_expression: $ => choice(
+            seq($.core_lhs_expression, optional($.component_or_swizzle_specifier)),
+            seq($.star, $.lhs_expression),
+            seq($.and, $.lhs_expression)
+        ),
         core_lhs_expression: $ => choice(
             $.ident,
             seq($.paren_left, $.lhs_expression, $.paren_right)
