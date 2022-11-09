@@ -517,12 +517,7 @@ The WebGPU specification describes the consequences of each kind of error.
 
 # Textual Structure # {#textual-structure}
 
-A WGSL program is text.
-This specification does not prescribe a particular encoding for that text.
-However, UTF-8 is always a valid encoding for a WGSL program.
-
-Note: The intent of promoting UTF-8 like this is to simplify interchange of WGSL programs
-and to encourage interoperability among tools.
+A WGSL program is Unicode text using the UTF-8 encoding, with no byte order mark (BOM).
 
 WGSL program text consists of a sequence of Unicode [=code points=], grouped into contiguous non-empty sets forming:
 * [=comments=]
@@ -721,29 +716,6 @@ An <dfn>integer literal</dfn> is:
 
 A <dfn>floating point literal</dfn> is either a [=decimal floating point literal=]
 or a [=hexadecimal floating point literal=].
-* A <dfn noexport>decimal floating point literal</dfn> is:
-    * A mantissa, specified as a sequence of digits, with an optional decimal point (`.`) somewhere among them.
-    * Then an optional exponent suffix consisting of:
-        * `e` or `E`.
-        * Then an exponent specified as an decimal number with an optional leading sign (`+` or `-`).
-        * Then an optional `f` or `h` suffix.
-    * At least one of the decimal point, or the exponent, or the `f` or `h` suffix
-         [=shader-creation error|must=] be present.
-         If none are, then the token is instead an [=integer literal=].
-    * The value of the literal is the value of the mantissa multiplied by 10 to the power of the exponent.
-         When no exponent is specified, an exponent of 0 is assumed.
-
-* A <dfn noexport>hexadecimal floating point literal</dfn> is:
-    * A `0x` or `0X` prefix
-    * Then a mantissa, specified as a sequence of hexadecimal digits, with an optional hexadecimal point (`.`) somewhere among them.
-    * Then an optional exponent suffix consisting of:
-        * `p` or `P`
-        * Then an exponent specified as an decimal number with an optional leading sign (`+` or `-`).
-        * Then an optional `f` or `h` suffix.
-    * At least one of the hexadecimal point, or the exponent [=shader-creation error|must=] be present.
-         If neither are, then the token is instead an [=integer literal=].
-    * The value of the literal is the value of the mantissa multiplied by 2 to the power of the exponent.
-         When no exponent is specified, an exponent of 0 is assumed.
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>float_literal</dfn> :
@@ -752,6 +724,24 @@ or a [=hexadecimal floating point literal=].
 
     | [=syntax/hex_float_literal=]
 </div>
+
+A [=floating point literal=] has two logical parts: a mantissa to representing a fraction, and an optional exponent.
+Roughly, the value of the literal is the mantissa multiplied by a base value raised to the given exponent.
+A mantissa digit is <dfn dfn-for="mantissa">significant</dfn> if it is non-zero,
+or if there are mantissa digits to its left and to its right that are both non-zero.
+Significant digits are counted from left-to-right: the *N*'th significant digit has *N*-1 significant digits
+to its left.
+
+A <dfn noexport>decimal floating point literal</dfn> is:
+* A mantissa, specified as a sequence of digits, with an optional decimal point (`.`) somewhere among them.
+    The mantissa represents a fraction in base 10 notation.
+* Then an optional exponent suffix consisting of:
+    * `e` or `E`.
+    * Then an exponent specified as an decimal number with an optional leading sign (`+` or `-`).
+    * Then an optional `f` or `h` suffix.
+* At least one of the decimal point, or the exponent, or the `f` or `h` suffix
+     [=shader-creation error|must=] be present.
+     If none are, then the token is instead an [=integer literal=].
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>decimal_float_literal</dfn> :
@@ -779,6 +769,39 @@ or a [=hexadecimal floating point literal=].
   </xmp>
 </div>
 
+<div algorithm="mathematical value of decimal floating point literal">
+The mathematical value of a [=decimal floating point literal=] is computed as follows:
+* Compute |effective_mantissa| from |mantissa|:
+    * If |mantissa| has 20 or fewer [=mantissa/significant=] digits, then |effective_mantissa| is |mantissa|.
+    * Otherwise:
+        * Let |truncated_mantissa| be the same as |mantissa| except each digit to the
+             right of the 20th significant digit is replaced with 0.
+        * Let |truncated_mantissa_next| be the same as |mantissa| except:
+             * the 20th significant digit is incremented by 1, and carries are propagated to the left as needed
+                 needed to ensure each digit remains in the range 0 through 9, and
+             * each digit to the right of the 20th significant digit is replaced with 0.
+        * Set |effective_mantissa| to either |truncated_mantissa| or |truncated_mantissa_next|.
+             This is an implementation choice.
+* The mathematical value of the literal is the mathematical value of |effective_mantissa| as a decimal fraction,
+    multiplied by 10 to the power of the exponent.
+    When no exponent is specified, an exponent of 0 is assumed.
+
+</div>
+
+Note: The decimal mantissa is truncated after 20 decimal digits, preserving approximately log(10)/log(2)&times;20 &approx; 66.4 significant bits in the fraction.
+
+
+A <dfn noexport>hexadecimal floating point literal</dfn> is:
+* A `0x` or `0X` prefix
+* Then a mantissa, specified as a sequence of hexadecimal digits, with an optional hexadecimal point (`.`) somewhere among them.
+    The mantissa represents a fraction in base 16 notation.
+* Then an optional exponent suffix consisting of:
+    * `p` or `P`
+    * Then an exponent specified as an decimal number with an optional leading sign (`+` or `-`).
+    * Then an optional `f` or `h` suffix.
+* At least one of the hexadecimal point, or the exponent [=shader-creation error|must=] be present.
+     If neither are, then the token is instead an [=integer literal=].
+
 <div class='syntax' noexport='true'>
   <dfn for=syntax>hex_float_literal</dfn> :
 
@@ -800,8 +823,32 @@ or a [=hexadecimal floating point literal=].
   </xmp>
 </div>
 
+<div algorithm="mathematical value of hexadecimal floating point literal">
+The mathematical value of a [=hexadecimal floating point literal=] is computed as follows:
+* Compute *effective_mantissa* from *mantissa*:
+    * If *mantissa* has 16 or fewer [=mantissa/significant=] digits, then *effective_mantissa* is *mantissa*.
+    * Otherwise:
+        * Let |truncated_mantissa| be the same as |mantissa| except each digit to the
+             right of the 16th significant digit is replaced with 0.
+        * Let |truncated_mantissa_next| be the same as |mantissa| except:
+             * the 16th significant digit is incremented by 1, and carries are propagated to the left as needed
+                 needed to ensure each digit remains in the range 0 through `f`, and
+             * each digit to the right of the 16th significant digit is replaced with 0.
+        * Set |effective_mantissa| to either |truncated_mantissa| or |truncated_mantissa_next|.
+             This is an implementation choice.
+* The mathematical value of the literal is the mathematical value of |effective_mantissa| as a hexadecimal fraction,
+    multiplied by 2 to the power of the exponent.
+    When no exponent is specified, an exponent of 0 is assumed.
+
+</div>
+
+Note: The hexadecimal mantissa is truncated after 16 hexadecimal digits, preserving approximately 4 &times;16 &equals; 64 significant bits in the fraction.
+
+
 When a [=numeric literal=] has a suffix, the literal denotes a value in a specific [=type/concrete=] [=scalar=] type.
 Otherwise, the literal denotes a value one of the [=abstract numeric types=] defined below.
+In either case, the value denoted by the literal is its mathematical value after conversion to the target type,
+following the rules in [[#floating-point-conversion]].
 
 <table class=data>
   <caption>Mapping numeric literals to types</caption>
@@ -1656,6 +1703,12 @@ Overload resolution for |P| proceeds as follows, with the goal of finding a sing
     * There is a [=feasible automatic conversion=] from the expression's static type to the type required by the corresponding type assertion in the preconditions.
         Let |C|.|R|(i) be the [=ConversionRank=] of that conversion.
 
+1. Eliminate any candidate where one of its subexpressions resolves to an
+    [=type/abstract=] type after [=feasible automatic conversions=], but another
+    of the candidate's subexpressions is not a [=const-expression=].
+    * That is, overload resolution will [=concretization|concretize=] the type of
+        an expression unless all its subexpressions are [=const-expressions=].
+
 1. Rank candidates: Given two overload candidates |C1| and |C2|, |C1| is <dfn lt="preferable candidate">preferred</dfn> over |C2| if:
     * For each expression position |i| in |P|, |C1|.|R|(i) &le; |C2|.|R|(i).
          * That is, each expression conversion required to apply |C1| to |P| is at least as preferable as the corresponding expression conversion required to apply |C2| to |P|.
@@ -1691,7 +1744,7 @@ and with a numeric range and precision that may be larger than directly implemen
     in the [[!IEEE-754|IEEE-754]] binary64 (double precision) format.
 
 An evaluation of an expression in one of these types [=shader-creation
-error|must not=] overflow or produce infinite, NaN, or undefined results.
+error|must not=] overflow or produce infinite, NaN, undefined, or [=indeterminate value|indeterminate=] results.
 
 A type is <dfn dfn-for="type" noexport>abstract</dfn> if it is an abstract
 numeric type or contains an abstract numeric type.
@@ -1860,6 +1913,17 @@ The <dfn noexport>u32</dfn> type is the set of 32-bit unsigned integers.
 The <dfn noexport>i32</dfn> type is the set of 32-bit signed integers.
 It uses a two's complementation representation, with the sign bit in the most significant bit position.
 
+<table class='data'>
+  <caption>Extreme values for integer types</caption>
+  <thead>
+    <tr><th>Type<th>Lowest value<th>Highest value
+  </thead>
+    <tr><td rowspan=2>i32<td>i32(-2147483648)<td>2147483647i
+    <tr><td>i32(-0x80000000)<td>0x7fffffffi
+    <tr><td rowspan=2>u32<td>0u<td>4294967295u
+    <tr><td>0x0u<td>0xffffffffu
+</table>
+
 ### Floating Point Type ### {#floating-point-types}
 
 The <dfn noexport>f32</dfn> type is the set of 32-bit floating point values of the
@@ -1870,6 +1934,19 @@ The <dfn noexport>f16</dfn> type is the set of 16-bit floating point values of t
 [[!IEEE-754|IEEE-754]] binary16 (half precision) format. It is a [=shader-creation error=]
 if the [=f16=] type is used unless the program contains the `enable f16;` directive to enable
 the [=extension/f16|f16 extension=]. See [[#floating-point-evaluation]] for details.
+
+The following table lists certain extreme values for floating point types.
+Each has a corresponding negative value.
+<table class='data'>
+  <caption>Extreme values for floating point types</caption>
+  <thead>
+    <tr><th>Type<th>Smallest positive denormal<th>Smallest positive normal<th>Largest positive finite
+  </thead>
+    <tr><td rowspan=2>f32<td>1.40129846432481707092e-45f<td>1.17549435082228750797e-38f<td>3.40282346638528859812e+38f
+    <tr><td>0x1p-149f<td>0x1p-126f<td>0x1.fffffep+127f
+    <tr><td rowspan=2>f16<td>5.9604644775390625e-8h<td>0.00006103515625h<td>65504.0h
+    <tr><td>0x1p-24h<td>0x1p-14h<td>0x1.ffcp+15h
+</table>
 
 ### Scalar Types ### {#scalar-types}
 
@@ -2963,6 +3040,7 @@ Each memory access is performed via a [=memory view=].
 
 A <dfn noexport>memory view</dfn> comprises:
 * a set of [=memory locations=] in a particular [=address space=],
+* a [[#memory-model-reference|memory model reference]],
 * an interpretation of the contents of those locations as a WGSL [=type=], known as the <dfn noexport>store type</dfn>, and
 * an [=access mode=].
 
@@ -4365,8 +4443,10 @@ The lifetime of a function-scope variable is determined by its scope:
     That is, the lifetime includes any functions [=function call|called=] while
     the name is in scope.
 
-Two variables with overlapping lifetimes will not have [=overlap|overlapping
-memory=] locations.
+Two [=resource=] variables may have [=overlap|overlapping memory=] locations,
+but it is a [=dynamic error=] if either of those variables is mutable.
+Other variables with overlapping lifetimes will not have overlapping memory
+locations.
 When a variable’s lifetime ends, its memory may be used for another variable.
 
 Note: WGSL ensures the contents of a variable are only observable during the
@@ -5800,22 +5880,6 @@ See [[#sync-builtin-functions]].
            * It is a [=shader-creation error=] if |i| is a [=const-expression=].
            * It is a [=pipeline-creation error=] if |i| is an [=override-expression=].
            * Otherwise, an [=indeterminate value=] for |T| may be returned.
-
-  <tr algorithm="fixed-size array indexed element selection abstract">
-       <td class="nowrap">
-          |e|: array&lt;|T|,|N|&gt;<br>
-          |i|: [INT]<br>
-          |T| is [=type/abstract=]<br>
-          |i| is a [=const-expression=]
-       <td class="nowrap">
-           |e|[|i|] : |T|
-       <td>The result is the value of the |i|'<sup>th</sup> element of the array value |e|.
-
-           It is a [=shader-creation error=] if |i| is outside the range [0,|N|-1].
-
-           Note: When an abstract array value |e| is indexed by an expression that
-           is not a [=const-expression=], then the array is
-           [=concretization of a value|concretized=] before the index is applied.
 </table>
 
 <table class='data'>
@@ -6420,13 +6484,22 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
 
 </table>
 
-## Constant Identifier Expression  ## {#constant-identifier-expr}
+## Identifier Expressions for Value Declarations  ## {#value-identifier-expr}
 
 <table class='data'>
-  <caption>Getting the value of a `let`-declared identifier</caption>
+  <caption>Getting the value of a `const`-, `override`-, or `let`-declared identifiers</caption>
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
+  <tr algorithm="const-declared value">
+       <td>
+          |c| is an [=identifier=] [=resolves|resolving=] to
+          an [=in scope|in-scope=] [=const-declaration=] with type |T|
+       <td class="nowrap">
+          |c|: |T|
+       <td>Result is the value computed for the initializer expression.
+           The expression is a [=const-expression=], and is evaluated at [=shader module creation|shader-creation=] time.
+
   <tr algorithm="pipeline-overridable constant value">
        <td>
           |c| is an [=identifier=] [=resolves|resolving=] to
@@ -6435,22 +6508,23 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
           |c|: |T|
        <td>If pipeline creation specified a value for the [=pipeline constant ID|constant ID=],
            then the result is that value.
-           This value may be different for different pipeline instances.<br>
+           This value may be different for different pipeline instances.
+
            Otherwise, the result is the value computed for the initializer expression.
            Pipeline-overridable constants appear at module-scope, so evaluation occurs
-           before the shader begins execution.<br>
+           before the shader begins execution.
+
            Note: Pipeline creation fails if no initial value was specified in the API call
            and the `let`-declaration has no initializer expression.
-  <tr algorithm="constant value">
+  <tr algorithm="let-declared value">
        <td>
           |c| is an [=identifier=] [=resolves|resolving=] to
-          an [=in scope|in-scope=] `let` declaration with type |T|
+          an [=in scope|in-scope=] [=let-declaration=] with type |T|
        <td class="nowrap">
           |c|: |T|
-       <td>Result is the value computed for the initializer expression.<br>
-           For a `let` declaration at module scope, evaluation occurs before the shader begins execution.<br>
-           For a `let` declaration inside a function, evaluation occurs each time control reaches
-           the declaration.<br>
+       <td>Result is the value computed for the initializer expression.
+           A [=let-declaration=] appears inside a function body, and its initializer
+           is evaluated each time control flow reaches the declaration.<br>
 </table>
 
 
@@ -6532,7 +6606,11 @@ When an identifier is used as a [=syntax/callable=] item, it is one of:
 <div class='syntax' noexport='true'>
   <dfn for=syntax>lhs_expression</dfn> :
 
-    | ( <a for=syntax_sym lt=star>`'*'`</a> | <a for=syntax_sym lt=and>`'&'`</a> ) * [=syntax/core_lhs_expression=] [=syntax/component_or_swizzle_specifier=] ?
+    | [=syntax/core_lhs_expression=] [=syntax/component_or_swizzle_specifier=] ?
+
+    | <a for=syntax_sym lt=star>`'*'`</a> [=syntax/lhs_expression=]
+
+    | <a for=syntax_sym lt=and>`'&'`</a> [=syntax/lhs_expression=]
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>core_lhs_expression</dfn> :
@@ -8252,30 +8330,102 @@ Note: The [=attribute/const=] attribute cannot be applied to user-declared funct
     * [=address spaces/private=]
     * [=address spaces/workgroup=]
     * [=address spaces/storage=]
-* Each argument of pointer type to a [=user-defined function=] [=shader-creation error|must=] be one of:
-    * An [[#address-of-expr|address-of expression]] of a
-        [[#var-identifier-expr|variable identifier expression]]
-    * A [=formal parameter|function parameter=]
+* Each argument of pointer type to a [=user-defined function=]
+    [=shader-creation error|must=] have the same [=memory view=] as its [=root
+    identifier=].
+    * Note: This means no [[#vector-access-expr|vector]],
+        [[#matrix-access-expr|matrix]], [[#array-access-expr|array]], or
+        [[#struct-access-expr|struct]] access expressions can be applied to
+        produce a [=memory view=] into the root identifier when traced from the
+        argument back through all the [=let-declarations=].
 
 Note: Recursion is disallowed because cycles are not permitted among any kinds
 of declarations.
 
+<div class='example wgsl' heading='Valid and invalid pointer arguments'>
+  <xmp highlight='rust'>
+    fn bar(p : ptr<function, f32>) {
+    }
+
+    fn baz(p : ptr<private, i32>) {
+    }
+
+    fn bar2(p : ptr<function, f32>) {
+      let a = &*&*(p);
+
+      bar(p); // Valid
+      bar(a); // Valid
+    }
+
+    struct S {
+      x : i32
+    }
+
+    var usable_priv : i32;
+    var unusable_priv : array<i32, 4>;
+    fn foo() {
+      var usable_func : f32;
+      var unusable_func : S;
+
+      let a_priv = &usable_priv;
+      let b_priv = a_priv;
+      let c_priv = &*&usable_priv;
+      let d_priv = &(unusable_priv.x);
+      let e_priv = d_priv;
+
+      let a_func = &usable_func;
+      let b_func = &unusable_func;
+      let c_func = &(*b_func)[0];
+      let d_func = c_func;
+      let e_func = &*a_func;
+
+      baz(&usable_priv); // Valid, address-of a variable.
+      baz(a_priv);       // Valid, effectively address-of a variable.
+      baz(b_priv);       // Valid, effectively address-of a variable.
+      baz(c_priv);       // Valid, effectively address-of a variable.
+      baz(d_priv);       // Invalid, memory view has changed.
+      baz(e_priv);       // Invalid, memory view has changed.
+
+      bar(&usable_func); // Valid, address-of a variable.
+      bar(c_func);       // Invalid, memory view has changed.
+      bar(d_func);       // Invalid, memory view has changed.
+      bar(e_func);       // Valid, effectively address-of a variable.
+    }
+  </xmp>
+</div>
+
 ### Alias Analysis ### {#alias-analysis}
 
+#### Root Identifier #### {#root-ident-sec}
+
 [=Memory locations=] can be accessed during the execution of a function using [=memory views=].
-Within a function, each [=memory view=] has a particular root identifier.
-The root identifier can be an [=originating variable=] or a [=formal parameter=]
-of [=pointer type=].
+Within a function, each [=memory view=] has a particular <dfn>root identifier</dfn>, which names
+the variable or formal parameter that first provides access to that memory in that function.
 
 Locally derived expressions of [=reference type|reference=] or
 [=pointer type|pointer=] type may introduce new names for a particular root identifier,
 but each expression has a statically determinable root identifier.
-While the [=originating variable=] of a root identifier is a dynamic concept that
+
+<p algorithm="finding a root identifier">
+Given an expression |E| of [=pointer type|pointer=] or [=reference type=], the
+[=root identifier=] is the [=originating variable=] or [=formal parameter=] of [=pointer type=]
+found as follows:
+* If |E| is an identifier [=resolving=] to a variable, then the root identifier is that variable.
+* If |E| is an identifier [=resolving=] to a formal parameter of pointer type, then the root identifier is that formal parameter.
+* If |E| is an identifier [=resolving=] to a [=let-declaration=] with initializer |E2|, then the root identifier is the root identifier of |E2|.
+* If |E| is of the form `(`|E2|`)`, `&`|E2|, `*`|E2|, or |E2|`[`<var ignore>Ei</var>`]` then the root identifier is the root identifier of |E2|.
+* If |E| is a [[#vector-access-expr|vector access expression]] of the form |E2|.|swiz|, where |swiz| is a [=swizzle=] name, then the root identifer is the root identifier of |E2|.
+* If |E| is a [[#struct-access-expr|structure access expression]] of the form |E2|.<var ignore>member_name</var>, then the root identifer is the root identifier of |E2|.
+    <p>
+
+#### Aliasing #### {#aliasing}
+
+While the [=originating variable=] of a [=root identifier=] is a dynamic concept that
 depends on the [=call sites=] for the function, WGSL programs can be
 statically analyzed to determine the set of all possible [=originating
 variables=] for each root identifier.
 
-Two root identifiers <dfn noexport>alias</dfn> when they have the same
+Two [=root identifiers=] <dfn noexport>alias</dfn> when they have the same
 [=originating variable=].
 Execution of a WGSL function [=shader-creation error|must not=] potentially
 access memory through aliased root identifiers, where one access is a write and
@@ -8737,9 +8887,9 @@ Together with the shader's stage, these identify the binding address
 of the resource on the shader's pipeline.
 See [[WebGPU#pipeline-layout|WebGPU &sect; GPUPipelineLayout]].
 
-Bindings [=shader-creation error|must not=] alias within a shader stage:
-two different variables in the resource interface of a given
-shader [=shader-creation error|must not=] have the same group and binding values, when considered as a pair of values.
+Two different resource variables in a [=shader=] [=shader-creation error|must
+not=] have the same [=attribute/group=] and [=attribute/binding=] values, when
+considered as a pair.
 
 ### Resource Layout Compatibility ### {#resource-layout-compatibility}
 
@@ -8931,6 +9081,7 @@ shader that goes beyond the specified limits.
   </thead>
     <tr><td>Maximum number of members in a [=structure=] type<td>16383
     <tr><td>Maximum [=nesting depth=] of a [=composite=] type<td>255
+    <tr><td>Maximum nesting depth of brace-enclosed statements in a function<td>127
     <tr><td>Maximum number of [=formal parameter|parameters=] for a function<td>255
     <tr><td>Maximum number of case selector values in a [=statement/switch=] statement<td>16383
     <tr><td>Maximum [=byte-size=] of an [=array=] type instantiated in the
@@ -9530,20 +9681,13 @@ The rules for analyzing expressions take as argument both the expression itself 
   <thead>
     <tr><th>Expression<th>New nodes<th>Recursive analyses<th>Resulting control flow node, value node<th>New edges
   </thead>
-  <tr><td class="nowrap">*e1* || *e2*<br>
-      with behavior {Next}
-      <td rowspan=4>
-      <td rowspan=4 class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)<br>
+  <tr><td class="nowrap">*e1* || *e2*
+      <td rowspan=2>
+      <td rowspan=2 class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)<br>
           (*V1*, *e2*) => (*CF2*, *V2*)
       <td rowspan=2 class="nowrap">*CF*, *V2*
-      <td rowspan=4>
-  <tr><td class="nowrap">*e1* && *e2*<br>
-      with behavior {Next}
-  <tr><td class="nowrap">*e1* || *e2*<br>
-      with behavior other than {Next}
-      <td rowspan=2 class="nowrap">*CF2*, *V2*
-  <tr><td class="nowrap">*e1* && *e2*<br>
-      with behavior other than {Next}
+      <td rowspan=2>
+  <tr><td class="nowrap">*e1* && *e2*
   <tr><td class="nowrap">Literal
       <td>
       <td>
@@ -10012,7 +10156,7 @@ As such, helper invocations are subject to the following restrictions:
     will be performed on the [=address spaces/storage=], [=address
     spaces/workgroup=], or [=address spaces/handle=] address spaces.
 * [[#atomic-builtin-functions|Atomic built-in functions]] will return
-    undefined results.
+    [=indeterminate value|indeterminate=] results.
 * The [=Entry point=] [=return value=] will not be further processed
     downstream in the [=GPURenderPipeline=].
 
@@ -10065,8 +10209,8 @@ the following exceptions:
 * Signaling NaNs may not be generated.
     Any signaling NaN may be converted to a quiet NaN.
 * Implementations may assume that NaNs and infinities are not present at runtime.
-    * In such an implementation, when an evaluation would produce an infinity or a NaN,
-        an undefined value of the target type is produced instead.
+    * In such an implementation, when an expression evaluation would produce an
+        infinity or a NaN, an [=indeterminate value=] of the target type is produced instead.
     * It is a [=shader-creation error=] if any [=const-expression=] of
         floating-point type evaluates to NaN or infinity.
     * It is a [=pipeline-creation error=] if any [=override-expression=] of
@@ -10281,7 +10425,8 @@ When converting a value to a floating point type:
          WGSL does not specify whether the larger or smaller representable
          value is chosen, and different instances of such a conversion may choose differently.
     * Otherwise, the original value lies outside the finite range of the destination type:
-         * A [=shader-creation error=] results if the original value is of [=abstract numeric type=].
+         * A [=shader-creation error=] results if the original expression is a [=const-expression=].
+         * A [=pipeline-creation error=] results if the original expression is an [=override-expression=].
          * Otherwise the conversion proceeds as follows:
              1. Set |X| to the original value.
              2. If the source type is a floating point type with more mantissa bits than the destination type,
@@ -10373,10 +10518,11 @@ member.
 
 ## Memory Model Reference ## {#memory-model-reference}
 
-Each module-scope variable in WGSL forms a unique [=memory model
-reference=] for the lifetime of a given entry point.
-Each function-scope variable in WGSL forms a unique [=memory model
-reference=] for the lifetime of the variable.
+Each module-scope [=resource=] variable forms a [=memory model reference=] form
+the unique [=attribute/group=] and [=attribute/binding=] pair.
+Each other variable (i.e. variables in the [=address spaces/function=],
+[=address spaces/private=], and [=address spaces/workgroup=] address spaces)
+forms a unique [=memory model reference=] for the lifetime of the variable.
 
 ## Scoped Operations ## {#scoped-operations}
 
@@ -11096,8 +11242,6 @@ Note: The result is not mathematically meaningful when `abs(e)` &gt; 1.
     hyperbolic [=angle=] in radians.<br>
     That is, approximates `x` with 0 &le; x &le; &infin;, such that `cosh`(`x`) = `e`.
 
-    The result is 0 when `e` &lt; 1.
-
     [=Component-wise=] when `T` is a vector.
   <tr>
     <td>
@@ -11181,8 +11325,6 @@ Note: The result is not mathematically meaningful when `abs(e)` &gt; 1.
     <td>Returns the inverse hyperbolic tangent (tanh<sup>-1</sup>) of `e`, as a hyperbolic [=angle=] in radians.<br>
     That is, approximates `x` such that `tanh`(`x`) = `e`.
 
-    The result is 0 when `abs(e)` &ge; 1.<br>
-
     [=Component-wise=] when `T` is a vector.
   <tr>
     <td>
@@ -11235,7 +11377,7 @@ Note: The result is not mathematically meaningful when `abs(e)` &ge; 1.
     [=Component-wise=] when `T` is a vector.
 </table>
 
-### `clamp` ### {#clamp-float-builtin}
+### `clamp` ### {#clamp}
 <table class='data builtin'>
   <tr algorithm="clamp">
   <td style="width:10%">Overload
@@ -11249,8 +11391,13 @@ Note: The result is not mathematically meaningful when `abs(e)` &ge; 1.
     <td>[ALLNUMERICDECL]
   <tr>
     <td>Description
-    <td>Returns either `min(max(e, low), high)`, or the median of
-    the three values `e`, `low`, `high`.
+    <td>Restricts the value of `e` within a range.
+
+    If `T` is an integer type, then the result is `min(max(e, low), high)`.
+
+    If `T` is a floating-point type, then the result is either `min(max(e,
+    low), high)`, or the median of the three values `e`, `low`, `high`.
+
     [=Component-wise=] when `T` is a vector.
 
     If `low` is greater than `high`, then:
@@ -11643,6 +11790,17 @@ the sign bit appears in the most significant bit position.
     <td>Description
     <td>Returns `e1 * e2 + e3`.
     [=Component-wise=] when `T` is a vector.
+
+    Note: The name `fma` is short for "fused multiply add".
+
+    Note:
+    The [[!IEEE-754|IEEE-754]] `fusedMultiplyAdd` operation computes the intermediate results
+    as if with unbounded range and precision, and only the final result is rounded
+    to the destination type.
+    However, the [[#floating-point-accuracy]] rule for `fma` allows an implementation
+    which performs an ordinary multiply to the target type followed by an ordinary addition.
+    In this case the intermediate values may overflow or lose accuracy, and the overall
+    operation is not "fused" at all.
 </table>
 
 ### `fract` ### {#fract-builtin}
@@ -11680,7 +11838,9 @@ For example, if `e` is a very small negative number, then `fract(e)` may be 1.0.
     <td>`T` is f32
   <tr>
     <td>Description
-    <td>Splits `e` into a significand and exponent of the form `significand * 2`<sup>`exponent`</sup>.
+    <td>Splits `e` into a significand and exponent so that `e` &equals; `significand * 2`<sup>`exponent`</sup>.
+    The significand is 0.0 or its magnitude is in the range [0.5, 1.0).
+
     Returns the `__frexp_result` built-in structure, defined as follows:
     ```rust
 struct __frexp_result {
@@ -11688,7 +11848,8 @@ struct __frexp_result {
   exp : i32  // exponent part
 }
     ```
-    The magnitude of the significand is in the range of [0.5, 1.0) or 0.
+
+    Note: A mnemonic for the name `frexp` is "**fr**action and **exp**onent".
   <tr>
     <td>
     <td>
@@ -11720,7 +11881,9 @@ but a value may infer the type.
     <td>`T` is f16
   <tr>
     <td>Description
-    <td>Splits `e` into a significand and exponent of the form `significand * 2`<sup>`exponent`</sup>.
+    <td>Splits `e` into a significand and exponent so that `e` &equals; `significand * 2`<sup>`exponent`</sup>.
+    The significand is 0.0 or its magnitude is in the range [0.5, 1.0).
+
     Returns the `__frexp_result_f16` built-in structure, defined as if as follows:
     ```rust
 struct __frexp_result_f16 {
@@ -11728,7 +11891,8 @@ struct __frexp_result_f16 {
   exp : i32  // exponent part
 }
     ```
-    The magnitude of the significand is in the range of [0.5, 1.0) or 0.
+
+    Note: A mnemonic for the name `frexp` is "**fr**action and **exp**onent".
   <tr>
     <td>
     <td>
@@ -11749,8 +11913,8 @@ but a value may infer the type.
     <td>`T` is vecN&lt;f32&gt;
   <tr>
     <td>Description
-    <td>Splits the components of `e` into a significand and exponent of the form
-    `significand * 2`<sup>`exponent`</sup>.
+    <td>Splits `e` into a significand and exponent so that `e` &equals; `significand * 2`<sup>`exponent`</sup>.
+    Each component of the significand is 0.0, or has a magnitude in the range [0.5, 1.0).
 
     Returns the `__frexp_result_vecN` built-in structure, defined as follows:
     ```rust
@@ -11759,7 +11923,8 @@ struct __frexp_result_vecN {
   exp : vecN<i32>  // exponent part
 }
     ```
-    The magnitude of each component of the significand is in the range of [0.5, 1.0) or 0.
+
+    Note: A mnemonic for the name `frexp` is "**fr**action and **exp**onent".
   <tr>
     <td>
     <td>
@@ -11780,8 +11945,8 @@ but a value may infer the type.
     <td>`T` is vecN&lt;f16&gt;
   <tr>
     <td>Description
-    <td>Splits the components of `e` into a significand and exponent of the form
-    `significand * 2`<sup>`exponent`</sup>.
+    <td>Splits `e` into a significand and exponent so that `e` &equals; `significand * 2`<sup>`exponent`</sup>.
+    Each component of the significand is 0.0, or has a magnitude in the range [0.5, 1.0).
 
     Returns the `__frexp_result_vecN` built-in structure, defined as if as follows:
     ```rust
@@ -11790,7 +11955,8 @@ struct __frexp_result_vecN_f16 {
   exp : vecN<i32>  // exponent part
 }
     ```
-    The magnitude of each component of the significand is in the range of [0.5, 1.0) or 0.
+
+    Note: A mnemonic for the name `frexp` is "**fr**action and **exp**onent".
   <tr>
     <td>
     <td>
@@ -11828,6 +11994,10 @@ but a value may infer the type.
        Other bits of the result are copied from `e`.
     </ul>
     [=Component-wise=] when `T` is a vector.
+
+    If `count` + `offset` is greater than `w`, then:
+    * It is a [=shader-creation error=] if `count` and `offset` are [=const-expressions=].
+    * It is a [=pipeline-creation error=] if `count` and `offset` are [=override-expressions=].
 </table>
 
 ### `inverseSqrt` ### {#inverseSqrt-builtin}
@@ -11886,6 +12056,10 @@ Note: The result is not mathematically meaningful if `e` &le; 0.
     </blockquote>                
 
     [=Component-wise=] when `T` is a vector.
+
+    Note: A mnemonic for the name `ldexp` is "load exponent".
+    The name may have been taken from the corresponding instruction in the floating point unit of
+    the PDP-11.
 </table>
 
 ### `length` ### {#length-builtin}
@@ -12220,8 +12394,10 @@ but a value may infer the type.
         a [[!IEEE-754|IEEE 754]] binary16 value, and then converted back to a
         IEEE 754 binary32 value.
 
-        If `e` is outside the finite range of binary16, then the result is any
-        value of type f32.
+        If `e` is outside the finite range of binary16, then:
+        * It is a [=shader-creation error=] if `e` is a [=const-expression=].
+        * It is a [=pipeline-creation error=] if `e` is an [=override-expression=].
+        * Otherwise the result is an [=indeterminate value=] for `T`.
 
         The intermediate binary16 value may be [=flushed to zero=], i.e. the final
         result may be zero if the intermediate binary16 value is denormalized.
@@ -12684,23 +12860,23 @@ Returns the dimensions of a texture, or texture's mip level in texels.
     <tr><td style="width:25%">Parameterization<th>Overload
   </thead>
   <tr algorithm="textureDimensions 1d">
-    <td><var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br>
+    <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br>
         <var ignore>F</var> is a [=texel format=]<br>
         <var ignore>A</var> is an [=access mode=]<br><br>
         |T| is `texture_1d<ST>` or `texture_storage_1d<F,A>`
     <td><xmp highlight=rust>fn textureDimensions(t: T) -> u32</xmp>
 
   <tr algorithm="textureDimensions 1d level">
-    <td><var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br><br>
+    <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
         |T| is `texture_1d<ST>`
 
-        <var ignore>C</var> is [=i32=] or [=u32=]
+        <var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureDimensions(t: T,
-                     level: C) -> u32</xmp>
+                     level: L) -> u32</xmp>
 
   <tr algorithm="textureDimensions 2d">
-    <td><var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br>
+    <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br>
         <var ignore>F</var> is a [=texel format=]<br>
         <var ignore>A</var> is an [=access mode=]<br><br>
         |T| is `texture_2d<ST>`, `texture_2d_array<ST>`, `texture_cube<ST>`,
@@ -12712,31 +12888,31 @@ fn textureDimensions(t: T,
     <td><xmp highlight=rust>fn textureDimensions(t: T) -> vec2<u32></xmp>
 
   <tr algorithm="textureDimensions 2d level">
-    <td><var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br><br>
+    <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
         |T| is `texture_2d<ST>`, `texture_2d_array<ST>`, `texture_cube<ST>`,
                `texture_cube_array<ST>`, `texture_depth_2d`, `texture_depth_2d_array`,
                `texture_depth_cube`, or `texture_depth_cube_array`
 
-        <var ignore>C</var> is [=i32=] or [=u32=]
+        <var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureDimensions(t: T,
-                     level: C) -> vec2<u32></xmp>
+                     level: L) -> vec2<u32></xmp>
 
   <tr algorithm="textureDimensions 3d">
-    <td><var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br>
+    <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br>
         <var ignore>F</var> is a [=texel format=]<br>
         <var ignore>A</var> is an [=access mode=]<br><br>
         |T| is `texture_3d<ST>` or `texture_storage_3d<F,A>`
     <td><xmp highlight=rust>fn textureDimensions(t: T) -> vec3<u32></xmp>
 
   <tr algorithm="textureDimensions 3d level">
-    <td><var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br><br>
+    <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
         |T| is `texture_3d<ST>`
 
-        <var ignore>C</var> is [=i32=] or [=u32=]
+        <var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureDimensions(t: T,
-                     level: C) -> vec3<u32></xmp>
+                     level: L) -> vec3<u32></xmp>
 </table>
 
 **Parameters:**
@@ -12797,8 +12973,8 @@ https://github.com/gpuweb/gpuweb/issues/2343
     <tr><td style="width:25%">Parameterization<th>Overload
   </thead>
   <tr algorithm="textureGather 2d">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureGather(component: C,
                  t: texture_2d<ST>,
@@ -12806,8 +12982,8 @@ fn textureGather(component: C,
                  coords: vec2<f32>) -> vec4<ST></xmp>
 
   <tr algorithm="textureGather 2d offset">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureGather(component: C,
                  t: texture_2d<ST>,
@@ -12816,29 +12992,31 @@ fn textureGather(component: C,
                  offset: vec2<i32>) -> vec4<ST></xmp>
 
   <tr algorithm="textureGather 2d array">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>A</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureGather(component: C,
                  t: texture_2d_array<ST>,
                  s: sampler,
                  coords: vec2<f32>,
-                 array_index: C) -> vec4<ST></xmp>
+                 array_index: A) -> vec4<ST></xmp>
 
   <tr algorithm="textureGather 2d array offset">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>A</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureGather(component: C,
                  t: texture_2d_array<ST>,
                  s: sampler,
                  coords: vec2<f32>,
-                 array_index: C,
+                 array_index: A,
                  offset: vec2<i32>) -> vec4<ST></xmp>
 
   <tr algorithm="textureGather cube">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureGather(component: C,
                  t: texture_cube<ST>,
@@ -12846,14 +13024,15 @@ fn textureGather(component: C,
                  coords: vec3<f32>) -> vec4<ST></xmp>
 
   <tr algorithm="textureGather cube array">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>A</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureGather(component: C,
                  t: texture_cube_array<ST>,
                  s: sampler,
                  coords: vec3<f32>,
-                 array_index: C) -> vec4<ST></xmp>
+                 array_index: A) -> vec4<ST></xmp>
 
   <tr algorithm="textureGather 2d depth">
     <td>
@@ -12878,29 +13057,29 @@ fn textureGather(t: texture_depth_cube,
                  coords: vec3<f32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureGather 2d depth array">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureGather(t: texture_depth_2d_array,
                  s: sampler,
                  coords: vec2<f32>,
-                 array_index: C) -> vec4<f32></xmp>
+                 array_index: A) -> vec4<f32></xmp>
 
   <tr algorithm="textureGather 2d depth array offset">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureGather(t: texture_depth_2d_array,
                  s: sampler,
                  coords: vec2<f32>,
-                 array_index: C,
+                 array_index: A,
                  offset: vec2<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureGather cube depth array">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureGather(t: texture_depth_cube_array,
                  s: sampler,
                  coords: vec3<f32>,
-                 array_index: C) -> vec4<f32></xmp>
+                 array_index: A) -> vec4<f32></xmp>
 </table>
 
 **Parameters:**
@@ -12999,21 +13178,21 @@ fn textureGatherCompare(t: texture_depth_2d,
                         offset: vec2<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureGatherCompare 2d depth array">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureGatherCompare(t: texture_depth_2d_array,
                         s: sampler_comparison,
                         coords: vec2<f32>,
-                        array_index: C,
+                        array_index: A,
                         depth_ref: f32) -> vec4<f32></xmp>
 
   <tr algorithm="textureGatherCompare 2d depth array offset">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureGatherCompare(t: texture_depth_2d_array,
                         s: sampler_comparison,
                         coords: vec2<f32>,
-                        array_index: C,
+                        array_index: A,
                         depth_ref: f32,
                         offset: vec2<i32>) -> vec4<f32></xmp>
 
@@ -13026,12 +13205,12 @@ fn textureGatherCompare(t: texture_depth_cube,
                         depth_ref: f32) -> vec4<f32></xmp>
 
   <tr algorithm="textureGatherCompare 2d depth cube array">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureGatherCompare(t: texture_depth_cube_array,
                         s: sampler_comparison,
                         coords: vec3<f32>,
-                        array_index: C,
+                        array_index: A,
                         depth_ref: f32) -> vec4<f32></xmp>
 
 </table>
@@ -13082,70 +13261,80 @@ Reads a single texel from a texture without sampling or filtering.
     <tr><td style="width:25%">Parameterization<th>Overload
   </thead>
   <tr algorithm="textureLoad 1d">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_1d<ST>,
                coords: C,
-               level: C) -> vec4<ST></xmp>
+               level: L) -> vec4<ST></xmp>
 
   <tr algorithm="textureLoad 2d">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_2d<ST>,
                coords: vec2<C>,
-               level: C) -> vec4<ST></xmp>
+               level: L) -> vec4<ST></xmp>
 
   <tr algorithm="textureLoad 2d array">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>A</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_2d_array<ST>,
               coords: vec2<C>,
-              array_index: C,
-              level: C) -> vec4<ST></xmp>
+              array_index: A,
+              level: L) -> vec4<ST></xmp>
 
   <tr algorithm="textureLoad 3d">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_3d<ST>,
                coords: vec3<C>,
-               level: C) -> vec4<ST></xmp>
+               level: L) -> vec4<ST></xmp>
 
   <tr algorithm="textureLoad 2d multisampled">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>S</var> is [=i32=], or [=u32=]<br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_multisampled_2d<ST>,
                coords: vec2<C>,
-               sample_index: C)-> vec4<ST></xmp>
+               sample_index: S)-> vec4<ST></xmp>
 
   <tr algorithm="textureLoad 2d depth">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_depth_2d,
                coords: vec2<C>,
-               level: C) -> f32</xmp>
+               level: L) -> f32</xmp>
 
   <tr algorithm="textureLoad 2d depth array">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>A</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_depth_2d_array,
                coords: vec2<C>,
-               array_index: C,
-               level: C) -> f32</xmp>
+               array_index: A,
+               level: L) -> f32</xmp>
 
 <tr algorithm="textureLoad 2d depth multisampled">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>S</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_depth_multisampled_2d,
                coords: vec2<C>,
-               sample_index: C)-> f32</xmp>
+               sample_index: S)-> f32</xmp>
 
   <tr algorithm="textureLoad external">
-    <td><var ignore>C</var> is [=i32=] or [=u32=]
+    <td><var ignore>C</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureLoad(t: texture_external,
                coords: vec2<C>) -> vec4<f32></xmp>
@@ -13196,7 +13385,7 @@ Returns the number of layers (elements) of an array texture.
   <tr algorithm="texturenumlayers">
     <td><var ignore>F</var> is a [=texel format=]<br>
         <var ignore>A</var> is an [=access mode=]<br>
-        <var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br><br>
+        <var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
         <var ignore>T</var> is `texture_2d_array<ST>`, `texture_cube_array<ST>`,
                                `texture_depth_2d_array`, `texture_depth_cube_array`,
                                or `texture_storage_2d_array<F,A>`
@@ -13228,7 +13417,7 @@ Returns the number of mip levels of a texture.
     <tr><td style="width:25%">Parameterization<th>Overload
   </thead>
   <tr algorithm="texturenumlevels">
-    <td><var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br><br>
+    <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
         <var ignore>T</var> is `texture_1d<ST>`, `texture_2d<ST>`,
                                `texture_2d_array<ST>`, `texture_3d<ST>`,
                                `texture_cube<ST>`, `texture_cube_array<ST>`,
@@ -13260,7 +13449,7 @@ Returns the number samples per texel in a multisampled texture.
     <tr><td style="width:45%">Parameterization<th>Overload
   </thead>
   <tr algorithm="texturenumsamples">
-    <td><var ignore>ST</var> is [=i32=], [=u32=] or [=f32=]<br><br>
+    <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
         <var ignore>T</var> is `texture_multisampled_2d<ST>`
                                 or `texture_depth_multisampled_2d`
     <td><xmp highlight=rust>
@@ -13314,20 +13503,20 @@ fn textureSample(t: texture_2d<f32>,
                  offset: vec2<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureSample 2d array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSample(t: texture_2d_array<f32>,
                  s: sampler,
                  coords: vec2<f32>,
-                 array_index: C) -> vec4<f32></xmp>
+                 array_index: A) -> vec4<f32></xmp>
 
   <tr algorithm="textureSample 2d array offset">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSample(t: texture_2d_array<f32>,
                  s: sampler,
                  coords: vec2<f32>,
-                 array_index: C,
+                 array_index: A,
                  offset: vec2<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureSample 3d">
@@ -13346,12 +13535,12 @@ fn textureSample(t: texture_3d<f32>,
                  offset: vec3<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureSample cube array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSample(t: texture_cube_array<f32>,
                  s: sampler,
                  coords: vec3<f32>,
-                 array_index: C) -> vec4<f32></xmp>
+                 array_index: A) -> vec4<f32></xmp>
 
   <tr algorithm="textureSample 2d depth">
     <td>
@@ -13369,20 +13558,20 @@ fn textureSample(t: texture_depth_2d,
                  offset: vec2<i32>) -> f32</xmp>
 
   <tr algorithm="textureSample 2d depth array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSample(t: texture_depth_2d_array,
                  s: sampler,
                  coords: vec2<f32>,
-                 array_index: C) -> f32</xmp>
+                 array_index: A) -> f32</xmp>
 
   <tr algorithm="textureSample 2d depth array offset">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSample(t: texture_depth_2d_array,
                  s: sampler,
                  coords: vec2<f32>,
-                 array_index: C,
+                 array_index: A,
                  offset: vec2<i32>) -> f32</xmp>
 
   <tr algorithm="textureSample cube depth">
@@ -13393,12 +13582,12 @@ fn textureSample(t: texture_depth_cube,
                  coords: vec3<f32>) -> f32</xmp>
 
   <tr algorithm="textureSample cube depth array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSample(t: texture_depth_cube_array,
                  s: sampler,
                  coords: vec3<f32>,
-                 array_index: C) -> f32</xmp>
+                 array_index: A) -> f32</xmp>
 
 </table>
 
@@ -13456,21 +13645,21 @@ fn textureSampleBias(t: texture_2d<f32>,
                      offset: vec2<i32>) -> vec4<f32></xmp>
 
 <tr algorithm="textureSampleBias 2d array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleBias(t: texture_2d_array<f32>,
                      s: sampler,
                      coords: vec2<f32>,
-                     array_index: C,
+                     array_index: A,
                      bias: f32) -> vec4<f32></xmp>
 
 <tr algorithm="textureSampleBias 2d array offset">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleBias(t: texture_2d_array<f32>,
                      s: sampler,
                      coords: vec2<f32>,
-                     array_index: C,
+                     array_index: A,
                      bias: f32,
                      offset: vec2<i32>) -> vec4<f32></xmp>
 
@@ -13492,12 +13681,12 @@ fn textureSampleBias(t: texture_3d<f32>,
                      offset: vec3<i32>) -> vec4<f32></xmp>
 
 <tr algorithm="textureSampleBias cube array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleBias(t: texture_cube_array<f32>,
                      s: sampler,
                      coords: vec3<f32>,
-                     array_index: C,
+                     array_index: A,
                      bias: f32) -> vec4<f32></xmp>
 
 </table>
@@ -13559,21 +13748,21 @@ fn textureSampleCompare(t: texture_depth_2d,
                         offset: vec2<i32>) -> f32</xmp>
 
   <tr algorithm="textureSampleCompare 2d array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleCompare(t: texture_depth_2d_array,
                         s: sampler_comparison,
                         coords: vec2<f32>,
-                        array_index: C,
+                        array_index: A,
                         depth_ref: f32) -> f32</xmp>
 
   <tr algorithm="textureSampleCompare 2d depth array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleCompare(t: texture_depth_2d_array,
                         s: sampler_comparison,
                         coords: vec2<f32>,
-                        array_index: C,
+                        array_index: A,
                         depth_ref: f32,
                         offset: vec2<i32>) -> f32</xmp>
 
@@ -13586,12 +13775,12 @@ fn textureSampleCompare(t: texture_depth_cube,
                         depth_ref: f32) -> f32</xmp>
 
   <tr algorithm="textureSampleCompare cube depth array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleCompare(t: texture_depth_cube_array,
                         s: sampler_comparison,
                         coords: vec3<f32>,
-                        array_index: C,
+                        array_index: A,
                         depth_ref: f32) -> f32</xmp>
 
 </table>
@@ -13657,21 +13846,21 @@ fn textureSampleCompareLevel(t: texture_depth_2d,
                              offset: vec2<i32>) -> f32</xmp>
 
   <tr algorithm="textureSampleCompareLevel 2d depth array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleCompareLevel(t: texture_depth_2d_array,
                              s: sampler_comparison,
                              coords: vec2<f32>,
-                             array_index: C,
+                             array_index: A,
                              depth_ref: f32) -> f32</xmp>
 
   <tr algorithm="textureSampleCompareLevel 2d depth array offset">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleCompareLevel(t: texture_depth_2d_array,
                              s: sampler_comparison,
                              coords: vec2<f32>,
-                             array_index: C,
+                             array_index: A,
                              depth_ref: f32,
                              offset: vec2<i32>) -> f32</xmp>
 
@@ -13684,12 +13873,12 @@ fn textureSampleCompareLevel(t: texture_depth_cube,
                              depth_ref: f32) -> f32</xmp>
 
   <tr algorithm="textureSampleCompareLevel cube depth array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleCompareLevel(t: texture_depth_cube_array,
                              s: sampler_comparison,
                              coords: vec3<f32>,
-                             array_index: C,
+                             array_index: A,
                              depth_ref: f32) -> f32</xmp>
 
 </table>
@@ -13755,22 +13944,22 @@ fn textureSampleGrad(t: texture_2d<f32>,
                      offset: vec2<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureSampleGrad 2d array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleGrad(t: texture_2d_array<f32>,
                      s: sampler,
                      coords: vec2<f32>,
-                     array_index: C,
+                     array_index: A,
                      ddx: vec2<f32>,
                      ddy: vec2<f32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureSampleGrad 2d array offset">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleGrad(t: texture_2d_array<f32>,
                      s: sampler,
                      coords: vec2<f32>,
-                     array_index: C,
+                     array_index: A,
                      ddx: vec2<f32>,
                      ddy: vec2<f32>,
                      offset: vec2<i32>) -> vec4<f32></xmp>
@@ -13795,12 +13984,12 @@ fn textureSampleGrad(t: texture_3d<f32>,
                      offset: vec3<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureSampleGrad cube array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleGrad(t: texture_cube_array<f32>,
                      s: sampler,
                      coords: vec3<f32>,
-                     array_index: C,
+                     array_index: A,
                      ddx: vec3<f32>,
                      ddy: vec3<f32>) -> vec4<f32></xmp>
 
@@ -13861,21 +14050,21 @@ fn textureSampleLevel(t: texture_2d<f32>,
                       offset: vec2<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureSampleLevel 2d array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_2d_array<f32>,
                       s: sampler,
                       coords: vec2<f32>,
-                      array_index: C,
+                      array_index: A,
                       level: f32) -> vec4<f32></xmp>
 
   <tr algorithm="textureSampleLevel 2d array offset">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_2d_array<f32>,
                       s: sampler,
                       coords: vec2<f32>,
-                      array_index: C,
+                      array_index: A,
                       level: f32,
                       offset: vec2<i32>) -> vec4<f32></xmp>
 
@@ -13897,66 +14086,69 @@ fn textureSampleLevel(t: texture_3d<f32>,
                       offset: vec3<i32>) -> vec4<f32></xmp>
 
   <tr algorithm="textureSampleLevel cube array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_cube_array<f32>,
                       s: sampler,
                       coords: vec3<f32>,
-                      array_index: C,
+                      array_index: A,
                       level: f32) -> vec4<f32></xmp>
 
   <tr algorithm="textureSampleLevel 2d depth">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_depth_2d,
                       s: sampler,
                       coords: vec2<f32>,
-                      level: C) -> f32</xmp>
+                      level: L) -> f32</xmp>
 
   <tr algorithm="textureSampleLevel 2d depth offset">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_depth_2d,
                       s: sampler,
                       coords: vec2<f32>,
-                      level: C,
+                      level: L,
                       offset: vec2<i32>) -> f32</xmp>
 
   <tr algorithm="textureSampleLevel 2d depth array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_depth_2d_array,
                       s: sampler,
                       coords: vec2<f32>,
-                      array_index: C,
-                      level: C) -> f32</xmp>
+                      array_index: A,
+                      level: L) -> f32</xmp>
 
   <tr algorithm="textureSampleLevel 2d depth array offset">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_depth_2d_array,
                       s: sampler,
                       coords: vec2<f32>,
-                      array_index: C,
-                      level: C,
+                      array_index: A,
+                      level: L,
                       offset: vec2<i32>) -> f32</xmp>
 
   <tr algorithm="textureSampleLevel cube depth">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_depth_cube,
                       s: sampler,
                       coords: vec3<f32>,
-                      level: C) -> f32</xmp>
+                      level: L) -> f32</xmp>
 
   <tr algorithm="textureSampleLevel cube depth array">
-    <td><var ignore>C</var> is [=i32=], or [=u32=]
+    <td><var ignore>A</var> is [=i32=], or [=u32=]<br>
+        <var ignore>L</var> is [=i32=], or [=u32=]
     <td><xmp highlight=rust>
 fn textureSampleLevel(t: texture_depth_cube_array,
                       s: sampler,
                       coords: vec3<f32>,
-                      array_index: C,
-                      level: C) -> f32
+                      array_index: A,
+                      level: L) -> f32
 </xmp>
 </table>
 
@@ -14071,13 +14263,14 @@ fn textureStore(t: texture_storage_2d<F,write>,
   <tr algorithm="textureStore 2d array">
     <td>|F| is a [=texel format=]<br>
         <var ignore>C</var> is [=i32=], or [=u32=]<br>
+        <var ignore>A</var> is [=i32=], or [=u32=]<br>
         <var ignore>CF</var> depends on the storage texel format |F|.
         [See the texel format table](#storage-texel-formats) for the mapping of texel
         format to channel format.
     <td><xmp highlight=rust>
 fn textureStore(t: texture_storage_2d_array<F,write>,
                 coords: vec2<C>,
-                array_index: C,
+                array_index: A,
                 value: vec4<CF>)</xmp>
 
   <tr algorithm="textureStore 3d">
@@ -14304,8 +14497,10 @@ Note: For packing snorm values, the normalized floating point values are in the 
         16 &times; `i` + 15 of the result.
         See [[#floating-point-conversion]].
 
-        If either `e[0]` or `e[1]` is outside the finite range of binary16
-        then the result is any value of type u32.
+        If either `e[0]` or `e[1]` is outside the finite range of binary16 then:
+        * It is a [=shader-creation error=] if `e` is a [=const-expression=].
+        * It is a [=pipeline-creation error=] if `e` is an [=override-expression=].
+        * Otherwise the result is an [=indeterminate value=] for u32.
 </table>
 
 ## Data Unpacking Built-in Functions ## {#unpack-builtin-functions}
