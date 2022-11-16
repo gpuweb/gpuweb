@@ -205,7 +205,8 @@ module.exports = grammar({
             $.array
         ),
         paren_expression: $ => seq($.paren_left, $.expression, $.paren_right),
-        argument_expression_list: $ => seq($.paren_left, optional(seq($.expression, optional(repeat1(seq($.comma, $.expression))), optional($.comma))), $.paren_right),
+        argument_expression_list: $ => seq($.paren_left, optional($.expression_comma_list), $.paren_right),
+        expression_comma_list: $ => seq($.expression, optional(repeat1(seq($.comma, $.expression))), optional($.comma)),
         component_or_swizzle_specifier: $ => choice(
             seq($.bracket_left, $.expression, $.bracket_right, optional($.component_or_swizzle_specifier)),
             seq($.period, $.member_ident, optional($.component_or_swizzle_specifier)),
