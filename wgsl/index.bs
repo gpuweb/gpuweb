@@ -2404,15 +2404,12 @@ describe the contents of memory.
 ### Memory Locations ### {#memory-locations-section}
 
 Memory consists of a set of distinct <dfn noexport>memory locations</dfn>.
-Each memory location is 8-bits
-in size. An operation affecting memory interacts with a set of one or more
-memory locations.
+Each memory location is 8-bits in size.
+An operation affecting memory interacts with a set of one or more memory locations.
+Memory operations on structures and arrays will not access padding memory locations.
 
 Two sets of memory locations <dfn noexport>overlap</dfn> if the intersection of
-their sets of memory locations is non-empty. Each [=variable declaration=] has a
-set of memory locations that does not overlap with the sets of memory locations of
-any other variable declaration. Memory operations on structures and arrays will
-not access padding memory locations.
+their sets of memory locations is non-empty.
 
 ### Memory Access Mode ### {#memory-access-mode}
 
@@ -4420,9 +4417,10 @@ access mode; the default is read.
 A <dfn>texture resource</dfn> is a variable whose [=effective-value-type=] is a [=texture type=].
 It is declared at [=module scope=].
 It holds an opaque handle which is used to access the underlying grid of [=texels=] in a [=texture=].
-The handle itself is in the [=address spaces/handle=] address space and is is always read-only.
-In many cases the underlying texels are read-only.
-For a write-only [=storage texture=], the underlying texels are write-only.
+The handle itself is in the [=address spaces/handle=] address space and is always read-only.
+In many cases the underlying texels are read-only, and we say the texture variable immutable.
+For a write-only [=storage texture=], the underlying texels are write-only, and by convention
+we say the texture variable is mutable.
 
 A <dfn>sampler resource</dfn> is a variable whose [=effective-value-type=] is a [=sampler type=].
 It is declared at [=module scope=], exists in the [=address spaces/handle=] address space,
@@ -4639,19 +4637,26 @@ WGSL defines two types of expressions that can be evaluated before runtime:
 
 ### `const` Expressions ### {#const-expr}
 
-Expressions that are evaluated at [=shader module creation|shader-creation
+Expressions that can be evaluated at [=shader module creation|shader-creation
 time=] are called <dfn noexport>const-expressions</dfn>.
-In order for an expression to be evaluated at shader-creation time all
-[=identifiers=] in the expression must [=resolve=] to:
+An expression is a const-expression if all its [=identifiers=] [=resolve=] to:
 * [=const-declarations=], or
 * [=const-functions=], or
 * [=type aliases=], or
-* [=structure=] names
+* [=structure=] names.
 
-The type of a `const` expression must [=type rules|resolve=] to a type with a
+The type of a `const` expression [=shader-creation error|must=] [=type rules|resolve=] to a type with a
 [=creation-fixed footprint=].
 
 Note: [=type/abstract|Abstract types=] can be the inferred type of a const-expression.
+
+A const-expression |E| will be evaluated if and only if:
+* |E| is [=top-level expression=], or
+* |E| is a [=subexpression=] of an expression |OuterE|, and |OuterE| will be evaluated, and evaluation of |OuterE|
+    requires |E| to be evaluated.
+
+Note: The evaluation rule implies that short-circuting operators `&&` and `||` guard evaluation of their right-hand
+side subexpressions.
 
 Example:  `(42)` is analyzed as follows:
 * The term `42` is the [=AbstractInt=] value 42.
@@ -4683,19 +4688,30 @@ Example:  `let minint = -2147483648;` is analyzed as follows:
     [=AbstractInt=] -2147483648 value is converted to the [=i32=] value -2147483648.
 * The result is that `minint` is declared to be the i32 value -2147483648.
 
+Example:  `false && (10i < i32(5 * 1000 * 1000 * 1000))` is analyzed as follows:
+* The entire expression is a const-expression.
+* However, the short-circuiting rules of the `&&` operator apply:
+    the left-hand side evaluates to `false`, and so the right-hand side is *not evaluated*.
+* Evaluation of i32(5 * 1000 * 1000 * 1000) would have caused a [=shader-creation error=]
+    because the [=AbstractInt=] value 5000000000 overflows the [=i32=] type.
+
 ### `override` Expressions ### {#override-expr}
 
-Expressions that are evaluated at [=pipeline creation=] time are called <dfn
+Expressions that can be evaluated at [=pipeline creation=] time are called <dfn
 noexport>override-expressions</dfn>.
-In order for an expression to be evaluated at pipeline creation time all
-[=identifiers=] in the expression must [=resolve=] to:
+An expression is an override-expression if all its [=identifiers=] [=resolve=] to:
 * [=override-declarations=], or
 * [=const-declarations=], or
 * [=const-functions=], or
 * [=type aliases=], or
-* [=structure=] names
+* [=structure=] names.
 
 Note: All [=const-expressions=] are also override-expressions.
+
+An override-expression |E| will be evaluated if and only if:
+* |E| is [=top-level expression=], or
+* |E| is a [=subexpression=] of an expression |OuterE|, and |OuterE| will be evaluated, and evaluation of |OuterE|
+    requires |E| to be evaluated.
 
 Note: An override-expression may not be usable as the initializer for an
 [=override-declaration=], because such initializers must [=type rules|resolve=]
@@ -6573,7 +6589,12 @@ When an identifier is used as a [=syntax/callable=] item, it is one of:
 <div class='syntax' noexport='true'>
   <dfn for=syntax>argument_expression_list</dfn> :
 
-    | <a for=syntax_sym lt=paren_left>`'('`</a> ( [=syntax/expression=] ( <a for=syntax_sym lt=comma>`','`</a> [=syntax/expression=] ) * <a for=syntax_sym lt=comma>`','`</a> ? ) ? <a for=syntax_sym lt=paren_right>`')'`</a>
+    | <a for=syntax_sym lt=paren_left>`'('`</a> [=syntax/expression_comma_list=] ? <a for=syntax_sym lt=paren_right>`')'`</a>
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>expression_comma_list</dfn> :
+
+    | [=syntax/expression=] ( <a for=syntax_sym lt=comma>`','`</a> [=syntax/expression=] ) * <a for=syntax_sym lt=comma>`','`</a> ?
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>component_or_swizzle_specifier</dfn> :
@@ -11839,14 +11860,14 @@ For example, if `e` is a very small negative number, then `fract(e)` may be 1.0.
     <td>`T` is f32
   <tr>
     <td>Description
-    <td>Splits `e` into a significand and exponent so that `e` &equals; `significand * 2`<sup>`exponent`</sup>.
-    The significand is 0.0 or its magnitude is in the range [0.5, 1.0).
+    <td>Splits `e` into a fraction and an exponent so that `e` &equals; `fraction * 2`<sup>`exponent`</sup>.
+    The fraction is 0.0 or its magnitude is in the range [0.5, 1.0).
 
     Returns the `__frexp_result` built-in structure, defined as follows:
     ```rust
 struct __frexp_result {
-  sig : f32, // significand part
-  exp : i32  // exponent part
+  fract : f32, // fraction part
+  exp : i32    // exponent part
 }
     ```
 
@@ -11857,9 +11878,9 @@ struct __frexp_result {
     <div class='example wgsl function-scope' heading='frexp usage'>
     <xmp highlight='rust'>
      // Infers result type
-     let sig_and_exp = frexp(1.5);
-     // Sets fraction_direct to 0.75
-     let fraction_direct = frexp(1.5).sig;
+     let fraction_and_exponent = frexp(1.5);
+     // Sets fraction_only to 0.75
+     let fraction_only = frexp(1.5).fract;
     </xmp>
     </div>
   <tr>
@@ -11882,14 +11903,14 @@ but a value may infer the type.
     <td>`T` is f16
   <tr>
     <td>Description
-    <td>Splits `e` into a significand and exponent so that `e` &equals; `significand * 2`<sup>`exponent`</sup>.
-    The significand is 0.0 or its magnitude is in the range [0.5, 1.0).
+    <td>Splits `e` into a fraction and an exponent so that `e` &equals; `fraction * 2`<sup>`exponent`</sup>.
+    The fraction is 0.0 or its magnitude is in the range [0.5, 1.0).
 
     Returns the `__frexp_result_f16` built-in structure, defined as if as follows:
     ```rust
 struct __frexp_result_f16 {
-  sig : f16, // significand part
-  exp : i32  // exponent part
+  fract : f16, // fraction part
+  exp : i32    // exponent part
 }
     ```
 
@@ -11914,14 +11935,14 @@ but a value may infer the type.
     <td>`T` is vecN&lt;f32&gt;
   <tr>
     <td>Description
-    <td>Splits `e` into a significand and exponent so that `e` &equals; `significand * 2`<sup>`exponent`</sup>.
-    Each component of the significand is 0.0, or has a magnitude in the range [0.5, 1.0).
+    <td>Splits `e` into a fraction and an exponent so that `e` &equals; `fraction * 2`<sup>`exponent`</sup>.
+    Each component of the fraction is 0.0, or has a magnitude in the range [0.5, 1.0).
 
     Returns the `__frexp_result_vecN` built-in structure, defined as follows:
     ```rust
 struct __frexp_result_vecN {
-  sig : vecN<f32>, // significand part
-  exp : vecN<i32>  // exponent part
+  fract : vecN<f32>, // fraction part
+  exp : vecN<i32>    // exponent part
 }
     ```
 
@@ -11946,14 +11967,14 @@ but a value may infer the type.
     <td>`T` is vecN&lt;f16&gt;
   <tr>
     <td>Description
-    <td>Splits `e` into a significand and exponent so that `e` &equals; `significand * 2`<sup>`exponent`</sup>.
-    Each component of the significand is 0.0, or has a magnitude in the range [0.5, 1.0).
+    <td>Splits `e` into a fraction and an exponent so that `e` &equals; `fraction * 2`<sup>`exponent`</sup>.
+    Each component of the fraction is 0.0, or has a magnitude in the range [0.5, 1.0).
 
     Returns the `__frexp_result_vecN` built-in structure, defined as if as follows:
     ```rust
 struct __frexp_result_vecN_f16 {
-  sig : vecN<f16>, // significand part
-  exp : vecN<i32>  // exponent part
+  fract : vecN<f16>, // fraction part
+  exp : vecN<i32>    // exponent part
 }
     ```
 
@@ -12223,7 +12244,7 @@ Note: The result is not mathematically meaningful if `e` &lt; 0.
     <td>Description
     <td>Splits `e` into fractional and whole number parts.
 
-    The whole part is (`e` % 1.0), and the fractional part is `e` minus the whole part.
+    The fractional part is (`e` % 1.0), and the whole part is `e` minus the whole part.
 
     Returns the `__modf_result` built-in structure, defined as follows:
     ```rust
@@ -12239,8 +12260,10 @@ struct __modf_result {
     <xmp highlight='rust'>
      // Infers result type
      let fract_and_whole = modf(1.5);
-     // Sets fract_direct to 0.5
-     let fract_direct = modf(1.5).fract;
+     // Sets fract_only to 0.5
+     let fract_only = modf(1.5).fract;
+     // Sets whole_only to 1.0
+     let whole_only = modf(1.5).whole;
     </xmp>
     </div>
   <tr>
