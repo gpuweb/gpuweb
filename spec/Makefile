@@ -6,8 +6,8 @@ clean:
 	rm -f index.html index.pre.html webgpu.idl
 
 # Generate spec HTML from Bikeshed source.
-index.pre.html: *.bs
-	DIE_ON=everything bash ../tools/invoke-bikeshed.sh index.pre.html *.bs
+index.pre.html: *.bs sections/*.bs
+	DIE_ON=everything bash ../tools/invoke-bikeshed.sh index.pre.html *.bs sections/*.bs
 
 GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html

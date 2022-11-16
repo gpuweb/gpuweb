@@ -1,0 +1,378 @@
+# Copies # {#copies}
+
+## Buffer Copies ## {#buffer-copies}
+
+Buffer copy operations operate on raw bytes.
+
+WebGPU provides "buffered" {{GPUCommandEncoder}} commands:
+
+- {{GPUCommandEncoder/copyBufferToBuffer()}}
+- {{GPUCommandEncoder/clearBuffer()}}
+
+and "immediate" {{GPUQueue}} operations:
+
+- {{GPUQueue/writeBuffer()}}, for {{ArrayBuffer}}-to-{{GPUBuffer}} writes
+
+## Image Copies ## {#image-copies}
+
+<dfn dfn>Image copy</dfn> operations operate on texture/"image" data, rather than bytes.
+
+WebGPU provides "buffered" {{GPUCommandEncoder}} commands:
+
+- {{GPUCommandEncoder/copyTextureToTexture()}}
+- {{GPUCommandEncoder/copyBufferToTexture()}}
+- {{GPUCommandEncoder/copyTextureToBuffer()}}
+
+and "immediate" {{GPUQueue}} operations:
+
+- {{GPUQueue/writeTexture()}}, for {{ArrayBuffer}}-to-{{GPUTexture}} writes
+- {{GPUQueue/copyExternalImageToTexture()}}, for copies from Web Platform image sources to textures
+
+Some texel values have multiple possible representations of some values,
+e.g. as `r8snorm`, -1.0 can be represented as either -127 or -128.
+Copy commands are not guaranteed to preserve the source's bit-representation.
+
+The following definitions are used by these methods.
+
+### <dfn dictionary>GPUImageDataLayout</dfn> ### {#gpu-image-data-layout}
+
+<script type=idl>
+dictionary GPUImageDataLayout {
+    GPUSize64 offset = 0;
+    GPUSize32 bytesPerRow;
+    GPUSize32 rowsPerImage;
+};
+</script>
+
+A {{GPUImageDataLayout}} is a layout of <dfn dfn>images</dfn> within some linear memory.
+It's used when copying data between a [=texture=] and a {{GPUBuffer}}, or when scheduling a
+write into a [=texture=] from the {{GPUQueue}}.
+
+- For {{GPUTextureDimension/2d}} textures, data is copied between one or multiple contiguous [=images=] and [=array layers=].
+- For {{GPUTextureDimension/3d}} textures, data is copied between one or multiple contiguous [=images=] and depth [=slices=].
+
+Issue: Define images more precisely. In particular, define them as being comprised of [=texel blocks=].
+
+Operations that copy between byte arrays and textures always work with rows of [=texel blocks=],
+which we'll call <dfn dfn>block row</dfn>s. It's not possible to update only a part of a [=texel block=].
+
+[=Texel blocks=] are tightly packed within each [=block row=] in the linear memory layout of an
+image copy, with each subsequent texel block immediately following the previous texel block,
+with no padding.
+This includes [[#copying-depth-stencil|copies]] to/from specific aspects of [=depth-or-stencil format=] textures:
+stencil values are tightly packed in an array of bytes;
+depth values are tightly packed in an array of the appropriate type ("depth16unorm" or "depth32float").
+
+Issue: Define the exact copy semantics, by reference to common algorithms shared by the copy methods.
+
+<dl dfn-type=dict-member dfn-for=GPUImageDataLayout>
+    : <dfn>offset</dfn>
+    ::
+        The offset, in bytes, from the beginning of the image data source (such as a
+        {{GPUImageCopyBuffer/buffer|GPUImageCopyBuffer.buffer}}) to the start of the image data
+        within that source.
+
+    : <dfn>bytesPerRow</dfn>
+    ::
+        The stride, in bytes, between the beginning of each [=block row=] and the subsequent [=block row=].
+
+        Required if there are multiple [=block rows=] (i.e. the copy height or depth is more than one block).
+
+    : <dfn>rowsPerImage</dfn>
+    ::
+        Number of [=block rows=] per single [=image=] of the [=texture=].
+        {{GPUImageDataLayout/rowsPerImage}} &times;
+        {{GPUImageDataLayout/bytesPerRow}} is the stride, in bytes, between the beginning of each [=image=] of data and the subsequent [=image=].
+
+        Required if there are multiple [=images=] (i.e. the copy depth is more than one).
+</dl>
+
+### <dfn dictionary>GPUImageCopyBuffer</dfn> ### {#gpu-image-copy-buffer}
+
+In an [=image copy=] operation, {{GPUImageCopyBuffer}} defines a {{GPUBuffer}} and, together with
+the `copySize`, how image data is laid out in the buffer's memory (see {{GPUImageDataLayout}}).
+
+<script type=idl>
+dictionary GPUImageCopyBuffer : GPUImageDataLayout {
+    required GPUBuffer buffer;
+};
+</script>
+
+<dl dfn-type=dict-member dfn-for=GPUImageCopyBuffer>
+    : <dfn>buffer</dfn>
+    ::
+        A buffer which either contains image data to be copied or will store the image data being
+        copied, depending on the method it is being passed to.
+</dl>
+
+<div algorithm class=validusage>
+    <dfn abstract-op>validating GPUImageCopyBuffer</dfn>
+
+    **Arguments:**
+
+    - {{GPUImageCopyBuffer}} |imageCopyBuffer|
+
+    **Returns:** {{boolean}}
+
+    1. Return `true` if and only if all of the following conditions are satisfied:
+        - |imageCopyBuffer|.{{GPUImageCopyBuffer/buffer}} must be a [=valid=] {{GPUBuffer}}.
+        - |imageCopyBuffer|.{{GPUImageDataLayout/bytesPerRow}} must be a multiple of 256.
+</div>
+
+### <dfn dictionary>GPUImageCopyTexture</dfn> ### {#gpu-image-copy-texture}
+
+In an [=image copy=] operation, a {{GPUImageCopyTexture}} defines a {{GPUTexture}} and, together with
+the `copySize`, the sub-region of the texture (spanning one or more contiguous
+[=texture subresources=] at the same mip-map level).
+
+<script type=idl>
+dictionary GPUImageCopyTexture {
+    required GPUTexture texture;
+    GPUIntegerCoordinate mipLevel = 0;
+    GPUOrigin3D origin = {};
+    GPUTextureAspect aspect = "all";
+};
+</script>
+
+<dl dfn-type=dict-member dfn-for=GPUImageCopyTexture>
+    : <dfn>texture</dfn>
+    ::
+        Texture to copy to/from.
+
+    : <dfn>mipLevel</dfn>
+    ::
+        Mip-map level of the {{GPUImageCopyTexture/texture}} to copy to/from.
+
+    : <dfn>origin</dfn>
+    ::
+        Defines the origin of the copy - the minimum corner of the texture sub-region to copy to/from.
+        Together with `copySize`, defines the full copy sub-region.
+
+    : <dfn>aspect</dfn>
+    ::
+        Defines which aspects of the {{GPUImageCopyTexture/texture}} to copy to/from.
+</dl>
+
+<div algorithm class=validusage>
+    <dfn abstract-op>validating GPUImageCopyTexture</dfn>
+
+    **Arguments:**
+
+    - {{GPUImageCopyTexture}} |imageCopyTexture|
+    - {{GPUExtent3D}} |copySize|
+
+    **Returns:** {{boolean}}
+
+    1. Let |blockWidth| be the [=texel block width=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/format}}.
+    1. Let |blockHeight| be the [=texel block height=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/format}}.
+
+    1. Return `true` if and only if all of the following conditions apply:
+        - |imageCopyTexture|.{{GPUImageCopyTexture/texture}} must be a [=valid=] {{GPUTexture}}.
+        - |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}} must be &lt;
+            |imageCopyTexture|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/mipLevelCount}}.
+        - |imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/x=] must be a multiple of |blockWidth|.
+        - |imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/y=] must be a multiple of |blockHeight|.
+        - The [=imageCopyTexture subresource size=] of |imageCopyTexture| is equal to |copySize| if either of
+            the following conditions is true:
+            - |imageCopyTexture|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/format}} is a depth-stencil format.
+            - |imageCopyTexture|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/sampleCount}} &gt; 1.
+</div>
+
+Issue(gpuweb/gpuweb#69): Define the copies with {{GPUTextureDimension/1d}} and {{GPUTextureDimension/3d}} textures.
+
+### <dfn dictionary>GPUImageCopyTextureTagged</dfn> ### {#gpu-image-copy-texture-tagged}
+
+WebGPU textures hold raw numeric data, and are not tagged with semantic metadata describing colors.
+However, {{GPUQueue/copyExternalImageToTexture()}} copies from sources that describe colors.
+
+A {{GPUImageCopyTextureTagged}} is a {{GPUImageCopyTexture}} which is additionally tagged with
+color space/encoding and alpha-premultiplication metadata, so that semantic color data may be
+preserved during copies.
+This metadata affects only the semantics of the {{GPUQueue/copyExternalImageToTexture()}}
+operation, not the semantics of the destination texture.
+
+<script type=idl>
+dictionary GPUImageCopyTextureTagged : GPUImageCopyTexture {
+    PredefinedColorSpace colorSpace = "srgb";
+    boolean premultipliedAlpha = false;
+};
+</script>
+
+<dl dfn-type=dict-member dfn-for=GPUImageCopyTextureTagged>
+    : <dfn>colorSpace</dfn>
+    ::
+        Describes the color space and encoding used to encode data into the destination texture.
+
+        This [[#color-space-conversions|may result]] in values outside of the range [0, 1]
+        being written to the target texture, if its format can represent them.
+        Otherwise, the results are clamped to the target texture format's range.
+
+        Note:
+        If {{GPUImageCopyTextureTagged/colorSpace}} matches the source image,
+        conversion may not be necessary. See [[#color-space-conversion-elision]].
+
+    : <dfn>premultipliedAlpha</dfn>
+    ::
+        Describes whether the data written into the texture should have its RGB channels
+        premultiplied by the alpha channel, or not.
+
+        If this option is set to `true` and the {{GPUImageCopyExternalImage/source}} is also
+        premultiplied, the source RGB values must be preserved even if they exceed their
+        corresponding alpha values.
+
+        Note:
+        If {{GPUImageCopyTextureTagged/premultipliedAlpha}} matches the source image,
+        conversion may not be necessary. See [[#color-space-conversion-elision]].
+</dl>
+
+### <dfn dictionary>GPUImageCopyExternalImage</dfn> ### {#gpu-image-copy-external-image}
+
+<script type=idl>
+dictionary GPUImageCopyExternalImage {
+    required (ImageBitmap or HTMLVideoElement or HTMLCanvasElement or OffscreenCanvas) source;
+    GPUOrigin2D origin = {};
+    boolean flipY = false;
+};
+</script>
+
+{{GPUImageCopyExternalImage}} has the following members:
+
+<dl dfn-type=dict-member dfn-for=GPUImageCopyExternalImage>
+    : <dfn>source</dfn>
+    ::
+        The source of the [=image copy=]. The copy source data is captured at the moment that
+        {{GPUQueue/copyExternalImageToTexture()}} is issued.
+
+    : <dfn>origin</dfn>
+    ::
+        Defines the origin of the copy - the minimum (top-left) corner of the source sub-region to copy from.
+        Together with `copySize`, defines the full copy sub-region.
+
+    : <dfn>flipY</dfn>
+    ::
+        Describes whether the source image is vertically flipped, or not.
+
+        If this option is set to `true`, the copy is flipped vertically: the bottom row of the source
+        region is copied into the first row of the destination region, and so on.
+        The {{GPUImageCopyExternalImage/origin}} option is still relative to the top-left corner
+        of the source image, increasing downward.
+</dl>
+
+### Subroutines ### {#image-copies-subroutines}
+
+<div algorithm="imageCopyTexture subresource size">
+    <dfn dfn>imageCopyTexture subresource size</dfn>
+
+    **Arguments:**
+
+    - {{GPUImageCopyTexture}} |imageCopyTexture|
+
+    **Returns:** {{GPUExtent3D}}
+
+    The [=imageCopyTexture subresource size=] of |imageCopyTexture| is calculated as follows:
+
+    Its [=Extent3D/width=], [=Extent3D/height=] and [=Extent3D/depthOrArrayLayers=] are the width, height, and depth, respectively,
+    of the [=physical miplevel-specific texture extent=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}} [=subresource=] at [=mipmap level=]
+    |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}}.
+</div>
+
+<div algorithm>
+    <dfn abstract-op>validating linear texture data</dfn>(layout, byteSize, format, copyExtent)
+
+    **Arguments:**
+
+    : {{GPUImageDataLayout}} |layout|
+    :: Layout of the linear texture data.
+    : {{GPUSize64}} |byteSize|
+    :: Total size of the linear data, in bytes.
+    : {{GPUTextureFormat}} |format|
+    :: Format of the texture.
+    : {{GPUExtent3D}} |copyExtent|
+    :: Extent of the texture to copy.
+
+    1. Let:
+        - |widthInBlocks| be |copyExtent|.[=Extent3D/width=] &divide; the [=texel block width=] of |format|.
+            [=Assert=] this is an integer.
+        - |heightInBlocks| be |copyExtent|.[=Extent3D/height=] &divide; the [=texel block height=] of |format|.
+            [=Assert=] this is an integer.
+        - |bytesInLastRow| be |widthInBlocks| &times; the [=texel block size|size=] of |format|.
+    1. Fail if the following input validation requirements are not met:
+
+        <div class=validusage>
+            - If |heightInBlocks| &gt; 1,
+                |layout|.{{GPUImageDataLayout/bytesPerRow}} must be specified.
+            - If |copyExtent|.[=Extent3D/depthOrArrayLayers=] &gt; 1,
+                |layout|.{{GPUImageDataLayout/bytesPerRow}} and
+                |layout|.{{GPUImageDataLayout/rowsPerImage}} must be specified.
+            - If specified, |layout|.{{GPUImageDataLayout/bytesPerRow}}
+                must be &ge; |bytesInLastRow|.
+            - If specified, |layout|.{{GPUImageDataLayout/rowsPerImage}}
+                must be &ge; |heightInBlocks|.
+        </div>
+    1. Let:
+        - |bytesPerRow| be |layout|.{{GPUImageDataLayout/bytesPerRow}} ?? 0.
+        - |rowsPerImage| be |layout|.{{GPUImageDataLayout/rowsPerImage}} ?? 0.
+
+        Note: These default values have no effect, as they're always multiplied by 0.
+    1. Let |requiredBytesInCopy| be 0.
+    1. If |copyExtent|.[=Extent3D/depthOrArrayLayers=] &gt; 0:
+        1. Increment |requiredBytesInCopy| by
+            |bytesPerRow| &times; |rowsPerImage| &times; (|copyExtent|.[=Extent3D/depthOrArrayLayers=] &minus; 1).
+        1. If |heightInBlocks| &gt; 0:
+            1. Increment |requiredBytesInCopy| by
+                |bytesPerRow| &times; (|heightInBlocks| &minus; 1) + |bytesInLastRow|.
+    1. Fail if the following condition is not satisfied:
+
+        <div class=validusage>
+            - The layout fits inside the linear data:
+                |layout|.{{GPUImageDataLayout/offset}} + |requiredBytesInCopy| &le; |byteSize|.
+        </div>
+</div>
+
+<div algorithm class=validusage>
+    <dfn dfn>validating texture copy range</dfn>
+
+    **Arguments:**
+
+    : {{GPUImageCopyTexture}} |imageCopyTexture|
+    :: The texture subresource being copied into and copy origin.
+    : {{GPUExtent3D}} |copySize|
+    :: The size of the texture.
+
+    1. Let |blockWidth| be the [=texel block width=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/format}}.
+    1. Let |blockHeight| be the [=texel block height=] of |imageCopyTexture|.{{GPUImageCopyTexture/texture}}.{{GPUTexture/format}}.
+    1. Let |subresourceSize| be the [=imageCopyTexture subresource size=] of |imageCopyTexture|.
+    1. Return whether all the conditions below are satisfied:
+
+        - (|imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/x=] + |copySize|.[=Extent3D/width=]) &le; |subresourceSize|.[=Extent3D/width=]
+        - (|imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/y=] + |copySize|.[=Extent3D/height=]) &le; |subresourceSize|.[=Extent3D/height=]
+        - (|imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/z=] + |copySize|.[=Extent3D/depthOrArrayLayers=]) &le; |subresourceSize|.[=Extent3D/depthOrArrayLayers=]
+        - |copySize|.[=Extent3D/width=] must be a multiple of |blockWidth|.
+        - |copySize|.[=Extent3D/height=] must be a multiple of |blockHeight|.
+</div>
+
+<div algorithm>
+    Two {{GPUTextureFormat}}s |format1| and |format2| are <dfn dfn>copy-compatible</dfn> if:
+
+    - |format1| equals |format2|, or
+    - |format1| and |format2| differ only in whether they are `srgb` formats (have the `-srgb` suffix).
+
+    Issue(gpuweb/gpuweb#2322): Once more formats are allowed in {{GPUTextureDescriptor/viewFormats}},
+    consider making two textures copy-compatible when there's any overlap in the viewFormats.
+</div>
+
+<div algorithm>
+    The <dfn abstract-op>set of subresources for texture copy</dfn>(|imageCopyTexture|, |copySize|)
+    is the subset of subresources of |texture| = |imageCopyTexture|.{{GPUImageCopyTexture/texture}}
+    for which each subresource |s| satisfies the following:
+
+    - The [=mipmap level=] of |s| equals
+        |imageCopyTexture|.{{GPUImageCopyTexture/mipLevel}}.
+    - The [=aspect=] of |s| is in the [=GPUTextureAspect/set of aspects=] of
+        |imageCopyTexture|.{{GPUImageCopyTexture/aspect}}.
+    - If |texture|.{{GPUTexture/dimension}} is {{GPUTextureDimension/"2d"}}:
+        - The [=array layer=] of |s| is &ge;
+            |imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/z=] and &lt;
+            |imageCopyTexture|.{{GPUImageCopyTexture/origin}}.[=Origin3D/z=] +
+            |copySize|.[=Extent3D/depthOrArrayLayers=].
+</div>
