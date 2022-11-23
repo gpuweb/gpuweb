@@ -1019,6 +1019,9 @@ has components working on different timelines in parallel:
 :: Associated with the execution of the Web script.
     It includes calling all methods described by this specification.
 
+    To issue steps to the content timeline from an operation on {{GPUDevice}} `device`,
+    [$queue a global task for GPUDevice$] `device` with those steps.
+
 : <dfn dfn>Device timeline</dfn>
 :: Associated with the GPU device operations
     that are issued by the user agent.
@@ -1347,7 +1350,8 @@ through which [=internal objects=] are created.
 It can be shared across multiple [=agents=] (e.g. dedicated workers).
 
 A [=device=] is the exclusive owner of all [=internal objects=] created from it:
-when the [=device=] is [=lose the device|lost=] or {{GPUDevice/destroy()|destroyed}},
+when the [=device=] becomes [=invalid=]
+(is [=lose the device|lost=] or {{GPUDevice/destroy()|destroyed}}),
 it and all objects created on it (directly, e.g.
 {{GPUDevice/createTexture()}}, or indirectly, e.g. {{GPUTexture/createView()}}) become
 implicitly [$valid to use with|unusable$].
@@ -1386,23 +1390,30 @@ A [=device=] has the following internal slots:
 </div>
 
 Any time the user agent needs to revoke access to a device, it calls
-[=lose the device=](device, `undefined`).
-For example, if an operation fails with side effects that would observably
-change the state of objects on the device or potentially corrupt internal
-implementation/driver state, the device should be lost to prevent further access.
+[=lose the device=](`device`, `undefined`) on the device's [=device timeline=],
+potentially ahead of other operations currently queued on that timeline.
 
-<div algorithm>
+If an operation fails with side effects that would observably change the state
+of objects on the device or potentially corrupt internal implementation/driver state,
+the device **should** be lost to prevent these changes from being observable.
+
+<div algorithm data-timeline=device>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
 
     1. Make |device|.{{device/[[adapter]]}} [=invalid=].
     1. Make |device| [=invalid=].
-    1. Issue: explain how to get from |device| to its "primary" {{GPUDevice}}.
-    1. Resolve |device|.{{GPUDevice/lost}} with a new {{GPUDeviceLostInfo}} with
-        {{GPUDeviceLostInfo/reason}} set to |reason| and
-        {{GPUDeviceLostInfo/message}} set to an implementation-defined value.
+    1. Let |gpuDevice| be the [=content timeline=] {{GPUDevice}} corresponding to |device|.
 
-        Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
-        information and should never be parsed by applications.
+        Issue: Define this more rigorously.
+    1. Issue the following steps on the [=content timeline=] of |gpuDevice|:
+        <div data-timeline=content>
+            1. Resolve |device|.{{GPUDevice/lost}} with a new {{GPUDeviceLostInfo}} with
+                {{GPUDeviceLostInfo/reason}} set to |reason| and
+                {{GPUDeviceLostInfo/message}} set to an implementation-defined value.
+
+                Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
+                information and should never be parsed by applications.
+        </div>
 </div>
 
 [=Devices=] are exposed via {{GPUDevice}}.
@@ -1970,6 +1981,21 @@ For more information on issuing CORS requests for image and video elements, cons
 - [[html#the-img-element]] <{img}>
 - [[html#media-elements]] {{HTMLMediaElement}}
 
+## Task Sources ## {#task-sources}
+
+### WebGPU Task Source ### {#-webgpu-task-source}
+
+WebGPU defines a new [=task source=] called the <dfn dfn>WebGPU task source</dfn>.
+It is used for the {{GPUDevice/uncapturederror}} event and {{GPUDevice}}.{{GPUDevice/lost}}.
+
+<div algorithm>
+    To <dfn abstract-op>queue a global task for {{GPUDevice}}</dfn> |device|,
+    with a series of steps |steps|:
+
+    1. [=Queue a global task=] on the [=WebGPU task source=], with the global object that was used
+        to create |device|, and the steps |steps|.
+</div>
+
 ## Color Spaces and Encoding ## {#color-spaces}
 
 WebGPU does not provide color management. All values within WebGPU (such as texture elements)
@@ -2506,7 +2532,8 @@ interface GPUAdapter {
                         reinitialization logic starting with {{GPU/requestAdapter()}}.
 
                     Otherwise:
-                        1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
+
+                    1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
 
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
@@ -2514,6 +2541,10 @@ interface GPUAdapter {
                 [=Content timeline=] steps:
 
                 1. [=Resolve=] |promise| with a new {{GPUDevice}} object |device|.
+
+                    Note:
+                    If the device is already lost because the adapter could not fulfill the request,
+                    |device|.{{GPUDevice/lost}} has already resolved before |promise| resolves.
             </div>
         </div>
 
@@ -12830,9 +12861,13 @@ partial interface GPUDevice {
     <div data-timeline=content>
         [=Content timeline=] steps:
 
-        1. If the user agent chooses, [=queue a task=] to fire a
-            {{GPUUncapturedErrorEvent}} named "{{GPUDevice/uncapturederror}}" on
-            |device| with an {{GPUUncapturedErrorEvent/error}} of |error|.
+        1. If the user agent chooses, [$queue a global task for GPUDevice$] |device|
+            with the following steps:
+
+            <div data-timeline=content>
+                1. Fire a {{GPUUncapturedErrorEvent}} named "{{GPUDevice/uncapturederror}}" on
+                    |device|, with an {{GPUUncapturedErrorEvent/error}} of |error|.
+            </div>
 
         Note: If (and only if) there are no {{GPUDevice/uncapturederror}} handlers are
         registered, user agents **should** surface uncaptured errors to developers,
@@ -12900,8 +12935,8 @@ partial interface GPUDevice {
                 1. If any of the following requirements are unmet:
 
                     <div class=validusage>
-                        - |this| must not be [=lose the device|lost=].
-                        - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] &gt; 0.
+                        - |this| must be [=valid=].
+                        - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] must be &gt; 0.
                     </div>
 
                     Then issue the following steps on <var data-timeline=content>contentTimeline</var>
