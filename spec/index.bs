@@ -2009,7 +2009,7 @@ WebGPU defines a new [=task source=] called the <dfn dfn>automatic expiry task s
 It is used for the automatic, timed expiry (destruction) of certain objects:
 
 - {{GPUTexture}}s returned by {{GPUCanvasContext/getCurrentTexture()}}
-- Issue(gpuweb/gpuweb#3324): {{GPUExternalTexture}}s created from {{HTMLVideoElement}}s?
+- {{GPUExternalTexture}}s created from {{HTMLVideoElement}}s
 
 <div algorithm>
     To <dfn abstract-op>queue an automatic expiry task</dfn>
@@ -4902,7 +4902,6 @@ External textures use several binding slots: see [=Exceeds the binding slot limi
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUExternalTexture {
-    readonly attribute boolean expired;
 };
 GPUExternalTexture includes GPUObjectBase;
 </script>
@@ -4910,33 +4909,17 @@ GPUExternalTexture includes GPUObjectBase;
 {{GPUExternalTexture}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for="GPUExternalTexture">
-    : <dfn>\[[destroyed]]</dfn>, of type `boolean`
+    : <dfn>\[[expired]]</dfn>, of type `boolean`
     ::
-        Indicates whether the object has been destroyed (can no longer be used).
+        Indicates whether the object has expired (can no longer be used).
         Initially set to `false`.
+
+        Note:
+        Unlike similar `[[destroyed]]` slots, this can change from `true` back to `false`.
 
     : <dfn>\[[descriptor]]</dfn>, of type {{GPUExternalTextureDescriptor}}
     ::
         The descriptor with which the texture was created.
-</dl>
-
-{{GPUExternalTexture}} has the following attributes:
-
-<dl dfn-type=attribute dfn-for=GPUExternalTexture>
-    : <dfn>expired</dfn>
-    ::
-        Returns the value of {{GPUExternalTexture/[[destroyed]]}}, which indicates
-        whether the texture has [$expire stale external textures|expired$] or not.
-</dl>
-
-The {{GPUExternalTexture}} [=interface object=] (`globalThis.GPUExternalTexture`)
-has the following internal slots:
-
-<dl dfn-type=attribute dfn-for=GPUExternalTexture>
-    : <dfn>\[[active_imports]]</dfn>, of type [=list=]&lt;GPUExternalTexture&gt;
-    ::
-        A list of all imported textures which have not yet been closed.
-        The items in list are checked during each animation frame to determine whether to close them.
 </dl>
 
 ### Importing External Textures ### {#external-texture-creation}
@@ -4944,11 +4927,17 @@ has the following internal slots:
 An external texture is created from an external video object
 using {{GPUDevice/importExternalTexture()}}.
 
-External textures created from {{HTMLVideoElement}}s are destroyed automatically after the imported
+External textures created from {{HTMLVideoElement}}s are destroyed automatically in a task after
+it is imported, instead of manually or upon garbage collection like other resources.
 frame is no longer current, instead of manually or upon garbage collection like other resources.
-When an external texture expires, its {{GPUExternalTexture/expired}} attribute changes to `true`.
-Applications can use this to determine whether to re-import or not, if their execution is not
-already scheduled to match the video's frame rate.
+When an external texture expires, its {{GPUExternalTexture/[[expired]]}} slot changes to `true`.
+
+Once the {{GPUExternalTexture}} expires, {{GPUDevice/importExternalTexture()}} must be called again.
+However, the user agent may un-expire and return the same {{GPUExternalTexture}} again, instead of
+creating a new one. This will commonly happen unless the execution of the application is scheduled
+to match the video's frame rate (e.g. using `requestVideoFrameCallback()`).
+If the same object is returned again, it will compare equal, and {{GPUBindGroup}}s,
+{{GPURenderBundle}}s, etc. referencing the previous object can still be used.
 
 <script type=idl>
 dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
@@ -4964,7 +4953,7 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
 
         <div algorithm=GPUDevice.importExternalTexture>
             <div data-timeline=content>
-                **Called on:** {{GPUDevice}} this.
+                **Called on:** {{GPUDevice}} |this|.
 
                 **Arguments:**
 
@@ -4978,53 +4967,58 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
 
                 1. Let |source| be |descriptor|.{{GPUExternalTextureDescriptor/source}}.
 
-                1. If |source| <l spec=html>[=is not origin-clean=]</l>,
-                    throw a {{SecurityError}} and stop.
+                1. If the current image contents of |source| are the same as the most recent
+                    {{GPUDevice/importExternalTexture()}} call with an identical |descriptor|,
+                    returning |previousResult|, and the user agent chooses to reuse it:
 
-                1. Let |usability| be [=?=] [=check the usability of the image argument=](|source|).
+                    1. Set |previousResult|.{{GPUExternalTexture/[[expired]]}} to `false`,
+                        renewing ownership of the underlying resource.
+                    1. Let |result| be |previousResult|.
 
-                1. If |usability| is not `good`:
-                    1. [$Generate a validation error$].
-                    1. Return an [=invalid=] {{GPUExternalTexture}}.
+                    Issue: FIXME: But what if only the options change? Need a new GPUExternalTexture
+                    object, so turns out we haven't protected ourselves from having to re-import.
 
-                1. Let |data| be the result of converting the current image contents of |source| into
-                    the color space |descriptor|.{{GPUExternalTextureDescriptor/colorSpace}}
-                    with unpremultiplied alpha.
+                    Otherwise:
 
-                    This [[#color-space-conversions|may result]] in values outside of the range [0, 1].
-                    If clamping is desired, it may be performed after sampling.
+                    1. If |source| <l spec=html>[=is not origin-clean=]</l>,
+                        throw a {{SecurityError}} and stop.
 
-                    Note: This is described like a copy, but may be implemented as a reference to
-                    read-only underlying data plus appropriate metadata to perform conversion later.
+                    1. Let |usability| be [=?=] [=check the usability of the image argument=](|source|).
 
-                1. Let |result| be a new {{GPUExternalTexture}} object wrapping |data|.
+                    1. If |usability| is not `good`:
+                        1. [$Generate a validation error$].
+                        1. Return an [=invalid=] {{GPUExternalTexture}}.
 
-                1. Add |result| to {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}.
+                    1. Let |data| be the result of converting the current image contents of |source| into
+                        the color space |descriptor|.{{GPUExternalTextureDescriptor/colorSpace}}
+                        with unpremultiplied alpha.
 
+                        This [[#color-space-conversions|may result]] in values outside of the range [0, 1].
+                        If clamping is desired, it may be performed after sampling.
+
+                        Note: This is described like a copy, but may be implemented as a reference to
+                        read-only underlying data plus appropriate metadata to perform conversion later.
+
+                    1. Let |result| be a new {{GPUExternalTexture}} object wrapping |data|.
+
+                1. [$queue an automatic expiry task$] with device |this| and the following steps:
+
+                    <div data-timeline=content>
+                        1. Set |result|.{{GPUExternalTexture/[[expired]]}} to `true`,
+                            releasing ownership of the underlying resource.
+                    </div>
+
+                    Note:
+                    An external video texture should be imported in the same task that samples the texture
+                    (which should generally be scheduled using `requestVideoFrameCallback` or
+                    {{AnimationFrameProvider/requestAnimationFrame()}} depending on the application).
+                    Otherwise, a texture could get destroyed by these steps before it is used.
+
+                1. Set |result|.{{GPUObjectBase/label}} to |descriptor|.{{GPUObjectDescriptorBase/label}}.
                 1. Return |result|.
             </div>
         </div>
 </dl>
-
-<div algorithm="expire stale external textures">
-    Immediately before the "[=Update the rendering=]" step of the
-    [[HTML#event-loop-processing-model|HTML processing model]],
-    run the following steps to <dfn abstract-op>expire stale external textures</dfn>:
-
-    1. For each |texture| in {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}:
-        1. Let |video| be |texture|.{{GPUExternalTexture/[[descriptor]]}}.{{GPUExternalTextureDescriptor/source}}.
-        1. Assert |video| is an {{HTMLVideoElement}}.
-        1. If the latest presented frame of |video| is not the same frame from which |texture| was imported:
-            1. Remove |texture| from {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}.
-            1. Set |texture|.{{GPUExternalTexture/[[destroyed]]}} to `true`, releasing ownership of
-                the underlying resource.
-
-    Note:
-    An external video texture should be imported in the same task that samples the texture
-    (which should generally be scheduled using `requestVideoFrameCallback` or
-    {{AnimationFrameProvider/requestAnimationFrame()}} depending on the application).
-    Otherwise, a texture could get destroyed by these steps before it is used.
-</div>
 
 <div class=example>
     Rendering using an video element external texture at the page animation frame rate:
@@ -12110,7 +12104,7 @@ GPUQueue includes GPUObjectBase;
                                 : {{GPUTexture}} |t|
                                 :: |t|.{{GPUTexture/[[destroyed]]}} must be `false`.
                                 : {{GPUExternalTexture}} |et|
-                                :: |et|.{{GPUExternalTexture/[[destroyed]]}} must be `false`.
+                                :: |et|.{{GPUExternalTexture/[[expired]]}} must be `false`.
                                 : {{GPUQuerySet}} |qs|
                                 :: |qs| must be in the [=query set state/available=] state.
                                     For occlusion queries, the {{GPURenderPassDescriptor/occlusionQuerySet}}
