@@ -440,6 +440,13 @@ results in a shader-creation, pipeline-creation, or dynamic error.
 
 The WebGPU specification describes the consequences of each kind of error.
 
+Some requirements can be weakened by setting a <dfn noexport>processing option</dfn> in
+the [[WebGPU#dictdef-gpushadermoduledescriptor|WebGPU GPUShaderModuleDescriptor]] object
+given to the [[WebGPU#dom-gpudevice-createshadermodule|WebGPU createShaderModule]] method.
+The processing options are:
+* <dfn dfn-for="option">fragmentShaderDerivativesCheckedUniformity</dfn>: a boolean option, defaulting to `true`.
+     See [=uniformity analysis=].
+
 # Textual Structure # {#textual-structure}
 
 A WGSL program is Unicode text using the UTF-8 encoding, with no byte order mark (BOM).
@@ -1027,6 +1034,18 @@ An attribute [=shader-creation error|must not=] be specified more than once per 
 
     See [[#memory-layouts]]
 
+  <tr><td><dfn noexport dfn-for="attribute">`unchecked_uniformity`</dfn>
+    <td>
+    <td>Applies to a [=call site=] for
+        [[#derivative-builtin-functions|derivative builtin functions]],
+        [[#texturesample|textureSample]],
+        [[#texturesamplebias|textureSampleBias]], or
+        [[#texturesamplecompare|textureSampleCompare]].
+
+        Eliminates the requirement that the call to the builtin function be executed in [=uniform control flow=].
+
+        See [[#uniformity]]
+
   <tr><td><dfn noexport dfn-for="attribute">`workgroup_size`</dfn>
     <td>One, two or three parameters.
 
@@ -1109,6 +1128,11 @@ They take no parameters.
     | [=syntax/attr=] `'fragment'`
 
     | [=syntax/attr=] `'compute'`
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>attr_unchecked_uniformity</dfn> :
+
+    | [=syntax/attr=] `'unchecked_uniformity'`
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>attrib_end</dfn> :
@@ -6589,7 +6613,7 @@ When an identifier is used as a [=syntax/callable=] item, it is one of:
 
     | [=syntax/ident=]
 
-    | [=syntax/callable=] [=syntax/argument_expression_list=]
+    | [=syntax/attr_unchecked_uniformity=] ? [=syntax/callable=] [=syntax/argument_expression_list=]
 
     | [=syntax/literal=]
 
@@ -9193,16 +9217,25 @@ See [[#statements]] and [[#function-calls]].
 
 ## Uniformity ## {#uniformity}
 
-[[#collective-operations|Collective operations]] (e.g. barriers and
-derivatives) require coordination among different invocations running
-concurrently on the GPU.  To ensure correct and portable behavior, WGSL
-requires that these operations can be statically analyzed to not have any
-control dependencies such that a non-empty strict subset of invocations will
-execute the operation (i.e. the operation must be executed in [=uniform control
-flow=]).
+A [[#collective-operations|collective operation]]
+(e.g. barrier, derivative, or a texture operation relying on an implicitly computed derivative)
+requires coordination among different invocations running concurrently on the GPU.
+The operation executes correctly and portably
+when all invocations execute it concurrently, i.e. in [=uniform control flow=].
+
+Conversely, incorrect or non-portable behavior occurs when a strict subset of invocations
+execute the operation, i.e. in non-uniform control flow.
+Informally, some invocations reach the collective operation, but others do not,
+or not at the same time, as a result of non-uniform control dependencies.
 Non-uniform control dependencies arise from [[#control-flow|control flow]]
 statements whose behavior depends on [=uniform value|non-uniform values=].
-These non-uniform values can be traced back to certain sources that are not
+
+> For example, a non-uniform control dependency arises when different invocations compute
+    different values for the condition of an
+    [=statement/if=], [=statement/break-if=], [=statement/while=], or [=statement/for=],
+    or different values for the selector of a [=statement/switch=].
+
+These non-uniform values can often be traced back to certain sources that are not
 statically proven to be uniform.
 These sources include, but are not limited to:
 * Mutable [=module scope|module-scope=] [=variables=]
@@ -9210,9 +9243,16 @@ These sources include, but are not limited to:
 * [=user-defined input datum|User-defined inputs=]
 * Certain [=built-in functions=] (see [[#uniformity-function-calls]])
 
-The remainder of this section is devoted to a description of this static
-analysis an implementation [=behavioral requirement|will=] perform to validate
-the WGSL program.
+To ensure correct and portable behavior, a WGSL implementation [=behavioral requirement|will=]
+perform a static <dfn>uniformity analysis</dfn>, attempting to prove that each collective operation
+executes in [=uniform control flow=].
+Subsequent subsections describe the analysis.
+
+If [=uniformity analysis=] cannot prove that a particular [[#collective-operations|collective operation]] executes in [=uniform control flow=], then:
+* If the operation is a [[#barrier|barrier]], a [=shader-creation error=] results.
+* Otherwise, a [=shader-creation error=] results if:
+    * The [=option/fragmentShaderDerivativesCheckedUniformity=] option is *not* set to `false`, **and**
+    * The operation does *not* have an [=attribute/unchecked_uniformity=] attribute.
 
 ### Terminology and Concepts ### {#uniformity-concepts}
 
@@ -9751,7 +9791,12 @@ being the same as input control flow node.
 The most complex rule is for function calls:
 - For each argument, apply the corresponding expression rule, with the control flow at the exit of the previous argument (using the control flow at the beginning of the function call for the first argument). Name the corresponding value nodes "arg_i" and the corresponding control flow nodes "CF_i"
 - Create two new nodes, named "Result" and "CF_after"
-- If the [=call site tag=] of the function is [=CallSiteRequiredToBeUniform=], then add an edge from RequiredToBeUniform to the last CF_i
+- Add an edge from RequiredToBeUniform to the last CF_i if:
+    - The [=call site tag=] of the function is [=CallSiteRequiredToBeUniform=], and
+    - The [=call site=] does not have an [=attribute/unchecked_uniformity=] attribute, and
+    - Either:
+        - The called function is a not a [[#derivatives|derivative collective operation]], or
+        - The called function is a [[#derivatives|derivative collective operation]] and the [=option/fragmentShaderDerivativesCheckedUniformity=] option is *not* `false`.
 - Otherwise add an edge from CF_after to the last CF_i
 - If the [=function tag=] is [=ReturnValueMayBeNonUniform=], then add an edge from Result to MayBeNonUniform
 - Add an edge from Result to CF_after
@@ -9770,7 +9815,13 @@ Most built-in functions have tags of:
 
 Here is the list of exceptions:
 - All functions in [[#sync-builtin-functions]] have a [=call site tag=] of  [=CallSiteRequiredToBeUniform=].
-- All functions in [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]] have a [=call site tag=] of [=CallSiteRequiredToBeUniform=] and a [=function tag=] of [=ReturnValueMayBeNonUniform=].
+- All functions in
+    [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]]:
+    - have a [=function tag=] of [=ReturnValueMayBeNonUniform=].
+    - have a [=call site tag=] as follows:
+          - [=CallSiteNoRestriction=] if the [=option/fragmentShaderDerivativesCheckedUniformity=] option is set to `false`,
+               or if the call site has an [=attribute/unchecked_uniformity=] attribute.
+          - [=CallSiteNoRestriction=] otherwise.
 - [[#arrayLength-builtin|arrayLength]] has a [=call site tag=] of
     [=CallSiteNoRestriction=], a [=function tag=] of [=NoRestriction=] and
     the input parameter `p` has a [=parameter tag=] of [=ParameterNoRestriction=]
@@ -10312,8 +10363,13 @@ built-in functions described in [[#derivative-builtin-functions]]:
 * `fwidth`, `fwidthCoarse`, and `fwidthFine` compute the Manhattan metric over the associated x and y partial derivatives.
 
 Because neighbouring invocations collaborate to compute derivatives, these
-functions [=shader-creation error|must=] only be invoked in [=uniform control
-flow=] in a fragment shader.
+functions should only be invoked in [=uniform control flow=] in a fragment shader.
+For each call to one of these functions, a [=shader-creation error=] results if:
+* [[#uniformity|uniformity analysis]] cannot prove the call occurs in uniform control flow, and
+* the [=option/fragmentShaderDerivativesCheckedUniformity=] option is *not* set to `false`, and
+* the [=call site=] does *not* have an [=attribute/unchecked_uniformity=] attribute.
+
+If one of these functions is called in non-uniform control flow, then the result is an [=indeterminate value=].
 
 ## Floating Point Evaluation ## {#floating-point-evaluation}
 
@@ -13407,7 +13463,9 @@ See [[#derivatives]].
 
 These functions:
 * [=shader-creation error|Must=] only be used in a [=fragment=] shader stage.
-* [=shader-creation error|Must=] only be invoked in [=uniform control flow=].
+* [=shader-creation error|Must=] only be invoked in [=uniform control flow=],
+    or the call must have an [=attribute/unchecked_uniformity=] attribute,
+    or the [=option/fragmentShaderDerivativesCheckedUniformity=] option must be `false`.
 
 ### `dpdx` ### {#dpdx-builtin}
 <table class='data builtin'>
@@ -13423,6 +13481,8 @@ fn dpdx(e: T) -> T
     <td>Description
     <td>Partial derivative of `e` with respect to window x coordinates.
     The result is the same as either `dpdxFine(e)` or `dpdxCoarse(e)`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdxCoarse` ### {#dpdxCoarse-builtin}
@@ -13439,6 +13499,8 @@ fn dpdxCoarse(e: T) -> T
     <td>Description
     <td>Returns the partial derivative of `e` with respect to window x coordinates using local differences.
     This may result in fewer unique positions that `dpdxFine(e)`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdxFine` ### {#dpdxFine-builtin}
@@ -13454,6 +13516,8 @@ fn dpdxFine(e: T) -> T
   <tr>
     <td>Description
     <td>Returns the partial derivative of `e` with respect to window x coordinates.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdy` ### {#dpdy-builtin}
@@ -13470,6 +13534,8 @@ fn dpdy(e: T) -> T
     <td>Description
     <td>Partial derivative of `e` with respect to window y coordinates.
     The result is the same as either `dpdyFine(e)` or `dpdyCoarse(e)`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdyCoarse` ### {#dpdyCoarse-builtin}
@@ -13486,6 +13552,8 @@ fn dpdyCoarse(e: T) -> T
     <td>Description
     <td>Returns the partial derivative of `e` with respect to window y coordinates using local differences.
     This may result in fewer unique positions that `dpdyFine(e)`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdyFine` ### {#dpdyFine-builtin}
@@ -13501,6 +13569,8 @@ fn dpdyFine(e: T) -> T
   <tr>
     <td>Description
     <td>Returns the partial derivative of `e` with respect to window y coordinates.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `fwidth` ### {#fwidth-builtin}
@@ -13516,6 +13586,8 @@ fn fwidth(e: T) -> T
   <tr>
     <td>Description
     <td>Returns `abs(dpdx(e)) + abs(dpdy(e))`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `fwidthCoarse` ### {#fwidthCoarse-builtin}
@@ -13531,6 +13603,8 @@ fn fwidthCoarse(e: T) -> T
   <tr>
     <td>Description
     <td>Returns `abs(dpdxCoarse(e)) + abs(dpdyCoarse(e))`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `fwidthFine` ### {#fwidthFine-builtin}
@@ -13546,6 +13620,8 @@ fn fwidthFine(e: T) -> T
   <tr>
     <td>Description
     <td>Returns `abs(dpdxFine(e)) + abs(dpdyFine(e))`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ## Texture Built-in Functions ## {#texture-builtin-functions}
@@ -14175,7 +14251,10 @@ The number of samples per texel in the multisampled texture.
 Samples a texture.
 
 [=shader-creation error|Must=] only be used in a [=fragment=] shader stage.
-[=shader-creation error|Must=] only be invoked in [=uniform control flow=].
+
+[=shader-creation error|Must=] only be invoked in [=uniform control flow=],
+    or the call must have an [=attribute/unchecked_uniformity=] attribute,
+    or the [=option/fragmentShaderDerivativesCheckedUniformity=] option must be `false`.
 
 <table class='data'>
   <thead>
@@ -14317,12 +14396,17 @@ fn textureSample(t: texture_depth_cube_array,
 
 The sampled value.
 
+An [=indeterminate value=] results if called in [=uniform control flow|non-uniform control flow=].
+
 ### `textureSampleBias` ### {#texturesamplebias}
 
 Samples a texture with a bias to the mip level.
 
 [=shader-creation error|Must=] only be used in a [=fragment=] shader stage.
-[=shader-creation error|Must=] only be invoked in [=uniform control flow=].
+
+[=shader-creation error|Must=] only be invoked in [=uniform control flow=],
+    or the call must have an [=attribute/unchecked_uniformity=] attribute,
+    or the [=option/fragmentShaderDerivativesCheckedUniformity=] option must be `false`.
 
 <table class='data'>
   <thead>
@@ -14419,13 +14503,17 @@ fn textureSampleBias(t: texture_cube_array<f32>,
 
 The sampled value.
 
+An [=indeterminate value=] results if called in [=uniform control flow|non-uniform control flow=].
 
 ### `textureSampleCompare` ### {#texturesamplecompare}
 
 Samples a depth texture and compares the sampled depth values against a reference value.
 
 [=shader-creation error|Must=] only be used in a [=fragment=] shader stage.
-[=shader-creation error|Must=] only be invoked in [=uniform control flow=].
+
+[=shader-creation error|Must=] only be invoked in [=uniform control flow=],
+    or the call must have an [=attribute/unchecked_uniformity=] attribute,
+    or the [=option/fragmentShaderDerivativesCheckedUniformity=] option must be `false`.
 
 <table class='data'>
   <thead>
@@ -14520,6 +14608,7 @@ If the sampler uses bilinear filtering then the returned value is
 the filtered average of these values, otherwise the comparison result of a
 single texel is returned.
 
+An [=indeterminate value=] results if called in [=uniform control flow|non-uniform control flow=].
 
 ### `textureSampleCompareLevel` ### {#texturesamplecomparelevel}
 
