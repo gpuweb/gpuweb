@@ -1996,6 +1996,40 @@ It is used for the {{GPUDevice/uncapturederror}} event and {{GPUDevice}}.{{GPUDe
         to create |device|, and the steps |steps|.
 </div>
 
+### Automatic Expiry Task Source ### {#-automatic-expiry-task-source}
+
+WebGPU defines a new [=task source=] called the <dfn dfn>automatic expiry task source</dfn>.
+It is used for the automatic, timed expiry (destruction) of certain objects:
+
+- {{GPUTexture}}s returned by {{GPUCanvasContext/getCurrentTexture()}}
+- Issue(gpuweb/gpuweb#3324): {{GPUExternalTexture}}s created from {{HTMLVideoElement}}s?
+
+<div algorithm>
+    To <dfn abstract-op>queue an automatic expiry task</dfn>
+    with {{GPUDevice}} |device| and a series of steps |steps|:
+
+    1. [=Queue a global task=] on the [=automatic expiry task source=], with the global object that
+        was used to create |device|, and the steps |steps|.
+</div>
+
+Tasks from the [=automatic expiry task source=] **should** be processed with high priority; in
+particular, once queued, they **should** run before user-defined (JavaScript) tasks.
+This results in stricter behavior that helps developers write more portable applications, but
+developers are still strongly encouraged to test in multiple implementations.
+
+<div class=note>
+    Note: Since task source priority is not normatively defined, there is a range of points at which
+    tasks from this task queue can execute. In practice, this means these tasks can be implemented
+    with fixed steps inside the [[HTML#event-loop-processing-model|HTML processing model]].
+    All of the following options are valid:
+
+    - Immediately after running any task.
+    - Immediately after running animation frame callbacks.
+    - Immediately before rendering.
+        (In the case of canvas texture expiry, this is already done in
+        [$update the rendering of the WebGPU canvas$], so the task is allowed to be omitted entirely.)
+</div>
+
 ## Color Spaces and Encoding ## {#color-spaces}
 
 WebGPU does not provide color management. All values within WebGPU (such as texture elements)
@@ -4957,7 +4991,8 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
 </dl>
 
 <div algorithm="expire stale external textures">
-    Immediately before the "[=Update the rendering=]" step of the HTML processing model,
+    Immediately before the "[=Update the rendering=]" step of the
+    [[HTML#event-loop-processing-model|HTML processing model]],
     run the following steps to <dfn abstract-op>expire stale external textures</dfn>:
 
     1. For each |texture| in {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}:
@@ -12327,6 +12362,11 @@ interface GPUCanvasContext {
                         this generates and error and returns an [=invalid=] {{GPUTexture}}.
                         Some validation here is redundant with that done in {{GPUCanvasContext/configure()}}.
                         Implementations **must not** skip this redundant validation.
+                1. [$queue an automatic expiry task$] with device |device| and the following steps:
+
+                    <div data-timeline=content>
+                        1. [$commit the canvas texture$] for |this|.
+                    </div>
                 1. Return |this|.{{GPUCanvasContext/[[currentTexture]]}}.
             </div>
         </div>
@@ -12339,21 +12379,36 @@ interface GPUCanvasContext {
 </dl>
 
 <div algorithm>
-    In the "update the rendering or user interface of that `Document`" sub-step of the
-    "[=Update the rendering=]" step of the HTML processing model, each {{GPUCanvasContext}} |context|
-    must <dfn abstract-op>update the rendering of the WebGPU canvas</dfn> by running the following steps:
+    To <dfn abstract-op>commit the canvas texture</dfn> for {{GPUCanvasContext}} |context|:
 
     1. Update the rendering of |context|.{{GPUCanvasContext/canvas}} with
         [$get a copy of the image contents of a context|a copy of the image contents$] of |context|.
+
+        Note: The image still won't be presented until the whole document's rendering is updated
+        in "[=Update the rendering=]".
     1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`:
         1. Call |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}
             (without destroying |context|.{{GPUCanvasContext/[[drawingBuffer]]}})
             to terminate write access to the image.
         1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
 
+    Note:
+    This will be called multiple times for the same texture, in some order, from both
+    {{GPUCanvasContext/getCurrentTexture()}} and [$update the rendering of the WebGPU canvas$].
+    The second call has no effect.
+
     Note: If {{GPUCanvasConfiguration/alphaMode}} is {{GPUCanvasAlphaMode/"opaque"}},
     the presented image has its alpha channel cleared. Implementations may skip this step if they
     are able to composite images in a way that ignores the alpha channel (as if it is 1.0).
+</div>
+
+<div algorithm>
+    In the "update the rendering or user interface of that `Document`" sub-step of the
+    "[=Update the rendering=]" step of the
+    [[HTML#event-loop-processing-model|HTML processing model]], each {{GPUCanvasContext}} |context|
+    must <dfn abstract-op>update the rendering of the WebGPU canvas</dfn> by running the following steps:
+
+    1. [$commit the canvas texture$] for |context|.
 </div>
 
 <div algorithm="transferToImageBitmap from WebGPU">
@@ -12400,9 +12455,9 @@ this incurs a clear of the alpha channel. If a canvas is only needed for interop
                 1. Tag |snapshot| as being opaque.
 
                 Note:
-                If the {{GPUTexture}} exposing this {{GPUCanvasContext/[[currentTexture]]}} (if any) has
-                been [$Replace the drawing buffer|destroyed$], the alpha channel is unobservable, and
-                implementations may clear the alpha channel in-place.
+                If the {{GPUCanvasContext/[[currentTexture]]}}, if any, has been destroyed
+                (for example in [$Replace the drawing buffer$]), the alpha channel is unobservable,
+                and implementations may clear the alpha channel in-place.
 
             : Otherwise:
             :: Tag |snapshot| with |alphaMode|.
