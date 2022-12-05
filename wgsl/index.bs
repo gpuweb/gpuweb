@@ -9461,8 +9461,9 @@ The following algorithm describes how to compute these tags for a given function
 
 * Create nodes called "RequiredToBeUniform", "MayBeNonUniform", "CF_start", and if the function has a [=return type=] a node called "Value_return".
 * Create one node for each parameter of the function which we'll call "arg_i".
-* Desugar pointer parameters in the [=address spaces/function=] address space as described in [[#pointer-func-vars-values]].
-    * For each of these parameters, create a "Value_return_i" node.
+* Desugar pointers as described in [[#pointer-desugar]].
+    * For each pointer parameter in the [=address spaces/function=] address space,
+        create a "Value_return_i" node.
 * Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next sections ([[#func-var-value-analysis]], [[#uniformity-statements]], [[#uniformity-function-calls]], [[#uniformity-expressions]]), using "CF_start" as the starting control-flow for the function's body.
 * For each "Value_return_i" node, record which "arg_i" nodes are reachable from it.
 * Look at which nodes are reachable from "RequiredToBeUniform".
@@ -9481,6 +9482,57 @@ The following algorithm describes how to compute these tags for a given function
 * For each parameter, if it has not been assigned a [=parameter tag=], then it is [=ParameterNoRestriction=].
 
 Note: The entire graph can be destroyed at this point. The tags listed above are all that we need to remember to analyze callers of this function.
+
+### Pointer Desugaring ### {#pointer-desugar}
+
+Each [=formal parameter|parameter=] of [=pointer type=] in the [=address
+spaces/function=] address space is desugared as a local variable declaration
+whose initial value is equivalent to dereferencing the parameter.
+That is, function address space pointers are viewed as aliases to a local
+variable declaration.
+
+Each [=let-declaration=], *L*, with an [=effective-value-type=] that is a [=pointer
+type=] is desugared as follows:
+* Visit each subexpression, *SE*, of the initializer expression of *L* in a postorder depth-first traversal:
+    * If  *SE* invokes the [=load rule=] during [=type checking=] and the [=root identifier=]
+        is a mutable variable then:
+        * Create a new let-declaration, *LSE*, immediately prior to *L* initialized with *SE*.
+        * Replace *SE* in *L* with a [[#value-identifier-expr|value identifier expression]]
+            composed of *LSE*.
+* Record the, possibly updated, initializer expression of *L*.
+* Substitute each [=identifier=] that [=resolves=] to *L* with the recorded
+    initializer expression (wrapped in a [[#parenthesized-expressions|parenthesized expression]]).
+
+This desugaring simplifies the subsequent analyses by exposing the [=root identifier=]
+of the pointer directly at each of its uses.
+
+Note: For the purposes of uniformity analysis [=type checking=] is described to
+occur both before and after this desugaring has occurred.
+
+<div class='example wgsl' heading='pointers in the uniformity analysis'>
+  <xmp highlight='rust'>
+    fn foo(p : ptr<function, array<f32, 4>>, i : i32) -> f32 {
+      let p1 = p;
+      var x = i;
+      let p2 = &((*p1)[x]);
+      x = 0;
+      *p2 = 5;
+      return (*p1)[x];
+    }
+
+    // This is the equivalent version of foo for the analysis.
+    fn foo_for_analysis(p : ptr<function, array<f32, 4>>, i : i32) -> f32 {
+      var p_var = *p;            // Introduce variable for p.
+      let p1 = &p_var;           // Use the variable for p1
+      var x = i;
+      let x_tmp1 = x;            // Capture value of x
+      let p2 = &(p_var[x_tmp1]); // Substitute p1's initializer
+      x = 0;
+      *(&(p_var[x_tmp1])) = 5;   // Substitute p2's initializer
+      return (*(&p_var))[x];     // Substitute p1's initializer
+    }
+  </xmp>
+</div>
 
 ### Function-scope Variable Value Analysis ### {#func-var-value-analysis}
 
@@ -9558,7 +9610,6 @@ more programs than strictly necessary.
 An assignment through a [=full reference=] is a [=full assignment=].
 
 An assignment through a [=partial reference=] is a [=partial assignment=].
-
 
 When the uniformity rules in subsequent sections refer to the value for a
 function-scope variable used as an RValue, it means the value of the variable
@@ -9676,42 +9727,6 @@ For all other statements (except function calls), *Vin*(*next*) is equivalent
 to *Vout*(*prev*).
 
 Note: The same desugarings apply as in [[#behaviors|statement behavior analysis]].
-
-#### Pointers to Function-scope Variables #### {#pointer-func-vars-values}
-
-Each pointer [=formal parameter|parameter=] in the [=address spaces/function=]
-address space is desugared as a local variable declaration whose initial value
-is equivalent to dereferencing the parameter.
-
-Whenever a [=let-declaration=]'s [=effective-value-type=] is a [=address
-spaces/function=] address space pointer, the initializer expression is recorded
-and any [=identifier=] that [=resolves=] to the declaration is substituted with
-that initializer (wrapped in a [[#parenthesized-expressions|parenthesized
-expression]]) before applying the rules in the previous section.  That is,
-function address space pointers are viewed as aliases to a local variable
-declaration.
-The alias may produce either [=full assignment|full=] or [=partial
-assignment|partial=] assignments depending on the initializer substitutions.
-
-<div class='example wgsl' heading='pointers in the value analysis'>
-  <xmp highlight='rust'>
-    fn foo(p : ptr<function, array<f32, 4>>) -> f32 {
-      let p1 = p;
-      let p2 = &((*p1)[1]);
-      *p2 = 5;
-      return (*p1)[0];
-    }
-
-    // This is the equivalent version of foo for the analysis.
-    fn foo_for_analysis(p : ptr<function, array<f32, 4>>) -> f32 {
-      var p_var = *p;         // Introduce variable for p.
-      let p1 = &p_var;        // Use the variable for p1
-      let p2 = &(p_var[1]);   // Substitute p1's initializer
-      *(&(p_var[1])) = 5;     // Substitute p2's initializer
-      return (*(&p_var))[0];  // Substitute p1's initializer
-    }
-  </xmp>
-</div>
 
 ### Uniformity Rules for Statements ### {#uniformity-statements}
 
@@ -9892,6 +9907,8 @@ Most built-in functions have tags of:
 
 Here is the list of exceptions:
 - All functions in [[#sync-builtin-functions]] have a [=call site tag=] of  [=CallSiteRequiredToBeUniform=].
+    - The parameter `p` in [[#workgroupUniformLoad-builtin|workgroupUniformLoad]]
+        has a [=parameter tag=] of [=ParameterRequiredToBeUniform=].
 - All functions in [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]] have a [=call site tag=] of [=CallSiteRequiredToBeUniform=] and a [=function tag=] of [=ReturnValueMayBeNonUniform=].
 - [[#arrayLength-builtin|arrayLength]] has a [=call site tag=] of
     [=CallSiteNoRestriction=], a [=function tag=] of [=NoRestriction=] and
@@ -9926,7 +9943,10 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td>
       <td class="nowrap">*CF*, *CF*
       <td>
-   <tr><td>identifier [=resolves|resolving=] to function-scope variable "x"
+   <tr><td>identifier [=resolves|resolving=] to function-scope variable "x",
+      where the identifier appears as the [=root identifier=] of a [=memory view=]
+      expression, *MVE*, and the [=load rule=] is invoked on *MVE* during
+      [=type checking=]
       <td>*Result*
       <td class>*X* is the node corresponding to the value of "x" at the input to the statement containing this expression
       <td class="nowrap">*CF*, *Result*
@@ -9934,6 +9954,14 @@ The rules for analyzing expressions take as argument both the expression itself 
 
       Note: *X* is equivalent to *Vout*(*prev*) for "x"<br>
       (see [[#func-var-value-analysis]])
+   <tr><td>identifier [=resolves|resolving=] to function-scope variable "x",
+      where the identifier appears as the [=root identifier=] of a [=memory view=]
+      expression, *MVE*, and the [=load rule=] is not invoked on *MVE* during
+      [=type checking=]
+      <td>
+      <td class>
+      <td class="nowrap">*CF*, *CF*
+      <td class>
    <tr><td>identifier [=resolves|resolving=] to [=const-declaration=], [=override-declaration=],
       [=let-declaration=], or non-built-in [=formal parameter=] "x"
       <td>*Result*
@@ -9956,11 +9984,22 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td>
       <td class="nowrap">*CF*, *CF*
       <td>
-   <tr><td>identifier [=resolves|resolving=] to non-read-only module-scope variable "x"
+   <tr><td>identifier [=resolves|resolving=] to non-read-only module-scope
+      variable "x" where the identifier appears as the [=root identifier=] of a [=memory view=]
+      expression, *MVE*, and the [=load rule=] is invoked on *MVE* during
+      [=type checking=]
       <td>
       <td>
       <td class="nowrap">*CF*,<br>
       *MayBeNonUniform*
+      <td>
+   <tr><td>identifier [=resolves|resolving=] to non-read-only module-scope
+      variable "x" where the identifier appears as the [=root identifier=] of a [=memory view=]
+      expression, *MVE*, and the [=load rule=] is not invoked on *MVE* during
+      [=type checking=]
+      <td>
+      <td>
+      <td class="nowrap">*CF*,*CF*
       <td>
    <tr><td class="nowrap">*op* *e*,<br> where *op* is a unary operator
       <td rowspan=2>
@@ -15459,6 +15498,29 @@ fn workgroupBarrier()
   <tr>
     <td>Description
     <td>Executes a [=control barrier=] synchronization function that affects
+    memory and atomic operations in the [=address spaces/workgroup=] address
+    space.
+</table>
+
+### `workgroupUniformLoad` ### {#workgroupUniformLoad-builtin}
+
+<table class='data builtin'>
+  <tr algorithm="workgroupUniformLoad">
+    <td style="width:10%" style="width:10%">Overload
+    <td class="nowrap"><xmp highlight=rust>
+fn workgroupUniformLoad(p : ptr<workgroup, T>) -> T
+</xmp>
+  <tr>
+    <td>Parameterization
+    <td>`T` is a [=type/concrete=] [=plain type=] with a [=fixed footprint=]
+    that does not contain any [=atomic types=]
+  <tr>
+    <td>Description
+    <td>Returns the value pointed to by `p` to all invocations in the workgroup.
+    The return value is [=uniform value|uniform=].
+    `p` [=shader-creation error|must=] be a [=uniform value=].
+
+    Executes a [=control barrier=] synchronization function that affects
     memory and atomic operations in the [=address spaces/workgroup=] address
     space.
 </table>
