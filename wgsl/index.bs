@@ -535,6 +535,148 @@ whether failure to meet a particular requirement
 results in a shader-creation, pipeline-creation, or dynamic error.
 
 The WebGPU specification describes the consequences of each kind of error.
+A WGSL program with a [=shader-creation error=] or [=pipeline-creation error=] error will not be incorporated
+into a [=pipeline=] and hence will not be executed.
+
+## Diagnostics ## {#diagnostics}
+
+An implementation can generate [=diagnostics=] during [=shader module creation=].
+A <dfn noexport>diagnostic</dfn> is a message produced by the implementation for the benefit of the application author.
+
+We say a diagnostic is <dfn noexport>triggered</dfn> when particular condition is met, known as the [=diagnostic/triggering rule=].
+The place in the source text where the condition is met is known as the <dfn dfn-for="diagnostic">triggering location</dfn>.
+
+A [=diagnostic=] has the following properties:
+* A [=diagnostic/severity=].
+* A [=diagnostic/triggering rule=].
+* A [=diagnostic/triggering location=], a source location where the triggering rule applies, expressed as a point or range in the source text.
+* Optionally, details describing how the [=diagnostic/triggering rule=] applies in this case.
+
+The <dfn dfn-for="diagnostic">severity</dfn> of a diagnostic is one of:
+: <dfn dfn-for="severity" noexport>error</a>
+:: The diagnostic an error.
+     This is the greatest severity.
+: <dfn dfn-for="severity" noexport>warning</a>
+:: The diagnostic describes an anomaly that merits the attention of the application developer, but is not an error.
+: <dfn dfn-for="severity" noexport>info</a>
+:: The diagnostic describes a notable condition that merits attention of the application developer, but is not an error or warning.
+    This is the lowest severity.
+
+Triggered diagnostics [=behavioral requirement|will=] be processed as follows:
+1. If a [=shader-creation error=] occurs independently of diagnostic processing, then all diagnostics may be discarded.
+2. Sort [=diagnostic filters=] so that DF1 precedes DF2 if the DF1's [=affected range=] includes DF2's affected range.
+    * Apply the diagnostic filters, in this order, to all diagnostics.
+3. If there is at least one remaining diagnostic with `error` severity, then other diagnostics *may* be discarded.
+4. All remaining diagnostics are collected and made available to the application via the 
+    [[WebgPU#dom-gpucompilationinfo-messages|messages]] member of the [[WebGPU#gpucompilationinfo|WebGPU GPUCompilationInfo]] object.
+5. A [=shader-creation error=] results if any remaining diagnostic has [=severity/error=] severity.
+
+Note: The rules allow an implementation to stop processing a WGSL program as soon as it encounters an error.
+
+### Diagnostic Triggering Rules ### {#diagnostic-triggering-rules}
+
+A <dfn dfn-for="diagnostic">triggering rule</dfn> is condition on a source program that, when met, causes a [=diagnostic=] to be generated.
+The following table defines the standard triggering rules.
+
+<table class='data'>
+  <caption>Diagnostic triggering rules defined in WGSL</caption>
+  <thead>
+    <tr><th>Triggering rule<th>Default Severity<th>Triggering Location<th>Description
+  </thead>
+
+  <tr>
+    <td><dfn noexport dfn-for="trigger">derivative_uniformity</dfn>
+    <td>[=severity/error=]
+    <td>A call to a [=builtin functions that compute a derivative|builtin function that computes a derivative=].
+        That is, a call to any of:
+        * the [[#derivative-builtin-functions|derivative builtin functions]], or
+        * [[#texturesample|textureSample]], or
+        * [[#texturesamplebias|textureSampleBias]], or
+        * [[#texturesamplecompare|textureSampleCompare]].
+
+    <td>A call to a builtin function computes derivatives, but [=uniformity analysis=] cannot prove that the call occurs in [=uniform control flow=].
+
+    See [[#uniformity]]
+</table>
+
+An implementation may support triggering rules not specified here, provided they are spelled differently from the standard triggering rules.
+A [=diagnostic filter=] with an unrecognized [=diagnostic/triggering rule=] [=behavioral requirement|will=] be ignored.
+
+Future versions of this specification may remove a particular rule or weaken its default severity
+(i.e. replace its current default with a less severe default) and still be deemed as satisfying backward compatibility.
+For example, a future version of WGSL may change the default severity for [=trigger/derivative_uniformity=] from `error` to either `warning` or `info`.
+After such a change to the specification, previously valid programs would remain valid.
+
+### Diagnostic Filtering ### {#diagnostic-filtering}
+
+Once a [=diagnostic=] is [=triggered=], WGSL provides filtering mechanisms to discard the diagnostic, or to modify its severity.
+
+A <dfn noexport>diagnostic filter</dfn> *DF* has three parameters:
+* *AR*: a range of source text known as the <dfn noexport>affected range</dfn>
+* *NS*: a new severity
+* *TR*: a [=diagnostic/triggering rule=]
+
+Applying a diagnostic filter *DF*(*AR*,*NS*,*TR*) to a diagnostic *D* has the following effect:
+* If *D*'s [=diagnostic/triggering location=] is in *AR* and *D*'s [=diagnostic/triggering rule=] is *TR*, then:
+    * If *NS* is `off`, then *D* is discarded (i.e. deleted, or forgotten).
+    * Otherwise, *NS* is either `error` or `warning`.
+        Set *D*'s [=diagnostic/severity=] property to *NS*.
+* Otherwise, *D* is unchanged.
+
+A <dfn noexport>range diagnostic filter</dfn> is a [=diagnostic filter=] that is applied to each
+diagnostic whose [=diagnostic/triggering location=] in a specified range of source text.
+A range diagnostic filter is specified as a `@diagnostic` [=attribute=] immediately before the affected source range:
+* When specified as one of the attributes immediately preceding a [=syntax/call_phrase=],
+    the [=affected range=] is the entire phrase (e.g. including the function call arguments).
+
+<div class='example wgsl global-scope' heading='Range diagnostic filter on texture sampling'>
+  <xmp highlight='rust'>
+  var<private> d: f32;
+  fn helper() -> vec4<f32> {
+    if (d < 0.5) {
+      // Disable the derivative_uniformity diagnostic.
+      return @diagnostic(off,derivative_uniformity) textureSample(t,s,vec2(0,0));
+    } else {
+      // Lower the severity of the the derivative_uniformity diagnostic to "warning"
+      // within the arguments to the call to 'max' call.
+      return @diagnostic(warning,derivative_uniformity)
+                 max(vec4(0.5,0.5), textureSample(t,s,vec2(0,0)));
+    }
+    return vec4(0.0);
+  }
+  </xmp>
+</div>
+
+A <dfn noexport>global diagnostic filter</dfn> is a diagnostic filter whose [=affected range=] is the whole WGSL program.
+It is a [=directive=], thus appearing before any module-scope declarations.
+It is spelled like the attribute form, but without the leading `@` (U+0040) codepoint, and with a terminating semicolon.
+
+<div class='example wgsl global-scope' heading='Global diagnostic filter for derivative uniformity'>
+  <xmp highlight='rust'>
+  diagnostic(off,derivative_uniformity);
+  var<private> d: f32;
+  fn helper() -> vec4<f32> {
+    if (d < 0.5) {
+      return textureSample(t,s,vec2(0,0));
+    }
+    return vec4(0.0);
+  }
+  </xmp>
+</div>
+
+
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>diagnostic_directive</dfn> :
+
+    | <a for=syntax_kw lt=diagnostic>`'diagnostic'`</a> [=syntax/diagnostic_control=] <a for=syntax_sym lt=semicolon>`';'`</a>
+</div>
+
+Two [=diagnostic filters=] *DF*(*AR1*,*NS1*,*TR1*) and *DF*(*AR2*,*NS2*,*TR2*) <dfn dfn-for="diagnostic">conflict</dfn> when:
+* (*AR1* &equals; *AR2*), and
+* (*TR1* &equals; *TR2*), and
+* (*NS1* &ne; *NS2*).
+
+[=Diagnostic filters=] [=shader-creation error|must=] not [=diagnostic/conflict=].
 
 # Textual Structure # {#textual-structure}
 
@@ -987,6 +1129,21 @@ The spelling of the token may be the same as an [=identifier=], but the token do
 
 Section [[#context-dependent-name-tokens]] lists all such tokens.
 
+## Diagnostic Rule Names ## {#diagnostic-rule-names}
+
+A <dfn noexport>diagnostic rule name</dfn> is a [=token=] used to name a diagnostic [=diagnostic/triggering rule=],
+in either a [=range diagnostic filter=] or a [=global diagnostic filter=].
+The spelling of the token may be the same as an [=identifier=], [=keyword=], or [=reserved word=],
+but is not interpeted as any of those.
+
+See [[#diagnostics]].
+
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>diagnostic_rule_name</dfn> :
+
+    | [=syntax/ident_pattern_token=]
+</div>
+
 ## Attributes ## {#attributes}
 
 An <dfn noexport>attribute</dfn> modifies an object.
@@ -1050,6 +1207,16 @@ An attribute [=shader-creation error|must not=] be specified more than once per 
 
     Note: This attribute is used as a notational convention to describe which
     built-in functions can be used in [=const-expressions=].
+
+  <tr><td><dfn noexport dfn-for="attribute">`diagnostic`</dfn>
+    <td>Two parameters.
+
+        The first parameter is a [=syntax/severity_control_name=].
+
+        The second parameter is a [=syntax/diagnostic_rule_name=] token
+        specifying a [=diagnostic/triggering rule=].
+
+    <td>Specifies a [=range diagnostic filter=].  See [[#diagnostics]].
 
   <tr><td><dfn noexport dfn-for="attribute">`group`</dfn>
     <td>[=shader-creation error|Must=] be a [=const-expression=] that [=type rules|resolves=] to an [=i32=] or [=u32=].<br>
@@ -1183,6 +1350,8 @@ They take no parameters.
 
     | <a for=syntax_sym lt=attr>`'@'`</a> `'const'`
 
+    | <a for=syntax_sym lt=attr>`'@'`</a> `'diagnostic'` [=syntax/diagnostic_control=]
+
     | <a for=syntax_sym lt=attr>`'@'`</a> `'group'` <a for=syntax_sym lt=paren_left>`'('`</a> [=syntax/expression=] [=syntax/attrib_end=]
 
     | <a for=syntax_sym lt=attr>`'@'`</a> `'id'` <a for=syntax_sym lt=paren_left>`'('`</a> [=syntax/expression=] [=syntax/attrib_end=]
@@ -1214,6 +1383,11 @@ They take no parameters.
 
     | <a for=syntax_sym lt=comma>`','`</a> ? <a for=syntax_sym lt=paren_right>`')'`</a>
 </div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>diagnostic_control</dfn> :
+
+    | <a for=syntax_sym lt=paren_left>`'('`</a> [=syntax/severity_control_name=] <a for=syntax_sym lt=comma>`','`</a> [=syntax/diagnostic_rule_name=] [=syntax/attrib_end=]
+</div>
 
 ## Directives ## {#directives}
 
@@ -1227,6 +1401,8 @@ See [[#enable-directive-section]].
 
 <div class='syntax' noexport='true'>
   <dfn for=syntax>global_directive</dfn> :
+
+    | [=syntax/diagnostic_directive=]
 
     | [=syntax/enable_directive=]
 </div>
@@ -6717,13 +6893,24 @@ When an identifier is used as a [=syntax/callable=] item, it is one of:
 
     | [=syntax/ident=]
 
-    | [=syntax/callable=] [=syntax/argument_expression_list=]
+    | [=syntax/attribute=] * [=syntax/call_expr=]
 
     | [=syntax/literal=]
 
     | [=syntax/paren_expression=]
 
     | <a for=syntax_kw lt=bitcast>`'bitcast'`</a> <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/type_specifier=] <a for=syntax_sym lt=greater_than>`'>'`</a> [=syntax/paren_expression=]
+</div>
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>call_expr</dfn> :
+
+    | [=syntax/call_phrase=]
+</div>
+Note: The [=syntax/call_expr=] rule exists to ensure [=type checking=] applies to the call expression.
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>call_phrase</dfn> :
+
+    | [=syntax/callable=] [=syntax/argument_expression_list=]
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>callable</dfn> :
@@ -6738,6 +6925,7 @@ When an identifier is used as a [=syntax/callable=] item, it is one of:
 
     | <a for=syntax_kw lt=array>`'array'`</a>
 </div>
+
 <div class='syntax' noexport='true'>
   <dfn for=syntax>paren_expression</dfn> :
 
@@ -7958,12 +8146,16 @@ the fragment will be thrown away.
 <div class='syntax' noexport='true'>
   <dfn for=syntax>func_call_statement</dfn> :
 
-    | [=syntax/ident=] [=syntax/argument_expression_list=]
+    | [=syntax/attribute=] * [=syntax/call_phrase=]
 </div>
 
 A function call statement executes a [=function call=].
 
 Note: If the function [=return value|returns a value=], that value is ignored.
+
+Note: The only attribute that can be applied is the [=attribute/diagnostic=] attribute,
+and only when calling a
+[=builtin functions that compute a derivative|builtin function that computes a derivative=].
 
 ## Static Assertion Statement ## {#static-assert-statement}
 
@@ -9443,16 +9635,25 @@ See [[#statements]] and [[#function-calls]].
 
 ## Uniformity ## {#uniformity}
 
-[[#collective-operations|Collective operations]] (e.g. barriers and
-derivatives) require coordination among different invocations running
-concurrently on the GPU.  To ensure correct and portable behavior, WGSL
-requires that these operations can be statically analyzed to not have any
-control dependencies such that a non-empty strict subset of invocations will
-execute the operation (i.e. the operation must be executed in [=uniform control
-flow=]).
+A [[#collective-operations|collective operation]]
+(e.g. barrier, derivative, or a texture operation relying on an implicitly computed derivative)
+requires coordination among different invocations running concurrently on the GPU.
+The operation executes correctly and portably
+when all invocations execute it concurrently, i.e. in [=uniform control flow=].
+
+Conversely, incorrect or non-portable behavior occurs when a strict subset of invocations
+execute the operation, i.e. in non-uniform control flow.
+Informally, some invocations reach the collective operation, but others do not,
+or not at the same time, as a result of non-uniform control dependencies.
 Non-uniform control dependencies arise from [[#control-flow|control flow]]
 statements whose behavior depends on [=uniform value|non-uniform values=].
-These non-uniform values can be traced back to certain sources that are not
+
+> For example, a non-uniform control dependency arises when different invocations compute
+    different values for the condition of an
+    [=statement/if=], [=statement/break-if=], [=statement/while=], or [=statement/for=],
+    or different values for the selector of a [=statement/switch=].
+
+These non-uniform values can often be traced back to certain sources that are not
 statically proven to be uniform.
 These sources include, but are not limited to:
 * Mutable [=module scope|module-scope=] [=variables=]
@@ -9460,9 +9661,16 @@ These sources include, but are not limited to:
 * [=user-defined input datum|User-defined inputs=]
 * Certain [=built-in functions=] (see [[#uniformity-function-calls]])
 
-The remainder of this section is devoted to a description of this static
-analysis an implementation [=behavioral requirement|will=] perform to validate
-the WGSL program.
+To ensure correct and portable behavior, a WGSL implementation [=behavioral requirement|will=]
+perform a static <dfn>uniformity analysis</dfn>, attempting to prove that each collective operation
+executes in [=uniform control flow=].
+Subsequent subsections describe the analysis.
+
+If [=uniformity analysis=] cannot prove that a particular [[#collective-operations|collective operation]] executes in [=uniform control flow=], then
+* If the operation is a
+    [=builtin functions that compute a derivative|builtin function that computes a derivative=], then
+    a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
+* If the operation is a [[#sync-builtin-functions|synchronization builtin]], a [=shader-creation error=] results.
 
 ### Terminology and Concepts ### {#uniformity-concepts}
 
@@ -10037,7 +10245,9 @@ Here is the list of exceptions:
 - All functions in [[#sync-builtin-functions]] have a [=call site tag=] of  [=CallSiteRequiredToBeUniform=].
     - The parameter `p` in [[#workgroupUniformLoad-builtin|workgroupUniformLoad]]
         has a [=parameter tag=] of [=ParameterRequiredToBeUniform=].
-- All functions in [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]] have a [=call site tag=] of [=CallSiteRequiredToBeUniform=] and a [=function tag=] of [=ReturnValueMayBeNonUniform=].
+- All functions in
+    [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]]
+    have a [=call site tag=] of [=CallSiteRequiredToBeUniform=], and a [=function tag=] of [=ReturnValueMayBeNonUniform=].
 - [[#arrayLength-builtin|arrayLength]] has a [=call site tag=] of
     [=CallSiteNoRestriction=], a [=function tag=] of [=NoRestriction=] and
     the input parameter `p` has a [=parameter tag=] of [=ParameterNoRestriction=]
@@ -10585,6 +10795,12 @@ A <dfn noexport>partial derivative</dfn> is the rate of change of a value along 
 Fragment shader invocations within the same [=quad=] collaborate to compute
 approximate partial derivatives.
 
+The <dfn noexport>builtin functions that compute a derivative</dfn> are:
+* [[#texturesample|textureSample]], [[#texturesamplebias|textureSampleBias]], and [[#texturesamplecompare|textureSampleCompare]]
+* [[#dpdx-builtin|dpdx]], [[#dpdxCoarse-builtin|dpdxCoarse]], and [[#dpdxFine-builtin|dpdxFine]]
+* [[#dpdy-builtin|dpdy]], [[#dpdyCoarse-builtin|dpdyCoarse]], and [[#dpdyFine-builtin|dpdyFine]]
+* [[#fwidth-builtin|fwidth]], [[#fwidthCoarse-builtin|fwidthCoarse]], and [[#fwidthFine-builtin|fwidthFine]]
+
 Partial derivatives of the *fragment coordinate* are computed implicitly as part
 of operation of the following built-in functions:
 * [[#texturesample|textureSample]],
@@ -10596,13 +10812,17 @@ For these, the derivatives help determine the mip levels of texels to be sampled
 
 Partial derivatives of *invocation-specified* values are computed by the
 built-in functions described in [[#derivative-builtin-functions]]:
-* `dpdx`, `dpdxCoarse`, and `dpdxFine` compute partial derivatives along the x axis.
-* `dpdy`, `dpdyCoarse`, and `dpdyFine` compute partial derivatives along the y axis.
-* `fwidth`, `fwidthCoarse`, and `fwidthFine` compute the Manhattan metric over the associated x and y partial derivatives.
+* [[#dpdx-builtin|dpdx]], [[#dpdxCoarse-builtin|dpdxCoarse]], and [[#dpdxFine-builtin|dpdxFine]] compute partial derivatives along the x axis.
+* [[#dpdy-builtin|dpdy]], [[#dpdyCoarse-builtin|dpdyCoarse]], and [[#dpdyFine-builtin|dpdyFine]] compute partial derivatives along the y axis.
+* [[#fwidth-builtin|fwidth]], [[#fwidthCoarse-builtin|fwidthCoarse]], and [[#fwidthFine-builtin|fwidthFine]]
+    compute the Manhattan metric over the associated x and y partial derivatives.
 
 Because neighbouring invocations collaborate to compute derivatives, these
-functions [=shader-creation error|must=] only be invoked in [=uniform control
-flow=] in a fragment shader.
+functions should only be invoked in [=uniform control flow=] in a fragment shader.
+For each call to one of these functions, a [=trigger/derivative_uniformity=] [=diagnostic=] is triggered if 
+[[#uniformity|uniformity analysis]] cannot prove the call occurs in uniform control flow.
+
+If one of these functions is called in non-uniform control flow, then the result is an [=indeterminate value=].
 
 ## Floating Point Evaluation ## {#floating-point-evaluation}
 
@@ -11044,6 +11264,7 @@ Issue: https://github.com/gpuweb/gpuweb/issues/1621
 * <dfn for=syntax_kw noexport>`continue`</dfn>
 * <dfn for=syntax_kw noexport>`continuing`</dfn>
 * <dfn for=syntax_kw noexport>`default`</dfn>
+* <dfn for=syntax_kw noexport>`diagnostic`</dfn>
 * <dfn for=syntax_kw noexport>`discard`</dfn>
 * <dfn for=syntax_kw noexport>`else`</dfn>
 * <dfn for=syntax_kw noexport>`enable`</dfn>
@@ -11171,6 +11392,18 @@ The [=interpolation sampling=] names are:
     | `'centroid'`
 
     | `'sample'`
+</div>
+
+The [=diagnostic filter=] severity control names names are:
+
+<div class='syntax' noexport='true'>
+  <dfn for=syntax>severity_control_name</dfn> :
+
+    | `'error'`
+
+    | `'warning'`
+
+    | `'off'`
 </div>
 
 The [[#builtin-values|built-in value]] names are:
@@ -13255,9 +13488,10 @@ Note: The vec2&lt;f32&gt; case is the same as `unpack2x16float(pack2x16float(e))
 
 See [[#derivatives]].
 
-These functions:
+Calls to these functions:
 * [=shader-creation error|Must=] only be used in a [=fragment=] shader stage.
-* [=shader-creation error|Must=] only be invoked in [=uniform control flow=].
+* [=Trigger=] a [=trigger/derivative_uniformity=] [=diagnostic=] if [=uniformity analysis=]
+    cannot prove the call is in [=uniform control flow=].
 
 ### `dpdx` ### {#dpdx-builtin}
 <table class='data builtin'>
@@ -13273,6 +13507,8 @@ fn dpdx(e: T) -> T
     <td>Description
     <td>Partial derivative of `e` with respect to window x coordinates.
     The result is the same as either `dpdxFine(e)` or `dpdxCoarse(e)`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdxCoarse` ### {#dpdxCoarse-builtin}
@@ -13289,6 +13525,8 @@ fn dpdxCoarse(e: T) -> T
     <td>Description
     <td>Returns the partial derivative of `e` with respect to window x coordinates using local differences.
     This may result in fewer unique positions that `dpdxFine(e)`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdxFine` ### {#dpdxFine-builtin}
@@ -13304,6 +13542,8 @@ fn dpdxFine(e: T) -> T
   <tr>
     <td>Description
     <td>Returns the partial derivative of `e` with respect to window x coordinates.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdy` ### {#dpdy-builtin}
@@ -13320,6 +13560,8 @@ fn dpdy(e: T) -> T
     <td>Description
     <td>Partial derivative of `e` with respect to window y coordinates.
     The result is the same as either `dpdyFine(e)` or `dpdyCoarse(e)`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdyCoarse` ### {#dpdyCoarse-builtin}
@@ -13336,6 +13578,8 @@ fn dpdyCoarse(e: T) -> T
     <td>Description
     <td>Returns the partial derivative of `e` with respect to window y coordinates using local differences.
     This may result in fewer unique positions that `dpdyFine(e)`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `dpdyFine` ### {#dpdyFine-builtin}
@@ -13351,6 +13595,8 @@ fn dpdyFine(e: T) -> T
   <tr>
     <td>Description
     <td>Returns the partial derivative of `e` with respect to window y coordinates.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `fwidth` ### {#fwidth-builtin}
@@ -13366,6 +13612,8 @@ fn fwidth(e: T) -> T
   <tr>
     <td>Description
     <td>Returns `abs(dpdx(e)) + abs(dpdy(e))`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `fwidthCoarse` ### {#fwidthCoarse-builtin}
@@ -13381,6 +13629,8 @@ fn fwidthCoarse(e: T) -> T
   <tr>
     <td>Description
     <td>Returns `abs(dpdxCoarse(e)) + abs(dpdyCoarse(e))`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ### `fwidthFine` ### {#fwidthFine-builtin}
@@ -13396,6 +13646,8 @@ fn fwidthFine(e: T) -> T
   <tr>
     <td>Description
     <td>Returns `abs(dpdxFine(e)) + abs(dpdyFine(e))`.
+
+    Returns an [=indeterminate value=] if called in [=uniform control flow|non-uniform control flow=].
 </table>
 
 ## Texture Built-in Functions ## {#texture-builtin-functions}
@@ -14025,7 +14277,9 @@ The number of samples per texel in the multisampled texture.
 Samples a texture.
 
 [=shader-creation error|Must=] only be used in a [=fragment=] shader stage.
-[=shader-creation error|Must=] only be invoked in [=uniform control flow=].
+
+If [=uniformity analysis=] cannot prove a call to this function is in [=uniform control flow=],
+then a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
 
 <table class='data'>
   <thead>
@@ -14167,12 +14421,16 @@ fn textureSample(t: texture_depth_cube_array,
 
 The sampled value.
 
+An [=indeterminate value=] results if called in [=uniform control flow|non-uniform control flow=].
+
 ### `textureSampleBias` ### {#texturesamplebias}
 
 Samples a texture with a bias to the mip level.
 
 [=shader-creation error|Must=] only be used in a [=fragment=] shader stage.
-[=shader-creation error|Must=] only be invoked in [=uniform control flow=].
+
+If [=uniformity analysis=] cannot prove a call to this function is in [=uniform control flow=],
+then a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
 
 <table class='data'>
   <thead>
@@ -14269,13 +14527,16 @@ fn textureSampleBias(t: texture_cube_array<f32>,
 
 The sampled value.
 
+An [=indeterminate value=] results if called in [=uniform control flow|non-uniform control flow=].
 
 ### `textureSampleCompare` ### {#texturesamplecompare}
 
 Samples a depth texture and compares the sampled depth values against a reference value.
 
 [=shader-creation error|Must=] only be used in a [=fragment=] shader stage.
-[=shader-creation error|Must=] only be invoked in [=uniform control flow=].
+
+If [=uniformity analysis=] cannot prove a call to this function is in [=uniform control flow=],
+then a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
 
 <table class='data'>
   <thead>
@@ -14370,6 +14631,7 @@ If the sampler uses bilinear filtering then the returned value is
 the filtered average of these values, otherwise the comparison result of a
 single texel is returned.
 
+An [=indeterminate value=] results if called in [=uniform control flow|non-uniform control flow=].
 
 ### `textureSampleCompareLevel` ### {#texturesamplecomparelevel}
 
