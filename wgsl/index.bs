@@ -534,16 +534,18 @@ When unclear from context, this specification indicates
 whether failure to meet a particular requirement
 results in a shader-creation, pipeline-creation, or dynamic error.
 
-The WebGPU specification describes the consequences of each kind of error.
-A WGSL program with a [=shader-creation error=] or [=pipeline-creation error=] error will not be incorporated
-into a [=pipeline=] and hence will not be executed.
+The WebGPU specification describes the consequences of each kind of error.  In particular:
+* Detectable errors [=behavioral requirement|will=] [=triggered|trigger=] a [=diagnostic=].
+* A WGSL program with a [=shader-creation error=] or [=pipeline-creation error=] error will not be incorporated
+    into a [=pipeline=] and hence will not be executed.
 
 ## Diagnostics ## {#diagnostics}
 
-An implementation can generate [=diagnostics=] during [=shader module creation=].
+An implementation can generate [=diagnostics=] during [=shader module creation=] or [=pipeline creation=].
 A <dfn noexport>diagnostic</dfn> is a message produced by the implementation for the benefit of the application author.
 
-We say a diagnostic is <dfn noexport>triggered</dfn> when a particular condition is met, known as the [=diagnostic/triggering rule=].
+A diagnostic is created, or <dfn noexport>triggered</dfn>, when a particular condition is met,
+known as the <dfn dfn-for="diagnostic">triggering rule</dfn>.
 The place in the source text where the condition is met, expressed as a point or range in the source text, is known as the 
 <dfn dfn-for="diagnostic">triggering location</dfn>.
 
@@ -564,32 +566,34 @@ The <dfn dfn-for="diagnostic">severity</dfn> of a diagnostic is one of:
     This is the lowest severity.
 
 Triggered diagnostics [=behavioral requirement|will=] be processed as follows:
-1. If a [=shader-creation error=] occurs independently of diagnostic processing, then all diagnostics may be discarded.
-2. For each diagnostic *D*, find the [=diagnostic filter=]
+1. For each diagnostic *D*, find the [=diagnostic filter=]
     with the smallest [=affected range=] that contains D's [=diagnostic/triggering location=], and which has the same [=diagnostic/triggering rule=].
     * If such a rule exists, apply it to *D*.  This may discard *D* or change *D*'s [=diagnostic/severity=].
     * Otherwise *D* remains unchanged.
-3. If at least one remaining diagnostic has [=severity/error=] severity, then:
+2. If at least one remaining diagnostic has [=severity/error=] severity, then:
     * Other diagnostics *may* be discarded, including other diagnostics with [=severity/error=] severity.
     * A [=program error=] is generated.
          * The error is a [=shader-creation error=] if the diagnostic was triggered at [=shader module creation=] time.
-            In this case, all remaining diagnostics are collected and made available to the application via the
-            [[WebgPU#dom-gpucompilationinfo-messages|messages]] member of the [[WebGPU#gpucompilationinfo|WebGPU GPUCompilationInfo]] object.
          * The error is a [=pipeline-creation error=] if the diagnostic was triggered at [=pipeline creation=] time.
+3. If processing during [=shader module creation=] time, the remaining diagnostics populate the
+    [[WebgPU#dom-gpucompilationinfo-messages|messages]] member of the
+    [[WebGPU#gpucompilationinfo|WebGPU GPUCompilationInfo]] object.
+4. If processing during [=pipeline creation=], the [=severity/error=] diagnostics are reported
+    in the nearest enclosing [[WebGPU#gpu-error-scope|WebGPU GPU errorr scope]].
+    Issue: TODO: Adjust for [#3682](https://github.com/gpuweb/gpuweb/issues/3682).
 
-    Issue: TODO: Adjust for https://github.com/gpuweb/gpuweb/issues/3682
+Note: The rules allow an implementation to stop processing a WGSL program as soon as an error is detected.
 
-Note: The rules allow an implementation to stop processing a WGSL program as soon as it encounters an error.
+### Filterable Triggering Rules ### {#filterable-triggering-rules}
 
-### Diagnostic Triggering Rules ### {#diagnostic-triggering-rules}
-
-A <dfn dfn-for="diagnostic">triggering rule</dfn> is condition on a source program that, when met, causes a [=diagnostic=] to be generated.
-The following table defines the standard triggering rules.
+Most [=diagnostics=] are unconditionally reported to the WebGPU application.
+Some kinds of diagnostics can be [[#diagnostic-filtering|filtered]], in part by naming their [=diagnostic/triggering rule=].
+The following table lists the standard set of triggering rules that can be filtered.
 
 <table class='data'>
   <caption>Diagnostic triggering rules defined in WGSL</caption>
   <thead>
-    <tr><th>Triggering rule<th>Default Severity<th>Triggering Location<th>Description
+    <tr><th>Filterable Triggering Rule<th>Default Severity<th>Triggering Location<th>Description
   </thead>
 
   <tr>
@@ -607,7 +611,8 @@ The following table defines the standard triggering rules.
     See [[#uniformity]].
 </table>
 
-An implementation may support triggering rules not specified here, provided they are spelled differently from the standard triggering rules.
+An implementation may support filtering triggering rules not specified here,
+provided they are spelled differently from the standard triggering rules.
 A [=diagnostic filter=] with an unrecognized [=diagnostic/triggering rule=] [=behavioral requirement|will=] be ignored.
 
 Future versions of this specification may remove a particular rule or weaken its default severity
@@ -617,7 +622,7 @@ After such a change to the specification, previously valid programs would remain
 
 ### Diagnostic Filtering ### {#diagnostic-filtering}
 
-Once a [=diagnostic=] is [=triggered=], WGSL provides filtering mechanisms to discard the diagnostic, or to modify its severity.
+Once a [=diagnostic=] with a filterable [=diagnostic/triggering rule=] is [=triggered=], WGSL provides mechanisms to discard the diagnostic, or to modify its severity.
 
 A <dfn noexport>diagnostic filter</dfn> *DF* has three parameters:
 * *AR*: a range of source text known as the <dfn noexport>affected range</dfn>
@@ -636,6 +641,8 @@ diagnostic whose [=diagnostic/triggering location=] falls within a specified ran
 A range diagnostic filter is specified as a `@diagnostic` [=attribute=] immediately before the affected source range:
 * When specified as one of the attributes immediately preceding a [=syntax/call_phrase=],
     the [=affected range=] is the entire phrase (e.g. including the function call arguments).
+
+Issue: [#3689](https://github.com/gpuweb/gpuweb/issues/3689) Refine range diagnostic filters: where they can be applied, and associated affected ranges.
 
 <div class='example wgsl global-scope' heading='Range diagnostic filter on texture sampling'>
   <xmp highlight='rust'>
@@ -656,7 +663,7 @@ A range diagnostic filter is specified as a `@diagnostic` [=attribute=] immediat
 </div>
 
 A <dfn noexport>global diagnostic filter</dfn> is a diagnostic filter whose [=affected range=] is the whole WGSL program.
-It is a [=directive=], thus appearing before any module-scope declarations.
+It is a [=directive=], thus appearing before any [=module-scope=] declarations.
 It is spelled like the attribute form, but without the leading `@` (U+0040) codepoint, and with a terminating semicolon.
 
 <div class='example wgsl global-scope' heading='Global diagnostic filter for derivative uniformity'>
