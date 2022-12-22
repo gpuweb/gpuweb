@@ -7913,7 +7913,7 @@ location:
             <td>Color currently in the color attachment.
         <tr>
             <td><b><code>RGBA<sub>const</src></code></b>
-            <td>The current {{GPURenderPassEncoder/[[blend_constant]]}}.
+            <td>The current {{RenderState/[[blendConstant]]}}.
         <tr>
             <td><b><code>RGBA<sub>srcFactor</src></code></b>
             <td>The source blend factor components, as defined by {{GPUBlendComponent/srcFactor}}.
@@ -8202,7 +8202,7 @@ enum GPUStencilOperation {
 
     : <dfn>"replace"</dfn>
     ::
-        Set the stencil value to {{GPURenderPassEncoder/[[stencil_reference]]}}.
+        Set the stencil value to {{RenderState/[[stencilReference]]}}.
 
     : <dfn>"invert"</dfn>
     ::
@@ -8766,6 +8766,14 @@ GPUCommandBuffer includes GPUObjectBase;
     ::
         A [=list=] of [=GPU commands=] to be executed on the [=Queue timeline=] when this command
         buffer is submitted.
+
+    : <dfn>\[[renderState]]</dfn>, of type [=RenderState=]
+    ::
+        The current state used by any render pass commands being executed, initially `null`.
+
+    : <dfn>\[[computeState]]</dfn>, of type [=ComputeState=]
+    ::
+        The current state used by any compute pass commands being executed, initially `null`.
 </dl>
 
 ### Command Buffer Creation ### {#command-buffer-creation}
@@ -8842,9 +8850,14 @@ The <dfn dfn>encoder state</dfn> may be one of the following:
 
 <div algorithm>
     To <dfn abstract-op>Enqueue a command</dfn> on {{GPUCommandsMixin}} |encoder|
-    which issues the steps of a [=GPU Command=] |command|:
+    which issues the steps of a [=GPU Command=] |command|, optionally with [=RenderState=] |renderState|
+    or [=ComputeState=] |computeState|:
 
         1. [=list/Append=] |command| to |encoder|.{{GPUCommandsMixin/[[commands]]}}.
+        1. When |command| is executed as part of a {{GPUCommandBuffer}} |commandBuffer|:
+            1. Issue the steps of |command| with |commandBuffer|.{{GPUCommandBuffer/[[renderState]]}}
+                as |renderState| and |commandBuffer|.{{GPUCommandBuffer/[[computeState]]}} as
+                |computeState|.
 </div>
 
 ## <dfn interface>GPUCommandEncoder</dfn> ## {#command-encoder}
@@ -9020,7 +9033,15 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         [=list/Append=] |timestampWrite| to |pass|.{{GPURenderPassEncoder/[[endTimestampWrites]]}}.
                 1. Set |pass|.{{GPURenderCommandsMixin/[[drawCount]]}} to 0.
                 1. Set |pass|.{{GPURenderPassEncoder/[[maxDrawCount]]}} to |descriptor|.{{GPURenderPassDescriptor/maxDrawCount}}.
-                1. Issue: Enqueue attachment loads/clears.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let |renderState| be a new [=RenderState=].
+                1. Issue: Perform attachment loads/clears.
             </div>
 
             Issue: specify the behavior of read-only depth/stencil
@@ -9069,6 +9090,14 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         index in |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.
                     1. Otherwise, if |timestampWrite|.{{GPUComputePassTimestampWrite/location}} is {{GPUComputePassTimestampLocation/"end"}},
                         [=list/Append=] |timestampWrite| to |pass|.{{GPUComputePassEncoder/[[endTimestampWrites]]}}.
+
+                1. [$Enqueue a compute command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |computeState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let |computeState| be a new [=ComputeState=]
             </div>
         </div>
 </dl>
@@ -9652,6 +9681,16 @@ It must only be included by interfaces which also include those mixins.
                     </div>
                 1. Set |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|] to be |bindGroup|.
                 1. Set |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|] to be a copy of |dynamicOffsets|.
+
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| and |computeState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Assert that exactly one of |renderState| or |computeState| is not `null`.
+                1. If |renderState| is not `null`, set |renderState|.{{RenderState/[[bindGroups]]}}[|index|] to be |bindGroup|.
+                1. If |computeState| is not `null`, set |computeState|.{{ComputeState/[[bindGroups]]}}[|index|] to be |bindGroup|.
             </div>
         </div>
 
@@ -9953,6 +9992,24 @@ GPUComputePassEncoder includes GPUBindingCommandsMixin;
         The timestamp attachments which need to be executed when the pass ends.
 </dl>
 
+When executing encoded compute pass commands as part of a {{GPUCommandBuffer}}, an internal
+<dfn dfn>ComputeState</dfn> object is used to track the current state required for compute operations.
+
+[=ComputeState=] contains the following internal slots used for execution of compute commands:
+
+<dl dfn-type=attribute dfn-for=ComputeState>
+    : <dfn>\[[pipeline]]</dfn>, of type {{GPUComputePipeline}}
+    ::
+        The current {{GPUComputePipeline}}, initially `null`.
+
+    : <dfn>\[[bindGroups]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, {{GPUBindGroup}}&gt;
+    ::
+        The current {{GPUBindGroup}} for each index, initially empty.
+</dl>
+
+Note: {{GPUComputePassEncoder}} and [=ComputeState=] contains some duplicate internal slots when the
+values is needed for both encoding validation and render execution.
+
 ### Compute Pass Encoder Creation ### {#compute-pass-encoder-creation}
 
 <script type=idl>
@@ -9995,12 +10052,13 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
 </div>
 
 <div algorithm>
-    To <dfn abstract-op lt="enqueuing a compute command">Enqueue a compute command</dfn> on
-    {{GPUComputePassEncoder}} |encoder| which issues the steps of a [=GPU Command=] |command|:
+    To <dfn abstract-op>Enqueue a compute command</dfn> on {{GPUComputePassEncoder}} |encoder| which
+    issues the steps of a [=GPU Command=] |command| with [=ComputeState=] |computeState|:
 
-        1. Let |passState| be a snapshot of |encoder|s current state.
         1. [=list/Append=] |command| to |encoder|.{{GPUCommandsMixin/[[commands]]}}.
-        1. Return |passState|.
+        1. When |command| is executed as part of a {{GPUCommandBuffer}} |commandBuffer|:
+            1. Issue the steps of |command| with |commandBuffer|.{{GPUCommandBuffer/[[computeState]]}}
+                as |computeState|.
 </div>
 
 ### Dispatch ### {#compute-pass-encoder-dispatch}
@@ -10092,15 +10150,15 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                             |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}}.
                     </div>
 
-                1. Let |passState| be the result of [$enqueuing a compute command$] on |this|
-                    which issues the subsequent steps on the [=Queue timeline=] when executed.
+                1. [$Enqueue a compute command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |computeState| when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
                 1. Dispatch a grid of workgroups with dimensions [|workgroupCountX|, |workgroupCountY|,
-                    |workgroupCountZ|] with |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
-                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+                    |workgroupCountZ|] with |computeState|.{{ComputeState/[[pipeline]]}} using
+                    |computeState|.{{ComputeState/[[bindGroups]]}}.
             </div>
         </div>
 
@@ -10157,8 +10215,8 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                     </div>
                 1. Add |indirectBuffer| to the [=usage scope=] as {{GPUBufferUsage/INDIRECT}}.
 
-                1. Let |passState| be the result of [$enqueuing a compute command$] on |this|
-                    which issues the subsequent steps on the [=Queue timeline=] when executed.
+                1. [$Enqueue a compute command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |computeState| when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
@@ -10173,8 +10231,8 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                     |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}},
                     stop.
                 1. Dispatch a grid of workgroups with dimensions [|workgroupCountX|, |workgroupCountY|,
-                    |workgroupCountZ|] with |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
-                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+                    |workgroupCountZ|] with |computeState|.{{ComputeState/[[pipeline]]}} using
+                    |computeState|.{{ComputeState/[[bindGroups]]}}.
             </div>
         </div>
 </dl>
@@ -10229,6 +10287,13 @@ called the compute pass encoder can no longer be used.
                         |parentEncoder|.{{GPUCommandsMixin/[[commands]]}}
                         that writes the GPU's timestamp value into the |timestampWrite|.{{GPUComputePassTimestampWrite/queryIndex}}th
                         index in |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.
+                1. [$Enqueue a compute command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |computeState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let |computeState| be a `null`.
             </div>
         </div>
 </dl>
@@ -10263,7 +10328,7 @@ GPURenderPassEncoder includes GPUBindingCommandsMixin;
 GPURenderPassEncoder includes GPURenderCommandsMixin;
 </script>
 
-{{GPURenderPassEncoder}} has the following internal slots:
+{{GPURenderPassEncoder}} has the following internal slots used for validation while encoding:
 
 <dl dfn-type=attribute dfn-for=GPURenderPassEncoder>
     : <dfn>\[[command_encoder]]</dfn>, of type {{GPUCommandEncoder}}, readonly
@@ -10281,23 +10346,9 @@ GPURenderPassEncoder includes GPURenderCommandsMixin;
         The {{GPUQuerySet}} to store occlusion query results for the pass, which is initialized with
         {{GPURenderPassDescriptor}}.{{GPURenderPassDescriptor/occlusionQuerySet}} at pass creation time.
 
-     : <dfn>\[[occlusion_query_index]]</dfn>, of type {{GPUSize32}}.
-    ::
-        The index into {{GPURenderPassEncoder/[[occlusion_query_set]]}} at which to store the
-        occlusion query results.
-
     : <dfn>\[[occlusion_query_active]]</dfn>, of type {{boolean}}.
     ::
         Whether the pass's {{GPURenderPassEncoder/[[occlusion_query_set]]}} is being written.
-
-    : <dfn>\[[viewport]]</dfn>
-    ::  Current viewport rectangle and depth range.
-
-    : <dfn>\[[blend_constant]]</dfn>
-    ::  Current blend constant value, initially `[0, 0, 0, 0]`.
-
-    : <dfn>\[[stencil_reference]]</dfn>
-    ::  Current stencil reference value, initially `0`.
 
     : <dfn>\[[endTimestampWrites]]</dfn>, of type {{GPURenderPassTimestampWrites}}
     ::
@@ -10308,13 +10359,56 @@ GPURenderPassEncoder includes GPURenderCommandsMixin;
         The maximum number of draws allowed in this pass.
 </dl>
 
-When a {{GPURenderPassEncoder}} is created, it has the following default state:
+When executing encoded render pass commands as part of a {{GPUCommandBuffer}}, an internal
+<dfn dfn>RenderState</dfn> object is used to track the current state required for rendering.
 
-- {{GPURenderPassEncoder/[[viewport]]}}:
+[=RenderState=] contains the following internal slots used for execution of rendering commands:
+
+<dl dfn-type=attribute dfn-for=RenderState>
+    : <dfn>\[[bindGroups]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, {{GPUBindGroup}}&gt;
+    ::
+        The current {{GPUBindGroup}} for each index, initially empty.
+
+    : <dfn>\[[pipeline]]</dfn>, of type {{GPURenderPipeline}}
+    ::
+        The current {{GPURenderPipeline}}, initially `null`.
+
+    : <dfn>\[[indexBuffer]]</dfn>, of type {{GPUBuffer}}
+    ::
+        The current buffer to read index data from, initially `null`.
+
+    : <dfn>\[[vertexBuffers]]</dfn>, of type [=ordered map=]&lt;slot, {{GPUBuffer}}&gt;
+    ::
+        The current {{GPUBuffer}}s to read vertex data from for each slot, initially empty.
+
+    : <dfn>\[[occlusionQueryIndex]]</dfn>, of type {{GPUSize32}}.
+    ::
+        The index into {{GPURenderPassEncoder/[[occlusion_query_set]]}} at which to store the
+        occlusion query results.
+
+    : <dfn>\[[viewport]]</dfn>
+    ::  Current viewport rectangle and depth range.
+
+    : <dfn>\[[scissorRect]]</dfn>
+    ::  Current scissor rectangle.
+
+    : <dfn>\[[blendConstant]]</dfn>
+    ::  Current blend constant value, initially `[0, 0, 0, 0]`.
+
+    : <dfn>\[[stencilReference]]</dfn>
+    ::  Current stencil reference value, initially `0`.
+</dl>
+
+Note: {{GPURenderPassEncoder}} and [=RenderState=] contains some duplicate internal slots when the
+values is needed for both encoding validation and render execution.
+
+When a [=RenderState=] is created, it has the following default state:
+
+- {{RenderState/[[viewport]]}}:
     - `x, y` = `0.0, 0.0`
     - `width, height` = the dimensions of the pass's render targets
     - `minDepth, maxDepth` = `0.0, 1.0`
-- Scissor rectangle:
+- {{RenderState/[[scissorRect]]}}:
     - `x, y` = `0, 0`
     - `width, height` = the dimensions of the pass's render targets
 
@@ -10813,7 +10907,16 @@ called the render pass encoder can no longer be used.
                         |parentEncoder|.{{GPUCommandsMixin/[[commands]]}}
                         that writes the GPU's timestamp value into the |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}}th
                         index in |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.
-                1. Issue: Enqueue the attachment stores/discards.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Issue: Perform the attachment stores/discards.
+                1. Let |renderState| be `null`.
+            </div>
             </div>
         </div>
 </dl>
@@ -10893,12 +10996,12 @@ It must only be included by interfaces which also include those mixins.
 </dl>
 
 <div algorithm>
-    To <dfn abstract-op lt="enqueuing a render command">Enqueue a render command</dfn> on
-    {{GPURenderCommandsMixin}} |encoder| which issues the steps of a [=GPU Command=] |command|:
+    To <dfn abstract-op>Enqueue a render command</dfn> on {{GPURenderCommandsMixin}} |encoder| which
+    issues the steps of a [=GPU Command=] |command| with [=RenderState=] |renderState|:
 
-        1. Let |passState| be a snapshot of |encoder|s current state.
         1. [=list/Append=] |command| to |encoder|.{{GPUCommandsMixin/[[commands]]}}.
-        1. Return |passState|.
+        1. When |command| is executed as part of a {{GPUCommandBuffer}} |commandBuffer|:
+            1. Issue the steps of |command| with |commandBuffer|.{{GPUCommandBuffer/[[renderState]]}} as |renderState|.
 </div>
 
 ### Drawing ### {#render-pass-encoder-drawing}
@@ -10941,6 +11044,14 @@ It must only be included by interfaces which also include those mixins.
                             |this|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} must be `false`.
                     </div>
                 1. Set |this|.{{GPURenderCommandsMixin/[[pipeline]]}} to be |pipeline|.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[pipeline]]}} to be |pipeline|.
             </div>
         </div>
 
@@ -10980,6 +11091,14 @@ It must only be included by interfaces which also include those mixins.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer]]}} to be |buffer|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_format]]}} to be |indexFormat|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer_size]]}} to be |size|.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[indexBuffer]]}} to be |buffer|.
             </div>
         </div>
 
@@ -11019,6 +11138,14 @@ It must only be included by interfaces which also include those mixins.
                 1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|] to be |buffer|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|] to be |size|.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[vertexBuffers]]}}[|slot|] to be |buffer|.
             </div>
         </div>
 
@@ -11069,17 +11196,17 @@ It must only be included by interfaces which also include those mixins.
                     </div>
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
-                1. Let |passState| be the result of [$enqueuing a render command$] on |this|
-                    which issues the subsequent steps on the [=Queue timeline=] when executed.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
                 1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
                     primitives consisting of |vertexCount| verticies, starting with vertex |firstVertex|,
-                    with |passState|.{{GPURenderCommandsMixin/[[pipeline]]}} using
-                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}} and
-                    |passState|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
+                    with |renderState|.{{RenderState/[[pipeline]]}} using
+                    |renderState|.{{RenderState/[[bindGroups]]}} and
+                    |renderState|.{{RenderState/[[vertexBuffers]]}}.
             </div>
         </div>
 
@@ -11126,8 +11253,8 @@ It must only be included by interfaces which also include those mixins.
                     </div>
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
-                1. Let |passState| be the result of [$enqueuing a render command$] on |this|
-                    which issues the subsequent steps on the [=Queue timeline=] when executed.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
@@ -11135,10 +11262,10 @@ It must only be included by interfaces which also include those mixins.
                 1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
                     primitives consisting of |indexCount| indexed verticies, starting with index
                     |firstIndex| from vertex |baseVertex|,
-                    with |passState|.{{GPURenderCommandsMixin/[[pipeline]]}} using
-                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}},
-                    |passState|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}, and
-                    |passState|.{{GPURenderCommandsMixin/[[index_buffer]]}}.
+                    with |renderState|.{{RenderState/[[pipeline]]}} using
+                    |renderState|.{{RenderState/[[bindGroups]]}},
+                    |renderState|.{{RenderState/[[vertexBuffers]]}}, and
+                    |renderState|.{{RenderState/[[indexBuffer]]}}.
             </div>
 
             Note: a valid program should also never use vertex indices with
@@ -11199,8 +11326,8 @@ It must only be included by interfaces which also include those mixins.
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
-                1. Let |passState| be the result of [$enqueuing a render command$] on |this|
-                    which issues the subsequent steps on the [=Queue timeline=] when executed.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
@@ -11215,9 +11342,9 @@ It must only be included by interfaces which also include those mixins.
                     (|indirectOffset| + 12) bytes.
                 1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
                     primitives consisting of |vertexCount| verticies, starting with vertex |firstVertex|,
-                    with |passState|.{{GPURenderCommandsMixin/[[pipeline]]}} using
-                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}} and
-                    |passState|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
+                    with |renderState|.{{RenderState/[[pipeline]]}} using
+                    |renderState|.{{RenderState/[[bindGroups]]}} and
+                    |renderState|.{{RenderState/[[vertexBuffers]]}}.
             </div>
         </div>
 
@@ -11272,8 +11399,8 @@ It must only be included by interfaces which also include those mixins.
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
-                1. Let |passState| be the result of [$enqueuing a render command$] on |this|
-                    which issues the subsequent steps on the [=Queue timeline=] when executed.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
@@ -11291,10 +11418,10 @@ It must only be included by interfaces which also include those mixins.
                 1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
                     primitives consisting of |indexCount| indexed verticies, starting with index
                     |firstIndex| from vertex |baseVertex|,
-                    with |passState|.{{GPURenderCommandsMixin/[[pipeline]]}} using
-                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}},
-                    |passState|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}, and
-                    |passState|.{{GPURenderCommandsMixin/[[index_buffer]]}}.
+                    with |renderState|.{{RenderState/[[pipeline]]}} using
+                    |renderState|.{{RenderState/[[bindGroups]]}},
+                    |renderState|.{{RenderState/[[vertexBuffers]]}}, and
+                    |renderState|.{{RenderState/[[indexBuffer]]}}.
             </div>
         </div>
 </dl>
@@ -11385,8 +11512,15 @@ attachments used by this encoder.
                         - 0.0 &le; |maxDepth| &le; 1.0
                         - |minDepth| &lt; |maxDepth|
                     </div>
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
                 1. Round |x|, |y|, |width|, and |height| to some uniform precision, no less precise than integer rounding.
-                1. Set |this|.{{GPURenderPassEncoder/[[viewport]]}} to the extents |x|, |y|, |width|, |height|, |minDepth|, and |maxDepth|.
+                1. Set |renderState|.{{RenderState/[[viewport]]}} to the extents |x|, |y|, |width|, |height|, |minDepth|, and |maxDepth|.
             </div>
         </div>
 
@@ -11429,7 +11563,14 @@ attachments used by this encoder.
                         - |y|+|height| &le;
                             |this|.{{GPURenderPassEncoder/[[attachment_size]]}}.height.
                     </div>
-                1. Set the scissor rectangle to the extents |x|, |y|, |width|, and |height|.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[scissorRect]]}} to the extents |x|, |y|, |width|, and |height|.
             </div>
         </div>
 
@@ -11459,13 +11600,19 @@ attachments used by this encoder.
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. Set {{GPURenderPassEncoder/[[blend_constant]]}} to |color|.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[blendConstant]]}} to |color|.
             </div>
         </div>
 
     : <dfn>setStencilReference(reference)</dfn>
     ::
-        Sets the {{GPURenderPassEncoder/[[stencil_reference]]}} value used during stencil tests with
+        Sets the {{RenderState/[[stencilReference]]}} value used during stencil tests with
         the {{GPUStencilOperation/"replace"}} {{GPUStencilOperation}}.
 
         <div algorithm=GPURenderPassEncoder.setStencilReference>
@@ -11489,7 +11636,13 @@ attachments used by this encoder.
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. Set {{GPURenderPassEncoder/[[stencil_reference]]}} to |reference|.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[stencilReference]]}} to |reference|.
             </div>
         </div>
 </dl>
@@ -11529,7 +11682,14 @@ attachments used by this encoder.
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} is `false`.
                     </div>
                 1. Set |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} to `true`.
-                1. Set |this|.{{GPURenderPassEncoder/[[occlusion_query_index]]}} to |queryIndex|.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[occlusionQueryIndex]]}} to |queryIndex|.
             </div>
         </div>
 
@@ -11557,8 +11717,8 @@ attachments used by this encoder.
                     </div>
                 1. Set |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} to `false`.
 
-                1. Let |passState| be the result of [$enqueuing a render command$] on |this|
-                    which issues the subsequent steps on the [=Queue timeline=] when executed.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
@@ -11567,8 +11727,8 @@ attachments used by this encoder.
                     the per-fragment tests since the corresponding
                     {{GPURenderPassEncoder/beginOcclusionQuery()}} command was executed.
                 1. Write |passingFragments| into
-                    |passState|.{{GPURenderPassEncoder/[[occlusion_query_set]]}} at index
-                    |passState|.{{GPURenderPassEncoder/[[occlusion_query_index]]}}.
+                    |this|.{{GPURenderPassEncoder/[[occlusion_query_set]]}} at index
+                    |renderState|.{{RenderState/[[occlusionQueryIndex]]}}.
             </div>
         </div>
 </dl>
@@ -11624,14 +11784,23 @@ attachments used by this encoder.
                 1. For each |bundle| in |bundles|:
                     1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by |bundle|.{{GPURenderBundle/[[drawCount]]}}.
 
-                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
-                    [=Queue timeline=] when executed.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
                 1. For each |bundle| in |bundles|:
+                    1. [=map/Clear=] |renderState|.{{RenderState/[[bindGroups]]}}.
+                    1. Set |renderState|.{{RenderState/[[pipeline]]}} to `null`.
+                    1. Set |renderState|.{{RenderState/[[indexBuffer]]}} to `null`.
+                    1. [=map/Clear=] |renderState|.{{RenderState/[[vertexBuffers]]}}.
                     1. Execute each command in |bundle|.{{GPURenderBundle/[[command_list]]}}.
+
+                1. [=map/Clear=] |renderState|.{{RenderState/[[bindGroups]]}}.
+                1. Set |renderState|.{{RenderState/[[pipeline]]}} to `null`.
+                1. Set |renderState|.{{RenderState/[[indexBuffer]]}} to `null`.
+                1. [=map/Clear=] |renderState|.{{RenderState/[[vertexBuffers]]}}.
             </div>
 
         </div>
@@ -13368,24 +13537,6 @@ These operations are encoded with:
 Note: rendering is the traditional use of GPUs, and is supported by multiple fixed-function
 blocks in hardware.
 
-A <dfn dfn>RenderState</dfn> is an internal object representing the state
-of the current {{GPURenderPassEncoder}} during command encoding.
-[=RenderState=] is a spec namespace for the following definitions:
-<div algorithm="RenderState accessors" dfn-for=RenderState>
-    For a given {{GPURenderPassEncoder}} |pass|, the syntax:
-
-    - |pass|.<dfn dfn>indexBuffer</dfn> refers to
-        the index buffer bound via {{GPURenderCommandsMixin/setIndexBuffer()}}, if any.
-    - |pass|.<dfn dfn>vertexBuffers</dfn> refers to
-        [=list=]&lt;vertex buffer&gt; bound by {{GPURenderCommandsMixin/setVertexBuffer()}}.
-    - |pass|.<dfn dfn>bindGroups</dfn> refers to
-        [=list=]&lt;{{GPUBindGroup}}&gt; bound by [=GPUBindingCommandsMixin/setBindGroup()=].
-    - |pass|.<dfn dfn>viewport</dfn> refers to an object containing {{GPURenderPassEncoder/setViewport()}} arguments.
-        At the start of a render pass, the state is equivalent to a call of setViewport(0, 0, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.width, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.height, 0.0, 1.0).
-    - |pass|.<dfn dfn>scissorRect</dfn> refers to an object containing {{GPURenderPassEncoder/setScissorRect()}} arguments.
-        At the start of a render pass, the state is equivalent to a call of setScissorRect(0, 0, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.width, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.height).
-</div>
-
 The main rendering algorithm:
 
 <div algorithm>
@@ -13452,7 +13603,7 @@ a list of vertices to process for each instance.
         1. Initialize the |vertexIndexList| with |drawCall|.indexCount integers.
         1. For |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
             1. Let |relativeVertexIndex| be [$fetch index$](|i| + |drawCall|.`firstIndex`,
-                |state|.[=RenderState/indexBuffer=]).
+                |state|.{{RenderState/[[indexBuffer]]}}).
             1. If |relativeVertexIndex| has the special value `"out of bounds"`,
                 stop and return the empty list.
 
@@ -13477,7 +13628,7 @@ a list of vertices to process for each instance.
     **Arguments:**
 
     - |i|: Index of a vertex index to fetch.
-    - |indexBufferState|: A value of [=RenderState/indexBuffer=] (buffer, format, offset, and size).
+    - |indexBufferState|: A value of {{RenderState/[[indexBuffer]]}} (buffer, format, offset, and size).
 
     **Returns:** unsigned integer or `"out of bounds"`
 
@@ -13524,7 +13675,7 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
     1. For each non-`null` |vertexBufferLayout| in the list of |desc|.{{GPUVertexState/buffers}}:
         1. Let |i| be the index of the buffer layout in this list.
         1. Let |vertexBuffer|, |vertexBufferOffset|, and |vertexBufferBindingSize| be the
-            buffer, offset, and size at slot |i| of |state|.[=RenderState/vertexBuffers=].
+            buffer, offset, and size at slot |i| of |state|.{{RenderState/[[vertexBuffers]]}}.
         1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
 
             <dl class=switch>
@@ -13574,7 +13725,7 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
                     </div>
             1. Bind the |data| to vertex shader input
                 location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
-    1. For each {{GPUBindGroup}} group at |index| in |state|.[=RenderState/bindGroups=]:
+    1. For each {{GPUBindGroup}} group at |index| in |state|.{{RenderState/[[bindGroups]]}}:
         1. For each resource {{GPUBindingResource}} in the bind group:
             1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
             1. If |entry|.{{GPUBindGroupLayoutEntry/visibility}} includes {{GPUShaderStage/VERTEX}}:
@@ -13790,7 +13941,7 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
 
         ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
 
-    1. Let |vp| be |state|.[=RenderState/viewport=].
+    1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
         Then the [=NDC=] coordinates |n| are converted into [=framebuffer=] coordinates,
         based on the size of the render targets:
 
@@ -13817,7 +13968,7 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
 
     1. Remove all the points |rp| from |rasterizationPoints| that have
         |rp|.[=RasterizationPoint/destination=].[=FragmentDestination/position=]
-        outside of |state|.[=RenderState/scissorRect=].
+        outside of |state|.{{RenderState/[[scissorRect]]}}.
 
     1. Return |rasterizationPoints|.
 </div>
@@ -14015,7 +14166,7 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
         1. Set |fragment|.[=Fragment/colors=] to the user-specified [=shader stage output=] values from the shader.
         1. Take the shader output [=builtins=]:
             1. If `frag_depth` [=builtin=] is produced by the shader as |value|:
-                1. Let |vp| be |state|.[=RenderState/viewport=].
+                1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
                 1. Set |fragment|.[=Fragment/depth=] to clamp(|value|, |vp|.`minDepth`, |vp|.`maxDepth`).
         1. If `sample_mask` [=builtin=] is produced by the shader as |value|:
             1. Set |fragment|.[=Fragment/coverageMask=] to |fragment|.[=Fragment/coverageMask=] &and; |value|.
@@ -14033,7 +14184,7 @@ may happen in any order.
 <p class="note editorial">Editorial: fill out this section
 
 The depth input to this stage, if any, is clamped to the current
-{{GPURenderPassEncoder/[[viewport]]}} depth range
+{{RenderState/[[viewport]]}} depth range
 (regardless of whether the fragment shader stage writes the `frag_depth` builtin).
 
 ### No Color Output ### {#no-color-output}
