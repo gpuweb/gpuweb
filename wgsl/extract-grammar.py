@@ -375,6 +375,9 @@ def grammar_from_rule_item(rule_item):
             i_item = f"token({rule_item[i][1:-1]})"
         elif rule_item[i].startswith("`'"):
             i_item = f"token({rule_item[i][1:-1]})"
+        elif rule_item[i].startswith("<a"):
+            i_item = f"""token('{rule_item[i + 2].split(">`'")[1].split("'`</a")[0][:]}')"""
+            i += 2
         elif rule_item[i] == "(":
             j = i + 1
             j_span = 0
