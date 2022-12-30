@@ -1026,6 +1026,9 @@ has components working on different timelines in parallel:
 :: Associated with the execution of the Web script.
     It includes calling all methods described by this specification.
 
+    To issue steps to the content timeline from an operation on {{GPUDevice}} `device`,
+    [$queue a global task for GPUDevice$] `device` with those steps.
+
 : <dfn dfn>Device timeline</dfn>
 :: Associated with the GPU device operations
     that are issued by the user agent.
@@ -1354,7 +1357,8 @@ through which [=internal objects=] are created.
 It can be shared across multiple [=agents=] (e.g. dedicated workers).
 
 A [=device=] is the exclusive owner of all [=internal objects=] created from it:
-when the [=device=] is [=lose the device|lost=] or {{GPUDevice/destroy()|destroyed}},
+when the [=device=] becomes [=invalid=]
+(is [=lose the device|lost=] or {{GPUDevice/destroy()|destroyed}}),
 it and all objects created on it (directly, e.g.
 {{GPUDevice/createTexture()}}, or indirectly, e.g. {{GPUTexture/createView()}}) become
 implicitly [$valid to use with|unusable$].
@@ -1393,23 +1397,30 @@ A [=device=] has the following internal slots:
 </div>
 
 Any time the user agent needs to revoke access to a device, it calls
-[=lose the device=](device, `undefined`).
-For example, if an operation fails with side effects that would observably
-change the state of objects on the device or potentially corrupt internal
-implementation/driver state, the device should be lost to prevent further access.
+[=lose the device=](`device`, `undefined`) on the device's [=device timeline=],
+potentially ahead of other operations currently queued on that timeline.
 
-<div algorithm>
+If an operation fails with side effects that would observably change the state
+of objects on the device or potentially corrupt internal implementation/driver state,
+the device **should** be lost to prevent these changes from being observable.
+
+<div algorithm data-timeline=device>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
 
     1. Make |device|.{{device/[[adapter]]}} [=invalid=].
     1. Make |device| [=invalid=].
-    1. Issue: explain how to get from |device| to its "primary" {{GPUDevice}}.
-    1. Resolve |device|.{{GPUDevice/lost}} with a new {{GPUDeviceLostInfo}} with
-        {{GPUDeviceLostInfo/reason}} set to |reason| and
-        {{GPUDeviceLostInfo/message}} set to an implementation-defined value.
+    1. Let |gpuDevice| be the [=content timeline=] {{GPUDevice}} corresponding to |device|.
 
-        Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
-        information and should never be parsed by applications.
+        Issue: Define this more rigorously.
+    1. Issue the following steps on the [=content timeline=] of |gpuDevice|:
+        <div data-timeline=content>
+            1. Resolve |device|.{{GPUDevice/lost}} with a new {{GPUDeviceLostInfo}} with
+                {{GPUDeviceLostInfo/reason}} set to |reason| and
+                {{GPUDeviceLostInfo/message}} set to an implementation-defined value.
+
+                Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
+                information and should never be parsed by applications.
+        </div>
 </div>
 
 [=Devices=] are exposed via {{GPUDevice}}.
@@ -1977,6 +1988,60 @@ For more information on issuing CORS requests for image and video elements, cons
 - [[html#the-img-element]] <{img}>
 - [[html#media-elements]] {{HTMLMediaElement}}
 
+## Task Sources ## {#task-sources}
+
+### WebGPU Task Source ### {#-webgpu-task-source}
+
+WebGPU defines a new [=task source=] called the <dfn dfn>WebGPU task source</dfn>.
+It is used for the {{GPUDevice/uncapturederror}} event and {{GPUDevice}}.{{GPUDevice/lost}}.
+
+<div algorithm>
+    To <dfn abstract-op>queue a global task for {{GPUDevice}}</dfn> |device|,
+    with a series of steps |steps|:
+
+    1. [=Queue a global task=] on the [=WebGPU task source=], with the global object that was used
+        to create |device|, and the steps |steps|.
+</div>
+
+### Automatic Expiry Task Source ### {#-automatic-expiry-task-source}
+
+WebGPU defines a new [=task source=] called the <dfn dfn>automatic expiry task source</dfn>.
+It is used for the automatic, timed expiry (destruction) of certain objects:
+
+- {{GPUTexture}}s returned by {{GPUCanvasContext/getCurrentTexture()}}
+- Issue(gpuweb/gpuweb#3324): {{GPUExternalTexture}}s created from {{HTMLVideoElement}}s?
+
+<div algorithm>
+    To <dfn abstract-op>queue an automatic expiry task</dfn>
+    with {{GPUDevice}} |device| and a series of steps |steps|:
+
+    1. [=Queue a global task=] on the [=automatic expiry task source=], with the global object that
+        was used to create |device|, and the steps |steps|.
+</div>
+
+Tasks from the [=automatic expiry task source=] **should** be processed with high priority; in
+particular, once queued, they **should** run before user-defined (JavaScript) tasks.
+This results in stricter behavior that helps developers write more portable applications, but
+developers are still strongly encouraged to test in multiple implementations.
+
+<div class=note>
+    Note: Since task source priority is not normatively defined, there is a range of points at which
+    tasks from this task queue can execute. In practice, this means these tasks can be implemented
+    with fixed steps inside the [[HTML#event-loop-processing-model|HTML processing model]].
+    All of the following options are valid:
+
+    - Immediately after running any task.
+    - Immediately after running animation frame callbacks.
+    - Immediately before rendering.
+        Note this choice results in less predictable expiry, especially for non-visible canvases
+        (e.g. scrolled off the screen or in a background tab), potentially allowing invalid programs
+        to appear correct or changing the behavior of websites which (incorrectly) rely on expiry
+        timing.
+
+        In the case of canvas texture expiry, expiry is also done in [$update the rendering of
+        the WebGPU canvas$], so it's equivalent for an implementation to elide the task entirely.
+n</div>
+
 ## Color Spaces and Encoding ## {#color-spaces}
 
 WebGPU does not provide color management. All values within WebGPU (such as texture elements)
@@ -2519,7 +2584,8 @@ interface GPUAdapter {
                         reinitialization logic starting with {{GPU/requestAdapter()}}.
 
                     Otherwise:
-                        1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
+
+                    1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
 
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
@@ -2527,6 +2593,10 @@ interface GPUAdapter {
                 [=Content timeline=] steps:
 
                 1. [=Resolve=] |promise| with a new {{GPUDevice}} object |device|.
+
+                    Note:
+                    If the device is already lost because the adapter could not fulfill the request,
+                    |device|.{{GPUDevice/lost}} has already resolved before |promise| resolves.
             </div>
         </div>
 
@@ -4937,7 +5007,8 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
 </dl>
 
 <div algorithm="expire stale external textures">
-    Immediately before the "[=Update the rendering=]" step of the HTML processing model,
+    Immediately before the "[=Update the rendering=]" step of the
+    [[HTML#event-loop-processing-model|HTML processing model]],
     run the following steps to <dfn abstract-op>expire stale external textures</dfn>:
 
     1. For each |texture| in {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}:
@@ -12494,6 +12565,11 @@ interface GPUCanvasContext {
                         this generates and error and returns an [=invalid=] {{GPUTexture}}.
                         Some validation here is redundant with that done in {{GPUCanvasContext/configure()}}.
                         Implementations **must not** skip this redundant validation.
+                1. [$queue an automatic expiry task$] with device |device| and the following steps:
+
+                    <div data-timeline=content>
+                        1. [$commit the canvas texture$] for |this|.
+                    </div>
                 1. Return |this|.{{GPUCanvasContext/[[currentTexture]]}}.
             </div>
         </div>
@@ -12506,21 +12582,36 @@ interface GPUCanvasContext {
 </dl>
 
 <div algorithm>
-    In the "update the rendering or user interface of that `Document`" sub-step of the
-    "[=Update the rendering=]" step of the HTML processing model, each {{GPUCanvasContext}} |context|
-    must <dfn abstract-op>update the rendering of the WebGPU canvas</dfn> by running the following steps:
+    To <dfn abstract-op>commit the canvas texture</dfn> for {{GPUCanvasContext}} |context|:
 
     1. Update the rendering of |context|.{{GPUCanvasContext/canvas}} with
         [$get a copy of the image contents of a context|a copy of the image contents$] of |context|.
+
+        Note: The image still won't be presented until the whole document's rendering is updated
+        in "[=Update the rendering=]".
     1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`:
         1. Call |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}
             (without destroying |context|.{{GPUCanvasContext/[[drawingBuffer]]}})
             to terminate write access to the image.
         1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
 
+    Note:
+    This will be called multiple times for the same texture, in some order, from both
+    {{GPUCanvasContext/getCurrentTexture()}} and [$update the rendering of the WebGPU canvas$].
+    The second call has no effect.
+
     Note: If {{GPUCanvasConfiguration/alphaMode}} is {{GPUCanvasAlphaMode/"opaque"}},
     the presented image has its alpha channel cleared. Implementations may skip this step if they
     are able to composite images in a way that ignores the alpha channel (as if it is 1.0).
+</div>
+
+<div algorithm>
+    In the "update the rendering or user interface of that `Document`" sub-step of the
+    "[=Update the rendering=]" step of the
+    [[HTML#event-loop-processing-model|HTML processing model]], each {{GPUCanvasContext}} |context|
+    must <dfn abstract-op>update the rendering of the WebGPU canvas</dfn> by running the following steps:
+
+    1. [$commit the canvas texture$] for |context|.
 </div>
 
 <div algorithm="transferToImageBitmap from WebGPU">
@@ -12567,9 +12658,9 @@ this incurs a clear of the alpha channel. If a canvas is only needed for interop
                 1. Tag |snapshot| as being opaque.
 
                 Note:
-                If the {{GPUTexture}} exposing this {{GPUCanvasContext/[[currentTexture]]}} (if any) has
-                been [$Replace the drawing buffer|destroyed$], the alpha channel is unobservable, and
-                implementations may clear the alpha channel in-place.
+                If the {{GPUCanvasContext/[[currentTexture]]}}, if any, has been destroyed
+                (for example in [$Replace the drawing buffer$]), the alpha channel is unobservable,
+                and implementations may clear the alpha channel in-place.
 
             : Otherwise:
             :: Tag |snapshot| with |alphaMode|.
@@ -13037,9 +13128,13 @@ partial interface GPUDevice {
     <div data-timeline=content>
         [=Content timeline=] steps:
 
-        1. If the user agent chooses, [=queue a task=] to fire a
-            {{GPUUncapturedErrorEvent}} named "{{GPUDevice/uncapturederror}}" on
-            |device| with an {{GPUUncapturedErrorEvent/error}} of |error|.
+        1. If the user agent chooses, [$queue a global task for GPUDevice$] |device|
+            with the following steps:
+
+            <div data-timeline=content>
+                1. Fire a {{GPUUncapturedErrorEvent}} named "{{GPUDevice/uncapturederror}}" on
+                    |device|, with an {{GPUUncapturedErrorEvent/error}} of |error|.
+            </div>
 
         Note: If (and only if) there are no {{GPUDevice/uncapturederror}} handlers are
         registered, user agents **should** surface uncaptured errors to developers,
@@ -13107,8 +13202,8 @@ partial interface GPUDevice {
                 1. If any of the following requirements are unmet:
 
                     <div class=validusage>
-                        - |this| must not be [=lose the device|lost=].
-                        - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] &gt; 0.
+                        - |this| must be [=valid=].
+                        - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] must be &gt; 0.
                     </div>
 
                     Then issue the following steps on <var data-timeline=content>contentTimeline</var>
