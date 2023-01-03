@@ -1,4 +1,4 @@
-// Copyright (C) [2022] World Wide Web Consortium,
+// Copyright (C) [2023] World Wide Web Consortium,
 // (Massachusetts Institute of Technology, European Research Consortium for
 // Informatics and Mathematics, Keio University, Beihang).
 // All Rights Reserved.
