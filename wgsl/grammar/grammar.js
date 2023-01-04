@@ -428,7 +428,8 @@ module.exports = grammar({
             token('rg32float'),
             token('rgba32uint'),
             token('rgba32sint'),
-            token('rgba32float')
+            token('rgba32float'),
+            token('bgra8unorm')
         ),
         extension_name: $ => token('f16'),
         swizzle_name: $ => choice(
