@@ -76,11 +76,11 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: interpolation; url: interpolation
         text: pipeline-overridable; url: pipeline-overridable
         text: pipeline-overridable constant identifier string; url: pipeline-overridable-constant-identifier-string
-        text: pipeline-overridable constant has a default value; url: pipeline-overridable-constant-has-a-default-value
-        text: interface of a shader stage; url: interface-of-a-shader-stage
-        text: pipeline output; url: pipeline-output
-        text: pipeline input; url: pipeline-input
-        text: builtin; url: builtin-variables
+        text: pipeline-overridable constant default value; url: pipeline-overridable-constant-default-value
+        text: interface of a shader stage; url: interface-of-a-shader
+        text: shader stage output; url: shader-stage-outputs
+        text: shader stage input; url: shader-stage-inputs
+        text: builtin; url: built-in-values
         text: channel formats; url: channel-formats
         text: invalid memory reference; url: invalid-memory-reference
         text: shader module creation; url: shader-module-creation
@@ -97,12 +97,19 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: WGSL scalar type; url: scalar-types
         text: @binding; url: attribute-binding
         text: @group; url: attribute-group
+        text: line break; url: line-break
         for: address spaces
             text: workgroup; url: address-spaces-workgroup
         for: extension
             text: f16; url: extension-f16
     type: abstract-op
         text: SizeOf; url: sizeof
+spec: Internationalization Glossary; urlPrefix: https://www.w3.org/TR/i18n-glossary/#
+    type: dfn
+        text: localizable text; url: def_localizable_text
+spec: Strings on the Web; urlPrefix: https://w3c.github.io/string-meta/#
+    type: dfn
+        text: best practices for language and direction information; url: bp_and-reco
 </pre>
 
 <style>
@@ -1019,6 +1026,9 @@ has components working on different timelines in parallel:
 :: Associated with the execution of the Web script.
     It includes calling all methods described by this specification.
 
+    To issue steps to the content timeline from an operation on {{GPUDevice}} `device`,
+    [$queue a global task for GPUDevice$] `device` with those steps.
+
 : <dfn dfn>Device timeline</dfn>
 :: Associated with the GPU device operations
     that are issued by the user agent.
@@ -1347,7 +1357,8 @@ through which [=internal objects=] are created.
 It can be shared across multiple [=agents=] (e.g. dedicated workers).
 
 A [=device=] is the exclusive owner of all [=internal objects=] created from it:
-when the [=device=] is [=lose the device|lost=] or {{GPUDevice/destroy()|destroyed}},
+when the [=device=] becomes [=invalid=]
+(is [=lose the device|lost=] or {{GPUDevice/destroy()|destroyed}}),
 it and all objects created on it (directly, e.g.
 {{GPUDevice/createTexture()}}, or indirectly, e.g. {{GPUTexture/createView()}}) become
 implicitly [$valid to use with|unusable$].
@@ -1386,23 +1397,30 @@ A [=device=] has the following internal slots:
 </div>
 
 Any time the user agent needs to revoke access to a device, it calls
-[=lose the device=](device, `undefined`).
-For example, if an operation fails with side effects that would observably
-change the state of objects on the device or potentially corrupt internal
-implementation/driver state, the device should be lost to prevent further access.
+[=lose the device=](`device`, `undefined`) on the device's [=device timeline=],
+potentially ahead of other operations currently queued on that timeline.
 
-<div algorithm>
+If an operation fails with side effects that would observably change the state
+of objects on the device or potentially corrupt internal implementation/driver state,
+the device **should** be lost to prevent these changes from being observable.
+
+<div algorithm data-timeline=device>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
 
     1. Make |device|.{{device/[[adapter]]}} [=invalid=].
     1. Make |device| [=invalid=].
-    1. Issue: explain how to get from |device| to its "primary" {{GPUDevice}}.
-    1. Resolve |device|.{{GPUDevice/lost}} with a new {{GPUDeviceLostInfo}} with
-        {{GPUDeviceLostInfo/reason}} set to |reason| and
-        {{GPUDeviceLostInfo/message}} set to an implementation-defined value.
+    1. Let |gpuDevice| be the [=content timeline=] {{GPUDevice}} corresponding to |device|.
 
-        Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
-        information and should never be parsed by applications.
+        Issue: Define this more rigorously.
+    1. Issue the following steps on the [=content timeline=] of |gpuDevice|:
+        <div data-timeline=content>
+            1. Resolve |device|.{{GPUDevice/lost}} with a new {{GPUDeviceLostInfo}} with
+                {{GPUDeviceLostInfo/reason}} set to |reason| and
+                {{GPUDeviceLostInfo/message}} set to an implementation-defined value.
+
+                Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
+                information and should never be parsed by applications.
+        </div>
 </div>
 
 [=Devices=] are exposed via {{GPUDevice}}.
@@ -1970,6 +1988,60 @@ For more information on issuing CORS requests for image and video elements, cons
 - [[html#the-img-element]] <{img}>
 - [[html#media-elements]] {{HTMLMediaElement}}
 
+## Task Sources ## {#task-sources}
+
+### WebGPU Task Source ### {#-webgpu-task-source}
+
+WebGPU defines a new [=task source=] called the <dfn dfn>WebGPU task source</dfn>.
+It is used for the {{GPUDevice/uncapturederror}} event and {{GPUDevice}}.{{GPUDevice/lost}}.
+
+<div algorithm>
+    To <dfn abstract-op>queue a global task for {{GPUDevice}}</dfn> |device|,
+    with a series of steps |steps|:
+
+    1. [=Queue a global task=] on the [=WebGPU task source=], with the global object that was used
+        to create |device|, and the steps |steps|.
+</div>
+
+### Automatic Expiry Task Source ### {#-automatic-expiry-task-source}
+
+WebGPU defines a new [=task source=] called the <dfn dfn>automatic expiry task source</dfn>.
+It is used for the automatic, timed expiry (destruction) of certain objects:
+
+- {{GPUTexture}}s returned by {{GPUCanvasContext/getCurrentTexture()}}
+- Issue(gpuweb/gpuweb#3324): {{GPUExternalTexture}}s created from {{HTMLVideoElement}}s?
+
+<div algorithm>
+    To <dfn abstract-op>queue an automatic expiry task</dfn>
+    with {{GPUDevice}} |device| and a series of steps |steps|:
+
+    1. [=Queue a global task=] on the [=automatic expiry task source=], with the global object that
+        was used to create |device|, and the steps |steps|.
+</div>
+
+Tasks from the [=automatic expiry task source=] **should** be processed with high priority; in
+particular, once queued, they **should** run before user-defined (JavaScript) tasks.
+This results in stricter behavior that helps developers write more portable applications, but
+developers are still strongly encouraged to test in multiple implementations.
+
+<div class=note>
+    Note: Since task source priority is not normatively defined, there is a range of points at which
+    tasks from this task queue can execute. In practice, this means these tasks can be implemented
+    with fixed steps inside the [[HTML#event-loop-processing-model|HTML processing model]].
+    All of the following options are valid:
+
+    - Immediately after running any task.
+    - Immediately after running animation frame callbacks.
+    - Immediately before rendering.
+        Note this choice results in less predictable expiry, especially for non-visible canvases
+        (e.g. scrolled off the screen or in a background tab), potentially allowing invalid programs
+        to appear correct or changing the behavior of websites which (incorrectly) rely on expiry
+        timing.
+
+        In the case of canvas texture expiry, expiry is also done in [$update the rendering of
+        the WebGPU canvas$], so it's equivalent for an implementation to elide the task entirely.
+n</div>
+
 ## Color Spaces and Encoding ## {#color-spaces}
 
 WebGPU does not provide color management. All values within WebGPU (such as texture elements)
@@ -2047,9 +2119,11 @@ Several parts of the WebGPU API ([=pipeline-overridable=] {{GPUProgrammableStage
 render pass clear values) take numeric values from WebIDL ({{double}} or {{float}}) and convert
 them to WGSL values (`bool`, `i32`, `u32`, `f32`, `f16`).
 
-<div algorithm>
+<div algorithm data-timeline=device>
     To convert an IDL value |idlValue| of type {{double}} or {{float}} <dfn abstract-op>to WGSL type</dfn> |T|,
     possibly throwing a {{TypeError}}:
+
+    Note: This {{TypeError}} is generated in the [=device timeline=] and never surfaced to JavaScript.
 
     1. [=Assert=] |idlValue| is a finite value, since it is not {{unrestricted double}} or {{unrestricted float}}.
 
@@ -2091,13 +2165,16 @@ them to WGSL values (`bool`, `i32`, `u32`, `f32`, `f16`).
                 1. Return <code>f16(|wgslF32|)</code>, the result of [=!=] converting the WGSL `f32` value
                     to `f16` as defined in [=WGSL floating point conversion=].
 
-                Note: An error is not thrown if the value is out-of-range for `f16` but in-range for `f32`.
+                Note: As long as the value is in-range of `f32`, no error is thrown, even if the
+                value is out-of-range of `f16`.
         </dl>
 </div>
 
-<div algorithm>
+<div algorithm data-timeline=device>
     To convert a {{GPUColor}} |color| <dfn abstract-op>to a texel value of texture format</dfn> |format|,
     possibly throwing a {{TypeError}}:
+
+    Note: This {{TypeError}} is generated in the [=device timeline=] and never surfaced to JavaScript.
 
     1. If the components of |format| ([=assert=] they all have the same type) are:
 
@@ -2310,7 +2387,8 @@ enum GPUPowerPreference {
         Note:
         The primary utility of this hint is to influence which GPU is used in a multi-GPU system.
         For instance, some laptops have a low-power integrated GPU and a high-performance
-        discrete GPU.
+        discrete GPU. This hint may also affect the power configuration of the selected GPU to
+        match the requested power preference.
 
         Note:
         Depending on the exact hardware configuration, such as battery status and attached displays
@@ -2506,7 +2584,8 @@ interface GPUAdapter {
                         reinitialization logic starting with {{GPU/requestAdapter()}}.
 
                     Otherwise:
-                        1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
+
+                    1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
 
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
@@ -2514,6 +2593,10 @@ interface GPUAdapter {
                 [=Content timeline=] steps:
 
                 1. [=Resolve=] |promise| with a new {{GPUDevice}} object |device|.
+
+                    Note:
+                    If the device is already lost because the adapter could not fulfill the request,
+                    |device|.{{GPUDevice/lost}} has already resolved before |promise| resolves.
             </div>
         </div>
 
@@ -3433,16 +3516,15 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                         <div data-timeline=content>
                             [=Content timeline=] steps:
 
-                            1. If |this|.{{GPUBuffer/[[pending_map]]}} is `null`:
+                            1. If |this|.{{GPUBuffer/[[pending_map]]}} != |p|:
 
                                 Note: The map has been cancelled by {{GPUBuffer/unmap()}}.
 
-                                1. [=Assert=] |this|.{{GPUBuffer/[[mapping]]}} is `null`.
+                                1. [=Assert=] |p| is rejected.
                                 1. Return.
-                            1. [=Assert=] |this|.{{GPUBuffer/[[pending_map]]}} == |p|.
                             1. [=Assert=] |p| is pending.
-                            1. [=Reject=] |p| with an {{OperationError}}.
-                            1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`.
+                            1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`,
+                                and [=reject=] |p| with an {{OperationError}}.
                         </div>
 
                     1. [$Generate a validation error$].
@@ -3470,7 +3552,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                 1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=].
 
                     Note: If, and only if, at this point the buffer has become "[=buffer internals/state/available=]"
-                    again due to an {{GPUBuffer/unmap()}} call, then {{GPUBuffer/[[pending_map]]}} below will be null,
+                    again due to an {{GPUBuffer/unmap()}} call, then {{GPUBuffer/[[pending_map]]}} != |p| below,
                     so mapping will not succeed in the steps below.
                 1. Let |dataForMappedRegion| be the contents of |this| starting at offset |offset|, for |rangeSize| bytes.
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
@@ -3478,14 +3560,12 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
             <div data-timeline=content>
                 [=Content timeline=] steps:
 
-                1. If |this|.{{GPUBuffer/[[pending_map]]}} is `null`:
+                1. If |this|.{{GPUBuffer/[[pending_map]]}} != |p|:
 
                     Note: The map has been cancelled by {{GPUBuffer/unmap()}}.
 
-                    1. [=Assert=] |internalStateAtCompletion| is "[=buffer internals/state/available=]".
-                    1. [=Assert=] |this|.{{GPUBuffer/[[mapping]]}} is `null`.
+                    1. [=Assert=] |p| is rejected.
                     1. Return.
-                1. [=Assert=] |this|.{{GPUBuffer/[[pending_map]]}} == |p|.
                 1. [=Assert=] |p| is pending.
                 1. [=Assert=] |internalStateAtCompletion| is "[=buffer internals/state/unavailable=]".
                 1. Let |mapping| be [$initialize an active buffer mapping$]
@@ -3493,12 +3573,13 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     If this allocation fails:
 
-                    1. [=Reject=] |p| with a {{RangeError}}.
+                    1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`,
+                        and [=reject=] |p| with a {{RangeError}}.
                     1. Return.
                 1. Set the content of |mapping|.[=active buffer mapping/data=] to |dataForMappedRegion|.
                 1. Set |this|.{{GPUBuffer/[[mapping]]}} to |mapping|.
-                1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`.
-                1. [=Resolve=] |p|.
+                1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`,
+                    and [=resolve=] |p|.
             </div>
         </div>
 
@@ -4925,7 +5006,8 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
 </dl>
 
 <div algorithm="expire stale external textures">
-    Immediately before the "[=Update the rendering=]" step of the HTML processing model,
+    Immediately before the "[=Update the rendering=]" step of the
+    [[HTML#event-loop-processing-model|HTML processing model]],
     run the following steps to <dfn abstract-op>expire stale external textures</dfn>:
 
     1. For each |texture| in {{GPUExternalTexture}}.{{GPUExternalTexture/[[active_imports]]}}:
@@ -6331,7 +6413,7 @@ dictionary GPUShaderModuleDescriptor : GPUObjectDescriptorBase {
 
             @vertex
             fn vertexMain(@builtin(vertex_index) vertexIndex : u32) -&gt; @builtin(position) vec4&lt;f32&gt; {
-                return vec4(pos[input.vertexIndex], 1.0, 1.0);
+                return vec4(pos[vertexIndex], 1.0, 1.0);
             }
 
             @fragment
@@ -6423,26 +6505,33 @@ any specific point in the code at all.
 <dl dfn-type=attribute dfn-for=GPUCompilationMessage>
     : <dfn>message</dfn>
     ::
-        A human-readable string containing the message generated during the shader compilation.
+        The human-readable, [=localizable text=] for this compilation message.
+
+        Note: The {{GPUCompilationMessage/message}} should follow the [=best practices for language
+        and direction information=]. This includes making use of any future standards which may
+        emerge regarding the reporting of string language and direction metadata.
+
+        <p class="note editorial">Editorial:
+        At the time of this writing, no language/direction recommendation is available that provides
+        compatibility and consistency with legacy APIs, but when there is, adopt it formally.
 
     : <dfn>type</dfn>
     ::
         The severity level of the message.
 
-        If the {{GPUCompilationMessage/type}} is "error", it corresponds to a
-        [=shader-creation error=].
+        If the {{GPUCompilationMessage/type}} is {{GPUCompilationMessageType/"error"}}, it
+        corresponds to a [=shader-creation error=].
 
     : <dfn>lineNum</dfn>
     ::
         The line number in the shader {{GPUShaderModuleDescriptor/code}} the
         {{GPUCompilationMessage/message}} corresponds to. Value is one-based, such that a lineNum of
-        `1` indicates the first line of the shader {{GPUShaderModuleDescriptor/code}}.
+        `1` indicates the first line of the shader {{GPUShaderModuleDescriptor/code}}. Lines are
+        delimited by [=line breaks=].
 
         If the {{GPUCompilationMessage/message}} corresponds to a substring this points to
         the line on which the substring begins. Must be `0` if the {{GPUCompilationMessage/message}}
         does not correspond to any specific point in the shader {{GPUShaderModuleDescriptor/code}}.
-
-        Issue(gpuweb/gpuweb#2435): Reference WGSL spec when it [defines what a line is](https://gpuweb.github.io/gpuweb/wgsl/#comments).
 
     : <dfn>linePos</dfn>
     ::
@@ -6496,7 +6585,66 @@ Note: {{GPUCompilationMessage}}.{{GPUCompilationMessage/offset}} and
 
                 [=Content timeline=] steps:
 
-                Issue: Describe {{GPUShaderModule/compilationInfo()}} algorithm steps.
+                1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
+                1. Let |promise| be [=a new promise=].
+                1. Issue the |synchronization steps| on the [=Device timeline=] of |this|.
+                1. Return |promise|.
+            </div>
+            <div data-timeline=device>
+                [=Device timeline=] |synchronization steps|:
+
+                1. When the [=device timeline=] becomes informed that [=shader module creation=] has
+                    completed for |this|:
+                    1. Let |messages| be a list of any errors, warnings, or informational messages
+                        generated during [=shader module creation=] for |this|.
+                    1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+            </div>
+            <div data-timeline=content>
+                [=Content timeline=] steps:
+
+                1. Let |info| be a new {{GPUCompilationInfo}}.
+                1. For each |message| in |messages|:
+                    1. Let |m| be a new {{GPUCompilationMessage}}.
+                    1. Set |m|.{{GPUCompilationMessage/message}} to be the text of |message|.
+                    1.
+                        <dl class=switch>
+                            : If |message| is a [=shader-creation error=]:
+                            :: Set |m|.{{GPUCompilationMessage/type}} to
+                                {{GPUCompilationMessageType/"error"}}
+                            : If |message| is a warning:
+                            :: Set |m|.{{GPUCompilationMessage/type}} to
+                                {{GPUCompilationMessageType/"warning"}}
+                            : Otherwise:
+                            :: Set |m|.{{GPUCompilationMessage/type}} to
+                                {{GPUCompilationMessageType/"info"}}
+                        </dl>
+                    1.
+                        <dl class=switch>
+                            : If |message| is associated with a specific substring or position
+                                within the shader {{GPUShaderModuleDescriptor/code}}:
+                            ::
+                                1. Set |m|.{{GPUCompilationMessage/lineNum}} to the one-based number
+                                    of the first line that the message refers to.
+                                1. Set |m|.{{GPUCompilationMessage/linePos}} to the one-based number
+                                    of the first UTF-16 code units on |m|.{{GPUCompilationMessage/lineNum}}
+                                    that the message refers to, or `1` if the |message| refers to
+                                    the entire line.
+                                1. Set |m|.{{GPUCompilationMessage/offset}} to the number of UTF-16
+                                    code units from the beginning of the shader to beginning of the
+                                    substring or position that |message| refers to.
+                                1. Set |m|.{{GPUCompilationMessage/length}} the length of the
+                                    substring in UTF-16 code units that |message| refers to, or 0
+                                    if |message| refers to a position
+                            : Otherwise:
+                            ::
+                                1. Set |m|.{{GPUCompilationMessage/lineNum}} to `0`.
+                                1. Set |m|.{{GPUCompilationMessage/linePos}} to `0`.
+                                1. Set |m|.{{GPUCompilationMessage/offset}} to `0`.
+                                1. Set |m|.{{GPUCompilationMessage/length}} to `0`.
+                        </dl>
+                    1. [=list/Append=] |m| to |info|.{{GPUCompilationInfo/messages}}.
+
+                1. [=Resolve=] |promise| with |info|.
             </div>
         </div>
 </dl>
@@ -6517,9 +6665,102 @@ and link it together with the shaders provided by the user.
 This linking is one of the reason the object is created as a whole.
 
 This combination state is created as a single object
-(by {{GPUDevice/createComputePipeline(descriptor)|GPUDevice.createComputePipeline()}} or {{GPUDevice/createRenderPipeline(descriptor)|GPUDevice.createRenderPipeline()}}),
-and switched as one
-(by {{GPUComputePassEncoder/setPipeline(pipeline)|GPUComputePassEncoder.setPipeline}} or {{GPURenderCommandsMixin/setPipeline(pipeline)|GPURenderCommandsMixin.setPipeline}} correspondingly).
+(a {{GPUComputePipeline}} or {{GPURenderPipeline}})
+and switched using one command
+({{GPUComputePassEncoder}}.{{GPUComputePassEncoder/setPipeline()}} or
+{{GPURenderCommandsMixin}}.{{GPURenderCommandsMixin/setPipeline()}} respectively).
+
+There are two ways to create pipelines:
+
+: <dfn dfn>immediate pipeline creation</dfn>
+:: {{GPUDevice/createComputePipeline()}} and {{GPUDevice/createRenderPipeline()}}
+    return a pipeline object which can be used immediately in a pass encoder.
+
+    When this fails, the pipeline object will be invalid and the call will generate either a
+    [$validation error$] or an [$internal error$].
+
+    Note:
+    A handle object is returned immediately, but actual pipeline creation is not synchronous.
+    If pipeline creation takes a long time, this can incur a stall in the
+    [=device timeline=] at some point between the creation call and execution of the
+    {{GPUQueue/submit()}} in which it is first used.
+    The point is unspecified, but most likely to be one of: at creation, at the first usage of the
+    pipeline in `setPipeline()`, at the corresponding `finish()` of that {{GPUCommandEncoder}} or
+    {{GPURenderBundleEncoder}}, or at {{GPUQueue/submit()}} of that {{GPUCommandBuffer}}.
+
+: <dfn dfn>async pipeline creation</dfn>
+:: {{GPUDevice/createComputePipelineAsync()}} and {{GPUDevice/createRenderPipelineAsync()}}
+    return a `Promise` which resolves to a pipeline object when creation of the pipeline has
+    completed.
+
+    When this fails, the `Promise` rejects with a {{GPUPipelineError}}.
+
+<dfn interface>GPUPipelineError</dfn> describes a pipeline creation failure.
+
+Issue: According to [whatwg/webidl#1211](https://github.com/whatwg/webidl/pull/1211),
+to conform to the standard pattern, `message` should be optional and default to `""`.
+
+<script type=idl>
+[Exposed=(Window, DedicatedWorker), SecureContext, Serializable]
+interface GPUPipelineError : DOMException {
+    constructor(DOMString message, GPUPipelineErrorInit options);
+    readonly attribute GPUPipelineErrorReason reason;
+};
+
+dictionary GPUPipelineErrorInit {
+    required GPUPipelineErrorReason reason;
+};
+
+enum GPUPipelineErrorReason {
+    "validation",
+    "internal"
+};
+</script>
+
+{{GPUPipelineError}} constructor:
+
+<dl dfn-type=constructor dfn-for=GPUPipelineError data-timeline=content>
+    : <dfn>constructor()</dfn>
+    ::
+        <div algorithm="GPUPipelineError constructor">
+            <pre class=argumentdef for="GPUPipelineError/constructor()">
+                |message|: Error message of the base {{DOMException}}.
+                |options|: Options specific to {{GPUPipelineError}}.
+            </pre>
+
+            1. Set [=this=].{{DOMException/name}} to `"GPUPipelineError"`.
+            1. Set [=this=].{{DOMException/message}} to |message|.
+            1. Set [=this=].{{GPUPipelineError/reason}} to |options|.{{GPUPipelineErrorInit/reason}}.
+        </div>
+</dl>
+
+{{GPUPipelineError}} has the following attributes:
+
+<dl dfn-type=attribute dfn-for=GPUPipelineError>
+    : <dfn>reason</dfn>
+    ::
+        A read-only [=slot-backed attribute=] exposing the type of error encountered in pipeline creation
+        as a <dfn enum for=>GPUPipelineErrorReason</dfn>:
+
+        <ul dfn-type=enum-value dfn-for=GPUPipelineErrorReason>
+            - <dfn>"validation"</dfn>: A [$validation error$].
+            - <dfn>"internal"</dfn>: An [$internal error$].
+        </ul>
+</dl>
+
+{{GPUPipelineError}} objects are [=serializable objects=].
+
+<div algorithm="GPUPipelineError serialization steps" data-timeline=content>
+    Their [=serialization steps=], given |value| and |serialized|, are:
+
+    1. Run the {{DOMException}} [=serialization steps=] given |value| and |serialized|.
+</div>
+
+<div algorithm="GPUPipelineError deserialization steps" data-timeline=content>
+    Their [=deserialization steps=], given |value| and |serialized|, are:
+
+    1. Run the {{DOMException}} [=deserialization steps=] given |value| and |serialized|.
+</div>
 
 ## Base pipelines ## {#pipeline-base}
 
@@ -6831,7 +7072,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         </div>
 </dl>
 
-<div algorithm>
+<div algorithm data-timeline=device>
     <dfn abstract-op>validating GPUProgrammableStage</dfn>(stage, descriptor, layout)
 
     **Arguments:**
@@ -6863,7 +7104,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     - For each [=pipeline-overridable constant identifier string=] |key| which is
         [=statically used=] by |descriptor|:
         - If the pipeline-overridable constant identified by |key|
-            [=pipeline-overridable constant has a default value|does not have a default value=],
+            [=pipeline-overridable constant default value|does not have a default value=],
             |descriptor|.{{GPUProgrammableStage/constants}} must [=map/contain=] |key|.
 
     A return value of `false` corresponds to a [=pipeline-creation error=].
@@ -7059,7 +7300,7 @@ GPUComputePipeline includes GPUPipelineBase;
 
 ### Compute Pipeline Creation ### {#compute-pipeline-creation}
 
-A {{GPURenderPipelineDescriptor}} describes a compute [=pipeline=]. See
+A {{GPUComputePipelineDescriptor}} describes a compute [=pipeline=]. See
 [[#computing-operations]] for additional details.
 
 <script type=idl>
@@ -7079,7 +7320,7 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createComputePipeline(descriptor)</dfn>
     ::
-        Creates a {{GPUComputePipeline}}.
+        Creates a {{GPUComputePipeline}} using [=immediate pipeline creation=].
 
         <div algorithm=GPUDevice.createComputePipeline>
             <div data-timeline=content>
@@ -7138,10 +7379,11 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
 
     : <dfn>createComputePipelineAsync(descriptor)</dfn>
     ::
-        Creates a {{GPUComputePipeline}}. The returned {{Promise}} resolves when the created pipeline
+        Creates a {{GPUComputePipeline}} using [=async pipeline creation=].
+        The returned {{Promise}} resolves when the created pipeline
         is ready to be used without additional delay.
 
-        If pipeline creation fails, the returned {{Promise}} rejects with an {{OperationError}}.
+        If pipeline creation fails, the returned {{Promise}} rejects with an {{GPUPipelineError}}.
 
         Note: Use of this method is preferred whenever possible, as it prevents blocking the
         [=queue timeline=] work on pipeline compilation.
@@ -7177,7 +7419,17 @@ dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
             <div data-timeline=content>
                 [=Content timeline=] steps:
 
-                1. [=Resolve=] |promise| with |pipeline|.
+                1. If |pipeline|...
+                    <dl class=switch>
+                        : [=valid=]
+                        :: [=Resolve=] |promise| with |pipeline|.
+                        : [=invalid=] due to an [$internal error$]
+                        :: [=Reject=] |promise| with a {{GPUPipelineError}} with
+                            {{GPUPipelineErrorInit/reason}} {{GPUPipelineErrorReason/"internal"}}.
+                        : [=invalid=] due to an [$validation error$]
+                        :: [=Reject=] |promise| with a {{GPUPipelineError}} with
+                            {{GPUPipelineErrorInit/reason}} {{GPUPipelineErrorReason/"validation"}}.
+                    </dl>
             </div>
         </div>
 </dl>
@@ -7294,7 +7546,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createRenderPipeline(descriptor)</dfn>
     ::
-        Creates a {{GPURenderPipeline}}.
+        Creates a {{GPURenderPipeline}} using [=immediate pipeline creation=].
 
         <div algorithm=GPUDevice.createRenderPipeline>
             <div data-timeline=content>
@@ -7362,10 +7614,11 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
 
     : <dfn>createRenderPipelineAsync(descriptor)</dfn>
     ::
-        Creates a {{GPURenderPipeline}}. The returned {{Promise}} resolves when the created pipeline
+        Creates a {{GPURenderPipeline}} using [=async pipeline creation=].
+        The returned {{Promise}} resolves when the created pipeline
         is ready to be used without additional delay.
 
-        If pipeline creation fails, the returned {{Promise}} rejects with an {{OperationError}}.
+        If pipeline creation fails, the returned {{Promise}} rejects with an {{GPUPipelineError}}.
 
         Note: Use of this method is preferred whenever possible, as it prevents blocking the
         [=queue timeline=] work on pipeline compilation.
@@ -7401,12 +7654,22 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
             <div data-timeline=content>
                 [=Content timeline=] steps:
 
-                1. [=Resolve=] |promise| with |pipeline|.
+                1. If |pipeline| is...
+                    <dl class=switch>
+                        : [=valid=]
+                        :: [=Resolve=] |promise| with |pipeline|.
+                        : [=invalid=] due to an [$internal error$]
+                        :: [=Reject=] |promise| with a {{GPUPipelineError}} with
+                            {{GPUPipelineErrorInit/reason}} {{GPUPipelineErrorReason/"internal"}}.
+                        : [=invalid=] due to an [$validation error$]
+                        :: [=Reject=] |promise| with a {{GPUPipelineError}} with
+                            {{GPUPipelineErrorInit/reason}} {{GPUPipelineErrorReason/"validation"}}.
+                    </dl>
             </div>
         </div>
 </dl>
 
-<div algorithm>
+<div algorithm data-timeline=device>
     <dfn abstract-op>validating GPURenderPipelineDescriptor</dfn>(descriptor, layout, device)
 
     **Arguments:**
@@ -7425,20 +7688,19 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
         - [$validating GPUProgrammableStage$]({{GPUShaderStage/FRAGMENT}},
             |descriptor|.{{GPURenderPipelineDescriptor/fragment}}, |layout|) succeeds.
         - [$validating GPUFragmentState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}}) succeeds.
-        - If the "sample_mask" [=builtin=] is a [=pipeline output=] of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
+        - If the "sample_mask" [=builtin=] is a [=shader stage output=] of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
             - |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}} is `false`.
+        - For each user-defined input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}} there
+            must be a user-defined output of |descriptor|.{{GPURenderPipelineDescriptor/vertex}} that
+            [=location=], type, and [=interpolation=] of the input.
+
+            Note: This means that vertex-only pipelines can have user-defined outputs in the vertex stage:
+            they will be discarded.
+
     - [$validating GPUPrimitiveState$](|descriptor|.{{GPURenderPipelineDescriptor/primitive}}, |device|) succeeds.
     - If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is not `null`:
         - [$validating GPUDepthStencilState$](|descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}) succeeds.
     - [$validating GPUMultisampleState$](|descriptor|.{{GPURenderPipelineDescriptor/multisample}}) succeeds.
-    - For each user-defined input of
-        |descriptor|.{{GPURenderPipelineDescriptor/fragment}} there
-        must be a user-defined output of
-        |descriptor|.{{GPURenderPipelineDescriptor/vertex}} that
-        [=location=],
-        type, and
-        [=interpolation=]
-        of the input.
     - [$validating inter-stage interfaces$](|device|, |descriptor|) returns `true`.
 </div>
 
@@ -7724,7 +7986,7 @@ dictionary GPUFragmentState : GPUProgrammableStage {
             - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
                 must be a [=valid GPUBlendComponent=].
         - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
-        - If |descriptor|.{{GPUProgrammableStage/entryPoint}} has a [=pipeline output=] value |output|
+        - If |descriptor|.{{GPUProgrammableStage/entryPoint}} has a [=shader stage output=] value |output|
             with [=location=] attribute equal to |index|:
 
             - For each component in |colorState|.{{GPUColorTargetState/format}}, there must be a
@@ -7836,7 +8098,7 @@ location:
             <td>Color currently in the color attachment.
         <tr>
             <td><b><code>RGBA<sub>const</src></code></b>
-            <td>The current {{GPURenderPassEncoder/[[blend_constant]]}}.
+            <td>The current {{RenderState/[[blendConstant]]}}.
         <tr>
             <td><b><code>RGBA<sub>srcFactor</src></code></b>
             <td>The source blend factor components, as defined by {{GPUBlendComponent/srcFactor}}.
@@ -8125,7 +8387,7 @@ enum GPUStencilOperation {
 
     : <dfn>"replace"</dfn>
     ::
-        Set the stencil value to {{GPURenderPassEncoder/[[stencil_reference]]}}.
+        Set the stencil value to {{RenderState/[[stencilReference]]}}.
 
     : <dfn>"invert"</dfn>
     ::
@@ -8689,6 +8951,10 @@ GPUCommandBuffer includes GPUObjectBase;
     ::
         A [=list=] of [=GPU commands=] to be executed on the [=Queue timeline=] when this command
         buffer is submitted.
+
+    : <dfn>\[[renderState]]</dfn>, of type [=RenderState=]
+    ::
+        The current state used by any render pass commands being executed, initially `null`.
 </dl>
 
 ### Command Buffer Creation ### {#command-buffer-creation}
@@ -8761,6 +9027,15 @@ The <dfn dfn>encoder state</dfn> may be one of the following:
         : "[=encoder state/ended=]"
         :: [$Generate a validation error$], and return `false`.
     </dl>
+</div>
+
+<div algorithm>
+    To <dfn abstract-op>Enqueue a command</dfn> on {{GPUCommandsMixin}} |encoder|
+    which issues the steps of a [=GPU Command=] |command|:
+
+        1. [=list/Append=] |command| to |encoder|.{{GPUCommandsMixin/[[commands]]}}.
+        1. When |command| is executed as part of a {{GPUCommandBuffer}}:
+            1. Issue the steps of |command|.
 </div>
 
 ## <dfn interface>GPUCommandEncoder</dfn> ## {#command-encoder}
@@ -8900,19 +9175,17 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
             <div data-timeline=device>
                 [=Device timeline=] |initialization steps|:
 
-                1. If any of the following requirements are unmet,
-                    [$generate a validation error$], make |pass| [=invalid=], and stop.
-
+                1. [$Validate the encoder state$] of |this|.
+                    If it returns false, make |pass| [=invalid=] and return.
+                1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
+                1. If any of the following requirements are unmet, make |pass| [=invalid=] and return.
                     <div class=validusage>
-                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
                         - |descriptor| must meet the [$GPURenderPassDescriptor/Valid Usage$] rules.
                         - If |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is not [=list/is empty|empty=]:
                             - {{GPUFeatureName/"timestamp-query"}} must be [=enabled for=] |this|.
                         - For each |timestampWrite| in |descriptor|.{{GPURenderPassDescriptor/timestampWrites}}:
                             - |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}} must be [$valid to use with$] |this|.
                     </div>
-
-                1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
                 1. For each non-`null` |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
                     1. The [=texture subresource=] seen by |colorAttachment|.{{GPURenderPassColorAttachment/view}}
                         is considered to be used as [=internal usage/attachment=] for the
@@ -8938,7 +9211,16 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         [=list/Append=] |timestampWrite| to |pass|.{{GPURenderPassEncoder/[[endTimestampWrites]]}}.
                 1. Set |pass|.{{GPURenderCommandsMixin/[[drawCount]]}} to 0.
                 1. Set |pass|.{{GPURenderPassEncoder/[[maxDrawCount]]}} to |descriptor|.{{GPURenderPassDescriptor/maxDrawCount}}.
-                1. Issue: Enqueue attachment loads/clears.
+
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let the {{GPUCommandBuffer/[[renderState]]}} of the currently executing
+                    {{GPUCommandBuffer}} be a new [=RenderState=].
+                1. Issue: Perform attachment loads/clears.
             </div>
 
             Issue: specify the behavior of read-only depth/stencil
@@ -8969,18 +9251,16 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
             <div data-timeline=device>
                 [=Device timeline=] |initialization steps|:
 
-                1. If any of the following requirements are unmet,
-                    [$generate a validation error$], make |pass| [=invalid=], and stop.
-
+                1. [$Validate the encoder state$] of |this|.
+                    If it returns false, make |pass| [=invalid=] and return.
+                1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
+                1. If any of the following requirements are unmet, make |pass| [=invalid=] and return.
                     <div class=validusage>
-                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
                         - If |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is not [=list/is empty|empty=]:
                             - {{GPUFeatureName/"timestamp-query"}} must be [=enabled for=] |this|.
                         - For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}}:
                             - |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}} must be [$valid to use with$] |this|.
                     </div>
-                1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
-
                 1. For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}},
                     1. If |timestampWrite|.{{GPUComputePassTimestampWrite/location}} is {{GPUComputePassTimestampLocation/"beginning"}},
                         [=list/append=] a [=GPU command=] to
@@ -9044,7 +9324,15 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 
                         Issue(gpuweb/gpuweb#69): figure out how to handle overflows in the spec.
                     </div>
-                1. Issue: Describe and enqueue the GPU command.
+
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Copy |size| bytes of |source|, beginning at |sourceOffset|, into |destination|,
+                    beginning at |destinationOffset|.
             </div>
         </div>
 
@@ -9087,7 +9375,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         - |buffer|.{{GPUBuffer/size}} &ge; (|offset| + |size|).
                     </div>
 
-                1. Issue the subsequent steps on the [=Queue timeline=] of |this|.
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] when executed.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
@@ -9154,9 +9443,16 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                             |aspectSpecificFormat|,
                             |copySize|) succeeds.
                     </div>
+
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                Issue: Define copy, including provision for snorm.
             </div>
 
-            Issue: Define copy, including provision for snorm.
         </div>
 
     : <dfn>copyTextureToBuffer(source, destination, copySize)</dfn>
@@ -9213,9 +9509,16 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                             |aspectSpecificFormat|,
                             |copySize|) succeeds.
                     </div>
+
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                Issue: Define copy, including provision for snorm.
             </div>
 
-            Issue: Define copy, including provision for snorm.
         </div>
 
     : <dfn>copyTextureToTexture(source, destination, copySize)</dfn>
@@ -9267,9 +9570,16 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         - The [$set of subresources for texture copy$](|source|, |copySize|) and
                             the [$set of subresources for texture copy$](|destination|, |copySize|) are disjoint.
                     </div>
+
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                Issue: Define copy, including provision for snorm.
             </div>
 
-            Issue: Define copy, including provision for snorm.
         </div>
 </dl>
 
@@ -9311,7 +9621,14 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         - |queryIndex| &lt; |querySet|.{{GPUQuerySet/count}}.
                     </div>
 
-                Issue: Describe {{GPUCommandEncoder/writeTimestamp()}} algorithm steps.
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Write the current timestamp for the [=Queue timeline=], in nanoseconds, into
+                    |querySet| at index |queryIndex|.
             </div>
         </div>
 
@@ -9356,7 +9673,19 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         - |destinationOffset| + 8 &times; |queryCount| &le; |destination|.{{GPUBuffer/size}}.
                     </div>
 
-                Issue: Describe {{GPUCommandEncoder/resolveQuerySet()}} algorithm steps.
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let |queryIndex| be |firstQuery|.
+                1. Let |offset| be |destinationOffset|.
+                1. While |queryIndex| &lt; |firstQuery| + |queryCount|:
+                    1. Set 8 bytes of |destination|, beginning at |offset|, to be the value of
+                        |querySet| at |queryIndex|.
+                    1. Set |queryIndex| to be |queryIndex| + 1.
+                    1. Set |offset| to be |offset| + 8.
             </div>
         </div>
 </dl>
@@ -9815,11 +10144,11 @@ GPUComputePassEncoder includes GPUBindingCommandsMixin;
     ::
         The {{GPUCommandEncoder}} that created this compute pass encoder.
 
-    : <dfn>\[[pipeline]]</dfn>, of type {{GPUComputePipeline}}
+    : <dfn>\[[pipeline]]</dfn>, of type {{GPUComputePipeline}}, readonly
     ::
         The current {{GPUComputePipeline}}, initially `null`.
 
-    : <dfn>\[[endTimestampWrites]]</dfn>, of type {{GPUComputePassTimestampWrites}}
+    : <dfn>\[[endTimestampWrites]]</dfn>, of type {{GPUComputePassTimestampWrites}}, readonly
     ::
         The timestamp attachments which need to be executed when the pass ends.
 </dl>
@@ -9955,15 +10284,15 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                     </div>
 
                 1. Let |passState| be a snapshot of |this|'s current state.
-                1. [=list/Append=] a [=GPU command=] to |this|.{{GPUCommandsMixin/[[commands]]}}
-                    executing the following [=queue timeline=] steps:
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=].
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
 
-                    <div class=queue-timeline>
-                        1. Dispatch a grid of workgroups with dimensions [|workgroupCountX|, |workgroupCountY|,
-                            |workgroupCountZ|] with
-                            |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
-                            |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
-                    </div>
+                1. Execute a grid of workgroups with dimensions [|workgroupCountX|, |workgroupCountY|,
+                    |workgroupCountZ|] with |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
+                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
             </div>
         </div>
 
@@ -10019,11 +10348,27 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
                         - |indirectOffset| is a multiple of 4.
                     </div>
                 1. Add |indirectBuffer| to the [=usage scope=] as {{GPUBufferUsage/INDIRECT}}.
-            </div>
 
-            If any of the dispatch parameters (x, y, or z) is greater than
-            |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}},
-            no workgroups will be dispatched.
+                1. Let |passState| be a snapshot of |this|'s current state.
+                1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=].
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let |workgroupCountX| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    |indirectOffset| bytes.
+                1. Let |workgroupCountY| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 4) bytes.
+                1. Let |workgroupCountZ| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 8) bytes.
+                1. If |workgroupCountX|, |workgroupCountY|, or |workgroupCountZ| is greater than
+                    |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}},
+                    stop.
+                1. Execute a grid of workgroups with dimensions [|workgroupCountX|, |workgroupCountY|,
+                    |workgroupCountZ|] with |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
+                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+            </div>
         </div>
 </dl>
 
@@ -10052,15 +10397,15 @@ called the compute pass encoder can no longer be used.
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
+                1. Let |parentEncoder| be |this|.{{GPURenderPassEncoder/[[command_encoder]]}}.
                 1. If any of the following requirements are unmet,
                     [$generate a validation error$] and stop.
 
                     <div class=validusage>
-                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]",
+                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
+                        - |parentEncoder|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/locked=]".
                     </div>
-                1. Let |parentEncoder| be |this|.{{GPUComputePassEncoder/[[command_encoder]]}}.
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
-                1. [=Assert=]: |parentEncoder|.{{GPUCommandsMixin/[[state]]}} is "[=encoder state/locked=]".
                 1. Set |parentEncoder|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/open=]".
                 1. If any of the following requirements are unmet, make
                     |parentEncoder| [=invalid=] and stop.
@@ -10111,55 +10456,65 @@ GPURenderPassEncoder includes GPUBindingCommandsMixin;
 GPURenderPassEncoder includes GPURenderCommandsMixin;
 </script>
 
-{{GPURenderPassEncoder}} has the following internal slots:
+{{GPURenderPassEncoder}} has the following internal slots used for validation while encoding:
 
 <dl dfn-type=attribute dfn-for=GPURenderPassEncoder>
     : <dfn>\[[command_encoder]]</dfn>, of type {{GPUCommandEncoder}}, readonly
     ::
         The {{GPUCommandEncoder}} that created this render pass encoder.
 
-    : <dfn>\[[attachment_size]]</dfn>
+    : <dfn>\[[attachment_size]]</dfn>, readonly
     ::
         Set to the following extents:
 
         - `width, height` = the dimensions of the pass's render attachments
 
-    : <dfn>\[[occlusion_query_set]]</dfn>, of type {{GPUQuerySet}}.
+    : <dfn>\[[occlusion_query_set]]</dfn>, of type {{GPUQuerySet}}, readonly
     ::
         The {{GPUQuerySet}} to store occlusion query results for the pass, which is initialized with
         {{GPURenderPassDescriptor}}.{{GPURenderPassDescriptor/occlusionQuerySet}} at pass creation time.
 
-    : <dfn>\[[occlusion_query_active]]</dfn>, of type {{boolean}}.
+    : <dfn>\[[occlusion_query_active]]</dfn>, of type {{boolean}}
     ::
         Whether the pass's {{GPURenderPassEncoder/[[occlusion_query_set]]}} is being written.
 
-    : <dfn>\[[viewport]]</dfn>
-    ::  Current viewport rectangle and depth range.
-
-    : <dfn>\[[blend_constant]]</dfn>
-    ::  Current blend constant value, initially `[0, 0, 0, 0]`.
-
-    : <dfn>\[[stencil_reference]]</dfn>
-    ::  Current stencil reference value, initially `0`.
-
-    : <dfn>\[[endTimestampWrites]]</dfn>, of type {{GPURenderPassTimestampWrites}}
+    : <dfn>\[[endTimestampWrites]]</dfn>, of type {{GPURenderPassTimestampWrites}}, readonly
     ::
         The timestamp attachments which need to be executed when the pass ends.
 
-    : <dfn>\[[maxDrawCount]]</dfn> of type {{GPUSize64}}.
+    : <dfn>\[[maxDrawCount]]</dfn> of type {{GPUSize64}}, readonly
     ::
         The maximum number of draws allowed in this pass.
 </dl>
 
-When a {{GPURenderPassEncoder}} is created, it has the following default state:
+When executing encoded render pass commands as part of a {{GPUCommandBuffer}}, an internal
+<dfn dfn>RenderState</dfn> object is used to track the current state required for rendering.
 
-- {{GPURenderPassEncoder/[[viewport]]}}:
-    - `x, y` = `0.0, 0.0`
-    - `width, height` = the dimensions of the pass's render targets
-    - `minDepth, maxDepth` = `0.0, 1.0`
-- Scissor rectangle:
-    - `x, y` = `0, 0`
-    - `width, height` = the dimensions of the pass's render targets
+[=RenderState=] contains the following internal slots used for execution of rendering commands:
+
+<dl dfn-type=attribute dfn-for=RenderState>
+    : <dfn>\[[occlusionQueryIndex]]</dfn>, of type {{GPUSize32}}
+    ::
+        The index into {{GPURenderPassEncoder/[[occlusion_query_set]]}} at which to store the
+        occlusion query results.
+
+    : <dfn>\[[viewport]]</dfn>
+    ::  Current viewport rectangle and depth range. Initially set to the following values:
+        - `x, y` = `0.0, 0.0`
+        - `width, height` = the dimensions of the pass's render targets
+        - `minDepth, maxDepth` = `0.0, 1.0`
+
+    : <dfn>\[[scissorRect]]</dfn>
+    ::  Current scissor rectangle. Initially set to the following values:
+        - `x, y` = `0, 0`
+        - `width, height` = the dimensions of the pass's render targets
+
+    : <dfn>\[[blendConstant]]</dfn>, of type {{GPUColor}}
+    ::  Current blend constant value, initially `[0, 0, 0, 0]`.
+
+    : <dfn>\[[stencilReference]]</dfn>, of type {{GPUStencilValue}}
+    ::  Current stencil reference value, initially `0`.
+</dl>
 
 ### Render Pass Encoder Creation ### {#render-pass-encoder-creation}
 
@@ -10218,7 +10573,7 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
         is a good default, unless it is known that more draw calls will be done.
 </dl>
 
-<div class=validusage dfn-for=GPURenderPassDescriptor>
+<div class=validusage dfn-for=GPURenderPassDescriptor data-timeline=device>
     <dfn abstract-op>Valid Usage</dfn>
 
     Given a {{GPUDevice}} |device| and {{GPURenderPassDescriptor}} |this|, the following validation rules apply:
@@ -10324,7 +10679,7 @@ dictionary GPURenderPassColorAttachment {
         after executing the render pass.
 </dl>
 
-<div class=validusage dfn-for=GPURenderPassColorAttachment>
+<div class=validusage dfn-for=GPURenderPassColorAttachment data-timeline=device>
     <dfn abstract-op>GPURenderPassColorAttachment Valid Usage</dfn>
 
     Given a {{GPURenderPassColorAttachment}} |this|:
@@ -10436,8 +10791,6 @@ dictionary GPURenderPassDepthStencilAttachment {
         The store operation to perform on {{GPURenderPassDepthStencilAttachment/view}}'s
         depth component after executing the render pass.
 
-        Note: It is recommended to prefer a clear-value; see {{GPULoadOp/"load"}}.
-
     : <dfn>depthReadOnly</dfn>
     ::
         Indicates that the depth component of {{GPURenderPassDepthStencilAttachment/view}}
@@ -10488,13 +10841,17 @@ dictionary GPURenderPassDepthStencilAttachment {
     - If |format| has a depth aspect and |this|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} is not `true`:
         - |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} must [=map/exist|be provided=].
         - |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} must [=map/exist|be provided=].
-    - Otherwise:
+
+        Otherwise:
+
         - |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} must not [=map/exist|be provided=].
         - |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} must not [=map/exist|be provided=].
     - If |format| has a stencil aspect and |this|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}} is not `true`:
         - |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} must [=map/exist|be provided=].
         - |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} must [=map/exist|be provided=].
-    - Otherwise:
+
+        Otherwise:
+
         - |this|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} must not [=map/exist|be provided=].
         - |this|.{{GPURenderPassDepthStencilAttachment/stencilStoreOp}} must not [=map/exist|be provided=].
 </div>
@@ -10629,17 +10986,18 @@ called the render pass encoder can no longer be used.
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
+                1. Let |parentEncoder| be |this|.{{GPURenderPassEncoder/[[command_encoder]]}}.
                 1. If any of the following requirements are unmet,
                     [$generate a validation error$] and stop.
 
                     <div class=validusage>
-                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]",
+                        - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
+                        - |parentEncoder|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/locked=]".
                     </div>
-                1. Let |parentEncoder| be |this|.{{GPURenderPassEncoder/[[command_encoder]]}}.
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
-                1. [=Assert=]: |parentEncoder|.{{GPUCommandsMixin/[[state]]}} is "[=encoder state/locked=]".
                 1. Set |parentEncoder|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/open=]".
-                1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
+                1. If any of the following requirements are unmet, make
+                    |parentEncoder| [=invalid=] and stop.
 
                     <div class=validusage>
                         - |this| must be [=valid=].
@@ -10655,7 +11013,16 @@ called the render pass encoder can no longer be used.
                         |parentEncoder|.{{GPUCommandsMixin/[[commands]]}}
                         that writes the GPU's timestamp value into the |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}}th
                         index in |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.
-                1. Issue: Enqueue the attachment stores/discards.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Issue: Perform the attachment stores/discards.
+                1. Let |renderState| be `null`.
+            </div>
             </div>
         </div>
 </dl>
@@ -10685,21 +11052,21 @@ interface mixin GPURenderCommandsMixin {
 </script>
 
 {{GPURenderCommandsMixin}} assumes the presence of
-{{GPUObjectBase}} and {{GPUCommandsMixin}} members on the same object.
+{{GPUObjectBase}}, {{GPUCommandsMixin}}, and {{GPUBindingCommandsMixin}} members on the same object.
 It must only be included by interfaces which also include those mixins.
 
 {{GPURenderCommandsMixin}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for=GPURenderCommandsMixin>
-    : <dfn>\[[layout]]</dfn>, of type {{GPURenderPassLayout}}
+    : <dfn>\[[layout]]</dfn>, of type {{GPURenderPassLayout}}, readonly
     ::
         The layout of the render pass.
 
-    : <dfn>\[[depthReadOnly]]</dfn>, of type boolean
+    : <dfn>\[[depthReadOnly]]</dfn>, of type boolean, readonly
     ::
         If `true`, indicates that the depth component is not modified.
 
-    : <dfn>\[[stencilReadOnly]]</dfn>, of type boolean
+    : <dfn>\[[stencilReadOnly]]</dfn>, of type boolean, readonly
     ::
         If `true`, indicates that the stencil component is not modified.
 
@@ -10714,6 +11081,10 @@ It must only be included by interfaces which also include those mixins.
     : <dfn>\[[index_format]]</dfn>, of type {{GPUIndexFormat}}
     ::
         The format of the index data in {{GPURenderCommandsMixin/[[index_buffer]]}}.
+
+    : <dfn>\[[index_buffer_offset]]</dfn>, of type {{GPUSize64}}
+    ::
+        The offset in bytes of the section of {{GPURenderCommandsMixin/[[index_buffer]]}} currently set.
 
     : <dfn>\[[index_buffer_size]]</dfn>, of type {{GPUSize64}}
     ::
@@ -10733,6 +11104,15 @@ It must only be included by interfaces which also include those mixins.
     ::
         The number of draw commands recorded in this encoder.
 </dl>
+
+<div algorithm>
+    To <dfn abstract-op>Enqueue a render command</dfn> on {{GPURenderCommandsMixin}} |encoder| which
+    issues the steps of a [=GPU Command=] |command| with [=RenderState=] |renderState|:
+
+        1. [=list/Append=] |command| to |encoder|.{{GPUCommandsMixin/[[commands]]}}.
+        1. When |command| is executed as part of a {{GPUCommandBuffer}} |commandBuffer|:
+            1. Issue the steps of |command| with |commandBuffer|.{{GPUCommandBuffer/[[renderState]]}} as |renderState|.
+</div>
 
 ### Drawing ### {#render-pass-encoder-drawing}
 
@@ -10812,6 +11192,7 @@ It must only be included by interfaces which also include those mixins.
                 1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer]]}} to be |buffer|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_format]]}} to be |indexFormat|.
+                1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer_offset]]}} to be |offset|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer_size]]}} to be |size|.
             </div>
         </div>
@@ -10901,6 +11282,17 @@ It must only be included by interfaces which also include those mixins.
                                 - Ensure (|strideCount| &minus; `1`) &times; |stride| &plus; |lastStride| &le; |bufferSize|.
                     </div>
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
+
+                1. Let |passState| be a snapshot of |this|'s current state.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
+                    primitives consisting of |vertexCount| verticies, starting with vertex |firstVertex|,
+                    with the states from |passState| and |renderState|.
             </div>
         </div>
 
@@ -10918,7 +11310,7 @@ It must only be included by interfaces which also include those mixins.
                 |indexCount|: The number of indices to draw.
                 |instanceCount|: The number of instances to draw.
                 |firstIndex|: Offset into the index buffer, in indices, begin drawing from.
-                baseVertex: Added to each index value before indexing into the vertex buffers.
+                |baseVertex|: Added to each index value before indexing into the vertex buffers.
                 |firstInstance|: First instance to draw.
             </pre>
 
@@ -10946,6 +11338,18 @@ It must only be included by interfaces which also include those mixins.
                                 - Ensure (|strideCount| &minus; `1`) &times; |stride| &plus; |lastStride| &le; |bufferSize|.
                     </div>
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
+
+                1. Let |passState| be a snapshot of |this|'s current state.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
+                    primitives consisting of |indexCount| indexed verticies, starting with index
+                    |firstIndex| from vertex |baseVertex|,
+                    with the states from |passState| and |renderState|.
             </div>
 
             Note: a valid program should also never use vertex indices with
@@ -11005,6 +11409,25 @@ It must only be included by interfaces which also include those mixins.
                     </div>
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
+
+                1. Let |passState| be a snapshot of |this|'s current state.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let |vertexCount| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    |indirectOffset| bytes.
+                1. Let |instanceCount| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 4) bytes.
+                1. Let |firstVertex| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 8) bytes.
+                1. Let |firstInstance| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 12) bytes.
+                1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
+                    primitives consisting of |vertexCount| verticies, starting with vertex |firstVertex|,
+                    with the states from |passState| and |renderState|.
             </div>
         </div>
 
@@ -11058,6 +11481,28 @@ It must only be included by interfaces which also include those mixins.
                     </div>
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
+
+                1. Let |passState| be a snapshot of |this|'s current state.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let |indexCount| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    |indirectOffset| bytes.
+                1. Let |instanceCount| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 4) bytes.
+                1. Let |firstIndex| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 8) bytes.
+                1. Let |baseVertex| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 12) bytes.
+                1. Let |firstInstance| be an unsigned 32-bit integer read from |indirectBuffer| at
+                    (|indirectOffset| + 16) bytes.
+                1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
+                    primitives consisting of |indexCount| indexed verticies, starting with index
+                    |firstIndex| from vertex |baseVertex|,
+                    with the states from |passState| and |renderState|.
             </div>
         </div>
 </dl>
@@ -11148,8 +11593,15 @@ attachments used by this encoder.
                         - 0.0 &le; |maxDepth| &le; 1.0
                         - |minDepth| &lt; |maxDepth|
                     </div>
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
                 1. Round |x|, |y|, |width|, and |height| to some uniform precision, no less precise than integer rounding.
-                1. Set |this|.{{GPURenderPassEncoder/[[viewport]]}} to the extents |x|, |y|, |width|, |height|, |minDepth|, and |maxDepth|.
+                1. Set |renderState|.{{RenderState/[[viewport]]}} to the extents |x|, |y|, |width|, |height|, |minDepth|, and |maxDepth|.
             </div>
         </div>
 
@@ -11192,7 +11644,14 @@ attachments used by this encoder.
                         - |y|+|height| &le;
                             |this|.{{GPURenderPassEncoder/[[attachment_size]]}}.height.
                     </div>
-                1. Set the scissor rectangle to the extents |x|, |y|, |width|, and |height|.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[scissorRect]]}} to the extents |x|, |y|, |width|, and |height|.
             </div>
         </div>
 
@@ -11222,13 +11681,19 @@ attachments used by this encoder.
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. Set {{GPURenderPassEncoder/[[blend_constant]]}} to |color|.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[blendConstant]]}} to |color|.
             </div>
         </div>
 
     : <dfn>setStencilReference(reference)</dfn>
     ::
-        Sets the {{GPURenderPassEncoder/[[stencil_reference]]}} value used during stencil tests with
+        Sets the {{RenderState/[[stencilReference]]}} value used during stencil tests with
         the {{GPUStencilOperation/"replace"}} {{GPUStencilOperation}}.
 
         <div algorithm=GPURenderPassEncoder.setStencilReference>
@@ -11252,7 +11717,13 @@ attachments used by this encoder.
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. Set {{GPURenderPassEncoder/[[stencil_reference]]}} to |reference|.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[stencilReference]]}} to |reference|.
             </div>
         </div>
 </dl>
@@ -11292,6 +11763,14 @@ attachments used by this encoder.
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} is `false`.
                     </div>
                 1. Set |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} to `true`.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Set |renderState|.{{RenderState/[[occlusionQueryIndex]]}} to |queryIndex|.
             </div>
         </div>
 
@@ -11318,6 +11797,19 @@ attachments used by this encoder.
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} is `true`.
                     </div>
                 1. Set |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} to `false`.
+
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. Let |passingFragments| be non-zero if any fragment samples passed all per-fragment
+                    tests since the corresponding {{GPURenderPassEncoder/beginOcclusionQuery()}}
+                    command was executed.
+                1. Write |passingFragments| into
+                    |this|.{{GPURenderPassEncoder/[[occlusion_query_set]]}} at index
+                    |renderState|.{{RenderState/[[occlusionQueryIndex]]}}.
             </div>
         </div>
 </dl>
@@ -11370,10 +11862,27 @@ attachments used by this encoder.
                             - If |this|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} is true, |bundle|.{{GPURenderBundle/[[stencilReadOnly]]}} must be true.
                     </div>
 
-                - For each |bundle| in |bundles|:
-                    - Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by |bundle|.{{GPURenderBundle/[[drawCount]]}}.
+                1. For each |bundle| in |bundles|:
+                    1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by |bundle|.{{GPURenderBundle/[[drawCount]]}}.
 
-                1. Issue: Describe the rest of the steps
+                1. [=map/Clear=] |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+                1. Set |this|.{{GPURenderCommandsMixin/[[pipeline]]}} to `null`.
+                1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer]]}} to `null`.
+                1. [=map/Clear=] |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
+
+                1. Let |passState| be a snapshot of |this|'s current state.
+                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
+                    [=Queue timeline=] with |renderState| when executed.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. For each |bundle| in |bundles|:
+                    1. Execute each command in |bundle|.{{GPURenderBundle/[[command_list]]}}
+                        with |passState| and |renderState|.
+
+                        Note: |renderState| cannot be changed by executing render bundles.
+                        Also note, no mutable |passState| state is visible to render bundles.
             </div>
 
         </div>
@@ -11836,17 +12345,27 @@ GPUQueue includes GPUObjectBase;
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. If any of the following conditions are unsatisfied, [$generate a validation error$] and stop.
+                1. If any of the following requirements are unmet, [$generate a validation error$] and stop.
 
                     <div class=validusage>
-                        - Every {{GPUCommandBuffer}} in |commandBuffers| is [$valid to use with$] |this|.
-                        - For every {{GPUBuffer}} |b| referenced in any element of |commandBuffers|,
-                            |b|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] is "[=buffer internals/state/available=]".
-                        - Every {{GPUQuerySet}} referenced in a command in any element of |commandBuffers| is
-                            in the [=query set state/available=] state. For occlusion queries,
-                            {{GPURenderPassDescriptor/occlusionQuerySet}} in {{GPUCommandEncoder/beginRenderPass()}}
-                            does not constitute a reference, while {{GPURenderPassEncoder/beginOcclusionQuery()}}
-                            does.
+                        - Every {{GPUCommandBuffer}} in |commandBuffers| must be [$valid to use with$] |this|.
+                        - For each of the following types of resources used by any command in any
+                            element of |commandBuffers|:
+
+                            <dl class=switch>
+                                : {{GPUBuffer}} |b|
+                                :: |b|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] must
+                                    be "[=buffer internals/state/available=]".
+                                : {{GPUTexture}} |t|
+                                :: |t|.{{GPUTexture/[[destroyed]]}} must be `false`.
+                                : {{GPUExternalTexture}} |et|
+                                :: |et|.{{GPUExternalTexture/[[destroyed]]}} must be `false`.
+                                : {{GPUQuerySet}} |qs|
+                                :: |qs| must be in the [=query set state/available=] state.
+                                    For occlusion queries, the {{GPURenderPassDescriptor/occlusionQuerySet}}
+                                    in {{GPUCommandEncoder/beginRenderPass()}} is not "used" unless
+                                    it is also used by {{GPURenderPassEncoder/beginOcclusionQuery()}}.
+                            </dl>
                     </div>
 
                 1. For each |commandBuffer| in |commandBuffers|:
@@ -12002,7 +12521,7 @@ dictionary GPUQuerySetDescriptor : GPUObjectDescriptorBase {
 
                     <div class=validusage>
                         - |this| is [=valid=].
-                        - |descriptor|.{{GPUQuerySetDescriptor/count}} must be &le; 8192.
+                        - |descriptor|.{{GPUQuerySetDescriptor/count}} must be &le; 4096.
                     </div>
 
                 1. Set |q|.{{GPUQuerySet/[[state]]}} to [=query set state/available=].
@@ -12295,6 +12814,11 @@ interface GPUCanvasContext {
                         this generates and error and returns an [=invalid=] {{GPUTexture}}.
                         Some validation here is redundant with that done in {{GPUCanvasContext/configure()}}.
                         Implementations **must not** skip this redundant validation.
+                1. [$queue an automatic expiry task$] with device |device| and the following steps:
+
+                    <div data-timeline=content>
+                        1. [$commit the canvas texture$] for |this|.
+                    </div>
                 1. Return |this|.{{GPUCanvasContext/[[currentTexture]]}}.
             </div>
         </div>
@@ -12307,21 +12831,36 @@ interface GPUCanvasContext {
 </dl>
 
 <div algorithm>
-    In the "update the rendering or user interface of that `Document`" sub-step of the
-    "[=Update the rendering=]" step of the HTML processing model, each {{GPUCanvasContext}} |context|
-    must <dfn abstract-op>update the rendering of the WebGPU canvas</dfn> by running the following steps:
+    To <dfn abstract-op>commit the canvas texture</dfn> for {{GPUCanvasContext}} |context|:
 
     1. Update the rendering of |context|.{{GPUCanvasContext/canvas}} with
         [$get a copy of the image contents of a context|a copy of the image contents$] of |context|.
+
+        Note: The image still won't be presented until the whole document's rendering is updated
+        in "[=Update the rendering=]".
     1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`:
         1. Call |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}
             (without destroying |context|.{{GPUCanvasContext/[[drawingBuffer]]}})
             to terminate write access to the image.
         1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
 
+    Note:
+    This will be called multiple times for the same texture, in some order, from both
+    {{GPUCanvasContext/getCurrentTexture()}} and [$update the rendering of the WebGPU canvas$].
+    The second call has no effect.
+
     Note: If {{GPUCanvasConfiguration/alphaMode}} is {{GPUCanvasAlphaMode/"opaque"}},
     the presented image has its alpha channel cleared. Implementations may skip this step if they
     are able to composite images in a way that ignores the alpha channel (as if it is 1.0).
+</div>
+
+<div algorithm>
+    In the "update the rendering or user interface of that `Document`" sub-step of the
+    "[=Update the rendering=]" step of the
+    [[HTML#event-loop-processing-model|HTML processing model]], each {{GPUCanvasContext}} |context|
+    must <dfn abstract-op>update the rendering of the WebGPU canvas</dfn> by running the following steps:
+
+    1. [$commit the canvas texture$] for |context|.
 </div>
 
 <div algorithm="transferToImageBitmap from WebGPU">
@@ -12368,9 +12907,9 @@ this incurs a clear of the alpha channel. If a canvas is only needed for interop
                 1. Tag |snapshot| as being opaque.
 
                 Note:
-                If the {{GPUTexture}} exposing this {{GPUCanvasContext/[[currentTexture]]}} (if any) has
-                been [$Replace the drawing buffer|destroyed$], the alpha channel is unobservable, and
-                implementations may clear the alpha channel in-place.
+                If the {{GPUCanvasContext/[[currentTexture]]}}, if any, has been destroyed
+                (for example in [$Replace the drawing buffer$]), the alpha channel is unobservable,
+                and implementations may clear the alpha channel in-place.
 
             : Otherwise:
             :: Tag |snapshot| with |alphaMode|.
@@ -12648,7 +13187,8 @@ JSON, for a debug report).
 <dl dfn-type=attribute dfn-for=GPUError>
     : <dfn>message</dfn>
     ::
-        A human-readable message providing information about the error that occurred.
+        A human-readable, [=localizable text=] message providing information about the error that
+        occurred.
 
         Note: This message is generally intended for application developers to debug their
         applications and capture information for debug reports, not to be surfaced to end-users.
@@ -12656,6 +13196,14 @@ JSON, for a debug report).
         Note: User agents should not include potentially machine-parsable details in this message,
         such as free system memory on {{GPUErrorFilter/"out-of-memory"}} or other details about the
         conditions under which memory was exhausted.
+
+        Note: The {{GPUError/message}} should follow the [=best practices for language and
+        direction information=]. This includes making use of any future standards which may emerge
+        regarding the reporting of string language and direction metadata.
+
+        <p class="note editorial">Editorial:
+        At the time of this writing, no language/direction recommendation is available that provides
+        compatibility and consistency with legacy APIs, but when there is, adopt it formally.
 </dl>
 
 <script type=idl>
@@ -12695,7 +13243,7 @@ lower memory requirement (like using smaller texture dimensions), or if memory u
 resources is released first.
 
 <div algorithm>
-    To <dfn abstract-op lt="Generate an out-of-memory error|generate an out-of-memory error">
+    To <dfn abstract-op lt="Generate an out-of-memory error|generate an out-of-memory error|out-of-memory error">
     generate an out-of-memory error</dfn> for {{GPUDevice}} |device|, run the following steps:
 
     <div data-timeline=content>
@@ -12720,7 +13268,7 @@ captured by the [=supported limits=]. The same operation may succeed on other de
 difference circumstances.
 
 <div algorithm>
-    To <dfn abstract-op lt="Generate an internal error|generate an internal error">generate an
+    To <dfn abstract-op lt="Generate an internal error|generate an internal error|internal error">generate an
     internal error</dfn> for {{GPUDevice}} |device|, run the following steps:
 
     <div data-timeline=content>
@@ -12829,9 +13377,13 @@ partial interface GPUDevice {
     <div data-timeline=content>
         [=Content timeline=] steps:
 
-        1. If the user agent chooses, [=queue a task=] to fire a
-            {{GPUUncapturedErrorEvent}} named "{{GPUDevice/uncapturederror}}" on
-            |device| with an {{GPUUncapturedErrorEvent/error}} of |error|.
+        1. If the user agent chooses, [$queue a global task for GPUDevice$] |device|
+            with the following steps:
+
+            <div data-timeline=content>
+                1. Fire a {{GPUUncapturedErrorEvent}} named "{{GPUDevice/uncapturederror}}" on
+                    |device|, with an {{GPUUncapturedErrorEvent/error}} of |error|.
+            </div>
 
         Note: If (and only if) there are no {{GPUDevice/uncapturederror}} handlers are
         registered, user agents **should** surface uncaptured errors to developers,
@@ -12899,8 +13451,8 @@ partial interface GPUDevice {
                 1. If any of the following requirements are unmet:
 
                     <div class=validusage>
-                        - |this| must not be [=lose the device|lost=].
-                        - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] &gt; 0.
+                        - |this| must be [=valid=].
+                        - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] must be &gt; 0.
                     </div>
 
                     Then issue the following steps on <var data-timeline=content>contentTimeline</var>
@@ -13063,7 +13615,7 @@ Issue: This section is incomplete.
 ## Computing ## {#computing-operations}
 
 Computing operations provide direct access to GPU's programmable hardware.
-Compute shaders do not have pipeline inputs or outputs, their results are
+Compute shaders do not have shader stage inputs or outputs, their results are
 side effects from writing data into storage bindings bound as
 {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} and {{GPUStorageTextureBindingLayout}}.
 These operations are encoded within {{GPUComputePassEncoder}} as:
@@ -13090,24 +13642,6 @@ These operations are encoded with:
 
 Note: rendering is the traditional use of GPUs, and is supported by multiple fixed-function
 blocks in hardware.
-
-A <dfn dfn>RenderState</dfn> is an internal object representing the state
-of the current {{GPURenderPassEncoder}} during command encoding.
-[=RenderState=] is a spec namespace for the following definitions:
-<div algorithm="RenderState accessors" dfn-for=RenderState>
-    For a given {{GPURenderPassEncoder}} |pass|, the syntax:
-
-    - |pass|.<dfn dfn>indexBuffer</dfn> refers to
-        the index buffer bound via {{GPURenderCommandsMixin/setIndexBuffer()}}, if any.
-    - |pass|.<dfn dfn>vertexBuffers</dfn> refers to
-        [=list=]&lt;vertex buffer&gt; bound by {{GPURenderCommandsMixin/setVertexBuffer()}}.
-    - |pass|.<dfn dfn>bindGroups</dfn> refers to
-        [=list=]&lt;{{GPUBindGroup}}&gt; bound by [=GPUBindingCommandsMixin/setBindGroup()=].
-    - |pass|.<dfn dfn>viewport</dfn> refers to an object containing {{GPURenderPassEncoder/setViewport()}} arguments.
-        At the start of a render pass, the state is equivalent to a call of setViewport(0, 0, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.width, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.height, 0.0, 1.0).
-    - |pass|.<dfn dfn>scissorRect</dfn> refers to an object containing {{GPURenderPassEncoder/setScissorRect()}} arguments.
-        At the start of a render pass, the state is equivalent to a call of setScissorRect(0, 0, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.width, |pass|.{{GPURenderPassEncoder/[[attachment_size]]}}.height).
-</div>
 
 The main rendering algorithm:
 
@@ -13166,7 +13700,7 @@ a list of vertices to process for each instance.
     **Arguments:**
 
     - |drawCall|: The draw call parameters.
-    - |state|: The active [=RenderState=].
+    - |state|: The snapshot of the {{GPURenderCommandsMixin}} state at the time of the draw call.
 
     **Returns:** list of integer indices.
 
@@ -13175,7 +13709,7 @@ a list of vertices to process for each instance.
         1. Initialize the |vertexIndexList| with |drawCall|.indexCount integers.
         1. For |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
             1. Let |relativeVertexIndex| be [$fetch index$](|i| + |drawCall|.`firstIndex`,
-                |state|.[=RenderState/indexBuffer=]).
+                |state|.{{GPURenderCommandsMixin/[[index_buffer]]}}).
             1. If |relativeVertexIndex| has the special value `"out of bounds"`,
                 stop and return the empty list.
 
@@ -13200,11 +13734,11 @@ a list of vertices to process for each instance.
     **Arguments:**
 
     - |i|: Index of a vertex index to fetch.
-    - |indexBufferState|: A value of [=RenderState/indexBuffer=] (buffer, format, offset, and size).
+    - |state|: The snapshot of the {{GPURenderCommandsMixin}} state at the time of the draw call.
 
     **Returns:** unsigned integer or `"out of bounds"`
 
-    1. Let |indexSize| be defined by the |indexBufferState|.`format`:
+    1. Let |indexSize| be defined by the |state|.{{GPURenderCommandsMixin/[[index_format]]}}:
 
         <dl class=switch>
             : {{GPUIndexFormat/"uint16"}}
@@ -13212,10 +13746,11 @@ a list of vertices to process for each instance.
             : {{GPUIndexFormat/"uint32"}}
             :: 4
         </dl>
-    1. If |indexBufferState|.`offset` + |i + 1| &times; |indexSize| &gt; |indexBufferState|.`size`,
+    1. If |state|.{{GPURenderCommandsMixin/[[index_buffer_offset]]}} +
+        |i + 1| &times; |indexSize| &gt; |state|.{{GPURenderCommandsMixin/[[index_buffer_size]]}},
         return the special value `"out of bounds"`.
-    1. Interpret the data in |indexBufferState|.`buffer`, starting at offset
-        |indexBufferState|.`offset` + |i| &times; |indexSize|,
+    1. Interpret the data in |state|.{{GPURenderCommandsMixin/[[index_buffer]]}}, starting at offset
+        |state|.{{GPURenderCommandsMixin/[[index_buffer_offset]]}} + |i| &times; |indexSize|,
         of size |indexSize| bytes, as an unsigned integer and return it.
 </div>
 
@@ -13234,7 +13769,7 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
     - |vertexIndexList|: List of vertex indices to process (mutable, passed by reference).
     - |drawCall|: The draw call parameters.
     - |desc|: The descriptor of type {{GPUVertexState}}.
-    - |state|: The active [=RenderState=].
+    - |state|: The snapshot of the {{GPURenderCommandsMixin}} state at the time of the draw call.
 
     Each vertex |vertexIndex| in the |vertexIndexList|,
     in each instance of index |rawInstanceIndex|, is processed independently.
@@ -13247,7 +13782,7 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
     1. For each non-`null` |vertexBufferLayout| in the list of |desc|.{{GPUVertexState/buffers}}:
         1. Let |i| be the index of the buffer layout in this list.
         1. Let |vertexBuffer|, |vertexBufferOffset|, and |vertexBufferBindingSize| be the
-            buffer, offset, and size at slot |i| of |state|.[=RenderState/vertexBuffers=].
+            buffer, offset, and size at slot |i| of |state|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
         1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
 
             <dl class=switch>
@@ -13297,7 +13832,7 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
                     </div>
             1. Bind the |data| to vertex shader input
                 location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
-    1. For each {{GPUBindGroup}} group at |index| in |state|.[=RenderState/bindGroups=]:
+    1. For each {{GPUBindGroup}} group at |index| in |state|.{{GPUBindingCommandsMixin/[[bind_groups]]}}:
         1. For each resource {{GPUBindingResource}} in the bind group:
             1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
             1. If |entry|.{{GPUBindGroupLayoutEntry/visibility}} includes {{GPUShaderStage/VERTEX}}:
@@ -13513,7 +14048,7 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
 
         ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
 
-    1. Let |vp| be |state|.[=RenderState/viewport=].
+    1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
         Then the [=NDC=] coordinates |n| are converted into [=framebuffer=] coordinates,
         based on the size of the render targets:
 
@@ -13540,7 +14075,7 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
 
     1. Remove all the points |rp| from |rasterizationPoints| that have
         |rp|.[=RasterizationPoint/destination=].[=FragmentDestination/position=]
-        outside of |state|.[=RenderState/scissorRect=].
+        outside of |state|.{{RenderState/[[scissorRect]]}}.
 
     1. Return |rasterizationPoints|.
 </div>
@@ -13721,7 +14256,7 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
                 : `sample_mask`
                 :: |rp|.[=RasterizationPoint/coverageMask=]
             </dl>
-        1. For each user-specified [=pipeline input=] of the fragment stage:
+        1. For each user-specified [=shader stage input=] of the fragment stage:
             1. Let |value| be the interpolated fragment input,
                 based on |rp|.[=RasterizationPoint/barycentricCoordinates=], |rp|.[=RasterizationPoint/primitiveVertices=],
                 and the [=interpolation=] qualifier on the input.
@@ -13735,10 +14270,10 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
             in a reasonable amount of time, as determined by the user agent.
 
         1. If the fragment issued `discard`, return `null`.
-        1. Set |fragment|.[=Fragment/colors=] to the user-specified [=pipeline output=] values from the shader.
+        1. Set |fragment|.[=Fragment/colors=] to the user-specified [=shader stage output=] values from the shader.
         1. Take the shader output [=builtins=]:
             1. If `frag_depth` [=builtin=] is produced by the shader as |value|:
-                1. Let |vp| be |state|.[=RenderState/viewport=].
+                1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
                 1. Set |fragment|.[=Fragment/depth=] to clamp(|value|, |vp|.`minDepth`, |vp|.`maxDepth`).
         1. If `sample_mask` [=builtin=] is produced by the shader as |value|:
             1. Set |fragment|.[=Fragment/coverageMask=] to |fragment|.[=Fragment/coverageMask=] &and; |value|.
@@ -13756,7 +14291,7 @@ may happen in any order.
 <p class="note editorial">Editorial: fill out this section
 
 The depth input to this stage, if any, is clamped to the current
-{{GPURenderPassEncoder/[[viewport]]}} depth range
+{{RenderState/[[viewport]]}} depth range
 (regardless of whether the fragment shader stage writes the `frag_depth` builtin).
 
 ### No Color Output ### {#no-color-output}
