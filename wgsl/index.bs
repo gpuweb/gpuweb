@@ -9675,6 +9675,17 @@ There is no risk of being trapped in a cycle, as recurrence is forbidden in the 
 
 Note: Another way of saying the same thing is that we do a topological sort of functions ordered by the "is a (possibly indirect) callee of" partial order, and analyze them in that order.
 
+Additionally, the analysis computes and propagates locations of [=call sites=] for [=builtin functions that compute a derivative=].
+This is used to [=triggered|trigger=] and filter [=diagnostics=] for [=uniformity failures=] on those calls.
+A set of such source locations is called a <dfn noexport>witness set</dfn>.
+Witness sets only support adding elements, not removing elements.
+In particular, a witness set is only formed via the following operations:
+* Create an empty set.
+* Create a witness set containing a single source location.
+* Form a witness set from the union of two others.
+
+Witness sets can be implemented such that their total cost across the entire uniformity analysis is linear in the source program size.
+
 ### Analyzing the Uniformity Requirements of a Function ### {#uniformity-function}
 
 Each function is analyzed in two phases.
@@ -9761,20 +9772,26 @@ value|non-uniform=] during the execution of the function call.
       <td>The uniformity of the value stored in the memory pointed to by the pointer parameter is unaffected by the function call.
 </table>
 
+To support generating [=diagnostics=], each instance of a [=CallSiteRequiredToBeUniform=] [=call site tag=] and each instance of a [=ParameterRequiredToBeUniform=]
+[=parameter tag=] also has an associated [=witness set=], which capture the root cause
+for the tags to be [=CallSiteRequiredToBeUniform=] and [=ParameterRequiredToBeUniform=], respectively.
+
 The following algorithm describes how to compute these tags for a given function:
 
 * Create nodes called <dfn noexport>RequiredToBeUniform</dfn>, <dfn noexport>MayBeNonUniform</dfn>, <dfn noexport>CF_start</dfn>, and if the function has a [=return type=] a node called <dfn noexport>Value_return</dfn>.
+    * Additionally, the [=RequiredToBeUniform=] tag has an associated [=witness set=], which is initially empty.
 * Create one node for each parameter of the function which we'll call <dfn noexport>param_i</dfn>.
 * Desugar pointers as described in [[#pointer-desugar]].
     * For each pointer parameter in the [=address spaces/function=] address space,
         create a <dfn noexport>Value_return_i</dfn> node.
-* Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next sections ([[#func-var-value-analysis]], [[#uniformity-statements]], [[#uniformity-function-calls]], [[#uniformity-expressions]]), using [=CF_start=] as the starting control-flow for the function's body.
+* Walk over the syntax of the function, adding nodes and edges to the graph, and building [=witness sets=], following the rules of the next sections ([[#func-var-value-analysis]], [[#uniformity-statements]], [[#uniformity-function-calls]], [[#uniformity-expressions]]), using [=CF_start=] as the starting control-flow for the function's body.
 * For each [=Value_return_i=] node, record which [=param_i=] nodes are reachable from it.
-* Look at which nodes are reachable from [=RequiredToBeUniform=].
-    * If this set includes the node [=MayBeNonUniform=], then trigger a [=uniformity failure=].
-    * If this set includes [=CF_start=], then the [=call site tag=] for the function is [=CallSiteRequiredToBeUniform=].
+* Examine the [=RequiredToBeUniform=] node. Let *W* be its associated [=witness set=]. Let *R* be the set of nodes reachable from [=RequiredToBeUniform=].
+    * If *R* includes the node [=MayBeNonUniform=], then trigger a [=uniformity failure=].
+         * If the uniformity failure triggers [=diagnostics=], then the [=diagnostic/triggering locations=] are taken from *W*.
+    * If *R* includes [=CF_start=], then the [=call site tag=] for the function is [=CallSiteRequiredToBeUniform=], with [=witness set=] *W*.
     * Otherwise, the [=call site tag=] is [=CallSiteNoRestriction=].
-    * For each [=param_i=] in this set, the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform=].
+    * For each [=param_i=] in *R*, the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform=], with [=witness set=] *W*.
     * Remove from the graph all nodes that have been visited.
 * If [=Value_return=] exists, look at which nodes are reachable from it
     * If this set includes [=MayBeNonUniform=], then the [=function tag=] is [=ReturnValueMayBeNonUniform=].
@@ -9785,7 +9802,7 @@ The following algorithm describes how to compute these tags for a given function
 * If the [=function tag=] has not been assigned, then it is [=NoRestriction=].
 * For each parameter, if it has not been assigned a [=parameter tag=], then it is [=ParameterNoRestriction=].
 
-Note: The entire graph can be destroyed at this point. The tags listed above are all that we need to remember to analyze callers of this function.
+Note: The entire graph can be destroyed at this point. The tags and [=witness sets=] described above are all that we need to remember to analyze callers of this function.
 
 ### Pointer Desugaring ### {#pointer-desugar}
 
@@ -10191,12 +10208,14 @@ being the same as input control flow node.
 The most complex rule is for function calls:
 - For each argument, apply the corresponding expression rule, with the control flow at the exit of the previous argument (using the control flow at the beginning of the function call for the first argument). Name the corresponding value nodes <dfn noexport>arg_i</dfn> and the corresponding control flow nodes <dfn noexport>CF_i</dfn>
 - Create two new nodes, named <dfn noexport>Result</dfn> and <dfn noexport>CF_after</dfn>
-- If the [=call site tag=] of the function is [=CallSiteRequiredToBeUniform=], then add an edge from [=RequiredToBeUniform=] to the last [=CF_i=]
+- If the [=call site tag=] of the function is [=CallSiteRequiredToBeUniform=], then add an edge from [=RequiredToBeUniform=] to the last [=CF_i=].
+    - Additionally add the [=witness set=] from the call site tag to the witness set associated with [=RequiredToBeUniform=].
 - Otherwise add an edge from [=CF_after=] to the last [=CF_i=]
 - If the [=function tag=] is [=ReturnValueMayBeNonUniform=], then add an edge from [=Result=] to [=MayBeNonUniform=]
 - Add an edge from [=Result=] to [=CF_after=]
 - For each argument *i*:
     - If the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform=], then add an edge from [=RequiredToBeUniform=] to [=arg_i=]
+        - Additionally add the [=witness set=] from the parameter tag to the witness set associated with [=RequiredToBeUniform=].
     - Otherwise if the [=parameter tag=] is [=ParameterRequiredToBeUniformForReturnValue=], then add an edge from [=Result=] to [=arg_i=]
     - If the corresponding parameter has a [=pointer parameter tag=] of [=PointerParameterMayBeNonUniform=], then add an edge from *Vout*(*call*) to [=MayBeNonUniform=]
     - If the parameter is a pointer in the [=address spaces/function=] address space, add an edge from *Vout*(*call*) to each corresponding [=arg_i=] for the reachable parameters recorded previously
@@ -10215,8 +10234,9 @@ Here is the list of exceptions:
     - The parameter `p` in [[#workgroupUniformLoad-builtin|workgroupUniformLoad]]
         has a [=parameter tag=] of [=ParameterRequiredToBeUniform=].
 - All functions in
-    [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]]
-    have a [=call site tag=] of [=CallSiteRequiredToBeUniform=], and a [=function tag=] of [=ReturnValueMayBeNonUniform=].
+    [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]]:
+    - Have a [=call site tag=] of [=CallSiteRequiredToBeUniform=]. The associated [=witness set=] is a singleton set containing the location of the [=call site=] to the builtin function.
+    - Have a [=function tag=] of [=ReturnValueMayBeNonUniform=].
 - [[#arrayLength-builtin|arrayLength]] has a [=call site tag=] of
     [=CallSiteNoRestriction=], a [=function tag=] of [=NoRestriction=] and
     the input parameter `p` has a [=parameter tag=] of [=ParameterNoRestriction=]
