@@ -522,7 +522,7 @@ def _choice(*args):
       "members": [
         {}
       ]
-    }}""".format(",".join(*args))
+    }}""".format(",".join([*args]))
 def _rep1(content):
     return """
     {{
@@ -530,6 +530,12 @@ def _rep1(content):
       "content":
         {}
     }}""".format(content)
+
+def _optional(content):
+    return _choice(content,_empty())
+
+def _star(content): # Kleene star
+    return _choice(_rep1(content),_empty())
 
 def _g(*args):
     pre = """
@@ -1558,6 +1564,46 @@ class Grammar_registers_objects(unittest.TestCase):
         self.assertEqual(at.reg_info.registry, g.registry)
         self.assertEqual(at.reg_info.obj, at)
         self.assertEqual(at.reg_info.index, 2)
+
+# Example 4.21
+class DragonBook_4_21(unittest.TestCase):
+    def toy_grammar(self):
+        # Grammar 4.21 in Example 4.42 with table shown example 4.43
+        """
+        language = S
+        S = C C
+        C = 'c' C | 'd'
+        """
+        # Tokens
+        LParen = _fixed("(")
+        RParen = _fixed(")")
+        Plus = _fixed("+")
+        Times = _fixed("*")
+        c = _fixed("c")
+        d = _fixed("d")
+
+        S = _sym("S")
+        C = _sym("C")
+
+        SDef = _def("S", _seq(C,C))
+        CDef = _def("C", _choice(_seq(c,C),d))
+        g = _gl("S", SDef, CDef)
+        return g
+
+    def test_first(self):
+        g = self.toy_grammar()
+        Sfirst = Grammar.LookaheadSet(g.find("S").first)
+        self.assertEqual(str(Sfirst),"{'c' 'd'}")
+        Cfirst = Grammar.LookaheadSet(g.find("C").first)
+        self.assertEqual(str(Cfirst),"{'c' 'd'}")
+
+    def test_follow(self):
+        g = self.toy_grammar()
+        Sfirst = Grammar.LookaheadSet(g.find("S").follow)
+        self.assertEqual(str(Sfirst),"{EndOfText}")
+        Cfirst = Grammar.LookaheadSet(g.find("C").follow)
+        self.assertEqual(str(Cfirst),"{'c' 'd' EndOfText}")
+
 
 if __name__ == '__main__':
 	unittest.main()
