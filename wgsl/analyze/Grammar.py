@@ -1057,7 +1057,8 @@ def compute_first_sets(grammar,rules):
         if rule.is_empty():
             return rule.first
         if rule.is_terminal():
-            return rule.first
+            # The terminal isn't registered in the dictionary.
+            return set({rule})
         if isinstance(rule,Choice):
             result = rule.first
             #for item in [lookup(i) for i in rule]:
@@ -1095,7 +1096,8 @@ def compute_first_sets(grammar,rules):
         for key in names_of_non_terminals:
             rule = rules[key]
             # Accumulate First items from right-hand sides
-            new_items = dynamic_first(rule,0) - rule.first
+            df = dynamic_first(rule,0)
+            new_items = df - rule.first
             if len(new_items) > 0:
                 rule.first = rule.first.union(new_items)
                 keep_going = True
