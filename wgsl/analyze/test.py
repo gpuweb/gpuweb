@@ -1575,10 +1575,6 @@ class DragonBook_4_21(unittest.TestCase):
         C = 'c' C | 'd'
         """
         # Tokens
-        LParen = _fixed("(")
-        RParen = _fixed(")")
-        Plus = _fixed("+")
-        Times = _fixed("*")
         c = _fixed("c")
         d = _fixed("d")
 
