@@ -1623,7 +1623,8 @@ class TemplateParsing(unittest.TestCase):
         | '[' E2 ']'
         | '{' E2 '}'
         | I
-        | E1 '<' LIST '>' '(' LIST ')'
+        | I '(' LIST ')'
+        | I '<' LIST '>' '(' LIST ')'
         # Things break if we try this:
         # E2 '<' LIST '>' '(' LIST ')'
 
@@ -1637,19 +1638,19 @@ class TemplateParsing(unittest.TestCase):
         """
 
         # Tokens
-        LParen = _fixed("'('")
-        RParen = _fixed("')'")
-        LBrace = _fixed("'{'")
-        RBrace = _fixed("'}'")
-        LBracket = _fixed("'['")
-        RBracket = _fixed("']'")
-        Lesser = _fixed("'<'")
-        Greater = _fixed("'>'")
-        Plus = _fixed("'+'")
-        Comma = _fixed("','")
-        Semicolon = _fixed("';'")
+        LParen = _fixed("(")
+        RParen = _fixed(")")
+        LBrace = _fixed("{")
+        RBrace = _fixed("}")
+        LBracket = _fixed("[")
+        RBracket = _fixed("]")
+        Lesser = _fixed("<")
+        Greater = _fixed(">")
+        Plus = _fixed("+")
+        Comma = _fixed(",")
+        Semicolon = _fixed(";")
 
-        IDef = _def("I",_fixed("'a'"))
+        IDef = _def("I",_fixed("a"))
         I = _sym("I")
 
         L = _sym("L")
@@ -1659,20 +1660,19 @@ class TemplateParsing(unittest.TestCase):
         E0 = _sym("E0")
         List = _sym("LIST")
         ListEnd = _sym("LISTEND")
+        Call = _sym("Call")
+        Template = _sym("Template")
 
         LDef = _def("L", _star(S) )
         SDef = _def("S", _seq(E2,Semicolon) )
-        #E2Def = _def("E2", _choice( _seq(E2,Lesser,E2), _seq(E2,Greater,E2), E1 ) ) # also works
         E2Def = _def("E2", _choice( _seq(E2,Lesser,E1), _seq(E2,Greater,E1), E1 ) )
         E1Def = _def("E1", _choice( E0, _seq(E1,Plus,E0) ) )
-        if e2_is_template_introducer:
-            template = _seq(E2, Lesser, List, Greater, LParen, List, RParen )
-        else:
-            template = _seq(E1, Lesser, List, Greater, LParen, List, RParen )
-        E0Def = _def("E0", _choice( _seq(LParen,E2,RParen),_seq(LBracket,E2,RBracket), _seq(LBrace,E2,RBrace), I, template) )
+        CallDef = _def("Call",_seq(I,LParen,List,RParen))
+        TemplateDef = _def("Template",_seq(I, Lesser, List, Greater, LParen, List, RParen ))
+        E0Def = _def("E0", _choice( _seq(LParen,E2,RParen),_seq(LBracket,E2,RBracket), _seq(LBrace,E2,RBrace), I, Call, Template) )
         ListDef = _def("LIST", _optional(_seq(E2, _optional(List))))
         ListEndDef = _def("LISTEND", _seq(Comma, _optional(List)))
-        defs = [IDef, LDef,SDef,E2Def,E1Def,E0Def,ListDef,ListEndDef]
+        defs = [IDef, LDef,SDef,E2Def,E1Def,E0Def,CallDef,TemplateDef,ListDef,ListEndDef]
         g = _gl("L", *defs)
         return g
 
@@ -1680,23 +1680,65 @@ class TemplateParsing(unittest.TestCase):
         g = self.toy_grammar()
         g.compute_first()
         g.compute_follow()
-        g.dump()
+        #g.dump()
         print(file=sys.stdout,flush=True)
                 
-    def test_lalr1_e1_can_be_template_introducer(self):
+    def test_lalr1(self):
         g = self.toy_grammar(False)
+        parse_table = g.LALR1()
+        parse_table.write(sys.stdout)
+        #print(file=sys.stdout,flush=True)
+        self.assertFalse(parse_table.has_conflicts())
+
+class DragonBook_4_17(unittest.TestCase):
+    def test(self):
+        g = Grammar.Grammar.Load(DRAGON_BOOK_EXAMPLE_4_17,'E')
+        g.compute_first()
+        g.compute_follow()
+        #g.dump()
+        #print(file=sys.stdout,flush=True)
+
+# Example 4.34
+class DragonBook_4_34(unittest.TestCase):
+    def toy_grammar(self):
+        # Grammar 4.19 in example 4.34
+        """
+        language = E
+        E = E '+' T | T
+        T = T '*' F | F
+        F = '(' E ')' | 'id'
+        """
+
+        # Tokens
+        LParen = _fixed("(")
+        RParen = _fixed(")")
+        Plus = _fixed("+")
+        Times = _fixed("*")
+        Id = _fixed("id")
+
+        E = _sym("E")
+        T = _sym("T")
+        F = _sym("F")
+
+        EDef = _def("E", _choice(_seq(E,Plus,T),T))
+        TDef = _def("T", _choice(_seq(T,Times,F),F))
+        FDef = _def("F", _choice(_seq(LParen,E,RParen),Id))
+        g = _gl("E", EDef,TDef,FDef)
+        return g
+
+    def xtest_first_follow(self):
+        g = self.toy_grammar()
+        g.compute_first()
+        g.compute_follow()
+        #g.dump()
+        print(file=sys.stdout,flush=True)
+
+    def xtest_lalr1(self):
+        g = self.toy_grammar()
         parse_table = g.LALR1()
         parse_table.write(sys.stdout)
         print(file=sys.stdout,flush=True)
         self.assertFalse(parse_table.has_conflicts())
-
-    def test_lalr1_e2_cannot_be_template_introducer(self):
-        g = self.toy_grammar(True)
-        parse_table = g.LALR1()
-        parse_table.write(sys.stdout)
-        print(file=sys.stdout,flush=True)
-        self.assertTrue(parse_table.has_conflicts())
-
 
 if __name__ == '__main__':
     unittest.main()
