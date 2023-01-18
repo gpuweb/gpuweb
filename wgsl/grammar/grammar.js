@@ -44,7 +44,7 @@ module.exports = grammar({
             seq($.type_alias_decl, token(';')),
             $.struct_decl,
             $.function_decl,
-            seq($.static_assert_statement, token(';'))
+            seq($.const_assert_statement, token(';'))
         ),
         bool_literal: $ => choice(
             token('true'),
@@ -349,7 +349,7 @@ module.exports = grammar({
         continuing_compound_statement: $ => seq(token('{'), optional(repeat1($.statement)), optional($.break_if_statement), token('}')),
         return_statement: $ => seq(token('return'), optional($.expression)),
         func_call_statement: $ => $.call_phrase,
-        static_assert_statement: $ => seq(token('static_assert'), $.expression),
+        const_assert_statement: $ => seq(token('const_assert'), $.expression),
         statement: $ => choice(
             token(';'),
             seq($.return_statement, token(';')),
@@ -365,7 +365,7 @@ module.exports = grammar({
             seq(token('discard'), token(';')),
             seq($.variable_updating_statement, token(';')),
             $.compound_statement,
-            seq($.static_assert_statement, token(';'))
+            seq($.const_assert_statement, token(';'))
         ),
         variable_updating_statement: $ => choice(
             $.assignment_statement,
