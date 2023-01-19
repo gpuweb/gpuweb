@@ -1601,7 +1601,7 @@ class DragonBook_4_21(unittest.TestCase):
         Cfirst = Grammar.LookaheadSet(g.find("C").follow)
         self.assertEqual(str(Cfirst),"{'c' 'd' EndOfText}")
 
-class TemplateParsing(unittest.TestCase):
+class TemplateParsingFirstToy(unittest.TestCase):
     def toy_grammar(self,e2_is_template_introducer=False):
         """
 
@@ -1625,8 +1625,6 @@ class TemplateParsing(unittest.TestCase):
         | I
         | I '(' LIST ')'
         | I '<' LIST '>' '(' LIST ')'
-        # Things break if we try this:
-        # E2 '<' LIST '>' '(' LIST ')'
 
         LIST =
           ( E2 LISTEND ? )?
@@ -1686,9 +1684,10 @@ class TemplateParsing(unittest.TestCase):
     def test_lalr1(self):
         g = self.toy_grammar(False)
         parse_table = g.LALR1()
-        parse_table.write(sys.stdout)
+        #parse_table.write(sys.stdout)
         #print(file=sys.stdout,flush=True)
-        self.assertFalse(parse_table.has_conflicts())
+        # This grammar has conflicts
+        self.assertTrue(parse_table.has_conflicts())
 
 class DragonBook_4_17(unittest.TestCase):
     def test(self):
@@ -1736,8 +1735,139 @@ class DragonBook_4_34(unittest.TestCase):
     def xtest_lalr1(self):
         g = self.toy_grammar()
         parse_table = g.LALR1()
-        parse_table.write(sys.stdout)
+        #parse_table.write(sys.stdout)
+        #print(file=sys.stdout,flush=True)
+        self.assertFalse(parse_table.has_conflicts())
+
+class TemplateParsingMidsize(unittest.TestCase):
+    def toy_grammar(self,template_arg_expr_e2=False):
+        """
+
+        L = S*
+
+        Type =
+          'f32'
+        | Template
+
+        S =
+          E2 ';'
+        | 'if' E2 '{' S '}' 'else' '{' S '}'
+        | 'for' '(' S ';' S ')' '{' S '}'
+
+        E2 =
+          E2 '<' E1
+        | E2 '>' E1
+        | E2 '<<' E1
+        | E2 '>>' E1
+        | E1
+
+        E1 =
+          E0
+        | E1 '+' E0
+
+        E0 =
+             '(' E2 ')'
+        | E0 '[' E2 ']'
+        |    '{' E2 '}'
+        | I
+        | I ParenArgList
+        | Template ParenArgList
+
+        ParenArgList = '(' ArgList ? ')'
+
+        ArgList =
+          E2 ( ',' E2 ) * ',' ?
+
+        Template =
+          I '<' TemplateArgList ? '>'
+
+        TemplateArgList =
+          TemplateArg ( ',' TemplateArg ) * ',' ?
+
+        TemplateArg =
+          Template
+        | E2
+        # Most general expression
+
+        I = 'ident'
+        """
+
+        # Tokens
+        LParen = _fixed("(")
+        RParen = _fixed(")")
+        LBrace = _fixed("{")
+        RBrace = _fixed("}")
+        LBracket = _fixed("[")
+        RBracket = _fixed("]")
+        Lesser = _fixed("<")
+        Greater = _fixed(">")
+        LShift = _fixed("<<")
+        RShift = _fixed(">>")
+        Plus = _fixed("+")
+        Comma = _fixed(",")
+        Semicolon = _fixed(";")
+        If = _fixed("if")
+        Else = _fixed("else")
+        For = _fixed("for")
+        F32 = _fixed("f32")
+
+        L = _sym("L")
+        Type = _sym("Type")
+        S = _sym("S")
+        E2 = _sym("E2")
+        E1 = _sym("E1")
+        E0 = _sym("E0")
+        ParenArgList = _sym("ParenArgList")
+        ArgList = _sym("ArgList")
+        Template = _sym("Template")
+        TemplateArgList = _sym("TemplateArgList")
+        TemplateArg = _sym("TemplateArg")
+        I = _sym("I")
+
+        LDef = _def("L", _star(S) )
+        TypeDef = _def("Type",_choice(F32,Template))
+        SDef = _def("S", _choice(_seq(E2,Semicolon), _seq(If,E2,LBrace,S,RBrace,Else,LBrace,S,RBrace), _seq(For,LParen,S,Semicolon,S,RParen,LBrace,S,RBrace)))
+        E2Def = _def("E2", _choice( _seq(E2,Lesser,E1), _seq(E2,Greater,E1), _seq(E2,LShift,E1), _seq(E2,RShift,E1), E1 ) )
+        E1Def = _def("E1", _choice( E0, _seq(E1,Plus,E0) ) )
+        E0Def = _def("E0", _choice( _seq(LParen,E2,RParen),_seq(LBracket,E2,RBracket), _seq(LBrace,E2,RBrace), I, _seq(I,ParenArgList), _seq(Template, ParenArgList)) )
+        ParenArgListDef = _def("ParenArgList",_seq(I,LParen,_optional(ArgList),RParen))
+        ArgListDef = _def("ArgList",_seq(E2, _star(_seq(Comma,E2)), _optional(Comma)))
+        TemplateDef = _def("Template",_seq(I, Lesser, _optional(TemplateArgList), Greater))
+        TemplateArgListDef = _def("TemplateArgList",_seq(TemplateArg, _star(_seq(Comma,TemplateArg)),_optional(Comma)))
+        template_arg_e = E1
+        if template_arg_expr_e2:
+            template_arg_e = E2
+        TemplateArgDef = _def("TemplateArg",_choice(Type,template_arg_e))
+        IDef = _def("I",_fixed("ident"))
+
+        defs = [LDef,TypeDef, SDef,E2Def,E1Def,E0Def,ParenArgListDef,ArgListDef,TemplateDef,TemplateArgListDef,TemplateArgDef,IDef]
+        g = _gl("L", *defs)
+        return g
+
+    def test_dump(self):
+        g = self.toy_grammar()
+        g.compute_first()
+        g.compute_follow()
+        #g.dump()
         print(file=sys.stdout,flush=True)
+
+    def test_lalr1_template_arg_e1(self):
+        #print("BEGIN template arg e1 ")
+        g = self.toy_grammar(template_arg_expr_e2=False)
+        parse_table = g.LALR1()
+        #parse_table.write(sys.stdout)
+        #print("DONE template arg e1")
+        #print(file=sys.stdout,flush=True)
+        self.assertFalse(parse_table.has_conflicts())
+
+    def test_lalr1_template_arg_e2(self):
+        print("BEGIN template arg e2")
+        g = self.toy_grammar(template_arg_expr_e2=True)
+        parse_table = g.LALR1()
+        parse_table.write(sys.stdout)
+        print("DONE template arg e2")
+        print(file=sys.stdout,flush=True)
+        # No conflicts. Surprising?
         self.assertFalse(parse_table.has_conflicts())
 
 if __name__ == '__main__':
