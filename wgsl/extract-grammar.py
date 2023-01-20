@@ -333,7 +333,7 @@ grammar_source += r"""
 module.exports = grammar({
     name: 'wgsl',
 
-    externals: $ => [
+    externals: $ => [
         $._block_comment,
     ],
 
