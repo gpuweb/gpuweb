@@ -13,7 +13,7 @@ index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
 GHC=https://github.com/gpuweb/gpuweb/blob
-index.html: index.pre.html
+index.html: index.pre.html nfkc
 	@echo 'Inserting source permalink: index.pre.html -> index.html'
 	@sed -e "s,gpuweb/wgsl/</a>,gpuweb/wgsl/</a><br><a href=\"$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs\">$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs</a>," <index.pre.html >index.html
 
