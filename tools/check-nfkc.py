@@ -2,7 +2,7 @@
 
 # Checks if all normative and informative
 # WGSL spec sources are NFKC normal
-# Note: Filters sources by the workimg directory,
+# Note: Filters sources by the working directory,
 # any other directory can benefit as well as WGSL
 
 import unicodedata
