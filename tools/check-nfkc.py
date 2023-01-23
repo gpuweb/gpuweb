@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 files = subprocess.run(
-    ["git", "ls-files", "--recurse-submodules"], check=True, capture_output=True
+    ["git", "ls-files"], check=True, capture_output=True
 ).stdout.splitlines()
 
 fix = "--fix" in [unicodedata.normalize("NFKC", i) for i in sys.argv]

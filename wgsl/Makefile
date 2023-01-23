@@ -1,6 +1,6 @@
-.PHONY: all clean validate lalr validate-examples
+.PHONY: all clean nfkc validate lalr validate-examples
 
-all: index.html validate test diagrams
+all: index.html nfkc validate test diagrams
 validate: lalr validate-examples
 validate-examples: grammar/grammar.js
 
@@ -14,7 +14,6 @@ index.pre.html: $(WGSL_SOURCES)
 
 GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html
-	python3 ../tools/check-nfkc.py
 	@echo 'Inserting source permalink: index.pre.html -> index.html'
 	@sed -e "s,gpuweb/wgsl/</a>,gpuweb/wgsl/</a><br><a href=\"$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs\">$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs</a>," <index.pre.html >index.html
 
@@ -33,6 +32,9 @@ grammar/grammar.js: index.bs extract-grammar.py
 WGSL_GRAMMAR=grammar/src/grammar.json
 $(WGSL_GRAMMAR) : grammar/grammar.js
 
+.PHONY: nfkc
+nfkc:
+	python3 ../tools/check-nfkc.py
 
 #### Grammar analyzer materials below here.
 #### You probably only want 'make validate'

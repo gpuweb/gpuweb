@@ -111,7 +111,7 @@ and end with `` /` `` and not contain any space character or line break between 
 WGSL specification normalizes its normative and informative sources to
 promote interoperability between developers using different input mechanisms.
 A developer intending to contribute can automatically normalize sources by
-passing `--fix` to `check-nfkc-wgsl.py` in the tools directory.
+passing `--fix` to `check-nfkc.py` in the tools directory.
 
 ## Tagging conventions
 
