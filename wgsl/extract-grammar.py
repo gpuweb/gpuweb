@@ -433,7 +433,7 @@ def grammar_from_rule(key, value):
     return result
 
 
-scanner_components[scanner_rule.name()]["_comment"] = [["`'//'`", '`/.*/`']]
+scanner_components[scanner_rule.name()]["_comment"] = [["`'//.*'`"]]
 
 # Following sections are to allow out-of-order per syntactic grammar appearance of rules
 
