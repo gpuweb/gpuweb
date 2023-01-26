@@ -584,7 +584,7 @@ A <dfn noexport>diagnostic</dfn> is a message produced by the implementation for
 
 A diagnostic is created, or <dfn noexport>triggered</dfn>, when a particular condition is met,
 known as the <dfn dfn-for="diagnostic">triggering rule</dfn>.
-The place in the source text where the condition is met, expressed as a point or range in the source text, is known as the 
+The place in the source text where the condition is met, expressed as a point or range in the source text, is known as the
 <dfn dfn-for="diagnostic">triggering location</dfn>.
 
 A [=diagnostic=] has the following properties:
@@ -681,7 +681,7 @@ Applying a diagnostic filter *DF*(*AR*,*NS*,*TR*) to a diagnostic *D* has the fo
 A <dfn noexport>range diagnostic filter</dfn> is a [=diagnostic filter=] that is applied to each
 diagnostic whose [=diagnostic/triggering location=] falls within a specified range of source text,
 and when no other more specific filter applies.
-A range diagnostic filter is specified as a `@diagnostic` [=attribute=] immediately before the affected source range,
+A range diagnostic filter is specified as a `@diagnostic` [=attribute=] at the start of the affected source range,
 as specified in the following table.  A `@diagnostic` attribute [=shader-creation error|must not=] appear anywhere else.
 
 <table class='data'>
@@ -758,9 +758,14 @@ Two [=diagnostic filters=] *DF*(*AR1*,*NS1*,*TR1*) and *DF*(*AR2*,*NS2*,*TR2*) <
 
 [=Diagnostic filters=] [=shader-creation error|must=] not [=diagnostic/conflict=].
 
-Note: WGSL's diagnostic filters are designed so their affected ranges nest perfectly.
+WGSL's diagnostic filters are designed so their affected ranges nest perfectly.
 If the affected range of DF1 overlaps with the affected range of DF2, then
 either DF1's affected range is fully contained in DF2's affected range, or the other way around.
+
+The <dfn noexport>nearest enclosing diagnostic filter</dfn> for source location *L* and triggering rule *TR*,
+if one exists, is the diagnostic filter *DF(AR,NS,TR)* where *L* falls in the affected range *AR*,
+and if there is another filter *DF'(AR',NS',TR)* where *L* falls in *AR'*, then *AR* is contained
+in *AR'*. Because affected ranges nest, the nearest diagnostic is unique, or does not exist.
 
 # Textual Structure # {#textual-structure}
 
@@ -1480,7 +1485,7 @@ some attribute parameters are also context-dependent names.
 
 With one exception, an attribute [=shader-creation error|must not=] be specified more than once per object or type.
 The exception is that more than one [=attribute/diagnostic=] attribute may be specified on an object, provided
-they do not [=diagnostic/conflict=].
+they specify different [=diagnostic/triggering rules=].
 
 <table class='data'>
   <caption>Attributes defined in WGSL</caption>
@@ -1555,6 +1560,9 @@ they do not [=diagnostic/conflict=].
         </dl>
 
     <td>Specifies a [=range diagnostic filter=].  See [[#diagnostics]].
+
+        Two diagnostic attributes applied to the same object [=shader-creation error|must=]
+        specify different [=diagnostic/triggering rules=].
 
   <tr><td><dfn noexport dfn-for="attribute">`group`</dfn>
     <td>(*group_index*)
@@ -9619,8 +9627,11 @@ when [=uniformity analysis=] cannot prove that a particular [[#collective-operat
 * If a uniformity failure is triggered for a
     [=builtin functions that compute a derivative|builtin function that computes a derivative=], then
     a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
-    The [=diagnostic/triggering location=] for the diagnostic is the [=call site=] of that builtin.
-* If a uniformity failure is triggered for a [[#sync-builtin-functions|synchronization builtin]], a [=shader-creation error=] results.
+    * The diagnostic's [=diagnostic/triggering location=] is the [=call site=] of that builtin.
+    * The diagnostic's [=diagnostic/severity=] defaults to an [=severity/error=] but can be controlled with a [=diagnostic filter=].
+* If a uniformity failure is triggered for a [[#sync-builtin-functions|synchronization builtin]],
+    an [=severity/error=] [=diagnostic=] is [=triggered=],
+    which results in a [=shader-creation error=].
 
 ### Terminology and Concepts ### {#uniformity-concepts}
 
@@ -9662,16 +9673,15 @@ There is no risk of being trapped in a cycle, as recurrence is forbidden in the 
 
 Note: Another way of saying the same thing is that we do a topological sort of functions ordered by the "is a (possibly indirect) callee of" partial order, and analyze them in that order.
 
-Additionally, the analysis computes and propagates locations of [=call sites=] for [=builtin functions that compute a derivative=].
-This is used to [=triggered|trigger=] and filter [=diagnostics=] for [=uniformity failures=] on those calls.
-A set of such source locations is called a <dfn noexport>witness set</dfn>.
-Witness sets only support adding elements, not removing elements.
+Additionally, the analysis computes and propagates information about
+calls to functions that must only be invoked in uniform control flow.
+This is used to [=triggered|trigger=] and potentially filter [=diagnostics=] for [=uniformity failures=] on those calls.
+A <dfn>witness</dfn> is a pair containing a [=call site=], and a [=diagnostic/triggering rule=].
+A <dfn>witness set</dfn> is a set of [=witnesses=], and only supports adding elements, not removing elements.
 In particular, a witness set is only formed via the following operations:
 * Create an empty set.
 * Create a witness set containing a single source location.
 * Form a witness set from the union of two others.
-
-Witness sets can be implemented such that their total cost across the entire uniformity analysis is linear in the source program size.
 
 ### Analyzing the Uniformity Requirements of a Function ### {#uniformity-function}
 
@@ -9681,32 +9691,48 @@ The first phase walks over the syntax of the function, building a directed graph
 The second phase explores that graph, computing the constraints on calling this function,
 and potentially triggering a [=uniformity failure=].
 
-<div class="note">Note: Apart from two special nodes [=RequiredToBeUniform=] and [=MayBeNonUniform=], all nodes can be understood as having one of the following meanings:
-        - A specific point of the program [=shader-creation error|must=] be executed in [=uniform control flow=]
-        - An expression [=shader-creation error|must=] be a [=uniform value=]
-        - A variable [=shader-creation error|must=] be a [=uniform variable=]
+<div class="note">Note: Apart from four special nodes
+    [=RequiredToBeUniform.error=],
+    [=RequiredToBeUniform.warning=],
+    [=RequiredToBeUniform.info=], and [=MayBeNonUniform=], each node can be understood as capturing the truth-value one of the following statements:
+        - A specific point of the program must be executed in [=uniform control flow=].
+        - An expression must be a [=uniform value=].
+        - A variable must be a [=uniform variable=].
+        - A value stored in memory, that could be loaded via a pointer, must be a [=uniform value=].
 
         An edge can be understood as an implication from the statement corresponding to its source node to the statement corresponding to its target node.
 
-        To express that uniformity requirement (e.g. the control flow at the call site of a derivative), we add an edge from [=RequiredToBeUniform=] to the corresponding node.
-        One way to understand this, is that [=RequiredToBeUniform=] corresponds to the proposition True, so that [=RequiredToBeUniform=] -> X is the same as saying that X is true.
+        For example, one uniformity requirement is that the `workgroupBarrier` builtin function must only be called within uniform control flow.
+        To express this, we add an edge from [=RequiredToBeUniform.error=] to the node corresponding to the `workgroupBarrier` [=call site=].
+        One way to understand this is that [=RequiredToBeUniform.error=] corresponds to the proposition True,
+        so that [=RequiredToBeUniform.error=] -> X is the same as saying that X is true.
 
         Reciprocally, to express that we cannot ensure the uniformity of something (e.g. a variable which holds the thread id), we add an edge from the corresponding node to [=MayBeNonUniform=].
         One way to understand this, is that [=MayBeNonUniform=] corresponds to the proposition False, so that X -> [=MayBeNonUniform=] is the same as saying that X is false.
 
-        A consequence of this interpretation is that every node reachable from [=RequiredToBeUniform=] corresponds to
+        A consequence of this interpretation is that every node reachable from [=RequiredToBeUniform.error=] corresponds to
         something which is required to be uniform for the program to be valid, and every node from which
         [=MayBeNonUniform=] is reachable corresponds to something whose uniformity we cannot guarantee.
-        It follows that we have a uniformity violation, triggering a [=uniformity failure=], if there is any path from [=RequiredToBeUniform=] to [=MayBeNonUniform=].
+        It follows that we have a uniformity violation, triggering a [=uniformity failure=], if there is any
+        path from [=RequiredToBeUniform.error=] to [=MayBeNonUniform=].
+
+        The nodes [=RequiredToBeUniform.warning=] and [=RequiredToBeUniform.info=] are used in a similar way,
+        but instead determine when [=severity/warning=] or [=severity/info=] [=diagnostics=] should be triggered:
+        *   If there is a path from [=RequiredToBeUniform.warning=] to [=MayBeNonUniform=], then a [=severity/warning=]
+            [=diagnostic=] will be triggered.
+        *   If there is a path from [=RequiredToBeUniform.info=] to [=MayBeNonUniform=], then an [=severity/info=]
+            [=diagnostic=] will be triggered.
+
+        As described in [[#diagnostics]], lower severity diagnostics may be discarded if higher severity diagnostics have also been generated.
 </div>
 
 For each function, two tags are computed:
   * A <dfn noexport>call site tag</dfn> describing the control flow uniformity requirements on the [=call sites=] of the function, and
   * A <dfn noexport>function tag</dfn> describing the function's effects on uniformity.
 
-Additionally, for each [=formal parameter=] of a function, a parameter tag is
+Additionally, for each [=formal parameter=] of a function, a [=parameter tag=] is
 computed and, if the parameter is a [=address spaces/function=] address space
-pointer, a pointer parameter tag is also computed.
+pointer, a [=pointer parameter tag=] is also computed.
 The <dfn noexport>parameter tag</dfn> describes the uniformity requirement of
 the parameter value.
 The <dfn noexport>pointer parameter tag</dfn> describes whether the value
@@ -9718,8 +9744,13 @@ value|non-uniform=] during the execution of the function call.
   <thead>
     <tr><th>Call Site Tag<th>Description
   </thead>
-  <tr><td><dfn noexport>CallSiteRequiredToBeUniform</dfn>
-      <td>The function [=shader-creation error|must=] only be called from [=uniform control flow=].
+  <tr algorithm="CallSiteRequiredToBeUniform tag">
+      <td><dfn noexport>CallSiteRequiredToBeUniform.S</dfn>,<br>
+          where |S| is one of the severities: [=severity/error=], [=severity/warning=], or [=severity/info=].
+      <td>The function must only be called from [=uniform control flow=].
+          Otherwise a diagnostic of with severity |S| will be triggered.
+
+          Associated with a [=witness set=].
   <tr><td><dfn noexport>CallSiteNoRestriction</dfn>
       <td>The function may be called from [=uniform control flow|non-uniform control flow=].
 </table>
@@ -9740,8 +9771,13 @@ value|non-uniform=] during the execution of the function call.
   <thead>
     <tr><th>Parameter Tag<th>Description
   </thead>
-  <tr><td><dfn noexport>ParameterRequiredToBeUniform</dfn>
-      <td>The parameter [=shader-creation error|must=] be a [=uniform value=].
+  <tr algorithm="ParameterRequiredToBeUniform tag">
+      <td><dfn noexport>ParameterRequiredToBeUniform.S</dfn>,<br>
+          where |S| is one of the severities: [=severity/error=], [=severity/warning=], or [=severity/info=].
+      <td>The parameter must be a [=uniform value=].
+          Otherwise a diagnostic of with severity |S| will be triggered.
+
+          Associated with a [=witness set=].
   <tr><td><dfn noexport>ParameterRequiredToBeUniformForReturnValue</dfn>
       <td>The parameter [=shader-creation error|must=] be a [=uniform value=] in order for the [=return value=] to be a uniform value.
   <tr><td><dfn noexport>ParameterNoRestriction</dfn>
@@ -9759,37 +9795,48 @@ value|non-uniform=] during the execution of the function call.
       <td>The uniformity of the value stored in the memory pointed to by the pointer parameter is unaffected by the function call.
 </table>
 
-To support generating [=diagnostics=], each instance of a [=CallSiteRequiredToBeUniform=] [=call site tag=] and each instance of a [=ParameterRequiredToBeUniform=]
-[=parameter tag=] also has an associated [=witness set=], which capture the root cause
-for the tags to be [=CallSiteRequiredToBeUniform=] and [=ParameterRequiredToBeUniform=], respectively.
-
 The following algorithm describes how to compute these tags for a given function:
 
-* Create nodes called <dfn noexport>RequiredToBeUniform</dfn>, <dfn noexport>MayBeNonUniform</dfn>, <dfn noexport>CF_start</dfn>, and if the function has a [=return type=] a node called <dfn noexport>Value_return</dfn>.
-    * Additionally, the [=RequiredToBeUniform=] tag has an associated [=witness set=], which is initially empty.
-* Create one node for each parameter of the function which we'll call <dfn noexport>param_i</dfn>.
+* Create the following nodes:
+    * <dfn noexport>RequiredToBeUniform.error</dfn>, <dfn noexport>RequiredToBeUniform.warning</dfn>, and <dfn noexport>RequiredToBeUniform.info</dfn>.
+        Collectively these are called the <dfn noexport>RequiredToBeUniform.S</dfn> nodes.
+        * Each such node is associated with a [=witness set=], which is initially empty.
+    * <dfn noexport>MayBeNonUniform</dfn>
+    * <dfn noexport>CF_start</dfn>, representing the uniformity requirement for control flow when the function begins executing.
+    * <dfn noexport>param_i</dfn>, where *i* ranges over the function's [=formal parameters=].
+    * If the function has a [=return type=], create a node called <dfn noexport>Value_return</dfn>.
 * Desugar pointers as described in [[#pointer-desugar]].
-    * For each pointer parameter in the [=address spaces/function=] address space,
+    * For each formal parameter that is a pointer in the [=address spaces/function=] address space,
         create a <dfn noexport>Value_return_i</dfn> node.
-* Walk over the syntax of the function, adding nodes and edges to the graph, and building [=witness sets=], following the rules of the next sections ([[#func-var-value-analysis]], [[#uniformity-statements]], [[#uniformity-function-calls]], [[#uniformity-expressions]]), using [=CF_start=] as the starting control-flow for the function's body.
-* For each [=Value_return_i=] node, record which [=param_i=] nodes are reachable from it.
-* Examine the [=RequiredToBeUniform=] node. Let *W* be its associated [=witness set=]. Let *R* be the set of nodes reachable from [=RequiredToBeUniform=].
-    * If *R* includes the node [=MayBeNonUniform=], then trigger a [=uniformity failure=].
-         * If the uniformity failure triggers [=diagnostics=], then the [=diagnostic/triggering locations=] are taken from *W*.
-    * If *R* includes [=CF_start=], then the [=call site tag=] for the function is [=CallSiteRequiredToBeUniform=], with [=witness set=] *W*.
-    * Otherwise, the [=call site tag=] is [=CallSiteNoRestriction=].
-    * For each [=param_i=] in *R*, the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform=], with [=witness set=] *W*.
-    * Remove from the graph all nodes that have been visited.
-* If [=Value_return=] exists, look at which nodes are reachable from it
-    * If this set includes [=MayBeNonUniform=], then the [=function tag=] is [=ReturnValueMayBeNonUniform=].
-    * For each [=param_i=] in this set, the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniformForReturnValue=].
-* For each [=Value_return_i=] node, look at which nodes are reachable from it
-    * If this set includes [=MayBeNonUniform=], the corresponding [=pointer parameter tag=] is [=PointerParameterMayBeNonUniform=].
+        This represents the function's effect on the uniformity of the value pointed to by the *i*<sup>th</sup> parameter.
+* Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next sections ([[#func-var-value-analysis]], [[#uniformity-statements]], [[#uniformity-function-calls]], [[#uniformity-expressions]]), using [=CF_start=] as the starting control-flow for the function's body.
+* Initialize as follows:
+    * The [=function tag=] is initialized to [=NoRestriction=].
+    * The [=call site tag=] is initialized to [=CallSiteNoRestriction=].
+    * The [=parameter tag=] for each [=param_i=] is initialized to [=ParameterNoRestriction=].
+* For each severity *S* in the order {[=severity/error=], [=severity/warning=], [=severity/info=]}, perform the following:
+    * Let *R.S* be the set of nodes reachable from [=RequiredToBeUniform.S=].
+    * Let *W* be the [=witness set=] associated with [=RequiredToBeUniform.S=].
+    * If *R.S* includes the node [=MayBeNonUniform=], then trigger a [=uniformity failure=]:
+         * For each witness *w* in *W*, trigger a diagnostic with severity *S*, using the call site and triggering rule from *w*.
+         * Exit this loop, i.e. the loop over *S*.
+    * Otherwise:
+        * If *R.S* includes [=CF_start=], and the [=call site tag=] has not been updated since initialization, then
+             set the [=call site tag=] to [=CallSiteRequiredToBeUniform.S=], and set its [=witness set=] to *W*.
+        * For each [=param_i=] in *R.S*, if its corresponding [=parameter tag=] has not been updated since initialization, then
+             set that tag to [=ParameterRequiredToBeUniform.S=], and set its [=witness set=] to *W*.
+* If [=Value_return=] exists, let *VR* be the set of nodes reachable from [=Value_return=].
+    * If *VR* includes [=MayBeNonUniform=], then set the [=function tag=] to [=ReturnValueMayBeNonUniform=].
+    * For each [=param_i=] in *VR*, if the corresponding [=parameter tag=] has not been updated since initialization,
+         then set it to [=ParameterRequiredToBeUniformForReturnValue=].
+    * Issue: [#3677](https://github.com/gpuweb/gpuweb/issues/3677)
+         For pointer parameters, handle the distinction between uniformity of the pointer
+         value and the uniformity of the contents of the memory pointed at.
+* For each [=Value_return_i=] node, let *VRi* be the set of nodes reachable from [=Value_return_i=].
+    * If *VRi* includes [=MayBeNonUniform=], the corresponding [=pointer parameter tag=] is [=PointerParameterMayBeNonUniform=].
     * Otherwise, the corresponding [=pointer parameter tag=] is [=PointerParameterNoRestriction=].
-* If the [=function tag=] has not been assigned, then it is [=NoRestriction=].
-* For each parameter, if it has not been assigned a [=parameter tag=], then it is [=ParameterNoRestriction=].
 
-Note: The entire graph can be destroyed at this point. The tags and [=witness sets=] described above are all that we need to remember to analyze callers of this function.
+Note: The entire graph can be destroyed at this point. The tags described above are all that we need to remember to analyze callers of this function.
 
 ### Pointer Desugaring ### {#pointer-desugar}
 
@@ -10195,14 +10242,14 @@ being the same as input control flow node.
 The most complex rule is for function calls:
 - For each argument, apply the corresponding expression rule, with the control flow at the exit of the previous argument (using the control flow at the beginning of the function call for the first argument). Name the corresponding value nodes <dfn noexport>arg_i</dfn> and the corresponding control flow nodes <dfn noexport>CF_i</dfn>
 - Create two new nodes, named <dfn noexport>Result</dfn> and <dfn noexport>CF_after</dfn>
-- If the [=call site tag=] of the function is [=CallSiteRequiredToBeUniform=], then add an edge from [=RequiredToBeUniform=] to the last [=CF_i=].
-    - Additionally add the [=witness set=] from the call site tag to the witness set associated with [=RequiredToBeUniform=].
+- If the [=call site tag=] of the function is [=CallSiteRequiredToBeUniform.S=], then:
+    - Add an edge from [=RequiredToBeUniform.S=] to the last [=CF_i=].
+    - Add the [=witness set=] of the [=call site tag=] to the witness set associated with [=RequiredToBeUniform.S=].
 - Otherwise add an edge from [=CF_after=] to the last [=CF_i=]
 - If the [=function tag=] is [=ReturnValueMayBeNonUniform=], then add an edge from [=Result=] to [=MayBeNonUniform=]
 - Add an edge from [=Result=] to [=CF_after=]
 - For each argument *i*:
-    - If the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform=], then add an edge from [=RequiredToBeUniform=] to [=arg_i=]
-        - Additionally add the [=witness set=] from the parameter tag to the witness set associated with [=RequiredToBeUniform=].
+    - If the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform.S=], then add an edge from [=RequiredToBeUniform.S=] to [=arg_i=]
     - Otherwise if the [=parameter tag=] is [=ParameterRequiredToBeUniformForReturnValue=], then add an edge from [=Result=] to [=arg_i=]
     - If the corresponding parameter has a [=pointer parameter tag=] of [=PointerParameterMayBeNonUniform=], then add an edge from *Vout*(*call*) to [=MayBeNonUniform=]
     - If the parameter is a pointer in the [=address spaces/function=] address space, add an edge from *Vout*(*call*) to each corresponding [=arg_i=] for the reachable parameters recorded previously
@@ -10217,16 +10264,28 @@ Most built-in functions have tags of:
 - For each parameter, a [=parameter tag|tag=] of [=ParameterRequiredToBeUniformForReturnValue=].
 
 Here is the list of exceptions:
-- All functions in [[#sync-builtin-functions]] have a [=call site tag=] of  [=CallSiteRequiredToBeUniform=].
-    - The parameter `p` in [[#workgroupUniformLoad-builtin|workgroupUniformLoad]]
-        has a [=parameter tag=] of [=ParameterRequiredToBeUniform=].
-- All functions in
+- A call to a function in [[#sync-builtin-functions]]:
+    - Has a [=function tag=] of [=NoRestriction=].
+    - Has a [=call site tag=] of [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=].
+        The tag's associated [=witness=] is the source location of the call site, combined with an unnamed [=diagnostic/triggering rule=].
+        - Note: The triggering rule has no name, and so it cannot be filtered.
+    - Additionally for the case of a call to [[#workgroupUniformLoad-builtin|workgroupUniformLoad]],
+        the parameter `p` has a [=parameter tag=] of [=ParameterRequiredToBeUniform.S|ParameterRequiredToBeUniform.error=].
+        The tag's associated [=witness=] is the source location of the call site, combined with an unnamed [=diagnostic/triggering rule=].
+- A call to a function in
     [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]]:
-    - Have a [=call site tag=] of [=CallSiteRequiredToBeUniform=]. The associated [=witness set=] is a singleton set containing the location of the [=call site=] to the builtin function.
-    - Have a [=function tag=] of [=ReturnValueMayBeNonUniform=].
-- [[#arrayLength-builtin|arrayLength]] has a [=call site tag=] of
-    [=CallSiteNoRestriction=], a [=function tag=] of [=NoRestriction=] and
-    the input parameter `p` has a [=parameter tag=] of [=ParameterNoRestriction=]
+    - Has a [=function tag=] of [=ReturnValueMayBeNonUniform=].
+    - Has a [=call site tag=] of [=CallSiteRequiredToBeUniform.S=]:
+        - Where *S* is:
+            - the NS (new severity) parameter of the [=nearest enclosing diagnostic filter=]
+                for the combination of the call site and the [=trigger/derivative_uniformity=] triggering rule.
+            - [=severity/error=], if no such filter exists.
+        - The tag's associated [=witness=] is the source location of the call site, combined with the [=trigger/derivative_uniformity=] triggering rule.
+
+- [[#arrayLength-builtin|arrayLength]]:
+    - Has a [=function tag=] of [=NoRestriction=].
+    - Has a [=call site tag=] of [=CallSiteNoRestriction=].
+    - The input parameter `p` has a [=parameter tag=] of [=ParameterNoRestriction=]
 
 Note: A WGSL implementation will ensure that if control flow prior to a
 function call is [=uniform control flow|uniform=], it will also be uniform
@@ -10532,7 +10591,7 @@ composite up so that values that are known to be uniform are separate from
 value that are known to be non-uniform.
 In the alternative WGSL below, splitting the two built-in values into separate
 parameters satisfies the uniformity analysis.
-This can be seen by the lack of a path from [=RequiredToBeUniform=] to
+This can be seen by the lack of a path from [=RequiredToBeUniform.S=] to
 [=MayBeNonUniform=] in the graph.
 
 <div class='example wgsl' heading='Valid alternative WGSL'>
@@ -10599,7 +10658,7 @@ The analysis tags both parameters of `scale` as
 [=ParameterRequiredToBeUniformForReturnValue=].
 This leads to the path in `main` between the return value of the `scale`
 function call and the `position` built-in value.
-That path is a subpath of the overall invalid path from [=RequiredToBeUniform=] to
+That path is a subpath of the overall invalid path from [=RequiredToBeUniform.S=] to
 [=MayBeNonUniform=].
 
 <div class='example wgsl' heading='User-defined function call uniformity WGSL'>
@@ -10794,7 +10853,7 @@ built-in functions described in [[#derivative-builtin-functions]]:
 
 Because neighbouring invocations collaborate to compute derivatives, these
 functions should only be invoked in [=uniform control flow=] in a fragment shader.
-For each call to one of these functions, a [=trigger/derivative_uniformity=] [=diagnostic=] is triggered if 
+For each call to one of these functions, a [=trigger/derivative_uniformity=] [=diagnostic=] is triggered if
 [[#uniformity|uniformity analysis]] cannot prove the call occurs in uniform control flow.
 
 If one of these functions is called in non-uniform control flow, then the result is an [=indeterminate value=].
