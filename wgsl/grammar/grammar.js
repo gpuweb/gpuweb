@@ -14,7 +14,7 @@
 module.exports = grammar({
     name: 'wgsl',
 
-    externals: $ => [
+    externals: $ => [
         $._block_comment,
     ],
 
