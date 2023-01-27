@@ -614,7 +614,15 @@ bool tree_sitter_wgsl_external_scanner_scan(void *payload, TSLexer *lexer,
 }
 """[1:-1])
 
-subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
+
+# Use "npm install" to create the tree-sitter CLI that has WGSL
+# support.  But "npm install" fetches data over the network.
+# That can be flaky, so only invoke it when needed.
+if os.path.exists("grammar/node_modules/tree-sitter-cli") and os.path.exists("grammar/node_modules/nan"):
+    # "npm install" has been run already.
+    pass
+else:
+    subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
 subprocess.run(["npx", "tree-sitter", "generate"],
                cwd=grammar_path, check=True)
 # Following are commented for future reference to expose playground
