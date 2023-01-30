@@ -197,9 +197,18 @@ class Rule(RegisterableObject):
         self.reset_first_follow()
 
     def reset_first_follow(self):
-        self.first = set()
+        self.first_data = set()
+        self.first_data_initialized_for_terminals = False
         self.follow = set()
         self.known_to_derive_empty = False
+
+    def first(self):
+        if self.is_terminal() or self.is_empty():
+            if not self.first_data_initialized_for_terminals:
+                # If X is a terminal, then First(X) is {X}
+                self.first_data = set({self})
+            self.first_data_initialized_for_terminals = True
+        return self.first_data
 
     def is_empty(self):
         return isinstance(self, Empty)
@@ -226,7 +235,7 @@ class Rule(RegisterableObject):
         """Returns True if this object is known to generate the empty string"""
         if self.known_to_derive_empty:
             return True
-        for item in self.first:
+        for item in self.first():
             if item.is_empty():
                 self.known_to_derive_empty = True
                 return True
@@ -1014,12 +1023,13 @@ def compute_first_sets(grammar,rules):
     grammar.reset_first_follow()
 
     names_of_non_terminals = []
-    grammar.end_of_text.first = set({grammar.end_of_text})
-    grammar.empty.first = set({grammar.empty})
+    grammar.end_of_text.first_data = set({grammar.end_of_text})
+    grammar.empty.first_data = set({grammar.empty})
     for key, rule in rules.items():
         if rule.is_terminal() or rule.is_empty():
             # If X is a terminal, then First(X) is {X}
-            rule.first = set({rule})
+            # Lazy load it.
+            dummy = rule.first()
         elif rule.is_symbol_name():
             pass
         else:
@@ -1027,7 +1037,7 @@ def compute_first_sets(grammar,rules):
             for rhs in rule:
                 # If X -> empty is a production, then add Empty
                 if rhs.is_empty():
-                    rule.first = set({rhs})
+                    rule.first_data = set({rhs})
             names_of_non_terminals.append(key)
 
     def lookup(rule):
@@ -1053,20 +1063,20 @@ def compute_first_sets(grammar,rules):
         """
 
         if rule.is_symbol_name():
-            return rules[rule.content].first
+            return rules[rule.content].first()
         if rule.is_empty():
-            return rule.first
+            return rule.first()
         if rule.is_terminal():
             # The terminal isn't registered in the dictionary.
             return set({rule})
         if isinstance(rule,Choice):
-            result = rule.first
+            result = rule.first()
             #for item in [lookup(i) for i in rule]:
             for item in rule:
                 result = result.union(dynamic_first(item,depth+1))
             return result
         if isinstance(rule,Seq):
-            result = rule.first
+            result = rule.first()
 
             # Only recurse 2 levels deep
             if depth < 2:
@@ -1097,9 +1107,9 @@ def compute_first_sets(grammar,rules):
             rule = rules[key]
             # Accumulate First items from right-hand sides
             df = dynamic_first(rule,0)
-            new_items = df - rule.first
+            new_items = df - rule.first()
             if len(new_items) > 0:
-                rule.first = rule.first.union(new_items)
+                rule.first_data = rule.first().union(new_items)
                 keep_going = True
 
 
@@ -1152,7 +1162,7 @@ def first(grammar,phrase):
 
     result = set()
     for item in phrase:
-        we = without_empty(item.first)
+        we = without_empty(item.first())
         result = result.union(we)
         if not item.derives_empty():
             break
@@ -1234,7 +1244,7 @@ def compute_follow_sets(grammar):
 def dump_rule(key,rule):
     print("{}  -> {}".format(key,str(rule)))
     print("{} .reg_info.index: {}".format(key, str(rule.reg_info.index)))
-    print("{} .first: {}".format(key, [str(i) for i in rule.first]))
+    print("{} .first: {}".format(key, [str(i) for i in rule.first()]))
     print("{} .derives_empty: {}".format(key, str(rule.derives_empty())))
     print("{} .follow: {}".format(key, [str(i) for i in rule.follow]))
 
