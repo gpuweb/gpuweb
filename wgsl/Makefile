@@ -8,7 +8,7 @@ clean:
 	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs $(wildcard wgsl.*.bs.include)
+WGSL_SOURCES:=index.bs scanner.cc $(wildcard wgsl.*.bs.include)
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
@@ -25,8 +25,8 @@ img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
 
 # Extract WGSL grammar from the spec, validate it with Treesitter,
 # and use Treesitter to parse many code examples in the spec.
-grammar/grammar.js: index.bs extract-grammar.py
-	python3 ./extract-grammar.py index.bs grammar/grammar.js
+grammar/grammar.js: index.bs scanner.cc extract-grammar.py
+	python3 ./extract-grammar.py index.bs scanner.cc grammar/grammar.js
 
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json

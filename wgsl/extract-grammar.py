@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import shutil
 
 from tree_sitter import Language, Parser
 
@@ -34,7 +35,8 @@ def read_lines_from_file(filename, exclusions):
     """
     file = open(filename, "r")
     # Break up the input into lines, and skip empty lines.
-    parts = [j for i in [i.split("\n") for i in file.readlines()] for j in i if len(j) > 0]
+    parts = [j for i in [i.split("\n") for i in file.readlines()]
+             for j in i if len(j) > 0]
     result = []
     include_re = re.compile('path:\s+(\S+)')
     for line in parts:
@@ -43,23 +45,28 @@ def read_lines_from_file(filename, exclusions):
             included_file = m.group(1)
             if included_file not in exclusions:
                 print("including {}".format(included_file))
-                result.extend(read_lines_from_file(included_file,exclusions))
+                result.extend(read_lines_from_file(included_file, exclusions))
                 continue
         result.append(line)
     return result
 
-scanner_lines = read_lines_from_file(sys.argv[1], {'wgsl.recursive.bs.include'})
+
+bs_filename = sys.argv[1]
+scanner_cc_filename = sys.argv[2]
+grammar_filename = sys.argv[3]
+
+scanner_lines = read_lines_from_file(
+    bs_filename, {'wgsl.recursive.bs.include'})
 
 # Skip lines like:
 #  <pre class=include>
 #  </pre>
-scanner_lines = filter(lambda s: not s.startswith("</pre>") and not s.startswith("<pre class=include"), scanner_lines)
-
+scanner_lines = filter(lambda s: not s.startswith(
+    "</pre>") and not s.startswith("<pre class=include"), scanner_lines)
 
 # Replace comments in rule text
 scanner_lines = [re.sub('<!--.*-->', '', line) for line in scanner_lines]
 
-grammar_filename = sys.argv[2]
 grammar_path = os.path.dirname(grammar_filename)
 os.makedirs(grammar_path, exist_ok=True)
 grammar_file = open(grammar_filename, "w")
@@ -71,6 +78,8 @@ line = ""
 Scanner classes are used to parse contiguous sets of lines in the WGSL bikeshed
 source text.
 """
+
+
 class Scanner:
 
     @staticmethod
@@ -188,7 +197,8 @@ class scanner_rule(Scanner):
         return (None, None, None)
 
 
-class scanner_example(Scanner):  # Not an example of a scanner, scanner of examples from specification
+# Not an example of a scanner, scanner of examples from specification
+class scanner_example(Scanner):
     @staticmethod
     def name():
         return "example"
@@ -237,11 +247,12 @@ scanner_spans = [scanner_rule,
 
 scanner_components = {i.name(): {} for i in scanner_spans}
 
-scanner_i = 0 # line number of the current line
+scanner_i = 0  # line number of the current line
 scanner_span = None
 scanner_record = False
-last_key = None   # The rule name, if the most recently parsed thing was a rule.
-last_value = None # The most recently parsed thing
+# The rule name, if the most recently parsed thing was a rule.
+last_key = None
+last_value = None  # The most recently parsed thing
 while scanner_i < len(scanner_lines):
     # Try both the rule and the example scanners.
     for j in scanner_spans:
@@ -283,7 +294,8 @@ while scanner_i < len(scanner_lines):
                 scanner_record = True
                 if last_key != None and scanner_span.name() == "example":  # TODO Remove special case
                     if last_key in scanner_components[scanner_span.name()]:
-                        raise RuntimeError("line " + str(scanner_i) + ": example with duplicate name: " + last_key)
+                        raise RuntimeError(
+                            "line " + str(scanner_i) + ": example with duplicate name: " + last_key)
                     else:
                         scanner_components[scanner_span.name()][last_key] = []
                 scanner_i += scanner_record_value[-1]
@@ -323,7 +335,7 @@ while scanner_i < len(scanner_lines):
                         last_value = scanner_parse[1]
                         scanner_components[scanner_span.name()][last_key].append(
                             last_value)
-                scanner_i += scanner_parse[-1] # Advance line index
+                scanner_i += scanner_parse[-1]  # Advance line index
     scanner_i += 1
 
 
@@ -335,6 +347,18 @@ module.exports = grammar({
 
     externals: $ => [
         $._block_comment,
+        $._disambiguate_template,
+        $._template_args_start,
+        $._template_args_end,
+        $._less_than,
+        $._less_than_equal,
+        $._shift_left,
+        $._shift_left_assign,
+        $._greater_than,
+        $._greater_than_equal,
+        $._shift_right,
+        $._shift_right_assign,
+        $._error_sentinel,
     ],
 
     extras: $ => [
@@ -376,7 +400,11 @@ def grammar_from_rule_item(rule_item):
         elif rule_item[i].startswith("`'"):
             i_item = f"token({rule_item[i][1:-1]})"
         elif rule_item[i].startswith("<a"):
-            i_item = f"""token('{rule_item[i + 2].split(">`'")[1].split("'`</a")[0][:]}')"""
+            token = rule_item[i + 2].split(">`'")[1].split("'`</a")[0][:]
+            if token.startswith("_") and token != "_":
+                i_item = f"$.{token}"
+            else:
+                i_item = f"""token('{token}')"""
             i += 2
         elif rule_item[i] == "(":
             j = i + 1
@@ -467,7 +495,7 @@ def not_token_only(value):
 
 
 for key, value in scanner_components[scanner_rule.name()].items():
-    if not key.startswith("_") and key != "ident" and not_token_only(value) and key not in rule_skip:
+    if not key.startswith("_") and not_token_only(value) and key not in rule_skip:
         grammar_source += grammar_from_rule(key, value) + ",\n"
         rule_skip.add(key)
 
@@ -476,7 +504,7 @@ for key, value in scanner_components[scanner_rule.name()].items():
 
 
 for key, value in scanner_components[scanner_rule.name()].items():
-    if not key.startswith("_") and key != "ident" and key not in rule_skip:
+    if not key.startswith("_") and key not in rule_skip:
         grammar_source += grammar_from_rule(key, value) + ",\n"
         rule_skip.add(key)
 
@@ -532,7 +560,7 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
     grammar_package.write('        "nan": "^2.15.0"\n')
     grammar_package.write('    },\n')
     grammar_package.write('    "devDependencies": {\n')
-    grammar_package.write('        "tree-sitter-cli": "^0.20.0"\n')
+    grammar_package.write('        "tree-sitter-cli": "^0.20.7"\n')
     grammar_package.write('    },\n')
     grammar_package.write('    "main": "bindings/node"\n')
     grammar_package.write('}\n')
@@ -542,77 +570,8 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
 # See: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
 
 os.makedirs(os.path.join(grammar_path, "src"), exist_ok=True)
-with open(os.path.join(grammar_path, "src", "scanner.c"), "w") as external_scanner:
-    external_scanner.write(r"""
-#include <tree_sitter/parser.h>
-#include <wctype.h>
-
-enum TokenType {
-  BLOCK_COMMENT,
-};
-
-void *tree_sitter_wgsl_external_scanner_create() { return NULL; }
-void tree_sitter_wgsl_external_scanner_destroy(void *p) {}
-unsigned tree_sitter_wgsl_external_scanner_serialize(void *p, char *buffer) { return 0; }
-void tree_sitter_wgsl_external_scanner_deserialize(void *p, const char *b, unsigned n) {}
-
-static void advance(TSLexer *lexer) {
-  lexer->advance(lexer, false);
-}
-
-bool tree_sitter_wgsl_external_scanner_scan(void *payload, TSLexer *lexer,
-                                            const bool *valid_symbols) {
-  while (iswspace(lexer->lookahead)) lexer->advance(lexer, true);
-
-  if (lexer->lookahead == '/') {
-    advance(lexer);
-    if (lexer->lookahead != '*') return false;
-    advance(lexer);
-
-    bool after_star = false;
-    unsigned nesting_depth = 1;
-    for (;;) {
-      switch (lexer->lookahead) {
-        case '\0':
-          /* This signals the end of input. Since nesting depth is
-           * greater than zero, the scanner is in the middle of
-           * a block comment. Block comments must be affirmatively
-           * terminated.
-           */
-          return false;
-        case '*':
-          advance(lexer);
-          after_star = true;
-          break;
-        case '/':
-          if (after_star) {
-            advance(lexer);
-            after_star = false;
-            nesting_depth--;
-            if (nesting_depth == 0) {
-              lexer->result_symbol = BLOCK_COMMENT;
-              return true;
-            }
-          } else {
-            advance(lexer);
-            after_star = false;
-            if (lexer->lookahead == '*') {
-              nesting_depth++;
-              advance(lexer);
-            }
-          }
-          break;
-        default:
-          advance(lexer);
-          after_star = false;
-          break;
-      }
-    }
-  }
-
-  return false;
-}
-"""[1:-1])
+shutil.copyfile(scanner_cc_filename, os.path.join(
+    grammar_path, "src", "scanner.cc"))
 
 
 # Use "npm install" to create the tree-sitter CLI that has WGSL
@@ -642,8 +601,7 @@ WGSL_LANGUAGE = Language(grammar_path + "/build/wgsl.so", "wgsl")
 parser = Parser()
 parser.set_language(WGSL_LANGUAGE)
 
-error_list = []
-
+errors = 0
 for key, value in scanner_components[scanner_example.name()].items():
     if "expect-error" in key:
         continue
@@ -651,18 +609,25 @@ for key, value in scanner_components[scanner_example.name()].items():
     if "function-scope" in key:
         value = ["fn function__scope____() {"] + value + ["}"]
     if "type-scope" in key:
-        # Initiailize with zero-value expression.
-        value = ["const type_scope____: "] + value + ["="] + value + ["()"] + [";"]
+        # Initialize with zero-value expression.
+        value = ["const type_scope____: "] + \
+            value + ["="] + value + ["()"] + [";"]
     program = "\n".join(value)
+    # print("**************** BEGIN ****************")
+    # print(program)
+    # print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     tree = parser.parse(bytes(program, "utf8"))
     if tree.root_node.has_error:
-        error_list.append((program, tree))
+        print("Example:")
+        print(program)
+        print("Tree:")
+        print(tree.root_node.sexp())
+        errors = errors + 1
+    # print("***************** END *****************")
+    # print("")
+    # print("")
+
     # TODO Semantic CI
 
-if len(error_list) > 0:
-    for error in error_list:
-        print("Example:")
-        print(error[0])
-        print("Tree:")
-        print(error[1].root_node.sexp())
+if errors > 0:
     raise Exception("Grammar is not compatible with examples!")
