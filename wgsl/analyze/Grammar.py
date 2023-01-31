@@ -1241,13 +1241,17 @@ def compute_follow_sets(grammar):
                 keep_going = process_seq(key,seq,keep_going)
 
 
-def dump_rule(key,rule):
-    print("{}  -> {}".format(key,str(rule)))
-    print("{} .reg_info.index: {}".format(key, str(rule.reg_info.index)))
-    print("{} .first: {}".format(key, [str(i) for i in rule.first()]))
-    print("{} .derives_empty: {}".format(key, str(rule.derives_empty())))
-    print("{} .follow: {}".format(key, [str(i) for i in rule.follow]))
+def dump_rule_parts(key,rule):
+    parts = []
+    parts.append("{}  -> {}".format(key,str(rule)))
+    parts.append("{} .reg_info.index: {}".format(key, str(rule.reg_info.index)))
+    parts.append("{} .first: {}".format(key, [str(i) for i in rule.first()]))
+    parts.append("{} .derives_empty: {}".format(key, str(rule.derives_empty())))
+    parts.append("{} .follow: {}".format(key, [str(i) for i in rule.follow]))
+    return parts
 
+def dump_rule(key,rule):
+    print("\n".join(self.str_dump_rule(key,rule)))
 
 def dump_grammar(rules):
     for key, rule in rules.items():
@@ -1647,6 +1651,12 @@ class ParseTable:
     def has_conflicts(self):
         return len(self.conflicts) > 0
 
+    def raw_rule_parts(self):
+        parts = []
+        for key, rule in self.grammar.rules.items():
+            parts.extend(dump_rule_parts(key,rule))
+        return [ "{}\n".format(str(x)) for x in parts ]
+
     def states_parts(self):
         parts = []
         for i in self.states:
@@ -1691,7 +1701,9 @@ class ParseTable:
 
     def all_parts(self):
         parts = []
-        parts.append("=LALR1 item sets:\n")
+        parts.append("\n=Raw rules:\n")
+        parts.extend(self.raw_rule_parts())
+        parts.append("\n=LALR1 item sets:\n")
         parts.extend(self.states_parts())
         parts.append("\n=Reductions:\n")
         parts.extend(self.reductions_parts())
@@ -1898,7 +1910,7 @@ class Grammar:
         token_rules = set()
 
         for name, rule in self.rules.items():
-            # Star-able is also optional-abl, so starrable must come first.
+            # Star-able is also optional-able, so starrable must come first.
             starred_phrase = rule.as_starred(name)
             if starred_phrase is not None:
                 po.replace_with_starred[name] = starred_phrase
