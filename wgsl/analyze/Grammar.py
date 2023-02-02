@@ -1031,7 +1031,7 @@ def compute_first_sets(grammar,rules):
             # Lazy load it.
             dummy = rule.first()
         elif rule.is_symbol_name():
-            pass
+            names_of_non_terminals.append(key)
         else:
             # rule is a Choice node
             for rhs in rule:
@@ -1180,6 +1180,9 @@ def compute_follow_sets(grammar):
     Args:
         grammar: a Grammar in Canonical Form, with First sets populated
     """
+
+    # 1. Place $ in FOLLOW(S), where S is the start symbol and $ is the input
+    # right end marker.
     grammar.rules[grammar.start_symbol].follow = set({grammar.end_of_text})
 
     def lookup(rule):
@@ -1202,6 +1205,7 @@ def compute_follow_sets(grammar):
         # Process indirections through symbols
         seq = [lookup(i) for i in seq]
 
+        last_index = len(seq)-1
         for bi in range(0,len(seq)):
             b = seq[bi]
             # We only care about nonterminals in the sequence
@@ -1218,9 +1222,9 @@ def compute_follow_sets(grammar):
                 keep_going = True
                 b.follow = b.follow.union(new_items)
 
-            # If A -> alpha B, or A -> alpha B beta, where First(B)
+            # If A -> alpha B, or A -> alpha B beta, where First(beta)
             # contains epsilon, then add Follow(A) to Follow(B)
-            if derives_empty(grammar.rules,beta):
+            if (bi==last_index) or derives_empty(grammar.rules,beta):
                 new_items = grammar.rules[key].follow - b.follow
                 if len(new_items) > 0:
                     keep_going = True
@@ -1228,30 +1232,39 @@ def compute_follow_sets(grammar):
 
         return keep_going
 
-
     # Iterate until settled
     keep_going = True
     while keep_going:
         keep_going = False
         for key, rule in grammar.rules.items():
-            if rule.is_terminal() or rule.is_symbol_name() or rule.is_empty():
+            if rule.is_terminal() or rule.is_empty():
                 continue
-            # We only care about sequences
-            for seq in filter(lambda i: isinstance(i,Seq), rule):
-                keep_going = process_seq(key,seq,keep_going)
+
+            if isinstance(rule,Seq):
+                keep_going = process_seq(key,rule,keep_going)
+                continue
+
+            if rule.is_symbol_name():
+                keep_going = process_seq(key,[rule],keep_going)
+                continue
+
+            # Now process Choice over sequences:
+            if isinstance(rule,Choice):
+                for seq in [i.as_container() for i in rule]:
+                    keep_going = process_seq(key,seq,keep_going)
 
 
 def dump_rule_parts(key,rule):
     parts = []
     parts.append("{}  -> {}".format(key,str(rule)))
     parts.append("{} .reg_info.index: {}".format(key, str(rule.reg_info.index)))
-    parts.append("{} .first: {}".format(key, [str(i) for i in rule.first()]))
+    parts.append("{} .first: {}".format(key, str(LookaheadSet(rule.first()))))
     parts.append("{} .derives_empty: {}".format(key, str(rule.derives_empty())))
-    parts.append("{} .follow: {}".format(key, [str(i) for i in rule.follow]))
+    parts.append("{} .follow: {}".format(key, str(LookaheadSet(rule.follow))))
     return parts
 
 def dump_rule(key,rule):
-    print("\n".join(self.str_dump_rule(key,rule)))
+    print("\n".join(dump_rule_parts(key,rule)))
 
 def dump_grammar(rules):
     for key, rule in rules.items():

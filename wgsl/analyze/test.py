@@ -706,14 +706,14 @@ class SimpleWgsl_Follow(unittest.TestCase):
 
     def test_function_decl(self):
         r = self.g.find('function_decl')
-        self.assertEqual("",strset(r.follow))
+        self.assertEqual("';' '@' 'fn' 'type' EndOfText",strset(r.follow))
 
     def test_global_decl(self):
         # A global decl can be followed by another global decl.
         # So the non-Empty symbols from global-decl's First set
         # is what is in its Follow set.
         r = self.g.find('global_decl')
-        self.assertEqual("';' '@' 'fn' 'type'",strset(r.follow))
+        self.assertEqual("';' '@' 'fn' 'type' EndOfText",strset(r.follow))
 
     def test_translation_unit(self):
         # Can be empty.
@@ -1699,6 +1699,148 @@ class DragonBook_4_34(unittest.TestCase):
         self.assertEqual(follow_str(g,"T"),"{')' '*' '+' EndOfText}")
         self.assertEqual(follow_str(g,"F"),"{')' '*' '+' EndOfText}")
 
+class RhsIsJustSymbol(unittest.TestCase):
+    # Check first and follow set computation when there is a rule like:
+    #    A -> B
+    # where B is a nonterminal.
+    # For example, the Follow set for A propagates into B.
+    def toy_grammar(self,E_as_seq):
+        # A simplified switch-case grammar
+        """
+        language = S
+        S = '{' Case '}'
+        Case = E ':'
+        E = R
+        R = Id '<' Id
+        """
+
+        # Tokens
+
+        Id = _fixed("id")
+        Less = _fixed("<")
+        Colon = _fixed(":")
+        LBrace = _fixed("{")
+        RBrace = _fixed("}")
+
+        S = _sym("S")
+        Case = _sym("Case")
+        E = _sym("E")
+        R = _sym("R")
+
+        SDef = _def("S",_seq(LBrace,Case,RBrace))
+        CaseDef = _def("Case",_seq(E,Colon))
+        if E_as_seq:
+            EDef = _def("E",_seq(R))
+        else:
+            EDef = _def("E",R)
+        RDef = _def("R",_seq(Id,Less,Id))
+        g = _gl("S", SDef,CaseDef,EDef,RDef)
+        return g
+
+    def xtest_dump(self):
+        g = self.toy_grammar(True)
+        g.dump()
+        g = self.toy_grammar(False)
+        g.dump()
+        print(file=sys.stdout,flush=True)
+
+    def test_first(self):
+        g = self.toy_grammar(True)
+        self.assertEqual(first_str(g,"S"),"{'{'}")
+        self.assertEqual(first_str(g,"Case"),"{'id'}")
+        self.assertEqual(first_str(g,"E"),"{'id'}")
+        self.assertEqual(first_str(g,"R"),"{'id'}")
+        g = self.toy_grammar(False)
+        self.assertEqual(first_str(g,"S"),"{'{'}")
+        self.assertEqual(first_str(g,"Case"),"{'id'}")
+        self.assertEqual(first_str(g,"E"),"{'id'}")
+        self.assertEqual(first_str(g,"R"),"{'id'}")
+
+    def test_follow(self):
+        g = self.toy_grammar(True)
+        self.assertEqual(follow_str(g,"S"),"{EndOfText}")
+        self.assertEqual(follow_str(g,"Case"),"{'}'}")
+        self.assertEqual(follow_str(g,"E"),"{':'}")
+        self.assertEqual(follow_str(g,"R"),"{':'}")
+        g = self.toy_grammar(False)
+        self.assertEqual(follow_str(g,"S"),"{EndOfText}")
+        self.assertEqual(follow_str(g,"Case"),"{'}'}")
+        self.assertEqual(follow_str(g,"E"),"{':'}")
+        self.assertEqual(follow_str(g,"R"),"{':'}")
+
+class RhsIsChoiceWithASymbolAlternative(unittest.TestCase):
+    # Check first and follow set computation when there is a rule like:
+    #    A -> B | 'finite'
+    # where B is a nonterminal.
+    # For example, the Follow set for A propagates into B.
+    def toy_grammar(self,choice_over_sequence):
+        """
+        language = S
+        S = '{' Case '}'
+        Case = CaseSelector ':'
+        CaseSelector = E | 'default'
+        E = R
+        R = Id '<' Id
+        """
+
+        # Tokens
+
+        Id = _fixed("id")
+        Default = _fixed("default")
+        Less = _fixed("<")
+        Colon = _fixed(":")
+        LBrace = _fixed("{")
+        RBrace = _fixed("}")
+
+        S = _sym("S")
+        Case = _sym("Case")
+        CaseSelector = _sym("CaseSelector")
+        E = _sym("E")
+        R = _sym("R")
+
+        SDef = _def("S",_seq(LBrace,Case,RBrace))
+        CaseDef = _def("Case",_seq(CaseSelector,Colon))
+        if choice_over_sequence:
+            CaseSelectorDef = _def("CaseSelector",_choice(_seq(E),_seq(Default)))
+        else:
+            CaseSelectorDef = _def("CaseSelector",_choice(E,Default))
+        EDef = _def("E",_seq(R))
+        RDef = _def("R",_seq(Id,Less,Id))
+        g = _gl("S", SDef,CaseDef,CaseSelectorDef,EDef,RDef)
+        return g
+
+    def xtest_dump(self):
+        g = self.toy_grammar(False)
+        g.dump()
+        g = self.toy_grammar(True)
+        g.dump()
+        print(file=sys.stdout,flush=True)
+
+    def test_first(self):
+        g = self.toy_grammar(False)
+        self.assertEqual(first_str(g,"S"),"{'{'}")
+        self.assertEqual(first_str(g,"Case"),"{'default' 'id'}")
+        self.assertEqual(first_str(g,"CaseSelector"),"{'default' 'id'}")
+        self.assertEqual(first_str(g,"E"),"{'id'}")
+        self.assertEqual(first_str(g,"R"),"{'id'}")
+        g = self.toy_grammar(True)
+        self.assertEqual(first_str(g,"S"),"{'{'}")
+        self.assertEqual(first_str(g,"Case"),"{'default' 'id'}")
+        self.assertEqual(first_str(g,"CaseSelector"),"{'default' 'id'}")
+        self.assertEqual(first_str(g,"E"),"{'id'}")
+        self.assertEqual(first_str(g,"R"),"{'id'}")
+
+    def test_follow(self):
+        g = self.toy_grammar(False)
+        self.assertEqual(follow_str(g,"S"),"{EndOfText}")
+        self.assertEqual(follow_str(g,"Case"),"{'}'}")
+        self.assertEqual(follow_str(g,"E"),"{':'}")
+        self.assertEqual(follow_str(g,"R"),"{':'}")
+        g = self.toy_grammar(True)
+        self.assertEqual(follow_str(g,"S"),"{EndOfText}")
+        self.assertEqual(follow_str(g,"Case"),"{'}'}")
+        self.assertEqual(follow_str(g,"E"),"{':'}")
+        self.assertEqual(follow_str(g,"R"),"{':'}")
 
 if __name__ == '__main__':
 	unittest.main()
