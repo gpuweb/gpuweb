@@ -9,7 +9,11 @@ import subprocess
 import sys
 import shutil
 
+from distutils.ccompiler import new_compiler
+from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
+
+SELF="extract-grammar.py"
 
 HEADER = """
 // Copyright (C) [$YEAR] World Wide Web Consortium,
@@ -44,7 +48,6 @@ def read_lines_from_file(filename, exclusions):
         if m:
             included_file = m.group(1)
             if included_file not in exclusions:
-                print("including {}".format(included_file))
                 result.extend(read_lines_from_file(included_file, exclusions))
                 continue
         result.append(line)
@@ -55,6 +58,7 @@ bs_filename = sys.argv[1]
 scanner_cc_filename = sys.argv[2]
 grammar_filename = sys.argv[3]
 
+print("{}: Extract grammar rules from {}".format(SELF,bs_filename))
 scanner_lines = read_lines_from_file(
     bs_filename, {'wgsl.recursive.bs.include'})
 
@@ -552,7 +556,9 @@ headerTemplate = Template(HEADER)
 grammar_file.write(headerTemplate.substitute(
     YEAR=date.today().year) + grammar_source + "\n")
 grammar_file.close()
+print("{}: Wrote tree-sitter grammar into {}".format(SELF,grammar_filename))
 
+print("{}: Creating tree-sitter parser".format(SELF,bs_filename))
 with open(grammar_path + "/package.json", "w") as grammar_package:
     grammar_package.write('{\n')
     grammar_package.write('    "name": "tree-sitter-wgsl",\n')
@@ -570,8 +576,14 @@ with open(grammar_path + "/package.json", "w") as grammar_package:
 # See: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
 
 os.makedirs(os.path.join(grammar_path, "src"), exist_ok=True)
-shutil.copyfile(scanner_cc_filename, os.path.join(
-    grammar_path, "src", "scanner.cc"))
+
+# Remove the old scanner, if it exists.
+scanner_c_staging = os.path.join(grammar_path, "src", "scanner.c")
+if os.path.exists(scanner_c_staging):
+    os.remove(scanner_c_staging)
+# Copy the new scanner into place.
+scanner_cc_staging = os.path.join(grammar_path, "src", "scanner.cc")
+shutil.copyfile(scanner_cc_filename, scanner_cc_staging)
 
 
 # Use "npm install" to create the tree-sitter CLI that has WGSL
@@ -589,20 +601,51 @@ subprocess.run(["npx", "tree-sitter", "generate"],
 # subprocess.run(["npx", "tree-sitter", "build-wasm", "--docker"],
 #                cwd=grammar_path, check=True)
 
-Language.build_library(
-    grammar_path + "/build/wgsl.so",
-    [
-        grammar_path,
-    ]
-)
 
-WGSL_LANGUAGE = Language(grammar_path + "/build/wgsl.so", "wgsl")
+def build_library(output_file, input_files):
+    # The py-tree-sitter build_library method wasn't compiling with C++17 flags,
+    # so invoke the compile ourselves.
+    compiler = new_compiler()
+    clang_like = isinstance(compiler, UnixCCompiler)
+
+    # Compile .c and .cc files down to object files.
+    object_files = []
+    includes = [os.path.dirname(input_files[0])]
+    for src in input_files:
+        flags = []
+        if src.endswith(".cc"):
+            if clang_like:
+                flags.extend(["-fPIC", "-std=c++17"])
+            else:
+                flags.extend(["/std:c++17"])
+        objects = compiler.compile([src],
+                                   extra_preargs=flags,
+                                   include_dirs=includes)
+        object_files.extend(objects)
+
+    # Link object files to a single shared library.
+    if clang_like:
+        link_flags = ["-lstdc++"]
+    compiler.link_shared_object(
+            object_files,
+            output_file,
+            target_lang="c++",
+            extra_preargs=link_flags)
+
+wgsl_shared_lib = os.path.join(grammar_path,"build","wgsl.so")
+print("{}: Building custom scanner: {}".format(SELF,wgsl_shared_lib))
+build_library(wgsl_shared_lib,
+              [scanner_cc_staging,
+               os.path.join(grammar_path,"src","parser.c")])
+WGSL_LANGUAGE = Language(wgsl_shared_lib, "wgsl")
 
 parser = Parser()
 parser.set_language(WGSL_LANGUAGE)
 
+print("{}: Checking WGSL examples in the spec".format(SELF),flush=True,end='')
 errors = 0
 for key, value in scanner_components[scanner_example.name()].items():
+    print(".",flush=True,end='')
     if "expect-error" in key:
         continue
     value = value[:]
@@ -631,3 +674,4 @@ for key, value in scanner_components[scanner_example.name()].items():
 
 if errors > 0:
     raise Exception("Grammar is not compatible with examples!")
+print("Ok",flush=True)
