@@ -324,8 +324,11 @@ class Rule(RegisterableObject):
             # Print ourselves
             if print_option.bikeshed:
                 context = 'recursive descent syntax'
-                if print_option.grammar.rules[name].is_token():
+                g = print_option.grammar
+                if g.rules[name].is_token():
                     context = 'syntax'
+                if name in g.extra_externals:
+                    context = 'syntax_sym'
                 return "[={}/{}=]".format(context,name)
             return name
         if isinstance(rule,Choice):
@@ -1822,8 +1825,9 @@ class Grammar:
         external_tokens = json_externals(pass0)
         #print(external_tokens,file=sys.stderr)
         defined_rules = set(pass0["rules"].keys())
-        needs_def = external_tokens - defined_rules
-        for e in needs_def:
+        # The set of external tokens that don't have an ordinary definition in the grammar.
+        self.extra_externals = external_tokens - defined_rules
+        for e in self.extra_externals:
             # Create a placholder definition
             pass0["rules"][e] = {"type":"TOKEN","content":{"type":"PATTERN","value":"\\u200B{}".format(e)}}
 
@@ -1948,6 +1952,7 @@ class Grammar:
 
         token_rules = set()
 
+        # Look for defined rules that look better as absorbed into their uses.
         for name, rule in self.rules.items():
             # Star-able is also optional-able, so starrable must come first.
             starred_phrase = rule.as_starred(name)
@@ -1964,6 +1969,8 @@ class Grammar:
                 if len(phrase)==1 and phrase[0].is_token():
                     token_rules.add(name)
 
+        # A rule that was generated to satisfy canonicalization is better
+        # presented as absorbed in its original parent.
         for name, rule in self.rules.items():
             # We only care about rules generated during canonicalization
             if name.find('.') > 0 or name.find('/') > 0:
