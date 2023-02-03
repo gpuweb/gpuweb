@@ -7,6 +7,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #if 0
@@ -34,7 +35,7 @@ enum Token {
   SHIFT_RIGHT,         // '>>'
   SHIFT_RIGHT_ASSIGN,  // '>>='
 
-  // Special value, found found in grammar.js.
+  // Special value, found in grammar.js.
   // https://tree-sitter.github.io/tree-sitter/creating-parsers#other-external-scanner-details
   ERROR,
 };
@@ -506,7 +507,7 @@ class BitQueue {
   /// @param index the index of the bit starting from the front
   /// @return the bit value
   auto operator[](size_t index) {
-    assert(index < count());
+    assert(index < count());  // TODO(dneto): this should error out.
     return bits_[(index + read_offset_) % CAPACITY_IN_BITS];
   }
 
@@ -548,6 +549,7 @@ class Lexer {
 
   /// Returns the next code point, advancing the lexer by one code point.
   CodePoint next() {
+    // TODO(dneto): should assert !lexer_->eof(lexer_)
     CodePoint lookahead = lexer_->lookahead;
     advance();
     return lookahead;
@@ -582,6 +584,7 @@ class Lexer {
 
   /// Attempts to match an identifier that starts with XIDStart and has any
   /// number of XIDContinue code points.
+  /// TODO(dneto): Is this meant to avoid matching keywords?
   bool match_identifier() {
     if (!is_xid_start(peek())) {
       return false;
@@ -607,6 +610,9 @@ class Lexer {
     }
 
     if (is_ascii) {
+      // TODO(dneto): should this include other keywords?
+      // e.g. 'let', 'const'
+      // But those would be blocked by semicolons?
       if (ss.str() == "var") {
         LOG("var");
         return false;
@@ -619,14 +625,18 @@ class Lexer {
 
   /// Attempts to match a /* block comment */
   bool match_block_comment() {
+    // TODO(dneto): Need to un-advance if matched '/' but not '*'
     if (!match('/') || !match('*')) {
       return false;
     }
 
     size_t nesting = 1;
     while (nesting > 0 && !match(kEOF)) {
+      // TODO(dneto): If we match '/' but not '*' there is no way to un-advance
+      // back to make '/' the lookahead.
       if (match('/') && match('*')) {
         nesting++;
+      // TODO(dneto): Same here, need to be able to un-advance to before '*'
       } else if (match('*') && match('/')) {
         nesting--;
       } else {
@@ -655,6 +665,9 @@ struct Scanner {
   };
   State state;
   static_assert(sizeof(State) < TREE_SITTER_SERIALIZATION_BUFFER_SIZE);
+  // State is trivially copyable, so it can be serialized and deserialized
+  // with memcpy.
+  static_assert(std::is_trivially_copyable<State>::value);
 
   /// Updates #state with the disambiguated '<' and '>' tokens.
   /// The following assumptions are made on entry:
@@ -766,7 +779,7 @@ struct Scanner {
 
   /// The external token scanner function. Handles block comments and
   /// template-argument-list vs less-than / greater-than disambiguation.
-  /// @return true if lexer->result_symbol was assigned an Token, or
+  /// @return true if lexer->result_symbol was assigned a Token, or
   /// false if the token should be taken from the regular WGSL tree-sitter
   /// grammar.
   bool scan(TSLexer* ts_lexer, const bool* const valid_symbols) {
@@ -856,6 +869,7 @@ struct Scanner {
     };
     write(&state.lt_is_tmpl, sizeof(state.lt_is_tmpl));
     write(&state.gt_is_tmpl, sizeof(state.gt_is_tmpl));
+    // TODO(dneto): implicit conversion be narrowing.
     return bytes_written;
   }
 
