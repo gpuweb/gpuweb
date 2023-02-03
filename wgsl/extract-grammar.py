@@ -15,6 +15,24 @@ from tree_sitter import Language, Parser
 
 SELF="extract-grammar.py"
 
+bs_filename = sys.argv[1]
+scanner_cc_filename = sys.argv[2]
+grammar_filename = sys.argv[3]
+
+
+def newer_than(first,second):
+    """Returns true if file 'first' is newer than 'second',
+    or if 'second' does not exist
+    """
+    if not os.path.exists(first):
+        raise Exception("Missing file {}".format(first))
+    if not os.path.exists(second):
+        return True
+    first_time = os.path.getmtime(first)
+    second_time = os.path.getmtime(second)
+    return first_time >= second_time
+
+
 HEADER = """
 // Copyright (C) [$YEAR] World Wide Web Consortium,
 // (Massachusetts Institute of Technology, European Research Consortium for
@@ -30,7 +48,6 @@ HEADER = """
 // **** This file is auto-generated. Do not edit. ****
 
 """.lstrip()
-
 
 def read_lines_from_file(filename, exclusions):
     """Returns the text lines from the given file.
@@ -54,13 +71,34 @@ def read_lines_from_file(filename, exclusions):
     return result
 
 
-bs_filename = sys.argv[1]
-scanner_cc_filename = sys.argv[2]
-grammar_filename = sys.argv[3]
+print("{}: Comparing previously scanned bikeshed source".format(SELF))
 
-print("{}: Extract grammar rules from {}".format(SELF,bs_filename))
+# Get the input bikeshed text.
 scanner_lines = read_lines_from_file(
     bs_filename, {'wgsl.recursive.bs.include'})
+
+input_bs_is_fresh = True
+previously_scanned_bs_file = bs_filename + ".pre"
+if os.path.exists(previously_scanned_bs_file):
+    with open(previously_scanned_bs_file,"r") as previous_file:
+        previous_lines = previous_file.readlines()
+        if previous_lines == scanner_lines:
+            input_bs_is_fresh = False
+
+if not os.path.exists(grammar_filename):
+    # Must regenerate the grammar file.
+    input_bs_is_fresh = True
+
+if input_bs_is_fresh:
+    # Save scanned lines for next time.
+    with open(previously_scanned_bs_file,"w") as previous_file:
+        for line in scanner_lines:
+            previous_file.write(line)
+
+if input_bs_is_fresh:
+    print("{}: Extract grammar rules from {}".format(SELF,bs_filename))
+
+#TODO: only scan the bikeshed text when fresh.
 
 # Skip lines like:
 #  <pre class=include>
@@ -73,7 +111,9 @@ scanner_lines = [re.sub('<!--.*-->', '', line) for line in scanner_lines]
 
 grammar_path = os.path.dirname(grammar_filename)
 os.makedirs(grammar_path, exist_ok=True)
-grammar_file = open(grammar_filename, "w")
+
+if input_bs_is_fresh:
+    grammar_file = open(grammar_filename, "w")
 
 # Global variable holding the current line text.
 line = ""
@@ -553,10 +593,11 @@ grammar_source += r"""
 """[1:-1]
 
 headerTemplate = Template(HEADER)
-grammar_file.write(headerTemplate.substitute(
-    YEAR=date.today().year) + grammar_source + "\n")
-grammar_file.close()
-print("{}: Wrote tree-sitter grammar into {}".format(SELF,grammar_filename))
+if input_bs_is_fresh:
+    grammar_file.write(headerTemplate.substitute(
+        YEAR=date.today().year) + grammar_source + "\n")
+    grammar_file.close()
+    print("{}: Wrote tree-sitter grammar into {}".format(SELF,grammar_filename))
 
 print("{}: Creating tree-sitter parser".format(SELF,bs_filename))
 with open(grammar_path + "/package.json", "w") as grammar_package:
@@ -581,9 +622,10 @@ os.makedirs(os.path.join(grammar_path, "src"), exist_ok=True)
 scanner_c_staging = os.path.join(grammar_path, "src", "scanner.c")
 if os.path.exists(scanner_c_staging):
     os.remove(scanner_c_staging)
-# Copy the new scanner into place.
+# Copy the new scanner into place, if newer
 scanner_cc_staging = os.path.join(grammar_path, "src", "scanner.cc")
-shutil.copyfile(scanner_cc_filename, scanner_cc_staging)
+if newer_than(scanner_cc_filename, scanner_cc_staging):
+    shutil.copyfile(scanner_cc_filename, scanner_cc_staging)
 
 
 # Use "npm install" to create the tree-sitter CLI that has WGSL
@@ -633,10 +675,11 @@ def build_library(output_file, input_files):
             extra_preargs=link_flags)
 
 wgsl_shared_lib = os.path.join(grammar_path,"build","wgsl.so")
-print("{}: Building custom scanner: {}".format(SELF,wgsl_shared_lib))
-build_library(wgsl_shared_lib,
-              [scanner_cc_staging,
-               os.path.join(grammar_path,"src","parser.c")])
+if newer_than(scanner_cc_staging, wgsl_shared_lib) or newer_than(grammar_filename,wgsl_shared_lib):
+    print("{}: Building custom scanner: {}".format(SELF,wgsl_shared_lib))
+    build_library(wgsl_shared_lib,
+                  [scanner_cc_staging,
+                   os.path.join(grammar_path,"src","parser.c")])
 WGSL_LANGUAGE = Language(wgsl_shared_lib, "wgsl")
 
 parser = Parser()
