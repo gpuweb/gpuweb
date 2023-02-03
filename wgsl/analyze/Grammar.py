@@ -1828,8 +1828,12 @@ class Grammar:
         # The set of external tokens that don't have an ordinary definition in the grammar.
         self.extra_externals = external_tokens - defined_rules
         for e in self.extra_externals:
+            content = "\\u200B{}".format(e)
+            if e == '_disambiguate_template':
+                # This is a zero-width token used for Treesitter's benefit
+                content = ''
             # Create a placholder definition
-            pass0["rules"][e] = {"type":"TOKEN","content":{"type":"PATTERN","value":"\\u200B{}".format(e)}}
+            pass0["rules"][e] = {"type":"TOKEN","content":{"type":"PATTERN","value":content}}
 
         # Remove any rules that should be ignored
         # The WGSL grammar has _reserved, which includes 'attribute' but
