@@ -444,7 +444,16 @@ def grammar_from_rule_item(rule_item):
         elif rule_item[i].startswith("`'"):
             i_item = f"token({rule_item[i][1:-1]})"
         elif rule_item[i].startswith("<a"):
-            token = rule_item[i + 2].split(">`'")[1].split("'`</a")[0][:]
+            # From  ['<a', 'for=syntax_kw', "lt=true>`'true'`</a>"]
+            # pick out "true"
+            match = re.fullmatch("[^>]*>`'(.*)'`</a>",rule_item[i+2])
+            if match:
+                token = match.group(1)
+            else:
+                # From  ['<a', 'for=syntax_sym', "lt=_disam>_disam</a>"]
+                # pick out "_disam"
+                match = re.fullmatch("[^>]*>(.*)</a>",rule_item[i+2])
+                token = match.group(1)
             if token.startswith("_") and token != "_":
                 i_item = f"$.{token}"
             else:
