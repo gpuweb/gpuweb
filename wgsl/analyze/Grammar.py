@@ -44,6 +44,7 @@ Represent and process a grammar:
 
 import json
 import functools
+import sys
 from ObjectRegistry import RegisterableObject, ObjectRegistry
 from collections import defaultdict
 
@@ -858,6 +859,21 @@ class Item(RegisterableObject):
 
     def at_end(self):
         return self.position == len(self.items())
+
+def json_externals(json):
+    """
+    Returns the set of names of symbols in the "externals" section of the
+    Treesitter JSON grammar.
+
+    Data looks like this, for section "externals".
+        {
+          "externals": [
+            { "type": "SYMBOL", name: "_block_comment" },
+            { "type": "SYMBOL", name: "_error_sentinel" }
+          }
+        }
+    """
+    return set([ x["name"] for x in json.get("externals",[]) ])
 
 
 def json_hook(grammar,memo,tokens_only,dct):
@@ -1801,6 +1817,16 @@ class Grammar:
 
         # First decode it without any interpretation.
         pass0 = json.loads(json_text)
+
+        # Get the external tokens, these are not necessarily represented in the rules.
+        external_tokens = json_externals(pass0)
+        #print(external_tokens,file=sys.stderr)
+        defined_rules = set(pass0["rules"].keys())
+        needs_def = external_tokens - defined_rules
+        for e in needs_def:
+            # Create a placholder definition
+            pass0["rules"][e] = {"type":"TOKEN","content":{"type":"PATTERN","value":"\\u200B{}".format(e)}}
+
         # Remove any rules that should be ignored
         # The WGSL grammar has _reserved, which includes 'attribute' but
         # that is also the name of a different grammar rule.
