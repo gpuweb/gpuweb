@@ -610,9 +610,8 @@ class Lexer {
     }
 
     if (is_ascii) {
-      // TODO(dneto): should this include other keywords?
-      // e.g. 'let', 'const'
-      // But those would be blocked by semicolons?
+      // "var" can have "<" immediately after it, e.g.
+      // "var<workgroup> w: u32;"
       if (ss.str() == "var") {
         LOG("var");
         return false;
