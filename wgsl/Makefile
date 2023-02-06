@@ -26,7 +26,7 @@ img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
 # Extract WGSL grammar from the spec, validate it with Treesitter,
 # and use Treesitter to parse many code examples in the spec.
 grammar/grammar.js: index.bs scanner.cc extract-grammar.py
-	python3 ./extract-grammar.py index.bs scanner.cc grammar/grammar.js
+	python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar
 
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json
