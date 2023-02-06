@@ -8,7 +8,7 @@ clean:
 	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs $(wildcard wgsl.*.bs.include)
+WGSL_SOURCES:=index.bs $(wildcard wgsl.*.bs.include) diagrams
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
@@ -19,6 +19,7 @@ index.html: index.pre.html nfkc
 
 # Generate diagrams from source. You can rebuild these without rebuilding the spec.
 MERMAID_OUTPUTS := $(patsubst diagrams/%.mmd,img/%.mmd.svg,$(wildcard diagrams/*.mmd))
+.PHONY: diagrams
 diagrams: $(MERMAID_OUTPUTS)
 img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
 	sh ../tools/invoke-mermaid.sh -i $< -o $@
