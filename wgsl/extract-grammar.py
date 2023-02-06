@@ -26,11 +26,36 @@ HEADER = """
 
 """.lstrip()
 
-scanner_filename = sys.argv[1]
-scanner_file = open(scanner_filename, "r")
-# Break up the input into lines, and skip empty lines.
-scanner_lines = [j for i in [i.split("\n")
-                             for i in scanner_file.readlines()] for j in i if len(j) > 0]
+
+def read_lines_from_file(filename, exclusions):
+    """Returns the text lines from the given file.
+    Processes bikeshed path includes, except for files named the exclusion list.
+    Skips empty lines.
+    """
+    file = open(filename, "r")
+    # Break up the input into lines, and skip empty lines.
+    parts = [j for i in [i.split("\n") for i in file.readlines()] for j in i if len(j) > 0]
+    result = []
+    include_re = re.compile('path:\s+(\S+)')
+    for line in parts:
+        m = include_re.match(line)
+        if m:
+            included_file = m.group(1)
+            if included_file not in exclusions:
+                print("including {}".format(included_file))
+                result.extend(read_lines_from_file(included_file,exclusions))
+                continue
+        result.append(line)
+    return result
+
+scanner_lines = read_lines_from_file(sys.argv[1], {'wgsl.recursive.bs.include'})
+
+# Skip lines like:
+#  <pre class=include>
+#  </pre>
+scanner_lines = filter(lambda s: not s.startswith("</pre>") and not s.startswith("<pre class=include"), scanner_lines)
+
+
 # Replace comments in rule text
 scanner_lines = [re.sub('<!--.*-->', '', line) for line in scanner_lines]
 
@@ -38,15 +63,6 @@ grammar_filename = sys.argv[2]
 grammar_path = os.path.dirname(grammar_filename)
 os.makedirs(grammar_path, exist_ok=True)
 grammar_file = open(grammar_filename, "w")
-
-
-def scanner_escape_name(name):
-    return name.strip().replace("`", "").replace('-', '_').lower().strip()
-
-
-def scanner_escape_regex(regex):
-    return re.escape(regex.strip()).strip().replace("/", "\\/").replace("\\_", "_").replace("\\%", "%").replace("\\;", ";").replace("\\<", "<").replace("\\>", ">").replace("\\=", "=").replace("\\,", ",").replace("\\:", ":").replace("\\!", "!")
-
 
 # Global variable holding the current line text.
 line = ""
@@ -317,7 +333,7 @@ grammar_source += r"""
 module.exports = grammar({
     name: 'wgsl',
 
-    externals: $ => [
+    externals: $ => [
         $._block_comment,
     ],
 
@@ -335,7 +351,7 @@ module.exports = grammar({
     // WGSL has no parsing conflicts.
     conflicts: $ => [],
 
-    word: $ => $.ident,
+    word: $ => $.ident_pattern_token,
 
     rules: {
 """[1:-1]
@@ -359,6 +375,9 @@ def grammar_from_rule_item(rule_item):
             i_item = f"token({rule_item[i][1:-1]})"
         elif rule_item[i].startswith("`'"):
             i_item = f"token({rule_item[i][1:-1]})"
+        elif rule_item[i].startswith("<a"):
+            i_item = f"""token('{rule_item[i + 2].split(">`'")[1].split("'`</a")[0][:]}')"""
+            i += 2
         elif rule_item[i] == "(":
             j = i + 1
             j_span = 0
@@ -414,7 +433,7 @@ def grammar_from_rule(key, value):
     return result
 
 
-scanner_components[scanner_rule.name()]["_comment"] = [["`'//'`", '`/.*/`']]
+scanner_components[scanner_rule.name()]["_comment"] = [["`'//.*'`"]]
 
 # Following sections are to allow out-of-order per syntactic grammar appearance of rules
 
@@ -595,7 +614,15 @@ bool tree_sitter_wgsl_external_scanner_scan(void *payload, TSLexer *lexer,
 }
 """[1:-1])
 
-subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
+
+# Use "npm install" to create the tree-sitter CLI that has WGSL
+# support.  But "npm install" fetches data over the network.
+# That can be flaky, so only invoke it when needed.
+if os.path.exists("grammar/node_modules/tree-sitter-cli") and os.path.exists("grammar/node_modules/nan"):
+    # "npm install" has been run already.
+    pass
+else:
+    subprocess.run(["npm", "install"], cwd=grammar_path, check=True)
 subprocess.run(["npx", "tree-sitter", "generate"],
                cwd=grammar_path, check=True)
 # Following are commented for future reference to expose playground

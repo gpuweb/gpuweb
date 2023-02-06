@@ -1,20 +1,27 @@
 # WebGPU Specification
 
-## Generating the specification
+## Dependencies
 
-The specification is written using [Bikeshed](https://tabatkins.github.io/bikeshed).
+The specification is written using [Bikeshed](https://tabatkins.github.io/bikeshed)
+with diagrams generated using [Mermaid](https://mermaid-js.github.io/mermaid/).
 
-If you have bikeshed installed locally, you can generate the specification with:
+To install the necessary tools, run:
 
-```
-prompt> make
-```
-
-This simply runs bikeshed on the `index.bs` file.
-
-Otherwise, you can use the bikeshed Web API:
-
-```
-prompt> make online
+```bash
+./tools/install-dependencies.sh bikeshed diagrams
 ```
 
+Alternatively, invoke `pip3`/`npx` directly, using the commands in [that script](../tools/install-dependencies.sh).
+
+## Building this spec
+
+If Bikeshed is not installed locally, the Bikeshed API will be used to generate the specification
+(this is generally slower).
+
+To generate the specification and `webgpu.idl`, type:
+
+```bash
+make
+```
+
+When the specification is generated, it is written to `index.html`.

@@ -1,10 +1,16 @@
 # W3C _GPU for the Web_ Community Group
 
-This is the repository for the W3C's [GPU for the Web](https://www.w3.org/community/gpu/)
-Community Group.
+<img alt="WebGPU logo" src="logo/webgpu-responsive.svg" width="400">
 
-We'll use the [wiki](https://github.com/gpuweb/gpuweb/wiki) as the main source of information
-related to the work. This repository will hold the actual specification, examples, etc.
+This is the repository for the W3C
+[GPU for the Web Community Group](https://www.w3.org/community/gpu/)
+WebGPU API and WebGPU Shading Language (WGSL) specifications.
+This specification is formally standardized by the W3C
+[GPU for the Web Working Group](https://www.w3.org/2020/gpu/).
+
+We use the [wiki](https://github.com/gpuweb/gpuweb/wiki) and issue tracker as
+the main sources of information related to the work.
+This repository will hold the actual specification, examples, etc.
 
 Work-in-progress specification: <https://gpuweb.github.io/gpuweb/>
 
@@ -27,10 +33,18 @@ to the [Contributor License Agreement](https://www.w3.org/community/about/agreem
 
 ## Contributions
 
-You are not required to be a member of the group in order to
+You are not required to be a member of the Community Group or Working Group in order to
 [file issues](https://github.com/gpuweb/gpuweb/issues), errors, fixes or make suggestions.
-Just a github account. We simply require that any significant contribution of technology
-come from members, so that we can ensure no IP complications down the line.
+Anyone with a GitHub account can do so.
+
+In order to assure that WebGPU specifications can be implemented on a Royalty-Free
+(RF) basis, all significant contributions need to be made with RF commitments.
+Members of the Working Group, and members of the Community Group who have signed the
+[Final Specification Agreement](https://www.w3.org/community/about/process/fsa-deed/)
+have already committed to the terms of the
+[W3C Patent Policy](https://www.w3.org/Consortium/Patent-Policy-20200915/).
+Non-members will be requested to provide an RF commitment under terms similar to
+the W3C Patent Policy.
 
 All contributions must comply with the group's
 [contribution guidelines](https://github.com/gpuweb/admin/blob/master/CONTRIBUTING.md).

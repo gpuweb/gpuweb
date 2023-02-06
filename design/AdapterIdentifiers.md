@@ -41,7 +41,7 @@ A common and useful asset for developers is sites such as https://gpuinfo.org/, 
 The first step when using WebGPU is to query a `GPUAdapter`, of which there may be several available to the system. This will typically correspond to a physical or software emulated GPU.
 
 ```js
-const gpuAdapter = await navigator.requestAdapter();
+const gpuAdapter = await navigator.gpu.requestAdapter();
 ```
 
 WebGPU applications often require a significant amount of resource initialization at startup, and it's possible that the resources being initialized may need to be altered depending on the adapter in use. For example: Shader sources may need to be re-written to avoid a known bug or lower detail meshes and textures may need to be fetched to avoid overtaxing a slower device. In these cases some amount of adapter identifiers need to be queried very early in the application's lifetime, and preferably without invoking a user consent prompt. (Nobody likes to be asked for permission immediately on navigation, at which point they likely have little to know context for why the permission is needed.)
@@ -50,24 +50,24 @@ In this case, the developer would call the `requestAdapterInfo()` method of the 
 
 ```js
 const adapterInfo = await gpuAdapter.requestAdapterInfo();
-console.log(gpuAdapter.info);
+console.log(adapterInfo);
 
 // Output:
 {
     vendor: 'nvidia',
     architecture: 'turing',
-    deviceId: 0,
+    device: '',
     description: ''
 }
 ```
 
-Note that some values of the interface are empty values, such as the empty string or `0`, because the UA deemed that they were too high-entropy to return without explicit user consent. If the UA wished, it would have the ability to return empty values for all values. This would be most commonly expected in "enhanced privacy" modes like [Edge's strict tracking prevention](https://support.microsoft.com/en-us/microsoft-edge/learn-about-tracking-prevention-in-microsoft-edge-5ac125e8-9b90-8d59-fa2c-7f2e9a44d869) or [Firefox's Enhanced Tracking Protection](https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop). Ideally returning little to no identifiers is common enough that user agents that wish to expose very little information by default can do so without severe compatibility concerns.
+Note that some values of the interface are the empty string, because the UA deemed that they were too high-entropy to return without explicit user consent. If the UA wished, it would have the ability to return empty string for all values. This would be most commonly expected in "enhanced privacy" modes like [Edge's strict tracking prevention](https://support.microsoft.com/en-us/microsoft-edge/learn-about-tracking-prevention-in-microsoft-edge-5ac125e8-9b90-8d59-fa2c-7f2e9a44d869) or [Firefox's Enhanced Tracking Protection](https://support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-desktop). Ideally returning little to no identifiers is common enough that user agents that wish to expose very little information by default can do so without severe compatibility concerns.
 
 The information that _is_ returned should be helpful in identifying broad buckets of adapters with similar capabilities and performance characteristics. For example, Nvidia's "Turing" architecture [covers a range of nearly 40 different GPUs](https://en.wikipedia.org/wiki/Turing_(microarchitecture)#Products_using_Turing) across a wide range of prices and form factors. Identifing the adapter as an Turing device is enough to allow developers to activate broad workarounds aimed at that family of hardware and make some assumptions about baseline performance, but is also broad enough to not give away too much identifiable information about the user.
 
 Additionally, in some cases the UA may find it beneficial to return a value that is not the most accurate one that could be reported but still gives developers a reasonable reference point with a lower amount of entropy.
 
-Finally, it may not always be possible or practical to detemine a value for some fields (like a GPU's architecture) and in those cases returning `null` is acceptible even if the user agent would have considered the information low-entropy.
+Finally, it may not always be possible or practical to detemine a value for some fields (like a GPU's architecture) and in those cases returning empty string is acceptible even if the user agent would have considered the information low-entropy.
 
 ### Unmasked adapter identifiers
 
@@ -75,9 +75,9 @@ At some point during the lifetime of the application the developer may determine
 
 ```js
 feedbackButton.addEventListener('click', async ()=> {
-    const unmaskHints = ['architecture', 'deviceId', 'description'];
-    const adapterInfo = await gpuAdapter.requestAdapterInfo(unmaskHints);
-    generateUserFeedback(adapterInfo);
+    const unmaskHints = ['architecture', 'device', 'description'];
+    const unmaskedAdapterInfo = await gpuAdapter.requestAdapterInfo(unmaskHints);
+    generateUserFeedback(unmaskedAdapterInfo);
 });
 ```
 
@@ -90,16 +90,16 @@ console.log(unmaskedAdapterInfo);
 {
     vendor: 'nvidia',
     architecture: 'turing',
-    deviceId: 8644,
+    device: '0x8644',
     description: 'NVIDIA GeForce GTX 1660 SUPER'
 }
 ```
 
 Because the unmasked values may contain higher entropy identifying information, the bar for querying it is quite a bit higher. Calling `requestAdapterInfo()` with any `unmaskHints` requires user activation, and will reject the promise otherwise. If the `unmaskHints` array contains any previously masked value it also requires that user consent be given before returning, and as such may display a prompt to the user asking if the page can access the newly requested GPU details before allowing the promise to resolve. If the user declines to give consent then the promise is rejected.
 
-Once the user has given their consent any future calls to `requestAdapterInfo()` should return the unmasked fields even if no `unmaskHints` are specified, and future instances of the same underlying adapter returned from `navigator.requestAdapter()` on that page load should also return unmasked data without requiring hints to be passed.
+Once the user has given their consent any future calls to `requestAdapterInfo()` should return the unmasked fields even if no `unmaskHints` are specified, and future instances of the same underlying adapter returned from `navigator.gpu.requestAdapter()` on that page load should also return unmasked data without requiring hints to be passed.
 
-Even after `unmaskHints` have been passed to `requestAdapterInfo()` the UA is still allowed to return empty values for attributes requested in the `unmaskHints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left empty.)
+Even after `unmaskHints` have been passed to `requestAdapterInfo()` the UA is still allowed to return empty string for attributes requested in the `unmaskHints` array if the UA cannot determine the value in question or decides not to reveal it. (UAs should not request user consent when unmasking is requested for attributes that will be left empty.)
 
 ### Identifier formatting
 
@@ -121,7 +121,7 @@ The recommended feature identifier is `"webgpu"`, and the [default allowlist](ht
 <iframe src="https://example.com/embed" allow="webgpu"></iframe>
 ```
 
-If the `"webgpu"` feature is not granted to a page, all calls that page makes to `navigator.requestAdapter()` will resolve to `null`.
+If the `"webgpu"` feature is not granted to a page, all calls that page makes to `navigator.gpu.requestAdapter()` will resolve to `null`.
 
 This helps strike a balance between enabling powerful rendering and computation capabilities on the web and a desire to mitigate abuse by bad actors.
 
@@ -129,15 +129,14 @@ This helps strike a balance between enabling powerful rendering and computation 
 
 ```webidl
 partial interface GPUAdapter {
-  readonly attribute GPUAdapterInfo info;
-  Promise<GPUAdapterInfo> requestUnmaskedAdapterInfo(sequence<DOMString> hints);
+  Promise<GPUAdapterInfo> requestAdapterInfo(optional sequence<DOMString> unmaskHints = []);
 };
 
 interface GPUAdapterInfo {
-  DOMString? vendor;
-  DOMString? architecture;
-  long? deviceId;
-  DOMString? fullName;
+  DOMString vendor;
+  DOMString architecture;
+  DOMString device;
+  DOMString description;
 };
 ```
 
