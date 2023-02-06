@@ -609,7 +609,7 @@ module.exports = grammar({
             token('yield')
         ),
         ident: $ => $.ident_pattern_token,
-        _comment: $ => token('//.*'),
+        _comment: $ => token(/\/\/.*/),
         _blankspace: $ => token(/[\u0020\u0009\u000a\u000b\u000c\u000d\u0085\u200e\u200f\u2028\u2029]/uy)
     },
 });
