@@ -776,6 +776,14 @@ struct Scanner {
     }
   }
 
+  std::string valids(const bool* const valid_symbols) {
+    std::string result;
+    for (int i = 0; i < static_cast<int>(ERROR) ; i++) {
+      result += std::string(valid_symbols[i] ? "+" : "_");
+    }
+    return result;
+  }
+
   /// The external token scanner function. Handles block comments and
   /// template-argument-list vs less-than / greater-than disambiguation.
   /// @return true if lexer->result_symbol was assigned a Token, or
@@ -784,7 +792,7 @@ struct Scanner {
   bool scan(TSLexer* ts_lexer, const bool* const valid_symbols) {
     Lexer lexer{ts_lexer};
 
-    LOG("scan: '%c'", char(lexer.peek()));
+    LOG("scan: '%c' [%u] %s", char(lexer.peek()), unsigned(ts_lexer->get_column(ts_lexer)), valids(valid_symbols).c_str());
 
     if (valid_symbols[Token::ERROR]) {
       ts_lexer->result_symbol = Token::ERROR;
@@ -793,17 +801,14 @@ struct Scanner {
 
     if (valid_symbols[Token::DISAMBIGUATE_TEMPLATE]) {
       // The parser is telling us the _disambiguate_template token
-      // may appear at the current position. That means:
-      // - The previously scanned token is an identifier, and
-      // - The next token may be the start of a template list,
-      //   scan forward and use the token-list disambiguation
-      //   algorithm to mark template-list-start and template-list-end
-      //   tokens.
+      // may appear at the current position.
+      // The next token may be the start of a template list, so
+      // scan forward and use the token-list disambiguation
+      // algorithm to mark template-list-start and template-list-end
+      // tokens.  These are recorded in the lt and gt bit queues.
 
-      // TODO(dneto): Why does this mark_end? I thought the previous identifier
-      // would have done so already.
-      // Or is it that the idnetifier might have been overriden by the 'word'
-      // mechanism?
+      // Call mark_end so that we can "advance" past codepoints without
+      // automatically including them in the resulting token.
       ts_lexer->mark_end(ts_lexer);
       ts_lexer->result_symbol = Token::DISAMBIGUATE_TEMPLATE;
 
