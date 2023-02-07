@@ -334,7 +334,6 @@ def grammar_from_rule(key, value):
 class ScanResult(dict):
     """
     A dictionary containing the results of scanning the WGSL spec.
->>>>>>> 00a50ecb (Refactor extract-grammar.py)
 
     self['raw']
          A list of the Bikeshed source text lines, after include expansion and before
