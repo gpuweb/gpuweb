@@ -57,6 +57,7 @@ class XFail(Case):
 cases = [
     Case("const pi = 3.14;"),
     Case("var<workgroup> w: i32;"),
+    Case("const b = bitcast<i32>(1u);"),
     XFail("this fails"),
     XFail("#version 450"),
 ]
