@@ -582,9 +582,8 @@ class Lexer {
     return false;
   }
 
-  /// Attempts to match an identifier that starts with XIDStart and has any
-  /// number of XIDContinue code points.
-  /// TODO(dneto): Is this meant to avoid matching keywords?
+  /// Attempts to match an identifier pattern that starts with XIDStart followed by
+  /// any number of XIDContinue code points.
   bool match_identifier() {
     if (!is_xid_start(peek())) {
       return false;
@@ -610,13 +609,9 @@ class Lexer {
     }
 
     if (is_ascii) {
-      // "var" can have "<" immediately after it, e.g.
-      // "var<workgroup> w: u32;"
-      if (ss.str() == "var") {
-        LOG("var");
-        return false;
-      }
       LOG("ident: '%s'", ss.str().c_str());
+    } else {
+      LOG("ident");
     }
 
     return true;
