@@ -37,6 +37,7 @@ import os
 import sys
 from tree_sitter import Language, Parser
 
+SCRIPT='wgsl_unit_tests.py'
 
 class Case:
     """
@@ -55,11 +56,15 @@ class XFail(Case):
         super().__init__(text,expect_pass=False)
 
 cases = [
-    Case("const pi = 3.14;"),
-    Case("var<workgroup> w: i32;"),
-    Case("const b = bitcast<i32>(1u);"),
     XFail("this fails"),
     XFail("#version 450"),
+    Case("const pi = 3.14;"),
+    Case("const b = bitcast<i32>(1u);"),
+    Case("var s: sampler;"),
+    Case("@group(0) @binding(0) var s: sampler;"),
+    Case("var<workgroup> w: i32;"),
+    Case("fn foo() {var f: i32;}"),
+    Case("var<workgroup> w: array<vec3<f32>,1>;"),
 ]
 
 class Options:
@@ -79,24 +84,24 @@ def run_tests(options):
     parser = Parser()
     parser.set_language(language)
 
-    if options.verbose:
-        print("WGSL unit tests:",flush=True,end='')
+    print("{}: ".format(SCRIPT),flush=True,end='')
 
     num_cases = 0
     num_errors = 0
     for case in cases:
         num_cases += 1
+        print(".",flush=True,end='')
         if options.verbose:
-            print(".",flush=True,end='')
+            print(case)
         tree = parser.parse(bytes(case.text,"utf8"))
         if case.expect_pass == tree.root_node.has_error:
             num_errors += 1
+            print("**Error**")
             print(case)
             print(tree.root_node.sexp())
             print("---Case end\n",flush=True)
 
-    if options.verbose:
-        print("{} pass {} fail ".format(num_cases-num_errors,num_errors),flush=True)
+    print("{} pass {} fail ".format(num_cases-num_errors,num_errors),flush=True)
 
     return num_errors == 0
 
