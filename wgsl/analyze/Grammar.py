@@ -1831,7 +1831,8 @@ class Grammar:
             content = "\\u200B{}".format(e)
             if e == '_disambiguate_template':
                 # This is a zero-width token used for Treesitter's benefit
-                content = ''
+                #content = ''
+                pass
             # Create a placholder definition
             pass0["rules"][e] = {"type":"TOKEN","content":{"type":"PATTERN","value":content}}
 
