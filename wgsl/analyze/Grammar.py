@@ -329,6 +329,9 @@ class Rule(RegisterableObject):
                     context = 'syntax'
                 if name in g.extra_externals:
                     context = 'syntax_sym'
+                if name == '_disambiguate_template':
+                    # This is an implementation detail, so make it invisible.
+                    return ''
                 return "[={}/{}=]".format(context,name)
             return name
         if isinstance(rule,Choice):
@@ -354,7 +357,7 @@ class Rule(RegisterableObject):
                 # If it's not canonical, then it can have nesting.
                 return "(" + inside + nl + ")"
         if isinstance(rule,Seq):
-            return " ".join([i.pretty_str(print_option) for i in rule])
+            return " ".join(filter(lambda i: len(i)>0, [i.pretty_str(print_option) for i in rule]))
         if isinstance(rule,Repeat1):
             return "( " + "".join([i.pretty_str(print_option) for i in rule]) + " )+"
         raise RuntimeError("unexpected node: {}".format(str(rule)))

@@ -254,12 +254,22 @@ def grammar_from_rule_item(rule_item):
         i_skip = 0
         i_item = ""
         if rule_item[i].startswith("[=syntax/"):
+            # From '[=syntax/foobar=]' pick out 'foobar'
             i_item = rule_item[i].split("[=syntax/")[1].split("=]")[0]
             i_item = f"$.{i_item}"
         elif rule_item[i].startswith("`/"):
+            # From "`/pattern/`" pick out '/pattern/'
             i_item = f"token({rule_item[i][1:-1]})"
         elif rule_item[i].startswith("`'"):
+            # From "`'&&'`" pick out '&&'
             i_item = f"token({rule_item[i][1:-1]})"
+        elif rule_item[i].startswith("<span"):
+            # From ['<span', 'class=hidden>_disambiguate_template</span>']
+            # pick out '_disambiguate_template'
+            match = re.fullmatch("[^>]*>(.*)</span>",rule_item[i+1])
+            token = match.group(1)
+            i_item = f"$.{token}"
+            i += 1
         elif rule_item[i].startswith("<a"):
             # From  ['<a', 'for=syntax_kw', "lt=true>`'true'`</a>"]
             # pick out "true"
@@ -267,6 +277,7 @@ def grammar_from_rule_item(rule_item):
             if match:
                 token = match.group(1)
             else:
+                # Now try it without `' '` surrounding the element content text.
                 # From  ['<a', 'for=syntax_sym', "lt=_disam>_disam</a>"]
                 # pick out "_disam"
                 match = re.fullmatch("[^>]*>(.*)</a>",rule_item[i+2])
@@ -277,6 +288,7 @@ def grammar_from_rule_item(rule_item):
                 i_item = f"""token('{token}')"""
             i += 2
         elif rule_item[i] == "(":
+            # Extract a parenthesized rule
             j = i + 1
             j_span = 0
             rule_subitem = []
