@@ -76,7 +76,6 @@ Scanner classes are used to parse contiguous sets of lines in the WGSL bikeshed
 source text.
 """
 
-
 class Scanner:
 
     @staticmethod
@@ -243,7 +242,24 @@ class scanner_example(Scanner):
         return (None, line, 0)
 
 
+# These fixed tokens must be parsed by the custom scanner.
+# This is needed to support template disambiguation.
+custom_simple_tokens = {
+    '>': '_greater_than',
+    '>=': '_greater_than_equal',
+    '<': '_less_than',
+    '<=': '_less_than_equal',
+    '<<': '_shift_left',
+    '>>': '_shift_right',
+    '<<=': '_shift_left_assign',
+    '>>=': '_shift_right_assign'
+}
+
 def grammar_from_rule_item(rule_item):
+    """
+    Returns a string for the JavaScript expression for this rule.
+    """
+    global custom_simple_tokens
     result = ""
     item_choice = False
     items = []
@@ -262,7 +278,13 @@ def grammar_from_rule_item(rule_item):
             i_item = f"token({rule_item[i][1:-1]})"
         elif rule_item[i].startswith("`'"):
             # From "`'&&'`" pick out '&&'
-            i_item = f"token({rule_item[i][1:-1]})"
+            content = rule_item[i][2:-2]
+            # If the name maps to a custom token, then use that, otherwise,
+            # use the content name itself.
+            if content in custom_simple_tokens:
+                i_item = custom_simple_tokens[content]
+            else:
+                i_item = f"token('{content}')"
         elif rule_item[i].startswith("<span"):
             # From ['<span', 'class=hidden>_disambiguate_template</span>']
             # pick out '_disambiguate_template'
@@ -282,7 +304,10 @@ def grammar_from_rule_item(rule_item):
                 # pick out "_disam"
                 match = re.fullmatch("[^>]*>(.*)</a>",rule_item[i+2])
                 token = match.group(1)
-            if token.startswith("_") and token != "_":
+            if token in custom_simple_tokens:
+                token = custom_simple_tokens[token]
+                i_item = f"$.{token}"
+            elif token.startswith("_") and token != "_":
                 i_item = f"$.{token}"
             else:
                 i_item = f"""token('{token}')"""

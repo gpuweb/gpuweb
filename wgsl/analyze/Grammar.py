@@ -329,9 +329,20 @@ class Rule(RegisterableObject):
                     context = 'syntax'
                 if name in g.extra_externals:
                     context = 'syntax_sym'
-                if name == '_disambiguate_template':
-                    # This is an implementation detail, so make it invisible.
-                    return ''
+                    if name == '_disambiguate_template':
+                        # This is an implementation detail, so make it invisible.
+                        return ''
+                    else:
+                        without_underscore = ['_less_than',
+                                              '_less_than_equal',
+                                              '_greater_than',
+                                              '_greater_than_equal',
+                                              '_shift_left',
+                                              '_shift_left_assign',
+                                              '_shift_right',
+                                              '_shift_right_assign']
+                        if name in without_underscore:
+                            name = name[1:]
                 return "[={}/{}=]".format(context,name)
             return name
         if isinstance(rule,Choice):
