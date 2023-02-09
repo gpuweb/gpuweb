@@ -694,12 +694,13 @@ struct Scanner {
     while (!lt_stack.empty() && !lexer.match(kEOF)) {
       lexer.skip_whitespace();
 
+      // TODO: skip line-ending comments.
       if (lexer.match_block_comment()) {
         continue;
       }
 
       if (lexer.match_identifier()) {
-        lexer.skip_whitespace();
+        lexer.skip_whitespace(); // TODO: Skip comments
         if (lexer.match('<')) {
           LOG("classify_template_args() '<'");
           lt_stack.push_back(StackEntry{state.lt_is_tmpl.count(), expr_depth});
