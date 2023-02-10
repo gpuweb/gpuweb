@@ -71,6 +71,8 @@ cases = [
     Case("const a = array<i32,select(1,2,(a>b))>();"),
     Case("const b = array<i32,select(1,2,a>b)>();"),
     XFail("const d : array<select(1,2,a>b)>();"),
+    Case("fn main(){i=1;}"),
+    Case("fn main(){var i:i32; i=1;}"),
 ]
 
 class Options:
