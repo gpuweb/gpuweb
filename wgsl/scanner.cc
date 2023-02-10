@@ -10,7 +10,9 @@
 #include <type_traits>
 #include <vector>
 
-#if 0
+#define ENABLE_LOGGING 0
+
+#if ENABLE_LOGGING
 #define LOG(msg, ...) printf(msg "\n", ##__VA_ARGS__)
 #else
 #define LOG(...)
@@ -538,6 +540,19 @@ class BitQueue {
   std::bitset<CAPACITY_IN_BITS> bits_;
   size_t count_ = 0;        // number of bits contained
   size_t read_offset_ = 0;  // read offset in bits
+                            //
+#if ENABLE_LOGGING
+ public:
+  void to_chars(std::string& str) {
+    std::stringstream ss;
+    ss << count_ << ":";
+    for (auto i = 0; i < count_; ++i) {
+      bool is_template = (*this)[i];
+      ss << (is_template ? "#" : ".");
+    }
+    str = ss.str();
+  }
+#endif
 };
 
 class Lexer {
@@ -886,8 +901,12 @@ struct Scanner {
     if (state.empty()) {
       return 0;
     }
-    LOG("serialize(lt_is_tmpl: %d, gt_is_tmpl: %d)",
-        int(state.lt_is_tmpl.count()), int(state.gt_is_tmpl.count()));
+#if ENABLE_LOGGING
+      std::string lt_str;  state.lt_is_tmpl.to_chars(lt_str);
+      std::string gt_str;  state.gt_is_tmpl.to_chars(gt_str);
+      LOG("serialize(lt_is_tmpl: %s, gt_is_tmpl: %s)",
+          lt_str.c_str(), gt_str.c_str());
+#endif
     size_t bytes_written = 0;
     auto write = [&](const void* data, size_t num_bytes) {
       assert(bytes_written + num_bytes <=
@@ -914,8 +933,12 @@ struct Scanner {
       };
       read(&state.lt_is_tmpl, sizeof(state.lt_is_tmpl));
       read(&state.gt_is_tmpl, sizeof(state.gt_is_tmpl));
-      LOG("deserialize(lt_is_tmpl: %d, gt_is_tmpl: %d)",
-          int(state.lt_is_tmpl.count()), int(state.gt_is_tmpl.count()));
+#if ENABLE_LOGGING
+      std::string lt_str;  state.lt_is_tmpl.to_chars(lt_str);
+      std::string gt_str;  state.gt_is_tmpl.to_chars(gt_str);
+      LOG("deserialize(lt_is_tmpl: %s, gt_is_tmpl: %s)",
+          lt_str.c_str(), gt_str.c_str());
+#endif
       assert(bytes_read == length);
     }
   }
