@@ -781,6 +781,11 @@ struct Scanner {
     for (int i = 0; i < static_cast<int>(ERROR) ; i++) {
       result += std::string(valid_symbols[i] ? "+" : "_");
     }
+    for (int i = 0; i < static_cast<int>(ERROR) ; i++) {
+      if (valid_symbols[i]) {
+        result += std::string(" ") + str(static_cast<Token>(i));
+      }
+    }
     return result;
   }
 
