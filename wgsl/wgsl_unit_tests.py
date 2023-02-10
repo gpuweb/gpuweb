@@ -65,6 +65,12 @@ cases = [
     Case("var<workgroup> w: i32;"),
     Case("fn foo() {var f: i32;}"),
     Case("var<workgroup> w: array<vec3<f32>,1>;"),
+    Case("var<workgroup> w: array<vec3<f32>,(vec<i32>(1).x)>;"),
+    XFail("const c = array<a>b>;"),
+    Case("var c : array<(a>b)>;"),
+    Case("const a = array<i32,select(1,2,(a>b))>();"),
+    Case("const b = array<i32,select(1,2,a>b)>();"),
+    XFail("const d : array<select(1,2,a>b)>();"),
 ]
 
 class Options:

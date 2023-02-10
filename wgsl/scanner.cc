@@ -716,6 +716,9 @@ struct Scanner {
           state.gt_is_tmpl.push_back(true);
           state.lt_is_tmpl[lt_stack.back().index] = true;
           lt_stack.pop_back();
+        } else {
+          LOG("   non-template '>'");
+          state.gt_is_tmpl.push_back(false);
         }
         continue;
       }
@@ -768,6 +771,7 @@ struct Scanner {
         continue;
       }
 
+      LOG("   skip: '%c'",char(lexer.peek()));
       lexer.next();
     }
   }
