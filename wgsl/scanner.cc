@@ -42,7 +42,7 @@ enum Token {
   ERROR,
 };
 
-const char* str(Token tok) {
+const char* str(Token tok,bool brief=false) {
   switch (tok) {
     case Token::BLOCK_COMMENT:
       return "BLOCK_COMMENT";
@@ -53,21 +53,21 @@ const char* str(Token tok) {
     case Token::TEMPLATE_ARGS_END:
       return "TEMPLATE_ARGS_END";
     case Token::LESS_THAN:
-      return "LESS_THAN";
+      return brief ? "<" : "LESS_THAN";
     case Token::LESS_THAN_EQUAL:
-      return "LESS_THAN_EQUAL";
+      return brief ? "<=" : "LESS_THAN_EQUAL";
     case Token::SHIFT_LEFT:
-      return "SHIFT_LEFT";
+      return brief ? "<<" : "SHIFT_LEFT";
     case Token::SHIFT_LEFT_ASSIGN:
-      return "SHIFT_LEFT_ASSIGN";
+      return brief ? "<<=" : "SHIFT_LEFT_ASSIGN";
     case Token::GREATER_THAN:
-      return "GREATER_THAN";
+      return brief ? ">" : "GREATER_THAN";
     case Token::GREATER_THAN_EQUAL:
-      return "GREATER_THAN_EQUAL";
+      return brief ? ">=" : "GREATER_THAN_EQUAL";
     case Token::SHIFT_RIGHT:
-      return "SHIFT_RIGHT";
+      return brief ? ">>" : "SHIFT_RIGHT";
     case Token::SHIFT_RIGHT_ASSIGN:
-      return "SHIFT_RIGHT_ASSIGN";
+      return brief ? ">>=" : "SHIFT_RIGHT_ASSIGN";
     case Token::ERROR:
       return "ERROR";
     default:
@@ -798,7 +798,7 @@ struct Scanner {
     }
     for (int i = 0; i < static_cast<int>(ERROR) ; i++) {
       if (valid_symbols[i]) {
-        result += std::string(" ") + str(static_cast<Token>(i));
+        result += std::string(" ") + str(static_cast<Token>(i),true);
       }
     }
     return result;
