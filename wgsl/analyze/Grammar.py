@@ -197,9 +197,18 @@ class Rule(RegisterableObject):
         self.reset_first_follow()
 
     def reset_first_follow(self):
-        self.first = set()
+        self.first_data = set()
+        self.first_data_initialized_for_terminals = False
         self.follow = set()
         self.known_to_derive_empty = False
+
+    def first(self):
+        if self.is_terminal() or self.is_empty():
+            if not self.first_data_initialized_for_terminals:
+                # If X is a terminal, then First(X) is {X}
+                self.first_data = set({self})
+            self.first_data_initialized_for_terminals = True
+        return self.first_data
 
     def is_empty(self):
         return isinstance(self, Empty)
@@ -226,7 +235,7 @@ class Rule(RegisterableObject):
         """Returns True if this object is known to generate the empty string"""
         if self.known_to_derive_empty:
             return True
-        for item in self.first:
+        for item in self.first():
             if item.is_empty():
                 self.known_to_derive_empty = True
                 return True
@@ -1014,20 +1023,21 @@ def compute_first_sets(grammar,rules):
     grammar.reset_first_follow()
 
     names_of_non_terminals = []
-    grammar.end_of_text.first = set({grammar.end_of_text})
-    grammar.empty.first = set({grammar.empty})
+    grammar.end_of_text.first_data = set({grammar.end_of_text})
+    grammar.empty.first_data = set({grammar.empty})
     for key, rule in rules.items():
         if rule.is_terminal() or rule.is_empty():
             # If X is a terminal, then First(X) is {X}
-            rule.first = set({rule})
+            # Lazy load it.
+            dummy = rule.first()
         elif rule.is_symbol_name():
-            pass
+            names_of_non_terminals.append(key)
         else:
             # rule is a Choice node
             for rhs in rule:
                 # If X -> empty is a production, then add Empty
                 if rhs.is_empty():
-                    rule.first = set({rhs})
+                    rule.first_data = set({rhs})
             names_of_non_terminals.append(key)
 
     def lookup(rule):
@@ -1053,20 +1063,20 @@ def compute_first_sets(grammar,rules):
         """
 
         if rule.is_symbol_name():
-            return rules[rule.content].first
+            return rules[rule.content].first()
         if rule.is_empty():
-            return rule.first
+            return rule.first()
         if rule.is_terminal():
             # The terminal isn't registered in the dictionary.
             return set({rule})
         if isinstance(rule,Choice):
-            result = rule.first
+            result = rule.first()
             #for item in [lookup(i) for i in rule]:
             for item in rule:
                 result = result.union(dynamic_first(item,depth+1))
             return result
         if isinstance(rule,Seq):
-            result = rule.first
+            result = rule.first()
 
             # Only recurse 2 levels deep
             if depth < 2:
@@ -1097,9 +1107,9 @@ def compute_first_sets(grammar,rules):
             rule = rules[key]
             # Accumulate First items from right-hand sides
             df = dynamic_first(rule,0)
-            new_items = df - rule.first
+            new_items = df - rule.first()
             if len(new_items) > 0:
-                rule.first = rule.first.union(new_items)
+                rule.first_data = rule.first().union(new_items)
                 keep_going = True
 
 
@@ -1152,7 +1162,7 @@ def first(grammar,phrase):
 
     result = set()
     for item in phrase:
-        we = without_empty(item.first)
+        we = without_empty(item.first())
         result = result.union(we)
         if not item.derives_empty():
             break
@@ -1170,6 +1180,9 @@ def compute_follow_sets(grammar):
     Args:
         grammar: a Grammar in Canonical Form, with First sets populated
     """
+
+    # 1. Place $ in FOLLOW(S), where S is the start symbol and $ is the input
+    # right end marker.
     grammar.rules[grammar.start_symbol].follow = set({grammar.end_of_text})
 
     def lookup(rule):
@@ -1192,6 +1205,7 @@ def compute_follow_sets(grammar):
         # Process indirections through symbols
         seq = [lookup(i) for i in seq]
 
+        last_index = len(seq)-1
         for bi in range(0,len(seq)):
             b = seq[bi]
             # We only care about nonterminals in the sequence
@@ -1208,9 +1222,9 @@ def compute_follow_sets(grammar):
                 keep_going = True
                 b.follow = b.follow.union(new_items)
 
-            # If A -> alpha B, or A -> alpha B beta, where First(B)
+            # If A -> alpha B, or A -> alpha B beta, where First(beta)
             # contains epsilon, then add Follow(A) to Follow(B)
-            if derives_empty(grammar.rules,beta):
+            if (bi==last_index) or derives_empty(grammar.rules,beta):
                 new_items = grammar.rules[key].follow - b.follow
                 if len(new_items) > 0:
                     keep_going = True
@@ -1218,26 +1232,39 @@ def compute_follow_sets(grammar):
 
         return keep_going
 
-
     # Iterate until settled
     keep_going = True
     while keep_going:
         keep_going = False
         for key, rule in grammar.rules.items():
-            if rule.is_terminal() or rule.is_symbol_name() or rule.is_empty():
+            if rule.is_terminal() or rule.is_empty():
                 continue
-            # We only care about sequences
-            for seq in filter(lambda i: isinstance(i,Seq), rule):
-                keep_going = process_seq(key,seq,keep_going)
 
+            if isinstance(rule,Seq):
+                keep_going = process_seq(key,rule,keep_going)
+                continue
+
+            if rule.is_symbol_name():
+                keep_going = process_seq(key,[rule],keep_going)
+                continue
+
+            # Now process Choice over sequences:
+            if isinstance(rule,Choice):
+                for seq in [i.as_container() for i in rule]:
+                    keep_going = process_seq(key,seq,keep_going)
+
+
+def dump_rule_parts(key,rule):
+    parts = []
+    parts.append("{}  -> {}".format(key,str(rule)))
+    parts.append("{} .reg_info.index: {}".format(key, str(rule.reg_info.index)))
+    parts.append("{} .first: {}".format(key, str(LookaheadSet(rule.first()))))
+    parts.append("{} .derives_empty: {}".format(key, str(rule.derives_empty())))
+    parts.append("{} .follow: {}".format(key, str(LookaheadSet(rule.follow))))
+    return parts
 
 def dump_rule(key,rule):
-    print("{}  -> {}".format(key,str(rule)))
-    print("{} .reg_info.index: {}".format(key, str(rule.reg_info.index)))
-    print("{} .first: {}".format(key, [str(i) for i in rule.first]))
-    print("{} .derives_empty: {}".format(key, str(rule.derives_empty())))
-    print("{} .follow: {}".format(key, [str(i) for i in rule.follow]))
-
+    print("\n".join(dump_rule_parts(key,rule)))
 
 def dump_grammar(rules):
     for key, rule in rules.items():
@@ -1637,6 +1664,12 @@ class ParseTable:
     def has_conflicts(self):
         return len(self.conflicts) > 0
 
+    def raw_rule_parts(self):
+        parts = []
+        for key, rule in self.grammar.rules.items():
+            parts.extend(dump_rule_parts(key,rule))
+        return [ "{}\n".format(str(x)) for x in parts ]
+
     def states_parts(self):
         parts = []
         for i in self.states:
@@ -1681,7 +1714,9 @@ class ParseTable:
 
     def all_parts(self):
         parts = []
-        parts.append("=LALR1 item sets:\n")
+        parts.append("\n=Raw rules:\n")
+        parts.extend(self.raw_rule_parts())
+        parts.append("\n=LALR1 item sets:\n")
         parts.extend(self.states_parts())
         parts.append("\n=Reductions:\n")
         parts.extend(self.reductions_parts())
@@ -1888,7 +1923,7 @@ class Grammar:
         token_rules = set()
 
         for name, rule in self.rules.items():
-            # Star-able is also optional-abl, so starrable must come first.
+            # Star-able is also optional-able, so starrable must come first.
             starred_phrase = rule.as_starred(name)
             if starred_phrase is not None:
                 po.replace_with_starred[name] = starred_phrase
