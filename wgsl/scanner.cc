@@ -37,7 +37,7 @@ enum Token {
   SHIFT_RIGHT,         // '>>'
   SHIFT_RIGHT_ASSIGN,  // '>>='
 
-  // Special value, found in grammar.js.
+  // A sentinel value used to signal an error has occurred already.
   // https://tree-sitter.github.io/tree-sitter/creating-parsers#other-external-scanner-details
   ERROR,
 };
