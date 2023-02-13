@@ -773,14 +773,13 @@ def flow_build(options):
             object_files.extend(objects)
 
         # Link object files to a single shared library.
-        # GCC wants the -shared flag.
         if clang_like:
-            link_flags = ["-lstdc++", "-shared", "-fPIC"]
+            link_flags = ["-lstdc++"]
         compiler.link_shared_object(
                 object_files,
                 output_file,
                 target_lang="c++",
-                extra_preargs=link_flags)
+                extra_postargs=link_flags)
 
     if newer_than(scanner_cc_staging, options.wgsl_shared_lib) or newer_than(options.grammar_filename,options.wgsl_shared_lib):
         print("{}: ...Building custom scanner: {}".format(options.script,options.wgsl_shared_lib))
