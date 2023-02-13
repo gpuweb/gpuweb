@@ -65,7 +65,7 @@ cases = [
     Case("var<workgroup> w: i32;"),
     Case("fn foo() {var f: i32;}"),
     Case("var<workgroup> w: array<vec3<f32>,1>;"),
-    XFail("var<workgroup> w: array<vec3<f32>,(vec<i32>(1).x)>;"),
+    Case("var<workgroup> w: array<vec3<f32>,(vec<i32>(1).x)>;"), # vec<i32> treated like generic template invocation. Should fail in semantic checks.
     Case( "var<workgroup> w: array<vec3<f32>,(vec3<i32>(1).x)>;"),
     XFail("const c = array<a>b>;"),
     Case("var c : array<f32,(a>b)>;"),
@@ -81,7 +81,7 @@ cases = [
     Case("alias t = vec3<float>;"),
     Case("alias t = array<t,(1<2)>;"),
     Case("var c : array<t,(1<2)>;"),
-    XFail("var c : array<(a>b)>;"), # Type specifier must start with identifier
+    Case("var c : array<(a>b)>;"), # Parses ok, but should fail in semantic check: (a>b) is not a type.
     Case("fn f(p: ptr<function,i32>) {}"),
     Case("fn m(){x++;}"),
     Case("fn m(){x--;}"),
