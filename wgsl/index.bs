@@ -110,6 +110,9 @@ div.syntax > p > a > code {
   font-style: normal;
   font-weight: bold;
 }
+.hidden {
+  display: none
+}
 table.data.builtin tbody{
   border-bottom: 0;
 }
@@ -532,16 +535,23 @@ The program text [=shader-creation error|must not=] include a null code point (`
 ## Parsing ## {#parsing}
 
 To parse a WGSL program:
+<blockquote>
 1. Remove [=comments=]:
     * Replace the first comment with a space code point (`U+0020`).
     * Repeat until no comments remain.
-2. Parse the whole text, attempting to match the [=syntax/translation_unit=] grammar rule.
+2. Find [=template lists=], using the [=template list discovery|algorithm=] in [[#template-lists-sec]].
+3. Parse the whole text, attempting to match the [=syntax/translation_unit=] grammar rule.
     Parsing uses a LALR(1) parser (one token of lookahead) [[!DeRemer1969]], with the following customization:
     * Tokenization is interleaved with parsing, and is context-aware.
         When the parser requests the next token:
         * Consume and ignore an initial sequence of [=blankspace=] code points.
-        * A <dfn>token candidate</dfn> is any WGSL [=token=] formed from the non-empty prefix of the remaining unconsumed code points.
-        * The token returned is the longest [=token candidate=] that is also a valid lookahead token for the current parser state. [[!VanWyk2007]]
+        * If the next code point is the start of a [=template list=], consume it and return [=syntax_sym/_template_args_start=].
+        * If the next code point is the end of a [=template list=], consume it and return [=syntax_sym/_template_args_end=].
+        * Otherwise:
+            * A <dfn>token candidate</dfn> is any WGSL [=token=] formed from the non-empty prefix of the remaining unconsumed code points.
+            * The token returned is the longest [=token candidate=] that is also a valid lookahead token for the current parser state. [[!VanWyk2007]]
+
+</blockquote>
 
 A [=shader-creation error=] results if:
 * the entire source text cannot be converted into a finite sequence of valid tokens, or
@@ -965,6 +975,149 @@ A <dfn>context-dependent name</dfn> is a [=token=] used to name a concept, but o
 The spelling of the token may be the same as an [=identifier=], but the token does not [=resolve=] to a declared object.
 
 Section [[#context-dependent-name-tokens]] lists all such tokens.
+
+## Template Lists ## {#template-lists-sec}
+
+<dfn noexport>Template parameterization</dfn> is a way to specify parameters that modify a general concept.
+To write a template parameterization, write the general concept, followed by a [=template list=].
+
+Ignoring [=comments=] and [=blankspace=], a <dfn noexport>template list</dfn> is:
+* An initial `'<'` (U+003C) code point, then
+* A [=syntax_sym/comma=]-separated list of one or more <dfn noexport>template parameters</dfn>, then
+* An optional trailing [=syntax_sym/comma=], then
+* A terminating `'>'` (U+003E) code point.
+
+The form of a [=template parameter=] is implicitly defined by the [=template list discovery=] algorithm below.
+Generally, they are names, expressions, or types.
+
+Note: For example, the phrase `vec3<f32>` is a template parameterization where `vec3` is the general concept being modified,
+and `<f32>` is a template list containing one parameter, the [=f32=] type.
+Together, `vec3<f32>` denotes a specific [=vector=] type.
+
+Note: For example, the phrase `var<storage,read_write>` modifies the general `var` concept with template parameters `storage` and `read_write`.
+
+<div class=note>
+Note: For example, the phrase `array<vec4<f32>>` has two template parameterizations:
+* `vec4<f32>` modifies the general `vec4` concept with template parameter `f32`.
+* `array<vec4<f32>>` modifies the general `array` concept with template parameter `vec4<f32>`.
+
+</div>
+
+The `'<'` (U+003C) and `'>'` (U+003E) code points that delimit a template list are also used when spelling:
+* A comparison operator in a [=syntax/relational_expression=].
+* A shift operator in a [=syntax/shift_expression=].
+* A [=syntax/compound_assignment_operator=] for performing a shift operation followed by an assignment.
+
+The syntactic ambiguity is resolved in favour of template lists:
+* Template lists are discovered in an early phase of parsing, before [=declarations=], [=expressions=], [=statements=] are parsed.
+* During tokenization in a later phase,
+    the intial `'<'` (U+003C) of a template list is mapped to a [=syntax_sym/_template_args_start=] token, and
+    the terminating `'>'` (U+003E) of a template list is mapped to a [=syntax_sym/_template_args_end=] token.
+
+
+The <dfn noexport>template list discovery</dfn> algorithm is as follows.
+<blockquote algorithm="template list discovery">
+**Input:** The program source text.
+
+**Record types:**
+
+Let |UnclosedCandidate| be a record type containing:
+    * |position|, a location in the source text
+    * |depth|, an integer, the expression nesting depth at |position|
+
+Let |TemplateList| be record type containing:
+    * |start_position|, the source location of the `'<'` (U+003C) code point that starts this template list.
+    * |end_position|, the source location of the `'>'` (U+003E) code point that ends this template list.
+
+**Output:** |DiscoveredTemplateLists|, a list of |TemplateList| records.
+
+**Algorithm:**
+* Initialize |DiscoveredTemplateLists| to an empty list.
+* Initialize a |Pending| variable to be an empty stack of |UnclosedCandidate| records.
+* Initialize a |CurrentPosition| integer variable to 0.
+    It encodes the position of the code point currently being examined, as a count of the number of code points after the start of the source text.
+    * This variable will advance forward in the text while executing the algorithm.
+          When the end of text is reached, terminate the algorithm immediately and have it return |DiscoveredTemplateLists|.
+* Initialize a |NestingDepth| integer variable to 0.
+* Repeat the following steps:
+    * Advance |CurrentPosition| past [=blankspace=], [=comments=], and [=literals=].
+    * If [=syntax/ident_pattern_token=] matches the text at |CurrentPosition|, then:
+        * Advance |CurrentPosition| past the [=syntax/ident_pattern_token=].
+        * Advance |CurrentPosition| past blankspace and comments, if present.
+        * If `'<'` (U+003C) appears at |CurrentPosition|, then:
+            * Note: This code point is a candidate for being the start of a template list.
+                Save enough state so it can be matched against a terminating `'>'` (U+003E) appearing later in the input.
+            * Push |UnclosedCandidate|(|position|=|CurrentPosition|,|depth|=|NestingDepth|) onto the |Pending| stack.
+            * Advance |CurrentPosition| to the next code point, and start the next iteration of the loop.
+    * If `'>'` (U+003E) appears at |CurrentPosition| then:
+        * Note: This code point is a candidate for being the end of a template list.
+        * If |Pending| is not empty, then let |T| be its top entry, and:
+            * If |T|.|depth| equals |NestingDepth| then:
+                 * Note: This code point ends the current template list whose start is recorded in |T|.
+                 * Add |TemplateList|(|start_position|=|T|.|position|, |end_position|=|CurrentPosition|) to |DiscoveredTemplateLists|.
+                 * Pop |T| off the |Pending| stack.
+        * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+    * If `'('` (U+0028) or `'['` (U+005B) appears at |CurrentPosition| then:
+        * Note: Enter a nested expression.
+        * Add 1 to |NestingDepth|.
+        * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+    * If `')'` (U+0029) or `']'` (U+005D) appears at |CurrentPosition| then:
+        * Note: Exit a nested expression.
+        * Pop entries from the |Pending| stack until it is empty, or until the its top entry has |depth| &lt; |NestingDepth|.
+        * Set |NestingDepth| to 0 or |NestingDepth| &minus; 1, whichever is larger.
+        * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+    * If `';'` (U+003B) or `'{'` (U+007B) or `'='` (U+003D) or `':'` (U+003A) appears at |CurrentPosition| then:
+        * Note: These cannot contain an expression, and therefore cannot appear in a template list.
+             Clear pending unclosed candidates.
+        * Set |NestingDepth| to 0.
+        * Remove all entries from the |Pending| stack.
+        * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+    * If <a for=syntax_sym lt=and_and>`'&&'`</a> or <a for=syntax_sym lt=or_or>`'||'`</a> matches the text at |CurrentPosition| then:
+        * Note: These are operators that have lower precedence than comparisons.  Reject any pending unclosed candidates at the current expression level.
+        * Note: With this rule, no template list will be found in the program fragment `a<b || c>d`.
+             Instead it will be recognized as the short-circuiting disjunction of two comparisons.
+        * Pop entries from the |Pending| stack until it is empty, or until the its top entry has |depth| &lt; |NestingDepth|.
+        * Advance |CurrentPosition| past the two code points, and start the next iteration of the loop.
+    * Advance |CurrentPosition| past the current code point.
+
+</blockquote>
+
+<div class=note algorithm="find template paramters">
+Note: The algorithm can be modified to find the source ranges for [=template parameters=], as follows:
+
+* Modify |UnclosedCandidate| to add the following fields:
+    *  |parameters|, a list of source ranges of template parameters.
+    *  |parameter_start_position|, a source location.
+* Modify |TemplateList| to add a field:
+    *  |parameters|, a list of source ranges of template parameters.
+* When pushing a new |UnclosedCandidate| onto the |Pending| stack:
+    * Set its |parameters| field to an empty list.
+    * Set |parameter_start_position| to one code point past |CurrentPosition|.
+* When adding a |TemplateList|, |TL|, to <var ignore>DiscoveredTemplateLists</var>:
+    * Let |T| be the top of the |Pending| stack, as in the original algorithm.
+    * Push the source range starting at |T|.|parameter_start_position| and ending at |CurrentPosition|&minus;1 onto |T|.|parameters|.
+    * Prepare |TL| as in the original algorithm.
+    * Set |TL|.|parameters| to |T|.|parameters|.
+* Insert a check at the end the loop, just before advancing past the current code point:
+    * If '`,`' (U+002C) appears at |CurrentPosition| and |Pending| is not empty, then:
+        * Let |T| be the top of the |Pending| stack.
+        * Push the source range starting at |T|.|parameter_start_position| and ending at |CurrentPosition|&minus;1 onto |T|.|parameters|.
+        * Set |T|.|parameter_start_position| to |CurrentPosition|&plus;1
+
+</div>
+
+Note: The algorithm explicitly skips past literals because some numeric literals end in a letter, for example `1.0f`.
+The terminating `f` should not be mistaken as the start of an [=syntax/ident_pattern_token=].
+
+Note: In the phrase `A ( B < C, D > ( E ) )`, the segment `< C, D >` is a [=template list=].
+
+Note: The algorithm respects expression nesting: The start and end of a particular template list cannot appear at different expression nesting levels.
+For example, in `array<i32,select(2,3,a>b)>`, the template list has three parameters, where the last one is `select(2,3,a>b)`.
+The `'>'` in `a>b` does not terminate the template list because it is enclosed in a parenthesized part of the expression calling the `select` function.
+
+Note: Both ends of a template list must appear within the same array indexing phrase. For example `a[b<d]>()` does not contain a valid template list.
+
+
 
 ## Attributes ## {#attributes}
 
@@ -2311,7 +2464,7 @@ This includes the [=store type=] of a workgroup variable.
 <div class='syntax' noexport='true'>
   <dfn for=syntax>array_type_specifier</dfn> :
 
-    | <a for=syntax_kw lt=array>`'array'`</a> <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/type_specifier=] ( <a for=syntax_sym lt=comma>`','`</a> [=syntax/element_count_expression=] ) ? <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | <a for=syntax_kw lt=array>`'array'`</a> <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/type_specifier=] ( <a for=syntax_sym lt=comma>`','`</a> [=syntax/element_count_expression=] ) ? <a for=syntax_sym lt=_template_args_end>_template_args_end</a>
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>element_count_expression</dfn> :
@@ -3993,11 +4146,11 @@ sampler_comparison
 
     | [=syntax/depth_texture_type=]
 
-    | [=syntax/sampled_texture_type=] <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/type_specifier=] <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | [=syntax/sampled_texture_type=] <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/type_specifier=] <a for=syntax_sym lt=_template_args_end>_template_args_end</a>
 
-    | [=syntax/multisampled_texture_type=] <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/type_specifier=] <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | [=syntax/multisampled_texture_type=] <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/type_specifier=] <a for=syntax_sym lt=_template_args_end>_template_args_end</a>
 
-    | [=syntax/storage_texture_type=] <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/texel_format=] <a for=syntax_sym lt=comma>`','`</a> [=syntax/access_mode=] <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | [=syntax/storage_texture_type=] <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/texel_format=] <a for=syntax_sym lt=comma>`','`</a> [=syntax/access_mode=] <a for=syntax_sym lt=_template_args_end>_template_args_end</a>
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>sampler_type</dfn> :
@@ -4102,15 +4255,15 @@ all properties of the members of *S*, including attributes, carry over to the me
 
     | <a for=syntax_kw lt=u32>`'u32'`</a>
 
-    | [=syntax/vec_prefix=] <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/type_specifier=] <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | [=syntax/vec_prefix=] <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/type_specifier=] <a for=syntax_sym lt=_template_args_start>_template_args_end</a>
 
-    | [=syntax/mat_prefix=] <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/type_specifier=] <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | [=syntax/mat_prefix=] <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/type_specifier=] <a for=syntax_sym lt=_template_args_end>_template_args_end</a>
 
-    | <a for=syntax_kw lt=ptr>`'ptr'`</a> <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/address_space=] <a for=syntax_sym lt=comma>`','`</a> [=syntax/type_specifier=] ( <a for=syntax_sym lt=comma>`','`</a> [=syntax/access_mode=] ) ? <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | <a for=syntax_kw lt=ptr>`'ptr'`</a> <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/address_space=] <a for=syntax_sym lt=comma>`','`</a> [=syntax/type_specifier=] ( <a for=syntax_sym lt=comma>`','`</a> [=syntax/access_mode=] ) ? <a for=syntax_sym lt=_template_args_end>_template_args_end</a>
 
     | [=syntax/array_type_specifier=]
 
-    | <a for=syntax_kw lt=atomic>`'atomic'`</a> <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/type_specifier=] <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | <a for=syntax_kw lt=atomic>`'atomic'`</a> <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/type_specifier=] <a for=syntax_sym lt=_template_args_end>_template_args_end</a>
 
     | [=syntax/texture_and_sampler_types=]
 </div>
@@ -4714,7 +4867,7 @@ such that the redundant loads are eliminated.
 <div class='syntax' noexport='true'>
   <dfn for=syntax>variable_decl</dfn> :
 
-    | <a for=syntax_kw lt=var>`'var'`</a> [=syntax/variable_qualifier=] ? [=syntax/optionally_typed_ident=]
+    | <a for=syntax_kw lt=var>`'var'`</a> <span class=hidden>_disambiguate_template</span> [=syntax/variable_qualifier=] ? [=syntax/optionally_typed_ident=]
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>optionally_typed_ident</dfn> :
@@ -4724,7 +4877,7 @@ such that the redundant loads are eliminated.
 <div class='syntax' noexport='true'>
   <dfn for=syntax>variable_qualifier</dfn> :
 
-    | <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/address_space=] ( <a for=syntax_sym lt=comma>`','`</a> [=syntax/access_mode=] ) ? <a for=syntax_sym lt=greater_than>`'>'`</a>
+    | <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/address_space=] ( <a for=syntax_sym lt=comma>`','`</a> [=syntax/access_mode=] ) ? <a for=syntax_sym lt=_template_args_end>_template_args_end</a>
 </div>
 
 <div class='syntax' noexport='true'>
@@ -6727,7 +6880,7 @@ When an identifier is used as a [=syntax/callable=] item, it is one of:
 
     | [=syntax/paren_expression=]
 
-    | <a for=syntax_kw lt=bitcast>`'bitcast'`</a> <a for=syntax_sym lt=less_than>`'<'`</a> [=syntax/type_specifier=] <a for=syntax_sym lt=greater_than>`'>'`</a> [=syntax/paren_expression=]
+    | <a for=syntax_kw lt=bitcast>`'bitcast'`</a> <span class=hidden>_disambiguate_template</span> <a for=syntax_sym lt=_template_args_start>_template_args_start</a> [=syntax/type_specifier=] <a for=syntax_sym lt=_template_args_end>_template_args_end</a> [=syntax/paren_expression=]
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>call_expression</dfn> :
@@ -6747,11 +6900,11 @@ Note: The [=syntax/call_expression=] rule exists to ensure [=type checking=] app
 
     | [=syntax/type_specifier_without_ident=]
 
-    | [=syntax/vec_prefix=]
+    | [=syntax/vec_prefix=] <span class=hidden>_disambiguate_template</span>
 
-    | [=syntax/mat_prefix=]
+    | [=syntax/mat_prefix=] <span class=hidden>_disambiguate_template</span>
 
-    | <a for=syntax_kw lt=array>`'array'`</a>
+    | <a for=syntax_kw lt=array>`'array'`</a> <span class=hidden>_disambiguate_template</span>
 </div>
 <div class='syntax' noexport='true'>
   <dfn for=syntax>paren_expression</dfn> :
@@ -7051,7 +7204,7 @@ to bind with this operator. This column is necessary for linearly listing operat
 
 # Statements # {#statements}
 
-Statements are program fragments that control its execution.
+A <dfn>statement</dfn> is a program fragment that controls execution.
 Statements are generally executed in sequential order; however,
 [[#control-flow|control flow statements]] may cause a program to execute in
 non-sequential order.
@@ -7239,9 +7392,9 @@ An [=statement/assignment=] is a <dfn noexport>compound assignment</dfn> when th
 
     | <a for=syntax_sym lt=xor_equal>`'^='`</a>
 
-    | <a for=syntax_sym lt=shift_right_equal>`'>>='`</a>
+    | <a for=syntax_sym lt=shift_right_assign>`'>>='`</a>
 
-    | <a for=syntax_sym lt=shift_left_equal>`'<<='`</a>
+    | <a for=syntax_sym lt=shift_left_assign>`'<<='`</a>
 </div>
 
 The type requirements, semantics, and behavior of each statement is defined as if
@@ -11096,7 +11249,7 @@ A <dfn>syntactic token</dfn> is a sequence of special code points, used:
 * to spell an expression operator, or
 * as punctuation: to group, sequence, or separate other grammar elements.
 
-List of [=syntactic tokens=]:
+The [=syntactic tokens=] are:
 
 * <dfn for=syntax_sym lt='and' noexport>`'&'` (Code point: `U+0026`)</dfn>
 * <dfn for=syntax_sym lt='and_and' noexport>`'&&'` (Code points: `U+0026` `U+0026`)</dfn>
@@ -11142,8 +11295,16 @@ List of [=syntactic tokens=]:
 * <dfn for=syntax_sym lt='and_equal' noexport>`'&='` (Code points: `U+0026` `U+003D`)</dfn>
 * <dfn for=syntax_sym lt='or_equal' noexport>`'|='` (Code points: `U+007C` `U+003D`)</dfn>
 * <dfn for=syntax_sym lt='xor_equal' noexport>`'^='` (Code points: `U+005E` `U+003D`)</dfn>
-* <dfn for=syntax_sym lt='shift_right_equal' noexport>`'>>='` (Code points: `U+003E` `U+003E` `U+003D`)</dfn>
-* <dfn for=syntax_sym lt='shift_left_equal' noexport>`'<<='` (Code points: `U+003C` `U+003C` `U+003D`)</dfn>
+* <dfn for=syntax_sym lt='shift_right_assign' noexport>`'>>='` (Code point: `U+003E` `U+003E` `U+003D`)</dfn>
+* <dfn for=syntax_sym lt='shift_left_assign' noexport>`'<<='` (Code points: `U+003C` `U+003C` `U+003D`)</dfn>
+* <dfn for=syntax_sym lt='_template_args_end' noexport>`_template_args_end`</dfn>
+    * Text:  `'>'` (Code point: `U+003E`)
+    * This token is textually the same as the [=syntax_sym/greater_than=] syntactic token.
+    * It is generated by [=template list discovery=], and is used as the last token in a [=template list=].
+* <dfn for=syntax_sym lt='_template_args_start' noexport>`_template_args_start`</dfn>
+    * Text: `'<'` (Code point: `U+003C`)
+    * This token is textually the same as the [=syntax_sym/less_than=] syntactic token.
+    * It is generated by [=template list discovery=], and is used as the first token in a [=template list=].
 
 ## Context-Dependent Name Tokens ## {#context-dependent-name-tokens}
 

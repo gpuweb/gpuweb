@@ -44,6 +44,7 @@ Represent and process a grammar:
 
 import json
 import functools
+import sys
 from ObjectRegistry import RegisterableObject, ObjectRegistry
 from collections import defaultdict
 
@@ -323,8 +324,25 @@ class Rule(RegisterableObject):
             # Print ourselves
             if print_option.bikeshed:
                 context = 'recursive descent syntax'
-                if print_option.grammar.rules[name].is_token():
+                g = print_option.grammar
+                if g.rules[name].is_token():
                     context = 'syntax'
+                if name in g.extra_externals:
+                    context = 'syntax_sym'
+                    if name == '_disambiguate_template':
+                        # This is an implementation detail, so make it invisible.
+                        return ''
+                    else:
+                        without_underscore = ['_less_than',
+                                              '_less_than_equal',
+                                              '_greater_than',
+                                              '_greater_than_equal',
+                                              '_shift_left',
+                                              '_shift_left_assign',
+                                              '_shift_right',
+                                              '_shift_right_assign']
+                        if name in without_underscore:
+                            name = name[1:]
                 return "[={}/{}=]".format(context,name)
             return name
         if isinstance(rule,Choice):
@@ -350,7 +368,7 @@ class Rule(RegisterableObject):
                 # If it's not canonical, then it can have nesting.
                 return "(" + inside + nl + ")"
         if isinstance(rule,Seq):
-            return " ".join([i.pretty_str(print_option) for i in rule])
+            return " ".join(filter(lambda i: len(i)>0, [i.pretty_str(print_option) for i in rule]))
         if isinstance(rule,Repeat1):
             return "( " + "".join([i.pretty_str(print_option) for i in rule]) + " )+"
         raise RuntimeError("unexpected node: {}".format(str(rule)))
@@ -858,6 +876,21 @@ class Item(RegisterableObject):
 
     def at_end(self):
         return self.position == len(self.items())
+
+def json_externals(json):
+    """
+    Returns the set of names of symbols in the "externals" section of the
+    Treesitter JSON grammar.
+
+    Data looks like this, for section "externals".
+        {
+          "externals": [
+            { "type": "SYMBOL", name: "_block_comment" },
+            { "type": "SYMBOL", name: "_error_sentinel" }
+          }
+        }
+    """
+    return set([ x["name"] for x in json.get("externals",[]) ])
 
 
 def json_hook(grammar,memo,tokens_only,dct):
@@ -1801,6 +1834,22 @@ class Grammar:
 
         # First decode it without any interpretation.
         pass0 = json.loads(json_text)
+
+        # Get the external tokens, these are not necessarily represented in the rules.
+        external_tokens = json_externals(pass0)
+        #print(external_tokens,file=sys.stderr)
+        defined_rules = set(pass0["rules"].keys())
+        # The set of external tokens that don't have an ordinary definition in the grammar.
+        self.extra_externals = external_tokens - defined_rules
+        for e in self.extra_externals:
+            content = "\\u200B{}".format(e)
+            if e == '_disambiguate_template':
+                # This is a zero-width token used for Treesitter's benefit
+                #content = ''
+                pass
+            # Create a placholder definition
+            pass0["rules"][e] = {"type":"TOKEN","content":{"type":"PATTERN","value":content}}
+
         # Remove any rules that should be ignored
         # The WGSL grammar has _reserved, which includes 'attribute' but
         # that is also the name of a different grammar rule.
@@ -1922,6 +1971,7 @@ class Grammar:
 
         token_rules = set()
 
+        # Look for defined rules that look better as absorbed into their uses.
         for name, rule in self.rules.items():
             # Star-able is also optional-able, so starrable must come first.
             starred_phrase = rule.as_starred(name)
@@ -1938,6 +1988,8 @@ class Grammar:
                 if len(phrase)==1 and phrase[0].is_token():
                     token_rules.add(name)
 
+        # A rule that was generated to satisfy canonicalization is better
+        # presented as absorbed in its original parent.
         for name, rule in self.rules.items():
             # We only care about rules generated during canonicalization
             if name.find('.') > 0 or name.find('/') > 0:
