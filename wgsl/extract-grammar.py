@@ -773,8 +773,9 @@ def flow_build(options):
             object_files.extend(objects)
 
         # Link object files to a single shared library.
+        # GCC wants the -shared flag.
         if clang_like:
-            link_flags = ["-lstdc++"]
+            link_flags = ["-lstdc++", "-shared", "-fPIC"]
         compiler.link_shared_object(
                 object_files,
                 output_file,
