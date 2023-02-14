@@ -1456,8 +1456,8 @@ That is, no cycles can exist among the declarations:
 Note: The [=function body=] is part of the [=function declaration=], thus
 functions must not be recursive, either directly or indirectly.
 
-Note: Use of a non-[=module scope=] identifier must follow the declaration of
-that identifier in the text.
+Note: Non-[=module scope=] identifier declarations must precede their uses in
+the text.
 
 <div class='example wgsl' heading='Valid and invalid declarations'>
   <xmp highlight='rust'>
@@ -1532,7 +1532,7 @@ Programs calculate values.
 In WGSL, a <dfn noexport>type</dfn> is a set of values, and each value belongs to exactly one type.
 A value's type determines the syntax and semantics of operations that can be performed on that value.
 
-For example, the mathematical number 1 corresponds to these distinct values in [SHORTNAME]:
+For example, the mathematical number 1 corresponds to these distinct values in WGSL:
 * the 32-bit signed integer value `1i`,
 * the 32-bit unsigned integer value `1u`,
 * the 32-bit floating point value `1.0f`,
@@ -1555,13 +1555,13 @@ Some WGSL types are only used for analyzing a source program and
 for determining the program's runtime behavior.
 This specification will describe such types, but they do not appear in WGSL source text.
 
-Note: WGSL [=reference types=] are not written in WGSL programs. See [[#ref-ptr-types]].
+Note: [=Reference types=] are not written in WGSL programs. See [[#ref-ptr-types]].
 
 ## Type Checking ## {#type-checking-section}
 
 A WGSL value is computed by evaluating an expression.
 An <dfn noexport>expression</dfn> is a segment of source text
-parsed as one of the [SHORTNAME] grammar rules whose name ends with "`_expression`".
+parsed as one of the WGSL grammar rules whose name ends with "`_expression`".
 An expression |E| can contain <dfn noexport>subexpressions</dfn> which are expressions properly contained
 in the outer expression |E|.
 A <dfn noexport>top-level expression</dfn> is an expression that is not itself a subexpression.
@@ -1589,7 +1589,6 @@ is a type assertion meaning *T* is the static type of WGSL expression *e*.
 
 Note: A type assertion is a statement of fact about the text of a program.
 It is not a runtime check.
-
 
 Statements often use expressions, and may place requirements on the static types of those expressions.
 For example:
@@ -1727,7 +1726,21 @@ the assumed values of any subexpressions.
 Sometimes the semantics of an expression includes effects other than producing
 a result value, such as the non-result-value effects of its subexpressions.
 
-TODO: example: non-result-value effect is any side effect of a function call subexpression.
+<div class='example' heading="Side-effect of an expression">
+  <xmp highlight='rust'>
+    fn foo(p : ptr<function, i32>) -> i32 {
+      let x = *p;
+      *p += 1;
+      return x;
+    }
+
+    fn bar() {
+      var a;
+      let x = foo(&a); // the call to foo returns a value
+                       // and updates the value of a
+    }
+  </xmp>
+</div>
 
 ### Conversion Rank ### {#conversion-rank}
 
@@ -1872,13 +1885,18 @@ Note: When no conversion is performed, the conversion rank is zero.
       <td>There are no automatic conversions between other types.
 </table>
 
-The type `T` is the <dfn noexport>concretization</dfn> of type `S` if:
+For a given expression `e: S`, the type `T` is the
+<dfn noexport>concretization</dfn> of type `S` if:
 * `T` is not a reference type, and
 * ConversionRank(`S`, `T`) is finite, and
 * For any other non-reference type `T2`, ConversionRank(`S`, `T2`) > ConversionRank(`S`, `T`).
 
 The <dfn noexport>concretization of a value</dfn> `e` of type `T` is the value
 resulting from applying, to `e`, the feasible conversion that maps `T` to the concretization of `T`.
+
+Note: Conversion to [=f32=] is always preferred over [=f16=], therefore
+automatic conversion will only ever produce an [=f16=] if
+[=extension/f16|extension=]is enabled in the module.
 
 ### Overload Resolution ### {#overload-resolution-section}
 
@@ -1918,8 +1936,6 @@ Overload resolution for |P| proceeds as follows, with the goal of finding a sing
 1. If there is a single candidate |C| which is [=preferable candidate|preferred=] over all the others, then overload resolution succeeds, yielding the candidate type rule |C|.
       Otherwise, overload resolution fails.
 
-TODO: Examples
-
 ## Plain Types ## {#plain-types-section}
 
 [=Plain types=] are types for the machine representation of boolean values, numbers, vectors,
@@ -1938,7 +1954,7 @@ These types cannot be spelled in WGSL source. They are only used by [=type check
 Certain expressions are evaluated at [=shader module creation|shader-creation time=],
 and with a numeric range and precision that may be larger than directly implemented by the GPU.
 
-[SHORTNAME] defines two <dfn>abstract numeric types</dfn> for these evaluations:
+WGSL defines two <dfn>abstract numeric types</dfn> for these evaluations:
 * The <dfn noexport>AbstractInt</dfn> type is the set of integers |i|, with -2<sup>63</sup> &leq; |i| &lt; 2<sup>63</sup>.
 * The <dfn noexport>AbstractFloat</dfn> type is the set of finite floating point numbers representable
     in the [[!IEEE-754|IEEE-754]] binary64 (double precision) format.
@@ -1952,28 +1968,31 @@ A type is <dfn dfn-for="type" noexport>concrete</dfn> if it is not abstract.
 
 A [=numeric literal=] without a suffix denotes a value in an [=abstract numeric type=]:
 * An [=integer literal=] without an `i` or `u` suffix denotes an [=AbstractInt=] value.
-* A [=floating point literal=] without an `f` suffix denotes a [=AbstractFloat=] value.
+* A [=floating point literal=] without an `f` or `h` suffix denotes a [=AbstractFloat=] value.
 
 Example:  The expression `log2(32)` is analyzed as follows:
 * `log2(32)` is parsed as a function call to the `log2` builtin function with operand [=AbstractInt=] value 32.
 * There is no overload of `log2` with an [=integer scalar=] formal parameter.
-* Instead [=overload resolution=] applies, considering two possible overloads and [=feasible automatic conversions=]:
+* Instead [=overload resolution=] applies, considering three possible overloads and [=feasible automatic conversions=]:
     * [=AbstractInt=] to [=AbstractFloat=]. (Conversion rank 4)
     * [=AbstractInt=] to [=f32=]. (Conversion rank 5)
+    * [=AbstractInt=] to [=f16=]. (Conversion rank 6)
 * The resulting computation occurs as an [=AbstractFloat=] (e.g. `log2(32.0)`).
 
 Example:  The expression `1 + 2.5` is analyzed as follows:
 * `1 + 2.5` is parsed as an addition operation with subexpressions [=AbstractInt=] value 1, and [=AbstractFloat=] value 2.5.
 * There is no overload for |e|+|f| where |e| is integer type and |f| is floating point.
-* However, using feasible automatic conversions, there are two potential overloads:
+* However, using feasible automatic conversions, there are three potential overloads:
     * `1` is converted to [=AbstractFloat=] value `1.0` (rank 4) and `2.5` remains an [=AbstractFloat=] (rank 0).
     * `1` is converted to [=f32=] value `1.0f` (rank 5) and `2.5` is converted to [=f32=] value `2.5f` (rank 1).
+    * `1` is converted to [=f16=] value `1.0f` (rank 6) and `2.5` is converted to [=f16=] value `2.5h` (rank 2).
 * The first overload is the [=preferable candidate=] and type checking succeeds.
 * The resulting computation occurs as an [=AbstractFloat=] `1.0 + 2.5`.
 
 Example:  `let x = 1 + 2.5;`
 * This example is similar to the above, except that `x` cannot resolve to an [=abstract numeric type=].
-* Therefore, there is only one viable overload candidate: addition using [=f32=].
+* Therefore, there are two viable overload candidate: addition using [=f32=] or [=f16=].
+* The [=preferable candidate=] uses [=f32=].
 * The effect of the declaration is as if it were written `let x : f32 = 1.0f + 2.5f;`.
 
 Example:  `1u + 2.5` results in a [=shader-creation error=]:
@@ -2039,10 +2058,10 @@ Example:  `1u + 2.5` results in a [=shader-creation error=]:
 
     // Subexpressions can resolve to AbstractInt and AbstractFloat.
     // The following examples are all valid and the value of the variable is 6u.
-    // var u32_expr1 = (1 + (1 + (1 + (1 + 1)))) + 1u;
-    // var u32_expr2 = 1u + (1 + (1 + (1 + (1 + 1))));
-    // var u32_expr3 = (1 + (1 + (1 + (1u + 1)))) + 1;
-    // var u32_expr4 = 1 + (1 + (1 + (1 + (1u + 1))));
+    var u32_expr1 = (1 + (1 + (1 + (1 + 1)))) + 1u;
+    var u32_expr2 = 1u + (1 + (1 + (1 + (1 + 1))));
+    var u32_expr3 = (1 + (1 + (1 + (1u + 1)))) + 1;
+    var u32_expr4 = 1 + (1 + (1 + (1 + (1u + 1))));
 
     // Inference based on built-in function parameters.
 
@@ -2055,12 +2074,11 @@ Example:  `1u + 2.5` results in a [=shader-creation error=]:
     // literals use automatic conversion AbstractInt to f32.
     let f32_clamp = clamp(0, f32_1, 1);
 
-    // TODO: When AbstractFloat gains support for addition, then these will become valid,
-    // via promotion.
-    // let f32_promotion1 = 1.0 + 2 + 3 + 4; // TODO: like let f32_promotion1:f32 = 10f;
-    // let f32_promotion2 = 2 + 1.0 + 3 + 4; // TODO: like let f32_promotion1:f32 = 10f;
-    // let f32_promotion3 = 1f + ((2 + 3) + 4); // TODO: like let f32_promotion1:f32 = 10f;
-    // let f32_promotion4 = ((2 + (3 + 1f)) + 4); // TODO: like let f32_promotion1:f32 = 10f;
+    // The following examples all promote to f32 with an initial value of 10f.
+    let f32_promotion1 = 1.0 + 2 + 3 + 4;
+    let f32_promotion2 = 2 + 1.0 + 3 + 4;
+    let f32_promotion3 = 1f + ((2 + 3) + 4);
+    let f32_promotion4 = ((2 + (3 + 1f)) + 4);
 
     // Type rule violations.
 
@@ -2124,6 +2142,8 @@ It uses a two's complementation representation, with the sign bit in the most si
     <tr><td>0x0u<td>0xffffffffu
 </table>
 
+Note: [=AbstractInt=] is also an integer type.
+
 ### Floating Point Type ### {#floating-point-types}
 
 The <dfn noexport>f32</dfn> type is the set of 32-bit floating point values of the
@@ -2147,6 +2167,8 @@ Each has a corresponding negative value.
     <tr><td rowspan=2>f16<td>5.9604644775390625e-8h<td>0.00006103515625h<td>65504.0h
     <tr><td>0x1p-24h<td>0x1p-14h<td>0x1.ffcp+15h
 </table>
+
+Note: [=AbstractFloat=] is also a floating point type.
 
 ### Scalar Types ### {#scalar-types}
 
@@ -2362,7 +2384,7 @@ workgroups.
 
 ### Array Types ### {#array-types}
 
-An <dfn noexport>array</dfn> is an indexable grouping of element values.
+An <dfn noexport>array</dfn> is an indexable sequence of element values.
 
 <table class='data'>
   <thead>
@@ -2384,7 +2406,7 @@ An expression [=shader-creation error|must not=] evaluate to a runtime-sized arr
 The element count expression |N| of a fixed-size array is subject to the following constraints:
 * It [=shader-creation error|must=] be an [=override-expression=].
 * It [=shader-creation error|must=] evaluate to a [=type/concrete=] [=integer scalar=].
-* It is a [=pipeline-creation error=] if expression is not greater than zero.
+* It is a [=pipeline-creation error=] if |N| is not greater than zero.
 
 Note:  The element count value is fully determined at [=pipeline creation=] time.
 
@@ -2433,6 +2455,7 @@ Two array types are the same if and only if all of the following are true:
 Note: The only valid use of an array type sized by an overridable constant is
 as a [=memory view=] in the [=address spaces/workgroup=] address space.
 This includes the [=store type=] of a workgroup variable.
+See [[#var-and-value]].
 
 <div class='example wgsl global-scope' heading="Workgroup variables sized by overridable constants">
   <xmp highlight='rust'>
@@ -2488,11 +2511,11 @@ A <dfn noexport>structure</dfn> is a named grouping of named <dfn noexport>membe
            &nbsp;&nbsp;...<br>
            &nbsp;&nbsp;<var ignore>M<sub>N</sub></var> : <var ignore>T<sub>N</sub></var>,<br>
            }
-      <td> A declaration of a structure type named by [=identifier=] |AStructName|
+      <td> A declaration of a structure type named by the [=identifier=] |AStructName|
            and having |N| members,
            where member <var ignore>i</var>
-           is named by identifier <var ignore>M<sub>|i|</sub></var>
-           and is of type <var ignore>T<sub>|i|</sub></var>.
+           is named by the identifier <var ignore>M<sub>|i|</sub></var>
+           and is of the type <var ignore>T<sub>|i|</sub></var>.
 
            |N| [=shader-creation error|must=] be at least 1.
 
@@ -2691,7 +2714,7 @@ describe the contents of memory.
 Memory consists of a set of distinct <dfn noexport>memory locations</dfn>.
 Each memory location is 8-bits in size.
 An operation affecting memory interacts with a set of one or more memory locations.
-Memory operations on [=composites=] [=behavioral requirement|will=] not
+Memory operations on [=composites=] [=behavioral requirement|will not=]
 access padding memory locations.
 
 Two sets of memory locations <dfn noexport>overlap</dfn> if the intersection of
@@ -2699,12 +2722,12 @@ their sets of memory locations is non-empty.
 
 ### Memory Access Mode ### {#memory-access-mode}
 
-A <dfn noexport>memory access</dfn> is an operation that acts on memory locations.
+A <dfn noexport>memory access</dfn> is an operation that acts on [=memory locations=].
 
 * A <dfn noexport>read access</dfn> observes the contents of memory locations.
 * A <dfn noexport>write access</dfn> sets the contents of memory locations.
 
-A single operation can read, write, or both read and write.
+A single operation can be a read access and/or a write access.
 
 Particular memory locations may support only certain kinds of accesses, expressed
 as the memory's <dfn noexport>access mode</dfn>:
@@ -2745,7 +2768,7 @@ Host-shareable types are used to describe the contents of buffers which are shar
 the host and the GPU, or copied between host and GPU without format translation.
 When used for this purpose, the type may additionally have [=layout
 attributes=] applied as described in [[#memory-layouts]].
-We will see in [[#var-decls]] that the [=store type=] of [=uniform buffer=] and [=storage buffer=]
+As described in [[#var-decls]], the [=store type=] of [=uniform buffer=] and [=storage buffer=]
 variables [=shader-creation error|must=] be host-shareable.
 
 A type is <dfn noexport>host-shareable</dfn> if it is both [=type/concrete=] and one of:
@@ -2758,12 +2781,9 @@ A type is <dfn noexport>host-shareable</dfn> if it is both [=type/concrete=] and
 * a [=runtime-sized=] array type, if its element type is host-shareable
 * a [=structure=] type, if all its members are host-shareable
 
-Note: Many types are host-shareable, but not IO-shareable, including [=atomic types=],
-[=runtime-sized=] arrays, and any composite types containing them.
-
-Note: Both IO-shareable and host-shareable types have specified sizes, but counted differently.
-IO-shareable types are sized by a location-count metric, see [[#input-output-locations]].
-Host-shareable types are sized by a byte-count metric, see [[#memory-layouts]].
+Note: Restrictions on the types of inter-stage inputs and outputs]] are
+described in [[#stage-inputs-outputs]] and subsequent sections.
+Those types are also sized, but the counting is differs.
 
 ### Address Spaces ### {#address-space}
 
@@ -2805,8 +2825,13 @@ In particular, the token does not [=resolve=] to any declared object.
 
 Note: The token `handle` is reserved: it is never used in a WGSL program.
 
+Note: Each address space may have different performance characteristics.
+
 ### Memory Layout ### {#memory-layouts}
 
+All [=address spaces=] in WGSL share the same memory layout.
+Strictly speaking, however, that layout can only be observed by host-shareable
+buffers.
 [=Uniform buffer=] and [=storage buffer=] variables are used to share
 bulk data organized as a sequence of bytes in memory.
 Buffers are shared between the CPU and the GPU, or between different shader stages
@@ -2816,6 +2841,8 @@ Because buffer data are shared without reformatting or translation, it is a
 [=dynamic error=] if buffer producers and consumers do not agree on the <dfn
 noexport>memory layout</dfn>, which is the description of how the bytes in a
 buffer are organized into typed WGSL values.
+These bytes are [=memory locations=] of a value relative to a common base
+location.
 
 The [=store type=] of a buffer variable [=shader-creation error|must=] be
 [=host-shareable=], with fully elaborated memory layout, as described below.
@@ -2847,10 +2874,10 @@ We will use the following notation:
 
 #### Alignment and Size ####  {#alignment-and-size}
 
-Each [=host-shareable=] data type |T| has an alignment and size.
+Each [=host-shareable=] or [=fixed footprint=] data type |T| has an alignment and size.
 
-The <dfn>alignment</dfn> of a type is a constraint on where values of that type may be placed in memory, expressed
-as an integer:
+The <dfn>alignment</dfn> of a type is a constraint on where values of that type
+may be placed in memory, expressed as an integer:
 a type's alignment [=shader-creation error|must=] evenly divide
 the byte address of the starting [=memory location=] of a value of that type.
 Alignments enable use of more efficient hardware instructions for accessing the values,
@@ -2866,7 +2893,7 @@ The size may include non-addressable padding at the end of the type.
 Consequently, loads and stores of a value might access fewer memory locations
 than the value's size.
 
-Alignment and size for host-shareable types are defined recursively in the
+Alignment and size of types are defined recursively in the
 following table:
 
 <table class='data'>
@@ -3198,6 +3225,9 @@ then:
 The [=address spaces/storage=] and [=address spaces/uniform=] address spaces
 have different buffer layout constraints which are described in this section.
 
+Note: All [=address spaces=] except [=address spaces/uniform=] have the same
+constraints as the [=address spaces/storage=] address space.
+
 All structure and array types directly or indirectly referenced by a variable
 [=shader-creation error|must=] obey the constraints of the variable's address space.
 Violations of an address space constraint results in a [=shader-creation error=].
@@ -3328,7 +3358,7 @@ A <dfn noexport>memory view</dfn> comprises:
 * an interpretation of the contents of those locations as a WGSL [=type=], known as the <dfn noexport>store type</dfn>, and
 * an [=access mode=].
 
-The access mode of a memory view [=shader-creation error|must=] be supported by the address space. See [[#address-space]].
+The access mode of a memory view [=shader-creation error|must=] be supported by the address space. See [[#var-and-value]].
 
 ### Reference and Pointer Types ### {#ref-ptr-types}
 
@@ -3468,8 +3498,12 @@ Different call sites may supply pointers into different originating variables.
 
 ### Invalid Memory Reference ### {#invalid-mem-reference}
 
-If a reference or pointer access is out of bounds, an
-<dfn noexport>invalid memory reference</dfn> is produced.
+A reference or a pointer that accesses one or more [=memory locations=] outside
+the memory locations associated with that [=memory view=] is an
+<dfn noexport>out of bounds access</dfn>.
+Any reference or pointer that, when accessed, would produce an out of bounds
+access is an <dfn noexport>invalid memory reference</dfn>.
+
 [=Load Rule|Loads=] from an invalid reference return one of:
     * when the [=originating variable=] is a [=uniform buffer=] or a [=storage buffer=],
         the value from any [=memory locations|memory location(s)=]
@@ -3491,6 +3525,11 @@ If a reference or pointer access is out of bounds, an
 It is a [=dynamic error=] if [[#atomic-rmw|read-modify-write atomics]] that
 operate on an invalid memory reference load and store from different [=memory
 locations|memory locations=] if they access memory.
+
+Note: An invalid memory reference can occur even if the bytes accessed would
+still be within memory locations of the originating variable.
+Each access into a [=composite=] type must be made by a valid memory reference.
+See [[#composite-value-decomposition-expr]].
 
 ### Use Cases for References and Pointers ### {#ref-ptr-use-cases}
 
@@ -3568,8 +3607,6 @@ Defining pointers in this way enables two key use cases:
 * Using a formal parameter of a function to refer to the memory of a variable that is accessible to the [=calling function=].
     * The call to such a function [=shader-creation error|must=] supply a pointer value for that operand.
         This often requires using an [=address-of=] operation (unary `&`) to get a pointer to the variable's contents.
-
-Note: The following examples use WGSL features explained later in this specification.
 
 <div class='example wgsl' heading='Using a pointer as a short name for part of a variable'>
   <xmp highlight='rust'>
@@ -3823,8 +3860,11 @@ In particular:
     The memory for a WGSL variable becomes inaccessible only when the variable goes out of scope.
 
 Note: From the above rules, it is not possible to form a "dangling" pointer,
-i.e. a pointer that does not reference the memory for a valid (or "live")
+i.e. a pointer that does not reference the memory for a "live"
 originating variable.
+A [=memory view=] may be an [=invalid memory reference=], but it
+[=behavioral requirement|will never=] access [=memory locations=] not associated with the
+[=originating variable=] or buffer.
 
 ## Texture and Sampler Types ## {#texture-sampler-types}
 
@@ -3865,9 +3905,9 @@ A texture has the following features:
     to select the mip levels from which to read texel data.  These are then combined via
     filtering to produce the sampled value.
 : arrayed
-:: whether the texture is arrayed.
+:: Whether the texture is arrayed.
 : <dfn noexport>array size</dfn>
-:: the number of homogeneous grids, if the texture is arrayed
+:: The number of homogeneous grids, if the texture is arrayed
 
 A texture's representation is typically optimized for rendering operations.
 To achieve this, many details are hidden from the programmer, including data layouts, data types, and
@@ -3888,8 +3928,8 @@ Instead, access is mediated through an opaque handle:
     [=shader-creation error|must=] be compatible with the corresponding bind group layout entry.
 
 In this way, the set of supported operations for a texture type
-is determined by the availability of texture builtin functions having
-a [=formal parameter=] with that texture type.
+is determined by the availability of [[#texture-builtin-functions|texture built-in functions]]
+having a [=formal parameter=] with that texture type.
 
 Note: The handle stored by a texture variable cannot be changed by the shader.
 That is, the variable is read-only, even if the underlying texture to which it provides
@@ -3901,7 +3941,7 @@ The <dfn>texture types</dfn> are the set of types defined in:
 * [[#external-texture-type]]
 * [[#texture-depth]]
 
-A [=sampler=] is an opaque handle that controls how [=texel|texels=] are accessed
+A [=sampler=] is an opaque handle that controls how [=texels=] are accessed
 from a sampled texture.
 
 A WGSL sampler maps to a WebGPU {{GPUSampler}}.
@@ -4026,7 +4066,7 @@ The last column in the table below uses the format-specific
   <tr><td>rgba32uint<td>32uint<td>r, g, b, a<td>vec4&lt;u32&gt;(CTF(r), CTF(g), CTF(b), CTF(a))
   <tr><td>rgba32sint<td>32sint<td>r, g, b, a<td>vec4&lt;i32&gt;(CTF(r), CTF(g), CTF(b), CTF(a))
   <tr><td>rgba32float<td>32float<td>r, g, b, a<td>vec4&lt;f32&gt;(CTF(r), CTF(g), CTF(b), CTF(a))
-  <tr><td>bgra8unorm<td>8unorm<td>b, g, r, a<td>vec4&lt;f32&gt;(CTF(r), CTF(g), CTF(b), CTF(a))
+  <tr><td>bgra8unorm<td>8unorm<td>b, g, r, a<td>vec4&lt;f32&gt;(CTF(b), CTF(g), CTF(r), CTF(a))
 </table>
 
 ### Sampled Texture Types ### {#sampled-texture-type}
@@ -4039,7 +4079,7 @@ The last column in the table below uses the format-specific
 `texture_cube<type>`
 `texture_cube_array<type>`
 </pre>
-* type [=shader-creation error|must=] be `f32`, `i32` or `u32`
+* `type` [=shader-creation error|must=] be `f32`, `i32`, or `u32`
 * The parameterized type for the images is the type after conversion from sampling.
     E.g. you can have an image with texels with 8bit unorm components, but when you sample
     them you get a 32-bit float result (or vec-of-f32).
@@ -4049,7 +4089,7 @@ The last column in the table below uses the format-specific
 <pre class='def'>
 `texture_multisampled_2d<type>`
 </pre>
-* type [=shader-creation error|must=] be `f32`, `i32` or `u32`
+* `type` [=shader-creation error|must=] be `f32`, `i32`, or `u32`
 
 ### External Sampled Texture Types ### {#external-texture-type}
 
@@ -4057,7 +4097,7 @@ The last column in the table below uses the format-specific
 `texture_external`
 </pre>
 
-`texture_external` is an opaque 2d float-sampled texture type similar to `texture_2d<f32>`
+`texture_external` is an opaque two-dimensional float-sampled texture type similar to `texture_2d<f32>`
 but potentially with a different representation.
 It can be read using [[#textureload|textureLoad]] or [[#textureSampleBaseClampToEdge|textureSampleBaseClampToEdge]] built-in functions,
 which handle these different representations opaquely.
@@ -4080,8 +4120,6 @@ For a write-only storage texture the *inverse* of the conversion function is use
 the stored texel.
 
 See [[#texture-builtin-functions]].
-
-TODO(dneto): Move description of the conversion to the builtin function that actually does the reading.
 
 <pre class='def'>
 `texture_storage_1d<texel_format,access>`
@@ -4130,7 +4168,7 @@ A <dfn noexport>sampler types</dfn> are:
 Samplers are parameterized when created in the WebGPU API.
 They cannot be modified by a WGSL program.
 
-Samplers can only be used by the [[#texture-builtin-functions|texture builtin functions]].
+Samplers can only be used by the [[#texture-builtin-functions|texture built-in functions]].
 
 <pre class='def'>
 sampler
@@ -5538,7 +5576,7 @@ Note: WGSL does not have zero expression for [=atomic types=],
     <tr><th>Precondition<th>Conclusion<th>Notes
   </thead>
   <tr algorithm="array zero value">
-    <td>|T| is a [=constructible=]
+    <td>|T| is [=constructible=]
     <td>`array<`|T|,|N|`>()`: array&lt;|T|,|N|&gt;
     <td>Zero-valued array
 </table>
@@ -5588,7 +5626,7 @@ Note: WGSL does not have zero expression for [=atomic types=],
 
 ### Conversion Expressions ### {#conversion-expr}
 
-WGSL does not implicitly convert or promote a numeric or boolean value to another type.
+WGSL does not implicitly convert or promote a [=type/concrete=] numeric or boolean value to another type.
 Instead use a <dfn>conversion expression</dfn> as defined in the tables below.
 
 For details on conversion to and from floating point types, see [[#floating-point-conversion]].
@@ -5887,7 +5925,7 @@ Accessing components of a vector can be done either:
 
 The convenience names are accessed using the `.` notation. (e.g. `color.bgra`).
 
-The convenience letterings [=shader-creation error|must not=] be mixed. For example, you can not use `.rybw`.
+The convenience letterings [=shader-creation error|must not=] be mixed. For example, you cannot use `.rybw`.
 
 A convenience letter [=shader-creation error|must not=] access a component past the end of the vector.
 
@@ -14102,14 +14140,14 @@ fn textureLoad(t: texture_external,
 
 The unfiltered texel data.
 
-An out of bounds access occurs if:
+An [=out of bounds access=] occurs if:
 * any element of `coords` is outside the range `[0, textureDimensions(t, level))`
     for the corresponding element, or
 * `array_index` is outside the range `[0, textureNumLayers(t))`, or
 * `level` is outside the range `[0, textureNumLevels(t))`, or
 * `sample_index` is outside the range `[0, textureNumSamples(s))`
 
-If an out of bounds access occurs, the built-in function returns one of:
+If an [=out of bounds access=] occurs, the built-in function returns one of:
 * The data for some texel within bounds of the texture
 * A vector (0,0,0,0) or (0,0,0,1) of the appropriate type for non-depth textures
 * 0.0 for depth textures
