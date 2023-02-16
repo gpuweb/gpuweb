@@ -1,14 +1,14 @@
 .PHONY: all clean nfkc validate lalr validate-examples
 
 all: index.html nfkc validate test diagrams
-validate: lalr validate-examples
-validate-examples: grammar/grammar.js
+validate: lalr unit_tests validate-examples
 
 clean:
-	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
+	rm -f index.html index.pre.html index.bs.pre grammar/grammar.js grammar/build wgsl.lalr.txt
+
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs $(wildcard wgsl.*.bs.include)
+WGSL_SOURCES:=index.bs scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
@@ -23,14 +23,28 @@ diagrams: $(MERMAID_OUTPUTS)
 img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
 	sh ../tools/invoke-mermaid.sh -i $< -o $@
 
-# Extract WGSL grammar from the spec, validate it with Treesitter,
-# and use Treesitter to parse many code examples in the spec.
-grammar/grammar.js: index.bs extract-grammar.py
-	python3 ./extract-grammar.py index.bs grammar/grammar.js
+TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
+TREESITTER_PARSER := grammar/build/wgsl.so
+
+# Extract WGSL grammar from the spec, validate it by building a Treesitter parser from it.
+$(TREESITTER_GRAMMAR_INPUT) $(TREESITTER_PARSER): index.bs scanner.cc extract-grammar.py
+	python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
+
+.PHONY: validate-examples
+# Use Treesitter to parse many code examples in the spec.
+validate-examples: $(TREESITTER_PARSER)
+	python3 ./extract-grammar.py --flow e
+
+.PHONY: unit_tests
+# Use Treesitter to parse code samples
+unit_tests: $(TREESITTER_PARSER) wgsl_unit_tests.py
+	python3 wgsl_unit_tests.py --parser $(TREESITTER_PARSER)
 
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json
-$(WGSL_GRAMMAR) : grammar/grammar.js
+$(WGSL_GRAMMAR) : $(TREESITTER_GRAMMAR_INPUT)
+
+wgsl_unit_tests: 
 
 .PHONY: nfkc
 nfkc:
