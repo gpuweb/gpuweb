@@ -2704,44 +2704,19 @@ indirectly, while a [=constructible=] type cannot.
 Note: Fixed-footprint types exclude [=runtime-sized=] arrays, and any structure
 that contains a [=runtime-sized=] array.
 
-## Memory ## {#memory}
+## Memory Views ## {#memory-views}
 
-In WGSL, a value of [=storable=] type may be stored in memory, for later retrieval.
-This section describes the structure of memory, and how WGSL types are used to
-describe the contents of memory.
+In addition to calculating with [=plain types|plain=] values, a WGSL program will
+also often read values from memory or write values to memory, via [=memory access=] operations.
+Each memory access is performed via a [=memory view=].
 
-### Memory Locations ### {#memory-locations-section}
+A <dfn noexport>memory view</dfn> comprises:
+* a set of [=memory locations=] in a particular [=address space=],
+* a [[#memory-model-reference|memory model reference]],
+* an interpretation of the contents of those locations as a WGSL [=type=], known as the <dfn noexport>store type</dfn>, and
+* an [=access mode=].
 
-Memory consists of a set of distinct <dfn noexport>memory locations</dfn>.
-Each memory location is 8-bits in size.
-An operation affecting memory interacts with a set of one or more memory locations.
-Memory operations on [=composites=] [=behavioral requirement|will not=]
-access padding memory locations.
-
-Two sets of memory locations <dfn noexport>overlap</dfn> if the intersection of
-their sets of memory locations is non-empty.
-
-### Memory Access Mode ### {#memory-access-mode}
-
-A <dfn noexport>memory access</dfn> is an operation that acts on [=memory locations=].
-
-* A <dfn noexport>read access</dfn> observes the contents of memory locations.
-* A <dfn noexport>write access</dfn> sets the contents of memory locations.
-
-A single operation can read, write, or both read and write.
-
-Particular memory locations may support only certain kinds of accesses, expressed
-as the memory's <dfn noexport>access mode</dfn>:
-
-: <dfn noexport dfn-for="access">read</dfn>
-:: Supports read accesses, but not writes.
-: <dfn noexport dfn-for="access">write</dfn>
-:: Supports write accesses, but not reads.
-: <dfn noexport dfn-for="access">read_write</dfn>
-:: Supports both read and write accesses.
-
-When a [=token=] matches the [=syntax/access_mode=] grammar nonterminal, it is considered a [=context-dependent name=].
-In particular, the token does not [=resolve=] to any declared object.
+The access mode of a memory view [=shader-creation error|must=] be supported by the address space. See [[#var-and-value]].
 
 ### Storable Types ### {#storable-types}
 
@@ -2785,581 +2760,6 @@ A type is <dfn noexport>host-shareable</dfn> if it is both [=type/concrete=] and
 Note: Restrictions on the types of inter-stage inputs and outputs]] are
 described in [[#stage-inputs-outputs]] and subsequent sections.
 Those types are also sized, but the counting is differs.
-
-### Address Spaces ### {#address-space}
-
-Memory locations are partitioned into <dfn noexport>address spaces</dfn>.
-Each address space has unique properties determining
-mutability, visibility, the values it may contain,
-and how to use variables with it.
-See [[#var-and-value]] for more details.
-
-<table class='data'>
-  <caption>Address Spaces</caption>
-  <thead>
-    <tr><th>Address space
-        <th>Sharing among invocations
-        <th>Notes
-  </thead>
-  <tr><td><dfn noexport dfn-for="address spaces">function</dfn>
-      <td>Same invocation only
-      <td>
-  <tr><td><dfn noexport dfn-for="address spaces">private</dfn>
-      <td>Same invocation only
-      <td>
-  <tr><td><dfn noexport dfn-for="address spaces">workgroup</dfn>
-      <td>Invocations in the same [=compute shader stage|compute shader=] [=compute shader stage/workgroup=]
-      <td>The [=element count=] of an outermost array may be a [=pipeline-overridable=] constant.
-  <tr><td><dfn noexport dfn-for="address spaces">uniform</dfn>
-      <td>Invocations in the same [=shader stage=]
-      <td>For [=uniform buffer=] variables
-  <tr><td><dfn noexport dfn-for="address spaces">storage</dfn>
-      <td>Invocations in the same [=shader stage=]
-      <td>For [=storage buffer=] variables
-  <tr><td><dfn noexport dfn-for="address spaces">handle</dfn>
-      <td>Invocations in the same shader stage
-      <td>For [=sampler resource|sampler=] and [=texture resource|texture=] variables.<br>
-</table>
-
-When a [=token=] matches the [=syntax/address_space=] grammar nonterminal, it is considered a [=context-dependent name=].
-In particular, the token does not [=resolve=] to any declared object.
-
-Note: The token `handle` is reserved: it is never used in a WGSL program.
-
-Note: Each address space may have different performance characteristics.
-
-### Memory Layout ### {#memory-layouts}
-
-The layout of types in WGSL is independent of [=address space=].
-Strictly speaking, however, that layout can only be observed by host-shareable
-buffers.
-[=Uniform buffer=] and [=storage buffer=] variables are used to share
-bulk data organized as a sequence of bytes in memory.
-Buffers are shared between the CPU and the GPU, or between different shader stages
-in a pipeline, or between different pipelines.
-
-Because buffer data are shared without reformatting or translation, it is a
-[=dynamic error=] if buffer producers and consumers do not agree on the <dfn
-noexport>memory layout</dfn>, which is the description of how the bytes in a
-buffer are organized into typed WGSL values.
-These bytes are [=memory locations=] of a value relative to a common base
-location.
-
-The [=store type=] of a buffer variable [=shader-creation error|must=] be
-[=host-shareable=], with fully elaborated memory layout, as described below.
-
-Each buffer variable [=shader-creation error|must=] be declared in either the
-[=address spaces/uniform=] or [=address spaces/storage=] address spaces.
-
-The memory layout of a type is significant only when evaluating an expression with:
-* a variable in the [=address spaces/uniform=] or [=address spaces/storage=] address space, or
-* a pointer into the [=address spaces/uniform=] or [=address spaces/storage=] address space.
-
-An 8-bit byte is the most basic unit of [=host-shareable=] memory.
-The terms defined in this section express counts of 8-bit bytes.
-
-We will use the following notation:
-* <dfn noexport>AlignOf</dfn>(|T|) is the [=alignment=] of host-shareable type |T|.
-* <dfn noexport>AlignOfMember</dfn>(|S|, |i|) is the alignment of the |i|'th member of the host-shareable structure |S|.
-* <dfn noexport>SizeOf</dfn>(|T|) is the [=byte-size=] of host-shareable type |T|.
-* <dfn noexport>SizeOfMember</dfn>(|S|, |i|) is the size of the |i|'th member of the host-shareable structure |S|.
-* <dfn noexport>OffsetOfMember</dfn>(|S|, |i|) is the offset of the |i|'th member from the start of the host-shareable structure |S|.
-* <dfn noexport>StrideOf</dfn>(|A|) is the <dfn>element stride</dfn> of host-shareable array type |A|, defined
-    as the number of bytes from the start of one array element to the start of the next element.
-    It equals the size of the array's element type, rounded up to the alignment of the element type:
-        <p algorithm="array element stride">
-          [=StrideOf=](array<|E|, |N|>) = [=roundUp=]([=AlignOf=](E), [=SizeOf=](E))<br>
-          [=StrideOf=](array<|E|>) = [=roundUp=]([=AlignOf=](E), [=SizeOf=](E))
-        </p>
-
-
-#### Alignment and Size ####  {#alignment-and-size}
-
-Each [=host-shareable=] or [=fixed footprint=] data type |T| has an alignment and size.
-
-The <dfn>alignment</dfn> of a type is a constraint on where values of that type
-may be placed in memory, expressed as an integer:
-a type's alignment [=shader-creation error|must=] evenly divide
-the byte address of the starting [=memory location=] of a value of that type.
-Alignments enable use of more efficient hardware instructions for accessing the values,
-or satisfy more restrictive hardware requirements on certain
-address spaces. (See [address space layout constraints](#address-space-layout-constraints)).
-
-Note: Each alignment value is always a power of two, by construction.
-
-The <dfn>byte-size</dfn> of a type or structure member is the number of contiguous bytes
-reserved in host-shareable memory for the purpose of storing a value of the type
-or structure member.
-The size may include non-addressable padding at the end of the type.
-Consequently, loads and stores of a value might access fewer memory locations
-than the value's size.
-
-Alignment and size of [=host-shareable=] types are defined recursively in the
-following table:
-
-<table class='data'>
-  <caption>
-    Alignment and size for host-shareable types<br>
-  </caption>
-  <thead>
-    <tr><th>Host-shareable type |T|
-        <th>[=AlignOf=](|T|)
-        <th>[=SizeOf=](|T|)
-  </thead>
-  <tr><td>[=i32=], [=u32=], or [=f32=]
-      <td>4
-      <td>4
-  <tr><td>[=f16=]
-      <td>2
-      <td>2
-  <tr><td>[=atomic type|atomic&lt;|T|&gt;=]
-      <td>4
-      <td>4
-  <tr><td>[=vector|vec=]2&lt;|T|&gt;, |T| is [=i32=], [=u32=], or [=f32=]
-      <td>8
-      <td>8
-  <tr><td>vec2&lt;f16&gt;
-      <td>4
-      <td>4
-  <tr><td>vec3&lt;|T|&gt;, |T| is [=i32=], [=u32=], or [=f32=]
-      <td>16
-      <td>12
-  <tr><td>vec3&lt;f16&gt;
-      <td>8
-      <td>6
-  <tr><td>vec4&lt;|T|&gt;, |T| is [=i32=], [=u32=], or [=f32=]
-      <td>16
-      <td>16
-  <tr><td>vec4&lt;f16&gt;
-      <td>8
-      <td>8
-  <tr><td>[=matrix|mat=]|C|x|R| (col-major)<br>
-      <p class="small">(General form)</p>
-      <td>[=AlignOf=](vec|R|)
-      <td>[=SizeOf=](array&lt;vec|R|, |C|&gt;)
-  <tr><td>mat2x2&lt;f32&gt;
-      <td>8
-      <td>16
-  <tr><td>mat2x2&lt;f16&gt;
-      <td>4
-      <td>8
-  <tr><td>mat3x2&lt;f32&gt;
-      <td>8
-      <td>24
-  <tr><td>mat3x2&lt;f16&gt;
-      <td>4
-      <td>12
-  <tr><td>mat4x2&lt;f32&gt;
-      <td>8
-      <td>32
-  <tr><td>mat4x2&lt;f16&gt;
-      <td>4
-      <td>16
-  <tr><td>mat2x3&lt;f32&gt;
-      <td>16
-      <td>32
-  <tr><td>mat2x3&lt;f16&gt;
-      <td>8
-      <td>16
-  <tr><td>mat3x3&lt;f32&gt;
-      <td>16
-      <td>48
-  <tr><td>mat3x3&lt;f16&gt;
-      <td>8
-      <td>24
-  <tr><td>mat4x3&lt;f32&gt;
-      <td>16
-      <td>64
-  <tr><td>mat4x3&lt;f16&gt;
-      <td>8
-      <td>32
-  <tr><td>mat2x4&lt;f32&gt;
-      <td>16
-      <td>32
-  <tr><td>mat2x4&lt;f16&gt;
-      <td>8
-      <td>16
-  <tr><td>mat3x4&lt;f32&gt;
-      <td>16
-      <td>48
-  <tr><td>mat3x4&lt;f16&gt;
-      <td>8
-      <td>24
-  <tr><td>mat4x4&lt;f32&gt;
-      <td>16
-      <td>64
-  <tr><td>mat4x4&lt;f16&gt;
-      <td>8
-      <td>32
-  <tr><td>[=structure|struct=] |S| with members M<sub>1</sub>...M<sub>N</sub>
-      <td>max([=AlignOfMember=](S,1), ... , [=AlignOfMember=](S,N))<br>
-      <td>[=roundUp=]([=AlignOf=](|S|), justPastLastMember)<br><br>
-          where justPastLastMember = [=OffsetOfMember=](|S|,N) + [=SizeOfMember=](|S|,N)
-  <tr><td>[=array=]<|E|, |N|><br>
-      <td>[=AlignOf=](|E|)
-      <td>|N| &times; [=roundUp=]([=AlignOf=](|E|), [=SizeOf=](|E|))
-  <tr><td>array<|E|><br>
-      <td>[=AlignOf=](|E|)
-      <td>N<sub>runtime</sub> &times; [=roundUp=]([=AlignOf=](|E|),[=SizeOf=](|E|))<br><br>
-          where N<sub>runtime</sub> is the runtime-determined number of elements of |T|
-</table>
-
-
-#### Structure Member Layout ####  {#structure-member-layout}
-
-The internal layout of a [=structure=] is computed from the sizes and alignments of its members.
-By default, the members are arranged tightly, in order, without overlap, while satisfying member alignment
-requirements.
-
-This default internal layout can be overriden by using <dfn noexport>layout attributes</dfn>, which are:
-
-* [=attribute/size=]
-* [=attribute/align=]
-
-The |i|'th member of structure type |S| has a size and alignment, denoted
-by [=SizeOfMember=](|S|, |i|) and [=AlignOfMember=](|S|, |i|), respectively.
-The member sizes and alignments are used to calculate each member's byte offset from the start of the structure,
-as described in [[#internal-value-layout]].
-
-<p algorithm="structure member size">
-  [=SizeOfMember=](|S|, |i|) is |k| if the |i|'th member of |S| has attribute [=attribute/size=](|k|).
-  Otherwise, it is [=SizeOf=](|T|) where |T| is the type of the member.
-</p>
-
-<p algorithm="structure member alignment">
-  [=AlignOfMember=](|S|, |i|) is |k| if the |i|'th member of |S| has attribute [=attribute/align=](|k|).
-  Otherwise, it is [=AlignOf=](|T|) where |T| is the type of the member.
-</p>
-
-If a structure member has the [=attribute/size=] attribute applied, the
-value [=shader-creation error|must=] be at least as large as the size of the
-member's type:
-
-<p algorithm="member size constraint">
-  [=SizeOfMember=](|S|, |i|) &ge; [=SizeOf=](T)<br>
-  Where |T| is the type of the |i|'th member of |S|.
-</p>
-
-The first structure member always has a zero byte offset from the start of the
-structure:
-<p algorithm="offset of first structure member">
-  [=OffsetOfMember=](<var ignore>S</var>, 1) = 0
-</p>
-
-Each subsequent member is placed at the lowest offset that satisfies the member type alignment,
-and which avoids overlap with the previous member.
-For each member index |i| > 1:
-<p algorithm="structure member offset">
-  [=OffsetOfMember=](|S|, |i|) = [=roundUp=]([=AlignOfMember=](|S|, |i| ), [=OffsetOfMember=](|S|, |i|-1) + [=SizeOfMember=](|S|, |i|-1))<br>
-</p>
-
-<div class='example wgsl' heading='Layout of structures using implicit member sizes and alignments'>
-  <xmp highlight='rust'>
-    struct A {                                     //             align(8)  size(24)
-        u: f32,                                    // offset(0)   align(4)  size(4)
-        v: f32,                                    // offset(4)   align(4)  size(4)
-        w: vec2<f32>,                              // offset(8)   align(8)  size(8)
-        x: f32                                     // offset(16)  align(4)  size(4)
-        // -- implicit struct size padding --      // offset(20)            size(4)
-    }
-
-    struct B {                                     //             align(16) size(160)
-        a: vec2<f32>,                              // offset(0)   align(8)  size(8)
-        // -- implicit member alignment padding -- // offset(8)             size(8)
-        b: vec3<f32>,                              // offset(16)  align(16) size(12)
-        c: f32,                                    // offset(28)  align(4)  size(4)
-        d: f32,                                    // offset(32)  align(4)  size(4)
-        // -- implicit member alignment padding -- // offset(36)            size(4)
-        e: A,                                      // offset(40)  align(8)  size(24)
-        f: vec3<f32>,                              // offset(64)  align(16) size(12)
-        // -- implicit member alignment padding -- // offset(76)            size(4)
-        g: array<A, 3>,    // element stride 24       offset(80)  align(8)  size(72)
-        h: i32                                     // offset(152) align(4)  size(4)
-        // -- implicit struct size padding --      // offset(156)           size(4)
-    }
-
-    @group(0) @binding(0)
-    var<storage,read_write> storage_buffer: B;
-  </xmp>
-</div>
-
-<div class='example wgsl' heading='Layout of structures with explicit member sizes and alignments'>
-  <xmp highlight='rust'>
-    struct A {                                     //             align(8)  size(32)
-        u: f32,                                    // offset(0)   align(4)  size(4)
-        v: f32,                                    // offset(4)   align(4)  size(4)
-        w: vec2<f32>,                              // offset(8)   align(8)  size(8)
-        @size(16) x: f32                           // offset(16)  align(4)  size(16)
-    }
-
-    struct B {                                     //             align(16) size(208)
-        a: vec2<f32>,                              // offset(0)   align(8)  size(8)
-        // -- implicit member alignment padding -- // offset(8)             size(8)
-        b: vec3<f32>,                              // offset(16)  align(16) size(12)
-        c: f32,                                    // offset(28)  align(4)  size(4)
-        d: f32,                                    // offset(32)  align(4)  size(4)
-        // -- implicit member alignment padding -- // offset(36)            size(12)
-        @align(16) e: A,                           // offset(48)  align(16) size(32)
-        f: vec3<f32>,                              // offset(80)  align(16) size(12)
-        // -- implicit member alignment padding -- // offset(92)            size(4)
-        g: array<A, 3>,    // element stride 32       offset(96)  align(8)  size(96)
-        h: i32                                     // offset(192) align(4)  size(4)
-        // -- implicit struct size padding --      // offset(196)           size(12)
-    }
-
-    @group(0) @binding(0)
-    var<uniform> uniform_buffer: B;
-  </xmp>
-</div>
-
-#### Array Layout Examples ####  {#array-layout-examples}
-
-<div class='example wgsl function-scope' heading='Fixed-size array layout examples'>
-  <xmp highlight='rust'>
-    // Array where:
-    //   - alignment is 4 = AlignOf(f32)
-    //   - element stride is 4 = roundUp(AlignOf(f32),SizeOf(f32)) = roundUp(4,4)
-    //   - size is 32 = stride * number_of_elements = 4 * 8
-    var small_stride: array<f32, 8>;
-
-    // Array where:
-    //   - alignment is 16 = AlignOf(vec3<f32>) = 16
-    //   - element stride is 16 = roundUp(AlignOf(vec3<f32>), SizeOf(vec3<f32>))
-    //                          = roundUp(16,12)
-    //   - size is 128 = stride * number_of_elements = 16 * 8
-    var bigger_stride: array<vec3<f32>, 8>;
-  </xmp>
-</div>
-
-<div class='example wgsl global-scope' heading='Runtime-sized array layout examples'>
-  <xmp highlight='rust'>
-    // Array where:
-    //   - alignment is 4 = AlignOf(f32)
-    //   - element stride is 4 = roundUp(AlignOf(f32),SizeOf(f32)) = 4
-    // If B is the effective buffer binding size for the binding on the
-    // draw or dispatch command, the number of elements is:
-    //   N_runtime = floor(B / element stride) = floor(B / 4)
-    @group(0) @binding(0)
-    var<storage> weights: array<f32>;
-
-    // Array where:
-    //   - alignment is 16 = AlignOf(vec3<f32>) = 16
-    //   - element stride is 16 = roundUp(AlignOf(vec3<f32>), SizeOf(vec3<f32>))
-    //                          = roundUp(16,12)
-    // If B is the effective buffer binding size for the binding on the
-    // draw or dispatch command, the number of elements is:
-    //   N_runtime = floor(B / element stride) = floor(B / 16)
-    var<storage> directions: array<vec3<f32>>;
-  </xmp>
-</div>
-
-#### Internal Layout of Values ####  {#internal-value-layout}
-
-This section describes how the internals of a value are placed in the byte locations
-of a buffer, given an assumed placement of the overall value.
-These layouts depend on the value's type,
-and the [=attribute/align=] and [=attribute/size=] attributes on structure members.
-
-The buffer byte offset at which a value is placed [=shader-creation
-error|must=] satisfy the type alignment requirement: If a value of type |T| is
-placed at buffer offset |k|, then |k| = |c| &times; [=AlignOf=](|T|), for some
-non-negative integer |c|.
-
-The data [=behavioral requirement|will=] appear identically regardless of the address space.
-
-When a value |V| of type [=u32=] or [=i32=] is placed at byte offset |k| of a
-host-shared buffer, then:
-   * Byte |k| contains bits 0 through 7 of |V|
-   * Byte |k|+1 contains bits 8 through 15 of |V|
-   * Byte |k|+2 contains bits 16 through 23 of |V|
-   * Byte |k|+3 contains bits 24 through 31 of |V|
-
-Note: Recall that [=i32=] uses twos-complement representation, so the sign bit
-is in bit position 31.
-
-A value |V| of type [=f32=] is represented in [[!IEEE-754|IEEE-754]] binary32 format.
-It has one sign bit, 8 exponent bits, and 23 fraction bits.
-When |V| is placed at byte offset |k| of host-shared buffer, then:
-   * Byte |k| contains bits 0 through 7 of the fraction.
-   * Byte |k|+1 contains bits 8 through 15 of the fraction.
-   * Bits 0 through 6 of byte |k|+2 contain bits 16 through 22 of the fraction.
-   * Bit 7 of byte |k|+2 contains bit 0 of the exponent.
-   * Bits 0 through 6 of byte |k|+3 contain bits 1 through 7 of the exponent.
-   * Bit 7 of byte |k|+3 contains the sign bit.
-
-A value |V| of type [=f16=] is represented in [[!IEEE-754|IEEE-754]] binary16 format.
-It has one sign bit, 5 exponent bits, and 10 fraction bits.
-When |V| is placed at byte offset |k| of host-shared buffer, then:
-   * Byte |k| contains bits 0 through 7 of the fraction.
-   * Bits 0 through 1 of byte |k|+1 contain bits 8 through 9 of the fraction.
-   * Bits 2 through 6 of byte |k|+1 contain bits 0 through 4 of the exponent.
-   * Bit 7 of byte |k|+1 contains the sign bit.
-
-Note: The above rules imply that numeric values in host-shared buffers
-are stored in little-endian format.
-
-When a value |V| of [=atomic type=] `atomic`&lt;|T|&gt; is placed in a host-shared buffer,
-it has the same internal layout as a value of the underlying type |T|.
-
-When a value |V| of [=vector|vector type=] vec|N|&lt;|T|&gt; is placed at
-byte offset |k| of a host-shared buffer, then:
-   * |V|.x is placed at byte offset |k|
-   * |V|.y is placed at byte offset |k| + [=SizeOf=](|T|)
-   * If |N| &ge; 3, then |V|.z is placed at byte offset |k| + 2 &times; [=SizeOf=](|T|)
-   * If |N| &ge; 4, then |V|.w is placed at byte offset |k| + 3 &times; [=SizeOf=](|T|)
-
-When a value |V| of [=matrix|matrix type=] mat|C|x|R|&lt;|T|&gt; is placed at
-byte offset |k| of a host-shared buffer, then:
-  * Column vector |i| of |V| is placed at byte offset |k| + |i| &times; [=AlignOf=](vec|R|&lt;|T|&gt;)
-
-When a value of [=array|array type=] |A| is placed at byte offset |k| of a host-shared memory buffer,
-then:
-   * Element |i| of the array is placed at byte offset |k| + |i| &times; [=StrideOf=](|A|)
-
-When a value of [=structure|structure type=] |S| is placed at byte offset |k| of a host-shared memory buffer,
-then:
-   * The |i|'<sup>th</sup> member of the structure value is placed at byte offset |k| + [=OffsetOfMember=](|S|,|i|).
-    See [[#structure-member-layout]].
-
-#### Address Space Layout Constraints ####  {#address-space-layout-constraints}
-
-The [=address spaces/storage=] and [=address spaces/uniform=] address spaces
-have different buffer layout constraints which are described in this section.
-
-Note: All [=address spaces=] except [=address spaces/uniform=] have the same
-constraints as the [=address spaces/storage=] address space.
-
-All structure and array types directly or indirectly referenced by a variable
-[=shader-creation error|must=] obey the constraints of the variable's address space.
-Violations of an address space constraint results in a [=shader-creation error=].
-
-In this section we define <dfn noexport>RequiredAlignOf</dfn>(|S|, |C|) as the
-byte offset [=alignment=] requirement of values of host-shareable type |S| when
-used in address space |C|.
-
-<table class='data'>
-  <caption>
-    Alignment requirements of a host-shareable type for
-    [=address spaces/storage=] and [=address spaces/uniform=] address spaces
-  </caption>
-  <thead>
-    <tr><th>Host-shareable type |S|
-        <th>[=RequiredAlignOf=](|S|, [=address spaces/storage=])
-        <th>[=RequiredAlignOf=](|S|, [=address spaces/uniform=])
-  </thead>
-  <tr><td>[=i32=], [=u32=], [=f32=], or [=f16=]
-      <td>[=AlignOf=](|S|)
-      <td>[=AlignOf=](|S|)
-  <tr><td>[=atomic types|atomic=]&lt;T&gt;
-      <td>[=AlignOf=](|S|)
-      <td>[=AlignOf=](|S|)
-  <tr><td>[=vector|vec=]N&lt;T&gt;
-      <td>[=AlignOf=](|S|)
-      <td>[=AlignOf=](|S|)
-  <tr algorithm="alignment of a matrix with C columns and R rows">
-      <td>[=matrix|mat=]CxR&lt;T&gt;
-      <td>[=AlignOf=](|S|)
-      <td>[=AlignOf=](|S|)
-  <tr algorithm="alignment of an array">
-      <td>[=array=]&lt;T, N&gt;
-      <td>[=AlignOf=](|S|)
-      <td>[=roundUp=](16, [=AlignOf=](|S|))
-  <tr algorithm="alignment of an runtime-sized array">
-      <td>array&lt;T&gt;
-      <td>[=AlignOf=](|S|)
-      <td>[=roundUp=](16, [=AlignOf=](|S|))
-  <tr algorithm="alignment of a structure">
-      <td>[=structure|struct=] |S|
-      <td>[=AlignOf=](|S|)
-      <td>[=roundUp=](16, [=AlignOf=](|S|))<br>
-</table>
-
-Structure members of type |T| [=shader-creation error|must=] have a byte offset
-from the start of the structure that is a multiple of the [=RequiredAlignOf=](|T|, |C|)
-for the address space |C|:
-
-<p algorithm="structure member minimum alignment">
-    [=OffsetOfMember=](|S|, |M|) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
-    Where |k| is a positive integer and |M| is a member of structure |S| with type |T|
-</p>
-
-Arrays of element type |T| [=shader-creation error|must=] have an [=element stride=] that is a
-multiple of the [=RequiredAlignOf=](|T|, |C|) for the address space |C|:
-
-<p algorithm="array element minimum alignment">
-    [=StrideOf=](array<|T|, |N|>) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
-    [=StrideOf=](array<|T|>) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
-    Where |k| is a positive integer
-</p>
-
-Note: [=RequiredAlignOf=](|T|, |C|) does not impose any additional restrictions
-on the values permitted for an [=attribute/align=] attribute, nor does it affect the rules
-of [=AlignOf=](|T|). Data is laid out with the rules defined in previous
-sections and then the resulting layout is validated against the
-[=RequiredAlignOf=](|T|, |C|) rules.
-
-The [=address spaces/uniform=] address space also requires that:
-* Array elements are aligned to 16 byte boundaries.
-    That is, [=StrideOf=](array&lt;|T|,|N|&gt;) = 16 &times; |k|' for some positive integer |k|'.
-* If a structure member itself has a structure type `S`, then the number of
-    bytes between the start of that member and the start of any following member
-    [=shader-creation error|must=] be at least [=roundUp=](16, [=SizeOf=](S)).
-
-Note: The following examples show how to use [=attribute/align=] and [=attribute/size=] attributes
-on structure members to satisfy layout requirements for uniform buffers.
-In particular, these techniques can be used mechanically transform a GLSL buffer with std140 layout
-to WGSL.
-
-<div class='example wgsl global-scope' heading='Satisfying offset requirements for uniform address space'>
-  <xmp highlight='rust'>
-    struct S {
-      x: f32
-    }
-    struct Invalid {
-      a: S,
-      b: f32 // invalid: offset between a and b is 4 bytes, but must be at least 16
-    }
-    @group(0) @binding(0) var<uniform> invalid: Invalid;
-
-    struct Valid {
-      a: S,
-      @align(16) b: f32 // valid: offset between a and b is 16 bytes
-    }
-    @group(0) @binding(1) var<uniform> valid: Valid;
-  </xmp>
-</div>
-
-<div class='example wgsl global-scope' heading='Satisfying stride requirements for uniform address space'>
-  <xmp highlight='rust'>
-    struct small_stride {
-      a: array<f32,8> // stride 4
-    }
-    // Invalid, stride must be a multiple of 16
-    @group(0) @binding(0) var<uniform> invalid: small_stride;
-
-    struct wrapped_f32 {
-      @size(16) elem: f32
-    }
-    struct big_stride {
-      a: array<wrapped_f32,8> // stride 16
-    }
-    @group(0) @binding(1) var<uniform> valid: big_stride;     // Valid
-  </xmp>
-</div>
-
-## Memory Views ## {#memory-views}
-
-In addition to calculating with [=plain types|plain=] values, a WGSL program will
-also often read values from memory or write values to memory, via [=memory access=] operations.
-Each memory access is performed via a [=memory view=].
-
-A <dfn noexport>memory view</dfn> comprises:
-* a set of [=memory locations=] in a particular [=address space=],
-* a [[#memory-model-reference|memory model reference]],
-* an interpretation of the contents of those locations as a WGSL [=type=], known as the <dfn noexport>store type</dfn>, and
-* an [=access mode=].
-
-The access mode of a memory view [=shader-creation error|must=] be supported by the address space. See [[#var-and-value]].
 
 ### Reference and Pointer Types ### {#ref-ptr-types}
 
@@ -3405,7 +2805,7 @@ However, in WGSL *source* text:
     * A pointer type is spelled with parameterization by:
         * [=address space=],
         * [=store type=], and
-        * sometimes by [=access mode=], as specified in [[#access-mode-defaults]].
+        * sometimes by [=access mode=], as specified in [[#address-space]].
     * If a pointer type appears in the program source,
         it [=shader-creation error|must=] also be valid to [=variable declaration|declare a variable=],
         somewhere in the program,
@@ -3424,14 +2824,16 @@ However, in WGSL *source* text:
       /* 'ptr<function,i32,read_write>' is the type of a pointer value that references
          memory for keeping an 'i32' value, using memory locations in the 'function'
          address space.  Here 'i32' is the store type.
-         The implied access mode is 'read_write'. See below for access mode defaults. */
+         The implied access mode is 'read_write'.
+         See "Address Space" section for defaults. */
       ptr_int: ptr<function,i32>,
 
       // 'ptr<private,array<f32,50>,read_write>' is the type of a pointer value that
       // refers to memory for keeping an array of 50 elements of type 'f32', using
       // memory locations in the 'private' address space.
       // Here the store type is 'array<f32,50>'.
-      // The implied access mode is 'read_write'. See below for access mode defaults.
+      // The implied access mode is 'read_write'.
+      // See the "Address space section for defaults.
       ptr_array: ptr<private, array<f32, 50>>
     ) { }
   </xmp>
@@ -3445,43 +2847,6 @@ Each pointer value |p| of type ptr&lt;|AS|,|T|,|AM|&gt; corresponds to a unique 
 and vice versa,
 where |p| and |r| describe the same memory view.
 </blockquote>
-
-### Access Mode Defaults ### {#access-mode-defaults}
-
-The access mode for a memory view is often determined by context:
-
-
-The [=address spaces/storage=] address spaces supports both [=access/read=] and
-[=access/read_write=] access modes.
-Each other address space supports only one access mode.
-The default access mode for each address space is described in the following
-table.
-
-<table class='data'>
-<caption>
-  Access Mode Defaults.
-</caption>
-<thead>
-  <tr><th>Address Space
-      <td>Default Access Mode
-</thead>
-<tr><td>[=address spaces/function=]
-    <td>[=access/read_write=]
-<tr><td>[=address spaces/private=]
-    <td>[=access/read_write=]
-<tr><td>[=address spaces/workgroup=]
-    <td>[=access/read_write=]
-<tr><td>[=address spaces/uniform=]
-    <td>[=access/read=]
-<tr><td>[=address spaces/storage=]
-    <td>[=access/read=]
-<tr><td>[=address spaces/handle=]
-    <td>[=access/read=]
-</table>
-
-When writing a [=variable declaration=] or a [=pointer type=] in WGSL source:
-* For the [=address spaces/storage=] address space, the access mode is optional, and defaults to [=access/read=].
-* For other address spaces, the access mode [=shader-creation error|must not=] be written.
 
 ### Originating Variable ### {#originating-variable-section}
 
@@ -4725,7 +4090,7 @@ Specifying the function address space is optional.
 The [=access mode=] always has a default value, and except for variables in the
 [=address spaces/storage=] address space, [=shader-creation error|must not=] be
 specified in the WGSL source.
-See [[#access-mode-defaults]].
+See [[#address-space]].
 
 A variable in the [=address spaces/uniform=] address space is a <dfn
 noexport>uniform buffer</dfn> variable.
@@ -9625,6 +8990,771 @@ shader that goes beyond the specified limits.
     <tr><td>Maximum number of elements in [=const-expression=] of [=array=] type<td>65535
 </table>
 
+# Memory # {#memory}
+
+In WGSL, a value of [=storable=] type may be stored in memory, for later retrieval.
+This section describes the structure of memory, and how WGSL types are used to
+describe the contents of memory.
+
+## Memory Locations ## {#memory-locations-section}
+
+Memory consists of a set of distinct <dfn noexport>memory locations</dfn>.
+Each memory location is 8-bits in size.
+An operation affecting memory interacts with a set of one or more memory locations.
+Memory operations on [=composites=] [=behavioral requirement|will not=]
+access padding memory locations.
+
+Two sets of memory locations <dfn noexport>overlap</dfn> if the intersection of
+their sets of memory locations is non-empty.
+
+## Memory Access Mode ## {#memory-access-mode}
+
+A <dfn noexport>memory access</dfn> is an operation that acts on [=memory locations=].
+
+* A <dfn noexport>read access</dfn> observes the contents of memory locations.
+* A <dfn noexport>write access</dfn> sets the contents of memory locations.
+
+A single operation can read, write, or both read and write.
+
+Particular memory locations may support only certain kinds of accesses, expressed
+as the memory's <dfn noexport>access mode</dfn>.
+
+<table class='data'>
+  <caption>Access Modes</caption>
+  <thead>
+    <tr><th>Access mode
+        <th>Supported accesses
+  </thead>
+  <tr><td><dfn noexport dfn-for="access">read</dfn>
+      <td>Supports read accesses, but not writes.
+  <tr><td><dfn noexport dfn-for="access">write</dfn>
+      <td>Supports write accesses, but not reads.
+  <tr><td><dfn noexport dfn-for="access">read_write</dfn>
+      <td>Supports both read and write accesses.
+</table>
+
+When a [=token=] matches the [=syntax/access_mode=] grammar nonterminal, it is considered a [=context-dependent name=].
+In particular, the token does not [=resolve=] to any declared object.
+
+## Address Spaces ## {#address-space}
+
+Memory locations are partitioned into <dfn noexport>address spaces</dfn>.
+Each address space has unique properties determining
+mutability, visibility, the values it may contain,
+and how to use variables with it.
+See [[#var-and-value]] for more details.
+
+The access mode of a given [=memory view=] is often determined by context:
+
+The [=address spaces/storage=] address spaces supports both [=access/read=] and
+[=access/read_write=] access modes.
+Each other address space supports only one access mode.
+The default access mode for each address space is described in the following
+table.
+
+<table class='data'>
+  <caption>Address Spaces</caption>
+  <thead>
+    <tr><th>Address space
+        <th>Sharing among invocations
+        <th>Default access mode
+        <th>Notes
+  </thead>
+  <tr><td><dfn noexport dfn-for="address spaces">function</dfn>
+      <td>Same invocation only
+      <td>[=access/read_write=]
+      <td>
+  <tr><td><dfn noexport dfn-for="address spaces">private</dfn>
+      <td>Same invocation only
+      <td>[=access/read_write=]
+      <td>
+  <tr><td><dfn noexport dfn-for="address spaces">workgroup</dfn>
+      <td>Invocations in the same [=compute shader stage|compute shader=] [=compute shader stage/workgroup=]
+      <td>[=access/read_write=]
+      <td>The [=element count=] of an outermost array may be a [=pipeline-overridable=] constant.
+  <tr><td><dfn noexport dfn-for="address spaces">uniform</dfn>
+      <td>Invocations in the same [=shader stage=]
+      <td>[=access/read=]
+      <td>For [=uniform buffer=] variables
+  <tr><td><dfn noexport dfn-for="address spaces">storage</dfn>
+      <td>Invocations in the same [=shader stage=]
+      <td>[=access/read=]
+      <td>For [=storage buffer=] variables
+  <tr><td><dfn noexport dfn-for="address spaces">handle</dfn>
+      <td>Invocations in the same shader stage
+      <td>[=access/read=]
+      <td>For [=sampler resource|sampler=] and [=texture resource|texture=] variables.<br>
+</table>
+
+When a [=token=] matches the [=syntax/address_space=] grammar nonterminal, it is considered a [=context-dependent name=].
+In particular, the token does not [=resolve=] to any declared object.
+
+Note: The token `handle` is reserved: it is never used in a WGSL program.
+
+Note: Each address space may have different performance characteristics.
+
+When writing a [=variable declaration=] or a [=pointer type=] in WGSL source:
+* For the [=address spaces/storage=] address space, the access mode is optional, and defaults to [=access/read=].
+* For other address spaces, the access mode [=shader-creation error|must not=] be written.
+
+## Memory Layout ## {#memory-layouts}
+
+The layout of types in WGSL is independent of [=address space=].
+Strictly speaking, however, that layout can only be observed by host-shareable
+buffers.
+[=Uniform buffer=] and [=storage buffer=] variables are used to share
+bulk data organized as a sequence of bytes in memory.
+Buffers are shared between the CPU and the GPU, or between different shader stages
+in a pipeline, or between different pipelines.
+
+Because buffer data are shared without reformatting or translation, it is a
+[=dynamic error=] if buffer producers and consumers do not agree on the <dfn
+noexport>memory layout</dfn>, which is the description of how the bytes in a
+buffer are organized into typed WGSL values.
+These bytes are [=memory locations=] of a value relative to a common base
+location.
+
+The [=store type=] of a buffer variable [=shader-creation error|must=] be
+[=host-shareable=], with fully elaborated memory layout, as described below.
+
+Each buffer variable [=shader-creation error|must=] be declared in either the
+[=address spaces/uniform=] or [=address spaces/storage=] address spaces.
+
+The memory layout of a type is significant only when evaluating an expression with:
+* a variable in the [=address spaces/uniform=] or [=address spaces/storage=] address space, or
+* a pointer into the [=address spaces/uniform=] or [=address spaces/storage=] address space.
+
+An 8-bit byte is the most basic unit of [=host-shareable=] memory.
+The terms defined in this section express counts of 8-bit bytes.
+
+We will use the following notation:
+* <dfn noexport>AlignOf</dfn>(|T|) is the [=alignment=] of host-shareable type |T|.
+* <dfn noexport>AlignOfMember</dfn>(|S|, |i|) is the alignment of the |i|'th member of the host-shareable structure |S|.
+* <dfn noexport>SizeOf</dfn>(|T|) is the [=byte-size=] of host-shareable type |T|.
+* <dfn noexport>SizeOfMember</dfn>(|S|, |i|) is the size of the |i|'th member of the host-shareable structure |S|.
+* <dfn noexport>OffsetOfMember</dfn>(|S|, |i|) is the offset of the |i|'th member from the start of the host-shareable structure |S|.
+* <dfn noexport>StrideOf</dfn>(|A|) is the <dfn>element stride</dfn> of host-shareable array type |A|, defined
+    as the number of bytes from the start of one array element to the start of the next element.
+    It equals the size of the array's element type, rounded up to the alignment of the element type:
+        <p algorithm="array element stride">
+          [=StrideOf=](array<|E|, |N|>) = [=roundUp=]([=AlignOf=](E), [=SizeOf=](E))<br>
+          [=StrideOf=](array<|E|>) = [=roundUp=]([=AlignOf=](E), [=SizeOf=](E))
+        </p>
+
+### Alignment and Size ###  {#alignment-and-size}
+
+Each [=host-shareable=] or [=fixed footprint=] data type |T| has an alignment and size.
+
+The <dfn>alignment</dfn> of a type is a constraint on where values of that type
+may be placed in memory, expressed as an integer:
+a type's alignment [=shader-creation error|must=] evenly divide
+the byte address of the starting [=memory location=] of a value of that type.
+Alignments enable use of more efficient hardware instructions for accessing the values,
+or satisfy more restrictive hardware requirements on certain
+address spaces. (See [address space layout constraints](#address-space-layout-constraints)).
+
+Note: Each alignment value is always a power of two, by construction.
+
+The <dfn>byte-size</dfn> of a type or structure member is the number of contiguous bytes
+reserved in host-shareable memory for the purpose of storing a value of the type
+or structure member.
+The size may include non-addressable padding at the end of the type.
+Consequently, loads and stores of a value might access fewer memory locations
+than the value's size.
+
+Alignment and size of [=host-shareable=] types are defined recursively in the
+following table:
+
+<table class='data'>
+  <caption>
+    Alignment and size for host-shareable types<br>
+  </caption>
+  <thead>
+    <tr><th>Host-shareable type |T|
+        <th>[=AlignOf=](|T|)
+        <th>[=SizeOf=](|T|)
+  </thead>
+  <tr><td>[=i32=], [=u32=], or [=f32=]
+      <td>4
+      <td>4
+  <tr><td>[=f16=]
+      <td>2
+      <td>2
+  <tr><td>[=atomic type|atomic&lt;|T|&gt;=]
+      <td>4
+      <td>4
+  <tr><td>[=vector|vec=]2&lt;|T|&gt;, |T| is [=i32=], [=u32=], or [=f32=]
+      <td>8
+      <td>8
+  <tr><td>vec2&lt;f16&gt;
+      <td>4
+      <td>4
+  <tr><td>vec3&lt;|T|&gt;, |T| is [=i32=], [=u32=], or [=f32=]
+      <td>16
+      <td>12
+  <tr><td>vec3&lt;f16&gt;
+      <td>8
+      <td>6
+  <tr><td>vec4&lt;|T|&gt;, |T| is [=i32=], [=u32=], or [=f32=]
+      <td>16
+      <td>16
+  <tr><td>vec4&lt;f16&gt;
+      <td>8
+      <td>8
+  <tr><td>[=matrix|mat=]|C|x|R| (col-major)<br>
+      <p class="small">(General form)</p>
+      <td>[=AlignOf=](vec|R|)
+      <td>[=SizeOf=](array&lt;vec|R|, |C|&gt;)
+  <tr><td>mat2x2&lt;f32&gt;
+      <td>8
+      <td>16
+  <tr><td>mat2x2&lt;f16&gt;
+      <td>4
+      <td>8
+  <tr><td>mat3x2&lt;f32&gt;
+      <td>8
+      <td>24
+  <tr><td>mat3x2&lt;f16&gt;
+      <td>4
+      <td>12
+  <tr><td>mat4x2&lt;f32&gt;
+      <td>8
+      <td>32
+  <tr><td>mat4x2&lt;f16&gt;
+      <td>4
+      <td>16
+  <tr><td>mat2x3&lt;f32&gt;
+      <td>16
+      <td>32
+  <tr><td>mat2x3&lt;f16&gt;
+      <td>8
+      <td>16
+  <tr><td>mat3x3&lt;f32&gt;
+      <td>16
+      <td>48
+  <tr><td>mat3x3&lt;f16&gt;
+      <td>8
+      <td>24
+  <tr><td>mat4x3&lt;f32&gt;
+      <td>16
+      <td>64
+  <tr><td>mat4x3&lt;f16&gt;
+      <td>8
+      <td>32
+  <tr><td>mat2x4&lt;f32&gt;
+      <td>16
+      <td>32
+  <tr><td>mat2x4&lt;f16&gt;
+      <td>8
+      <td>16
+  <tr><td>mat3x4&lt;f32&gt;
+      <td>16
+      <td>48
+  <tr><td>mat3x4&lt;f16&gt;
+      <td>8
+      <td>24
+  <tr><td>mat4x4&lt;f32&gt;
+      <td>16
+      <td>64
+  <tr><td>mat4x4&lt;f16&gt;
+      <td>8
+      <td>32
+  <tr><td>[=structure|struct=] |S| with members M<sub>1</sub>...M<sub>N</sub>
+      <td>max([=AlignOfMember=](S,1), ... , [=AlignOfMember=](S,N))<br>
+      <td>[=roundUp=]([=AlignOf=](|S|), justPastLastMember)<br><br>
+          where justPastLastMember = [=OffsetOfMember=](|S|,N) + [=SizeOfMember=](|S|,N)
+  <tr><td>[=array=]<|E|, |N|><br>
+      <td>[=AlignOf=](|E|)
+      <td>|N| &times; [=roundUp=]([=AlignOf=](|E|), [=SizeOf=](|E|))
+  <tr><td>array<|E|><br>
+      <td>[=AlignOf=](|E|)
+      <td>N<sub>runtime</sub> &times; [=roundUp=]([=AlignOf=](|E|),[=SizeOf=](|E|))<br><br>
+          where N<sub>runtime</sub> is the runtime-determined number of elements of |T|
+</table>
+
+### Structure Member Layout ###  {#structure-member-layout}
+
+The internal layout of a [=structure=] is computed from the sizes and alignments of its members.
+By default, the members are arranged tightly, in order, without overlap, while satisfying member alignment
+requirements.
+
+This default internal layout can be overriden by using <dfn noexport>layout attributes</dfn>, which are:
+
+* [=attribute/size=]
+* [=attribute/align=]
+
+The |i|'th member of structure type |S| has a size and alignment, denoted
+by [=SizeOfMember=](|S|, |i|) and [=AlignOfMember=](|S|, |i|), respectively.
+The member sizes and alignments are used to calculate each member's byte offset from the start of the structure,
+as described in [[#internal-value-layout]].
+
+<p algorithm="structure member size">
+  [=SizeOfMember=](|S|, |i|) is |k| if the |i|'th member of |S| has attribute [=attribute/size=](|k|).
+  Otherwise, it is [=SizeOf=](|T|) where |T| is the type of the member.
+</p>
+
+<p algorithm="structure member alignment">
+  [=AlignOfMember=](|S|, |i|) is |k| if the |i|'th member of |S| has attribute [=attribute/align=](|k|).
+  Otherwise, it is [=AlignOf=](|T|) where |T| is the type of the member.
+</p>
+
+If a structure member has the [=attribute/size=] attribute applied, the
+value [=shader-creation error|must=] be at least as large as the size of the
+member's type:
+
+<p algorithm="member size constraint">
+  [=SizeOfMember=](|S|, |i|) &ge; [=SizeOf=](T)<br>
+  Where |T| is the type of the |i|'th member of |S|.
+</p>
+
+The first structure member always has a zero byte offset from the start of the
+structure:
+<p algorithm="offset of first structure member">
+  [=OffsetOfMember=](<var ignore>S</var>, 1) = 0
+</p>
+
+Each subsequent member is placed at the lowest offset that satisfies the member type alignment,
+and which avoids overlap with the previous member.
+For each member index |i| > 1:
+<p algorithm="structure member offset">
+  [=OffsetOfMember=](|S|, |i|) = [=roundUp=]([=AlignOfMember=](|S|, |i| ), [=OffsetOfMember=](|S|, |i|-1) + [=SizeOfMember=](|S|, |i|-1))<br>
+</p>
+
+<div class='example wgsl' heading='Layout of structures using implicit member sizes and alignments'>
+  <xmp highlight='rust'>
+    struct A {                                     //             align(8)  size(24)
+        u: f32,                                    // offset(0)   align(4)  size(4)
+        v: f32,                                    // offset(4)   align(4)  size(4)
+        w: vec2<f32>,                              // offset(8)   align(8)  size(8)
+        x: f32                                     // offset(16)  align(4)  size(4)
+        // -- implicit struct size padding --      // offset(20)            size(4)
+    }
+
+    struct B {                                     //             align(16) size(160)
+        a: vec2<f32>,                              // offset(0)   align(8)  size(8)
+        // -- implicit member alignment padding -- // offset(8)             size(8)
+        b: vec3<f32>,                              // offset(16)  align(16) size(12)
+        c: f32,                                    // offset(28)  align(4)  size(4)
+        d: f32,                                    // offset(32)  align(4)  size(4)
+        // -- implicit member alignment padding -- // offset(36)            size(4)
+        e: A,                                      // offset(40)  align(8)  size(24)
+        f: vec3<f32>,                              // offset(64)  align(16) size(12)
+        // -- implicit member alignment padding -- // offset(76)            size(4)
+        g: array<A, 3>,    // element stride 24       offset(80)  align(8)  size(72)
+        h: i32                                     // offset(152) align(4)  size(4)
+        // -- implicit struct size padding --      // offset(156)           size(4)
+    }
+
+    @group(0) @binding(0)
+    var<storage,read_write> storage_buffer: B;
+  </xmp>
+</div>
+
+<div class='example wgsl' heading='Layout of structures with explicit member sizes and alignments'>
+  <xmp highlight='rust'>
+    struct A {                                     //             align(8)  size(32)
+        u: f32,                                    // offset(0)   align(4)  size(4)
+        v: f32,                                    // offset(4)   align(4)  size(4)
+        w: vec2<f32>,                              // offset(8)   align(8)  size(8)
+        @size(16) x: f32                           // offset(16)  align(4)  size(16)
+    }
+
+    struct B {                                     //             align(16) size(208)
+        a: vec2<f32>,                              // offset(0)   align(8)  size(8)
+        // -- implicit member alignment padding -- // offset(8)             size(8)
+        b: vec3<f32>,                              // offset(16)  align(16) size(12)
+        c: f32,                                    // offset(28)  align(4)  size(4)
+        d: f32,                                    // offset(32)  align(4)  size(4)
+        // -- implicit member alignment padding -- // offset(36)            size(12)
+        @align(16) e: A,                           // offset(48)  align(16) size(32)
+        f: vec3<f32>,                              // offset(80)  align(16) size(12)
+        // -- implicit member alignment padding -- // offset(92)            size(4)
+        g: array<A, 3>,    // element stride 32       offset(96)  align(8)  size(96)
+        h: i32                                     // offset(192) align(4)  size(4)
+        // -- implicit struct size padding --      // offset(196)           size(12)
+    }
+
+    @group(0) @binding(0)
+    var<uniform> uniform_buffer: B;
+  </xmp>
+</div>
+
+### Array Layout Examples ###  {#array-layout-examples}
+
+<div class='example wgsl function-scope' heading='Fixed-size array layout examples'>
+  <xmp highlight='rust'>
+    // Array where:
+    //   - alignment is 4 = AlignOf(f32)
+    //   - element stride is 4 = roundUp(AlignOf(f32),SizeOf(f32)) = roundUp(4,4)
+    //   - size is 32 = stride * number_of_elements = 4 * 8
+    var small_stride: array<f32, 8>;
+
+    // Array where:
+    //   - alignment is 16 = AlignOf(vec3<f32>) = 16
+    //   - element stride is 16 = roundUp(AlignOf(vec3<f32>), SizeOf(vec3<f32>))
+    //                          = roundUp(16,12)
+    //   - size is 128 = stride * number_of_elements = 16 * 8
+    var bigger_stride: array<vec3<f32>, 8>;
+  </xmp>
+</div>
+
+<div class='example wgsl global-scope' heading='Runtime-sized array layout examples'>
+  <xmp highlight='rust'>
+    // Array where:
+    //   - alignment is 4 = AlignOf(f32)
+    //   - element stride is 4 = roundUp(AlignOf(f32),SizeOf(f32)) = 4
+    // If B is the effective buffer binding size for the binding on the
+    // draw or dispatch command, the number of elements is:
+    //   N_runtime = floor(B / element stride) = floor(B / 4)
+    @group(0) @binding(0)
+    var<storage> weights: array<f32>;
+
+    // Array where:
+    //   - alignment is 16 = AlignOf(vec3<f32>) = 16
+    //   - element stride is 16 = roundUp(AlignOf(vec3<f32>), SizeOf(vec3<f32>))
+    //                          = roundUp(16,12)
+    // If B is the effective buffer binding size for the binding on the
+    // draw or dispatch command, the number of elements is:
+    //   N_runtime = floor(B / element stride) = floor(B / 16)
+    var<storage> directions: array<vec3<f32>>;
+  </xmp>
+</div>
+
+## Internal Layout of Values ##  {#internal-value-layout}
+
+This section describes how the internals of a value are placed in the byte locations
+of a buffer, given an assumed placement of the overall value.
+These layouts depend on the value's type,
+and the [=attribute/align=] and [=attribute/size=] attributes on structure members.
+
+The buffer byte offset at which a value is placed [=shader-creation
+error|must=] satisfy the type alignment requirement: If a value of type |T| is
+placed at buffer offset |k|, then |k| = |c| &times; [=AlignOf=](|T|), for some
+non-negative integer |c|.
+
+The data [=behavioral requirement|will=] appear identically regardless of the address space.
+
+When a value |V| of type [=u32=] or [=i32=] is placed at byte offset |k| of a
+host-shared buffer, then:
+   * Byte |k| contains bits 0 through 7 of |V|
+   * Byte |k|+1 contains bits 8 through 15 of |V|
+   * Byte |k|+2 contains bits 16 through 23 of |V|
+   * Byte |k|+3 contains bits 24 through 31 of |V|
+
+Note: Recall that [=i32=] uses twos-complement representation, so the sign bit
+is in bit position 31.
+
+A value |V| of type [=f32=] is represented in [[!IEEE-754|IEEE-754]] binary32 format.
+It has one sign bit, 8 exponent bits, and 23 fraction bits.
+When |V| is placed at byte offset |k| of host-shared buffer, then:
+   * Byte |k| contains bits 0 through 7 of the fraction.
+   * Byte |k|+1 contains bits 8 through 15 of the fraction.
+   * Bits 0 through 6 of byte |k|+2 contain bits 16 through 22 of the fraction.
+   * Bit 7 of byte |k|+2 contains bit 0 of the exponent.
+   * Bits 0 through 6 of byte |k|+3 contain bits 1 through 7 of the exponent.
+   * Bit 7 of byte |k|+3 contains the sign bit.
+
+A value |V| of type [=f16=] is represented in [[!IEEE-754|IEEE-754]] binary16 format.
+It has one sign bit, 5 exponent bits, and 10 fraction bits.
+When |V| is placed at byte offset |k| of host-shared buffer, then:
+   * Byte |k| contains bits 0 through 7 of the fraction.
+   * Bits 0 through 1 of byte |k|+1 contain bits 8 through 9 of the fraction.
+   * Bits 2 through 6 of byte |k|+1 contain bits 0 through 4 of the exponent.
+   * Bit 7 of byte |k|+1 contains the sign bit.
+
+Note: The above rules imply that numeric values in host-shared buffers
+are stored in little-endian format.
+
+When a value |V| of [=atomic type=] `atomic`&lt;|T|&gt; is placed in a host-shared buffer,
+it has the same internal layout as a value of the underlying type |T|.
+
+When a value |V| of [=vector|vector type=] vec|N|&lt;|T|&gt; is placed at
+byte offset |k| of a host-shared buffer, then:
+   * |V|.x is placed at byte offset |k|
+   * |V|.y is placed at byte offset |k| + [=SizeOf=](|T|)
+   * If |N| &ge; 3, then |V|.z is placed at byte offset |k| + 2 &times; [=SizeOf=](|T|)
+   * If |N| &ge; 4, then |V|.w is placed at byte offset |k| + 3 &times; [=SizeOf=](|T|)
+
+When a value |V| of [=matrix|matrix type=] mat|C|x|R|&lt;|T|&gt; is placed at
+byte offset |k| of a host-shared buffer, then:
+  * Column vector |i| of |V| is placed at byte offset |k| + |i| &times; [=AlignOf=](vec|R|&lt;|T|&gt;)
+
+When a value of [=array|array type=] |A| is placed at byte offset |k| of a host-shared memory buffer,
+then:
+   * Element |i| of the array is placed at byte offset |k| + |i| &times; [=StrideOf=](|A|)
+
+When a value of [=structure|structure type=] |S| is placed at byte offset |k| of a host-shared memory buffer,
+then:
+   * The |i|'<sup>th</sup> member of the structure value is placed at byte offset |k| + [=OffsetOfMember=](|S|,|i|).
+    See [[#structure-member-layout]].
+
+### Address Space Layout Constraints ###  {#address-space-layout-constraints}
+
+The [=address spaces/storage=] and [=address spaces/uniform=] address spaces
+have different buffer layout constraints which are described in this section.
+
+Note: All [=address spaces=] except [=address spaces/uniform=] have the same
+constraints as the [=address spaces/storage=] address space.
+
+All structure and array types directly or indirectly referenced by a variable
+[=shader-creation error|must=] obey the constraints of the variable's address space.
+Violations of an address space constraint results in a [=shader-creation error=].
+
+In this section we define <dfn noexport>RequiredAlignOf</dfn>(|S|, |C|) as the
+byte offset [=alignment=] requirement of values of host-shareable type |S| when
+used in address space |C|.
+
+<table class='data'>
+  <caption>
+    Alignment requirements of a host-shareable type for
+    [=address spaces/storage=] and [=address spaces/uniform=] address spaces
+  </caption>
+  <thead>
+    <tr><th>Host-shareable type |S|
+        <th>[=RequiredAlignOf=](|S|, [=address spaces/storage=])
+        <th>[=RequiredAlignOf=](|S|, [=address spaces/uniform=])
+  </thead>
+  <tr><td>[=i32=], [=u32=], [=f32=], or [=f16=]
+      <td>[=AlignOf=](|S|)
+      <td>[=AlignOf=](|S|)
+  <tr><td>[=atomic types|atomic=]&lt;T&gt;
+      <td>[=AlignOf=](|S|)
+      <td>[=AlignOf=](|S|)
+  <tr><td>[=vector|vec=]N&lt;T&gt;
+      <td>[=AlignOf=](|S|)
+      <td>[=AlignOf=](|S|)
+  <tr algorithm="alignment of a matrix with C columns and R rows">
+      <td>[=matrix|mat=]CxR&lt;T&gt;
+      <td>[=AlignOf=](|S|)
+      <td>[=AlignOf=](|S|)
+  <tr algorithm="alignment of an array">
+      <td>[=array=]&lt;T, N&gt;
+      <td>[=AlignOf=](|S|)
+      <td>[=roundUp=](16, [=AlignOf=](|S|))
+  <tr algorithm="alignment of an runtime-sized array">
+      <td>array&lt;T&gt;
+      <td>[=AlignOf=](|S|)
+      <td>[=roundUp=](16, [=AlignOf=](|S|))
+  <tr algorithm="alignment of a structure">
+      <td>[=structure|struct=] |S|
+      <td>[=AlignOf=](|S|)
+      <td>[=roundUp=](16, [=AlignOf=](|S|))<br>
+</table>
+
+Structure members of type |T| [=shader-creation error|must=] have a byte offset
+from the start of the structure that is a multiple of the [=RequiredAlignOf=](|T|, |C|)
+for the address space |C|:
+
+<p algorithm="structure member minimum alignment">
+    [=OffsetOfMember=](|S|, |M|) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
+    Where |k| is a positive integer and |M| is a member of structure |S| with type |T|
+</p>
+
+Arrays of element type |T| [=shader-creation error|must=] have an [=element stride=] that is a
+multiple of the [=RequiredAlignOf=](|T|, |C|) for the address space |C|:
+
+<p algorithm="array element minimum alignment">
+    [=StrideOf=](array<|T|, |N|>) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
+    [=StrideOf=](array<|T|>) = |k| &times; [=RequiredAlignOf=](|T|, C)<br>
+    Where |k| is a positive integer
+</p>
+
+Note: [=RequiredAlignOf=](|T|, |C|) does not impose any additional restrictions
+on the values permitted for an [=attribute/align=] attribute, nor does it affect the rules
+of [=AlignOf=](|T|). Data is laid out with the rules defined in previous
+sections and then the resulting layout is validated against the
+[=RequiredAlignOf=](|T|, |C|) rules.
+
+The [=address spaces/uniform=] address space also requires that:
+* Array elements are aligned to 16 byte boundaries.
+    That is, [=StrideOf=](array&lt;|T|,|N|&gt;) = 16 &times; |k|' for some positive integer |k|'.
+* If a structure member itself has a structure type `S`, then the number of
+    bytes between the start of that member and the start of any following member
+    [=shader-creation error|must=] be at least [=roundUp=](16, [=SizeOf=](S)).
+
+Note: The following examples show how to use [=attribute/align=] and [=attribute/size=] attributes
+on structure members to satisfy layout requirements for uniform buffers.
+In particular, these techniques can be used mechanically transform a GLSL buffer with std140 layout
+to WGSL.
+
+<div class='example wgsl global-scope' heading='Satisfying offset requirements for uniform address space'>
+  <xmp highlight='rust'>
+    struct S {
+      x: f32
+    }
+    struct Invalid {
+      a: S,
+      b: f32 // invalid: offset between a and b is 4 bytes, but must be at least 16
+    }
+    @group(0) @binding(0) var<uniform> invalid: Invalid;
+
+    struct Valid {
+      a: S,
+      @align(16) b: f32 // valid: offset between a and b is 16 bytes
+    }
+    @group(0) @binding(1) var<uniform> valid: Valid;
+  </xmp>
+</div>
+
+<div class='example wgsl global-scope' heading='Satisfying stride requirements for uniform address space'>
+  <xmp highlight='rust'>
+    struct small_stride {
+      a: array<f32,8> // stride 4
+    }
+    // Invalid, stride must be a multiple of 16
+    @group(0) @binding(0) var<uniform> invalid: small_stride;
+
+    struct wrapped_f32 {
+      @size(16) elem: f32
+    }
+    struct big_stride {
+      a: array<wrapped_f32,8> // stride 16
+    }
+    @group(0) @binding(1) var<uniform> valid: big_stride;     // Valid
+  </xmp>
+</div>
+
+## Memory Model ## {#memory-model}
+
+In general, WGSL follows the [[!VulkanMemoryModel|Vulkan Memory Model]].
+The remainder of this section describes how WGSL programs map to the
+Vulkan Memory Model.
+
+Note: The Vulkan Memory Model is a textual version of a [formal Alloy
+model](https://github.com/KhronosGroup/Vulkan-MemoryModel/blob/master/alloy/spirv.als).
+
+### Memory Operation ### {#memory-operation}
+
+In WGSL, a [=read access=] is equivalent to a memory read operation in
+the Vulkan Memory Model.
+In WGSL, a [=write access=] is equivalent to a memory write operation in
+the Vulkan Memory Model.
+
+A [=read access=] occurs when an invocation executes one of the following:
+* An evaluation of the [=Load Rule=]
+* Any [[#texture-builtin-functions|texture builtin function]] except:
+    * [[#texturedimensions|textureDimensions]]
+    * [[#texturestore|textureStore]]
+    * [[#texturenumlayers|textureNumLayers]]
+    * [[#texturenumlevels|textureNumLevels]]
+    * [[#texturenumsamples|textureNumSamples]]
+* Any atomic built-in function except [[#atomic-store|atomicStore]]
+* A [[#workgroupUniformLoad-builtin|workgroupUniformLoad]] built-in function
+* A [=compound assignment=] statement (for the [=left-hand side=] expression)
+
+A [=write access=] occurs when an invocation executes one of the following:
+* An [=statement/assignment=] statement ([=simple assignment|simple=] or
+    [=compound assignment|compound=] for the [=left-hand side=] expression)
+* A [[#texturestore|textureStore]] built-in function
+* Any atomic built-in function except [[#atomic-load|atomicLoad]]
+    * [[#atomic-rmw|atomicCompareExchangeWeak]] only performs a write if the
+        `exchanged` member of the returned result is `true`
+
+[[#atomic-rmw|Atomic read-modify-write]] built-in functions perform a single
+memory operation that is both a [=read access=] and a [=write access=].
+
+Read and write accesses do not occur under any other circumstances.
+Read and write accesses are collectively known as [=memory model memory
+operation|memory operations=] in the Vulkan Memory Model.
+
+A memory operation accesses exactly the set of [=memory location|locations=]
+associated with the particular [=memory view=] used in the operation.  For
+example, a memory read that accesses a [=u32=] from a struct containing
+multiple members, only reads the memory locations associated with that u32
+member.
+
+Note: A write access to a component of a vector **may** access all memory locations
+associated with that vector.
+
+<div class='example wgsl memory locations accessed' heading="Accessing memory locations">
+  <xmp highlight='rust'>
+    struct S {
+      a : f32,
+      b : u32,
+      c : f32
+    }
+
+    @group(0) @binding(0)
+    var<storage> v : S;
+
+    fn foo() {
+      let x = v.b; // Does not access memory locations for v.a or v.c.
+    }
+  </xmp>
+</div>
+
+### Memory Model Reference ### {#memory-model-reference}
+
+Each module-scope [=resource=] variable forms a [=memory model reference=] for
+the unique [=attribute/group=] and [=attribute/binding=] pair.
+Each other variable (i.e. variables in the [=address spaces/function=],
+[=address spaces/private=], and [=address spaces/workgroup=] address spaces)
+forms a unique [=memory model reference=] for the lifetime of the variable.
+
+### Scoped Operations ### {#scoped-operations}
+
+When an invocation performs a scoped operation, it will affect one or two sets
+of invocations.
+These sets are the memory scope and the execution scope.  The <dfn
+noexport>memory scope</dfn> specifies the set of invocations that will see any
+updates to memory contents affected by the operation.
+For [[#sync-builtin-functions|synchronization built-in functions]], this also
+means that all affected memory operations program ordered before the function
+are visible to affected operations program ordered after the function.
+The <dfn noexport>execution scope</dfn> specifies the set of invocations which
+may participate in an operation (see [[#collective-operations]]).
+
+[[#atomic-builtin-functions|Atomic built-in functions]] map to [=memory model atomic
+operation|atomic operations=] whose memory [=memory model scope|scope=] is:
+* `Workgroup` if the atomic pointer is in the [=address spaces/workgroup=]
+    address space
+* `QueueFamily` if the atomic pointer is in the [=address spaces/storage=]
+    address space
+
+[[#sync-builtin-functions|Synchronization built-in functions]] map to control
+barriers whose execution and memory [=memory model scope|scopes=] are
+`Workgroup`.
+
+Implicit and explicit [[#derivatives|derivatives]] have an implicit [=quad=]
+execution scope.
+
+Note: If the Vulkan memory model is not enabled in generated shaders, `Device`
+scope should be used instead of `QueueFamily`.
+
+## Memory Semantics ## {#memory-semantics}
+
+All [[#atomic-builtin-functions|Atomic built-in functions]] use `Relaxed`
+[=memory model memory semantics|memory semantics=] and, thus, no storage class
+semantics.
+
+Note: Address space in WGSL is equivalent to storage class in SPIR-V.
+
+[[#sync-builtin-functions|workgroupBarrier]] uses `AcquireRelease` [=memory
+model memory semantics|memory semantics=] and `WorkgroupMemory` semantics.
+[[#sync-builtin-functions|storageBarrier]] uses `AcquireRelease` [=memory model
+memory semantics|memory semantics=] and `UniformMemory` semantics.
+
+Note: A combined `workgroupBarrier` and `storageBarrier` uses `AcquireRelease`
+ordering semantics and both `WorkgroupMemory` and `UniformMemory` memory
+semantics.
+
+Note: No atomic or synchronization built-in functions use `MakeAvailable` or
+`MakeVisible` semantics.
+
+### Private vs Non-private ### {#private-vs-non-private}
+
+All non-atomic [=read accesses=] in the [=address spaces/storage=] or
+[=address spaces/workgroup=] address spaces are considered
+[=memory model non-private|non-private=] and correspond to read operations with
+`NonPrivatePointer | MakePointerVisible` memory operands with the `Workgroup`
+scope.
+
+All non-atomic [=write accesses=] in the [=address spaces/storage=] or
+[=address spaces/workgroup=] address spaces are considered
+[=memory model non-private|non-private=] and correspond to write operations
+with `NonPrivatePointer | MakePointerAvailable` memory operands with the
+`Workgroup` scope.
+
 # Execution # {#execution}
 
 [[#technical-overview]] describes how a shader is invoked and partitioned into [=invocations=].
@@ -11069,147 +11199,6 @@ the original type is one of [=i32=] or [=u32=] and the destination type is [=f32
 
 Note: The original value is always within range of the destination type when
 the source type is a floating point type with fewer exponent and mantissa bits than the target floating point type.
-
-# Memory Model # {#memory-model}
-
-In general, WGSL follows the [[!VulkanMemoryModel|Vulkan Memory Model]].
-The remainder of this section describes how WGSL programs map to the
-Vulkan Memory Model.
-
-Note: The Vulkan Memory Model is a textual version of a [formal Alloy
-model](https://github.com/KhronosGroup/Vulkan-MemoryModel/blob/master/alloy/spirv.als).
-
-## Memory Operation ## {#memory-operation}
-
-In WGSL, a [=read access=] is equivalent to a memory read operation in
-the Vulkan Memory Model.
-In WGSL, a [=write access=] is equivalent to a memory write operation in
-the Vulkan Memory Model.
-
-A [=read access=] occurs when an invocation executes one of the following:
-* An evaluation of the [=Load Rule=]
-* Any [[#texture-builtin-functions|texture builtin function]] except:
-    * [[#texturedimensions|textureDimensions]]
-    * [[#texturestore|textureStore]]
-    * [[#texturenumlayers|textureNumLayers]]
-    * [[#texturenumlevels|textureNumLevels]]
-    * [[#texturenumsamples|textureNumSamples]]
-* Any atomic built-in function except [[#atomic-store|atomicStore]]
-* A [[#workgroupUniformLoad-builtin|workgroupUniformLoad]] built-in function
-* A [=compound assignment=] statement (for the [=left-hand side=] expression)
-
-A [=write access=] occurs when an invocation executes one of the following:
-* An [=statement/assignment=] statement ([=simple assignment|simple=] or
-    [=compound assignment|compound=] for the [=left-hand side=] expression)
-* A [[#texturestore|textureStore]] built-in function
-* Any atomic built-in function except [[#atomic-load|atomicLoad]]
-    * [[#atomic-rmw|atomicCompareExchangeWeak]] only performs a write if the
-        `exchanged` member of the returned result is `true`
-
-[[#atomic-rmw|Atomic read-modify-write]] built-in functions perform a single
-memory operation that is both a [=read access=] and a [=write access=].
-
-Read and write accesses do not occur under any other circumstances.
-Read and write accesses are collectively known as [=memory model memory
-operation|memory operations=] in the Vulkan Memory Model.
-
-A memory operation accesses exactly the set of [=memory location|locations=]
-associated with the particular [=memory view=] used in the operation.  For
-example, a memory read that accesses a [=u32=] from a struct containing
-multiple members, only reads the memory locations associated with that u32
-member.
-
-Note: A write access to a component of a vector **may** access all memory locations
-associated with that vector.
-
-<div class='example wgsl memory locations accessed' heading="Accessing memory locations">
-  <xmp highlight='rust'>
-    struct S {
-      a : f32,
-      b : u32,
-      c : f32
-    }
-
-    @group(0) @binding(0)
-    var<storage> v : S;
-
-    fn foo() {
-      let x = v.b; // Does not access memory locations for v.a or v.c.
-    }
-  </xmp>
-</div>
-
-## Memory Model Reference ## {#memory-model-reference}
-
-Each module-scope [=resource=] variable forms a [=memory model reference=] for
-the unique [=attribute/group=] and [=attribute/binding=] pair.
-Each other variable (i.e. variables in the [=address spaces/function=],
-[=address spaces/private=], and [=address spaces/workgroup=] address spaces)
-forms a unique [=memory model reference=] for the lifetime of the variable.
-
-## Scoped Operations ## {#scoped-operations}
-
-When an invocation performs a scoped operation, it will affect one or two sets
-of invocations.
-These sets are the memory scope and the execution scope.  The <dfn
-noexport>memory scope</dfn> specifies the set of invocations that will see any
-updates to memory contents affected by the operation.
-For [[#sync-builtin-functions|synchronization built-in functions]], this also
-means that all affected memory operations program ordered before the function
-are visible to affected operations program ordered after the function.
-The <dfn noexport>execution scope</dfn> specifies the set of invocations which
-may participate in an operation (see [[#collective-operations]]).
-
-[[#atomic-builtin-functions|Atomic built-in functions]] map to [=memory model atomic
-operation|atomic operations=] whose memory [=memory model scope|scope=] is:
-* `Workgroup` if the atomic pointer is in the [=address spaces/workgroup=]
-    address space
-* `QueueFamily` if the atomic pointer is in the [=address spaces/storage=]
-    address space
-
-[[#sync-builtin-functions|Synchronization built-in functions]] map to control
-barriers whose execution and memory [=memory model scope|scopes=] are
-`Workgroup`.
-
-Implicit and explicit [[#derivatives|derivatives]] have an implicit [=quad=]
-execution scope.
-
-Note: If the Vulkan memory model is not enabled in generated shaders, `Device`
-scope should be used instead of `QueueFamily`.
-
-## Memory Semantics ## {#memory-semantics}
-
-All [[#atomic-builtin-functions|Atomic built-in functions]] use `Relaxed`
-[=memory model memory semantics|memory semantics=] and, thus, no storage class
-semantics.
-
-Note: Address space in WGSL is equivalent to storage class in SPIR-V.
-
-[[#sync-builtin-functions|workgroupBarrier]] uses `AcquireRelease` [=memory
-model memory semantics|memory semantics=] and `WorkgroupMemory` semantics.
-[[#sync-builtin-functions|storageBarrier]] uses `AcquireRelease` [=memory model
-memory semantics|memory semantics=] and `UniformMemory` semantics.
-
-Note: A combined `workgroupBarrier` and `storageBarrier` uses `AcquireRelease`
-ordering semantics and both `WorkgroupMemory` and `UniformMemory` memory
-semantics.
-
-Note: No atomic or synchronization built-in functions use `MakeAvailable` or
-`MakeVisible` semantics.
-
-## Private vs Non-private ## {#private-vs-non-private}
-
-All non-atomic [=read accesses=] in the [=address spaces/storage=] or
-[=address spaces/workgroup=] address spaces are considered
-[=memory model non-private|non-private=] and correspond to read operations with
-`NonPrivatePointer | MakePointerVisible` memory operands with the `Workgroup`
-scope.
-
-All non-atomic [=write accesses=] in the [=address spaces/storage=] or
-[=address spaces/workgroup=] address spaces are considered
-[=memory model non-private|non-private=] and correspond to write operations
-with `NonPrivatePointer | MakePointerAvailable` memory operands with the
-`Workgroup` scope.
 
 # Keyword and Token Summary # {#grammar}
 
