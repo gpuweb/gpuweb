@@ -106,6 +106,7 @@
             seq(token('@'), token('interpolate'), token('('), $.interpolation_type_name, token(','), $.interpolation_sample_name, $.attrib_end),
             seq(token('@'), token('invariant')),
             seq(token('@'), token('location'), token('('), $.expression, $.attrib_end),
+            seq(token('@'), token('must_use')),
             seq(token('@'), token('size'), token('('), $.expression, $.attrib_end),
             seq(token('@'), token('workgroup_size'), token('('), $.expression, $.attrib_end),
             seq(token('@'), token('workgroup_size'), token('('), $.expression, token(','), $.expression, $.attrib_end),
