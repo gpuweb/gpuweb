@@ -8,7 +8,7 @@ with diagrams generated using [Mermaid](https://mermaid-js.github.io/mermaid/).
 To install the necessary tools, run:
 
 ```bash
-./tools/install-dependencies.sh bikeshed diagrams
+./tools/install-dependencies.sh bikeshed diagrams wgsl
 ```
 
 Alternatively, invoke `pip3`/`npx` directly, using the commands in [that script](../tools/install-dependencies.sh).
