@@ -43,50 +43,28 @@ class Case:
     """
     A test case
     """
-    def __init__(self,text,expect_pass=True):
+    def __init__(self,text,expect_pass=True,name=""):
         self.text = text
         self.expect_pass = (expect_pass == True)
+        self.name = name
 
     def __str__(self):
         expectation = "expect_pass" if self.expect_pass else "expect_fail"
-        return "Case:{}:\n---\n{}\n---".format(expectation,self.text)
+        return "Case:{}:{}\n---\n{}\n---".format(expectation,self.name,self.text)
 
 class XFail(Case):
-    def __init__(self,text):
-        super().__init__(text,expect_pass=False)
+    def __init__(self,text,name=''):
+        super().__init__(text,expect_pass=False,name=name)
 
-cases = [
-    XFail("this fails"),
-    XFail("#version 450"),
-    Case("const pi = 3.14;"),
-    Case("const b = bitcast<i32>(1u);"),
-    Case("var s: sampler;"),
-    Case("@group(0) @binding(0) var s: sampler;"),
-    Case("var<workgroup> w: i32;"),
-    Case("fn foo() {var f: i32;}"),
-    Case("var<workgroup> w: array<vec3<f32>,1>;"),
-    Case("var<workgroup> w: array<vec3<f32>,(vec<i32>(1).x)>;"), # vec<i32> treated like generic template invocation. Should fail in semantic checks.
-    Case( "var<workgroup> w: array<vec3<f32>,(vec3<i32>(1).x)>;"),
-    XFail("const c = array<a>b>;"),
-    Case("var c : array<f32,(a>b)>;"),
-    Case("const a = array<i32,select(1,2,(a>b))>();"),
-    Case("const b = array<i32,select(1,2,a>b)>();"),
-    XFail("const d : array<select(1,2,a>b)>();"),
-    Case("fn main(){i=1;}"),
-    Case("fn main(){var i:i32; i=1;}"),
-    Case("var w: array<f32,1>;"),
-    Case("var w: array<vec3<f32>,1>;"),
-    Case("var w: vec3<f32>;"),
-    Case("alias t = vec3<f32>;"),
-    Case("alias t = vec3<float>;"),
-    Case("alias t = array<t,(1<2)>;"),
-    Case("var c : array<t,(1<2)>;"),
-    Case("var c : array<(a>b)>;"), # Parses ok, but should fail in semantic check: (a>b) is not a type.
-    Case("fn f(p: ptr<function,i32>) {}"),
-    Case("fn m(){x++;}"),
-    Case("fn m(){x--;}"),
-    Case("fn m(){x();}"),
-]
+def GetCases():
+    import wgsl_unit_tests_simple
+    import wgsl_unit_tests_equals
+    import wgsl_unit_tests_template
+    cases = []
+    cases.extend(wgsl_unit_tests_simple.cases)
+    cases.extend(wgsl_unit_tests_equals.cases)
+    cases.extend(wgsl_unit_tests_template.cases)
+    return cases
 
 class Options:
     def __init__(self,shared_lib):
@@ -109,7 +87,7 @@ def run_tests(options):
 
     num_cases = 0
     num_errors = 0
-    for case in cases:
+    for case in GetCases():
         num_cases += 1
         print(".",flush=True,end='')
         if options.verbose:
@@ -117,9 +95,7 @@ def run_tests(options):
         tree = parser.parse(bytes(case.text,"utf8"))
         if case.expect_pass == tree.root_node.has_error:
             num_errors += 1
-            print("**Error**")
-            print(case)
-            print(tree.root_node.sexp())
+            print("FAIL:",case, tree.root_node.sexp())
             print("---Case end\n",flush=True)
 
     print("{} pass {} fail ".format(num_cases-num_errors,num_errors),flush=True)
