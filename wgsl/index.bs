@@ -1057,8 +1057,24 @@ The syntactic ambiguity is resolved in favour of template lists:
     the terminating `'>'` (U+003E) of a template list is mapped to a [=syntax_sym/_template_args_end=] token.
 
 
-The <dfn noexport>template list discovery</dfn> algorithm is as follows.
+The [=template list discovery=] algorithm is given below.
+It uses the following assumptions and properties:
+1. A [=template parameter=] is an [=expression=], and therefore does not start with either a `'<'` (U+003C) or a `'='` (U+003D) code point.
+2. An expression does not contain code points `';'` (U+003B), `'{'` (U+007B), or `':'` (U+003A).
+3. An expression does not contain an [=statement/assignment=].
+4. The only time a `'='` (U+003D) code point appears is as part of a comparison operation, i.e.
+    in one of
+    <a for=syntax_sym lt=less_than_equal>`'<='`</a>,
+    <a for=syntax_sym lt=greater_than_equal>`'>='`</a>,
+    <a for=syntax_sym lt=equal_equal>`'=='`</a>, or
+    <a for=syntax_sym lt=not_equal>`'!='`</a>.
+    Otherwise, a `'='` (U+003D) code point appears as part of an assignment.
+5. Template list delimiters respect nested expressions formed by parentheses '(...)', and array indexing '[...]'.
+    The start and end of a template list must appear at the same nesting level.
+
 <blockquote algorithm="template list discovery">
+**Algorithm:** <dfn noexport>Template list discovery</dfn>
+
 **Input:** The program source text.
 
 **Record types:**
@@ -1067,7 +1083,7 @@ Let |UnclosedCandidate| be a record type containing:
     * |position|, a location in the source text
     * |depth|, an integer, the expression nesting depth at |position|
 
-Let |TemplateList| be record type containing:
+Let |TemplateList| be a record type containing:
     * |start_position|, the source location of the `'<'` (U+003C) code point that starts this template list.
     * |end_position|, the source location of the `'>'` (U+003E) code point that ends this template list.
 
@@ -1090,15 +1106,32 @@ Let |TemplateList| be record type containing:
             * Note: This code point is a candidate for being the start of a template list.
                 Save enough state so it can be matched against a terminating `'>'` (U+003E) appearing later in the input.
             * Push |UnclosedCandidate|(|position|=|CurrentPosition|,|depth|=|NestingDepth|) onto the |Pending| stack.
-            * Advance |CurrentPosition| to the next code point, and start the next iteration of the loop.
+            * Advance |CurrentPosition| to the next code point.
+            * If `'<'` (U+003C) appears at |CurrentPosition|, then:
+                * Note: From assumption 1, no template parameter starts with `'<'` (U+003C), so the previous code point cannot be the start of a template list.
+                    Therefore the current and previous code point must be <a for=syntax_sym lt=shift_left>`'<<'`</a> operator.
+                * Pop the top entry from the |Pending| stack.
+                * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+            * If `'='` (U+003D) appears at |CurrentPosition|, then:
+                * Note: From assumption 1, no template parameter starts with `'='` (U+003C), so the previous code point cannot be the start of a template list.
+                    Assume the current and previous code point form a <a for=syntax_sym lt=less_than_equal>`'<='`</a> comparison operator.
+                    Skip over the `'='` (U+003D) code point so a later step does not mistake it for an assignment.
+                * Pop the top entry from the |Pending| stack.
+                * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
     * If `'>'` (U+003E) appears at |CurrentPosition| then:
         * Note: This code point is a candidate for being the end of a template list.
-        * If |Pending| is not empty, then let |T| be its top entry, and:
-            * If |T|.|depth| equals |NestingDepth| then:
-                 * Note: This code point ends the current template list whose start is recorded in |T|.
-                 * Add |TemplateList|(|start_position|=|T|.|position|, |end_position|=|CurrentPosition|) to |DiscoveredTemplateLists|.
-                 * Pop |T| off the |Pending| stack.
-        * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+        * If |Pending| is not empty, then let |T| be its top entry, and if |T|.|depth| equals |NestingDepth| then:
+            * Note: This code point ends the current template list whose start is recorded in |T|.
+            * Add |TemplateList|(|start_position|=|T|.|position|, |end_position|=|CurrentPosition|) to |DiscoveredTemplateLists|.
+            * Pop |T| off the |Pending| stack.
+            * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+        * Otherwise, this code point does not end a template list:
+            * Advance |CurrentPosition| past this code point.
+            * If `'='` (U+003D) appears at |CurrentPosition| then:
+                * Note: Assume the current and previous code points form a <a for=syntax_sym lt=greater_than_equal>`'>='`</a> comparison operator.
+                    Skip over the `'='` (U+003D) code point so a later step does not mistake it for an assignment.
+                * Advance |CurrentPosition| past this code point.
+            * Start the next iteration of the loop.
     * If `'('` (U+0028) or `'['` (U+005B) appears at |CurrentPosition| then:
         * Note: Enter a nested expression.
         * Add 1 to |NestingDepth|.
@@ -1108,8 +1141,26 @@ Let |TemplateList| be record type containing:
         * Pop entries from the |Pending| stack until it is empty, or until the its top entry has |depth| &lt; |NestingDepth|.
         * Set |NestingDepth| to 0 or |NestingDepth| &minus; 1, whichever is larger.
         * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
-    * If `';'` (U+003B) or `'{'` (U+007B) or `'='` (U+003D) or `':'` (U+003A) appears at |CurrentPosition| then:
-        * Note: These cannot contain an expression, and therefore cannot appear in a template list.
+    * If `'!'` (U+0021) appears at |CurrentPosition| then:
+        * Advance |CurrentPosition| past this code point.
+        * If `'='` (U+003D) appears at |CurrentPosition| then:
+            * Note: Assume the current and previous code points form a <a for=syntax_sym lt=not_equal>`'!='`</a> comparison operator.
+                Skip over the `'='` (U+003D) code point so a later step does not mistake it for an assignment.
+            * Advance |CurrentPosition| past this code point.
+        * Start the next iteration of the loop.
+    * If `'='` (U+003D) appears at |CurrentPosition| then:
+        * Advance |CurrentPosition| past this code point.
+        * If `'='` (U+003D) appears at |CurrentPosition| then:
+            * Note: Assume the current and previous code points form a <a for=syntax_sym lt=equal_equal>`'=='`</a> comparison operator.
+                Skip over the `'='` (U+003D) code point so a later step does not mistake it for an assignment.
+            * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+        * Note: Assume this code point is part of an assignment, which cannot appear as part of an expression, and therefore cannot appear in a template list.
+             Clear pending unclosed candidates.
+        * Set |NestingDepth| to 0.
+        * Remove all entries from the |Pending| stack.
+        * Advance |CurrentPosition| past this code point, and start the next iteration of the loop.
+    * If `';'` (U+003B) or `'{'` (U+007B) or `':'` (U+003A) appears at |CurrentPosition| then:
+        * Note: These cannot appear in the middle of an expression, and therefore cannot appear in a template list.
              Clear pending unclosed candidates.
         * Set |NestingDepth| to 0.
         * Remove all entries from the |Pending| stack.
@@ -1158,6 +1209,25 @@ For example, in `array<i32,select(2,3,a>b)>`, the template list has three parame
 The `'>'` in `a>b` does not terminate the template list because it is enclosed in a parenthesized part of the expression calling the `select` function.
 
 Note: Both ends of a template list must appear within the same array indexing phrase. For example `a[b<d]>()` does not contain a valid template list.
+
+Note: In the phrase `A<B<<C>`, the phrase `B<<C` is parsed as `B` followed by the left-shift operator <a for=syntax_sym lt=shift_left>`'<<'`</a> followed by `C`.
+The template discovery algorithm starts examining `B` then '`<`' (U+003C) but then sees that the next `'<'` (U+003C) code point cannot start a template argument, and so
+the `'<'` immediately after the `B` is not the start of a template list.
+The initial `'<'` and final `'>'` are the only template list delimiters, and it has template parameter `B<<C`.
+
+Note: The phrase `A<B<=C>` is analyzed similarly to the previous note, so the phrase `B<=C` is parsed as `B` followed by the less-than-or-equal operator <a for=syntax_sym lt=less_than_equal>`'<='`</a> followed by `C`.
+The template discovery algorithm starts examining `B` then `'<'` (U+003C) but then sees that the next `'='` (U+003D) code point cannot start a template argument, and so
+the `'<'` immediately after the `B` is not the start of a template list.
+The initial `'<'` and final `'>'` are the only template list delimiters, and it has template parameter `B<=C`.
+
+Note: When examining the phrase `A<(B>=C)>`, there is one template list, starting at the first `'<'` (U+003C) code point and ending at the last `'>'` (U+003E) code point, and having template argument `B>=C`.
+After examining the first `'>'` (U+003C) code point (after `B`), the `'='` (U+003D) code point needs to be recognized specially so it isn't assumed to be part of an assignment.
+
+Note: When examining the phrase `A<(B!=C)>`, there is one template list, starting at the first `'<`' (U+003C) code point and ending at the last `'>'` (U+003E) code point, and having template argument `B!=C`.
+After examining the `'!'` (U+0021) code point (after `'B'`), the `'='` (U+003D) code point needs to be recognized specially so it isn't assumed to be part of an assignment.
+
+Note: When examining the phrase `A<(B==C)>`, there is one template list, starting at the first `'<'` (U+003C) code point and ending at the last `'>'` (U+003E) code point, and having template argument `B==C`.
+After examining the first `'='` (U+003D) code point (after `'B'`), the second `'='` (U+003D) code point needs to be recognized specially so neither are assumed to be part of an assignment.
 
 After [=template list discovery=] completes,
 [[#parsing|parsing]] [=behavioral requirement|will=] attempt to match each template list to the [=syntax/template_list=] grammar rule.
