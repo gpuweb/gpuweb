@@ -727,23 +727,23 @@ struct Scanner {
         lexer.skip_whitespace(); // TODO: Skip comments
         if (lexer.match('<')) {
           LOG("classify_template_args() '<' after ident");
-          lt_stack.push_back(StackEntry{state.lt_is_tmpl.count(), expr_depth});
-          // Default to less-than (or less-than-equal, or left-shift, or left-shift-equal)
+          // Record this '<' in state.lt_is_tmpl, initially treating this as the operator
+          // in an expression (less-than, less-than, equal, left-shift, or left-shift-equal).
+          // If this '<' is recorded in lt_stack, and a corresponding '>' is found, then this
+          // will be transformed into a template-start token.
           state.lt_is_tmpl.push_back(false);
 
           if (lexer.match('=')) {
-            // Allow "ident<=".
             // We entered the loop at "ident<=". No template arg can start with '=',
             // so consider "<=" to be a single token.
             // Litmus test: "alias z = a<b<=c>;"
-            lt_stack.pop_back();
           } else if (lexer.match('<')) {
-            // Allow "ident<<".
             // We entered the loop at "ident<<". No template arg can start with '<',
             // so consider "<<" to be a single token.
             // Litmus test: "alias z = a<b<<c>;"
             state.lt_is_tmpl.push_back(false);
-            lt_stack.pop_back();
+          } else {
+            lt_stack.push_back(StackEntry{state.lt_is_tmpl.count()-1, expr_depth});
           }
         }
         continue;
@@ -785,14 +785,14 @@ struct Scanner {
 
       CodePoint was = lexer.peek();
       if (lexer.match_anyof({'(', '['})) {
-        LOG("   %c expr_depth++", was);
+        LOG("   %c expr_depth++", static_cast<int>(was));
         // Entering a nested expression
         expr_depth++;
         continue;
       }
 
       if (lexer.match_anyof({')', ']'})) {
-        LOG("   %c expr_depth--", was);
+        LOG("   %c expr_depth--", static_cast<int>(was));
         // Exiting a nested expression
         // Pop the stack until we return to the current expression
         // expr_depth
