@@ -180,6 +180,10 @@ class scanner_rule(Scanner):
             rule_name = line[2:].split("<dfn for=syntax>")[1]
             rule_name = rule_name.split("</dfn>")[0].strip()
             return (rule_name, None, 0)
+        elif line[2:].startswith("@right_associative"):
+            return ("@right_associative", None, 0)
+        elif line[2:].startswith("@left_associative"):
+            return ("@left_associative", None, 0)
         elif line[4:].startswith("| "):
             # When the line is
             #    | [=syntax/variable_decl=] [=syntax/equal=] [=syntax/expression=]
@@ -359,12 +363,24 @@ def grammar_from_rule_item(rule_item):
 
 
 def grammar_from_rule(key, value):
+    associative_start = ""
+    associative_end = ""
+    if "@right_associative" in value:
+        associative_start = "prec.right("
+        associative_end = ")"
+        value.remove("@right_associative")
+    if "@left_associative" in value:
+        associative_start = "prec.left("
+        associative_end = ")"
+        value.remove("@left_associative")
     result = f"        {key}: $ =>"
     if len(value) == 1:
-        result += f" {grammar_from_rule_item(value[0])}"
+        result += f" {associative_start}{grammar_from_rule_item(value[0])}{associative_end}"
     else:
-        result += " choice(\n            {}\n        )".format(
-            ',\n            '.join([grammar_from_rule_item(i) for i in value]))
+        result += " {}choice(\n            {}\n        ){}".format(
+            associative_start,
+            ',\n            '.join([grammar_from_rule_item(i) for i in value]),
+            associative_end)
     return result
 
 
@@ -425,6 +441,7 @@ def read_spec(options):
     # The rule name, if the most recently parsed thing was a rule.
     last_key = None
     last_value = None  # The most recently parsed thing
+    last_attribute = None # The most recently seen attribute
     while scanner_i < len(scanner_lines):
         # Try both the rule and the example scanners.
         for j in scanner_spans:
@@ -485,22 +502,31 @@ def read_spec(options):
                         )][last_key][-1] += scanner_parse[1]
                 else:
                     if scanner_parse[0] != None:
-                        # It's a rule, with name in the 0'th position.
-                        last_key = scanner_parse[0]
-                        if scanner_parse[1] != None:
-                            last_value = scanner_parse[1]
-                            if last_key not in result[scanner_span.name()]:
-                                # Create a new entry for this rule
-                                result[scanner_span.name()][last_key] = [
-                                    last_value]
-                            else:
-                                # Append to the existing entry.
-                                result[scanner_span.name()][last_key].append(
-                                    last_value)
+                        if scanner_parse[0] == "@right_associative":
+                            last_attribute = "@right_associative"
+                        elif scanner_parse[0] == "@left_associative":
+                            last_attribute = "@left_associative"
                         else:
-                            # Reset
-                            last_value = None
-                            result[scanner_span.name()][last_key] = []
+                            # It's a rule, with name in the 0'th position.
+                            last_key = scanner_parse[0]
+                            if scanner_parse[1] != None:
+                                last_value = scanner_parse[1]
+                                if last_key not in result[scanner_span.name()]:
+                                    # Create a new entry for this rule
+                                    result[scanner_span.name()][last_key] = [
+                                        last_value]
+                                else:
+                                    # Append to the existing entry.
+                                    result[scanner_span.name()][last_key].append(
+                                        last_value)
+                            else:
+                                # Reset
+                                last_value = None
+                                result[scanner_span.name()][last_key] = []
+                                if last_attribute != None:
+                                    result[scanner_span.name()][last_key].append(
+                                            last_attribute)
+                                    last_attribute = None
                     else:
                         # It's example text
                         if scanner_parse[1] != None:

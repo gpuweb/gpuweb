@@ -1834,6 +1834,19 @@ class Grammar:
 
         # First decode it without any interpretation.
         pass0 = json.loads(json_text)
+        
+        def remove_prec(item):
+            if isinstance(item, dict):
+                if "type" in item:
+                    if item["type"] in ["PREC_RIGHT", "PREC_LEFT"]:
+                        item = item["content"]
+                return skip_prec(item)
+            return item
+
+        def skip_prec(dct):
+            return {i: remove_prec(j) for (i, j) in dct.items()}
+
+        pass0 = skip_prec(pass0)
 
         # Get the external tokens, these are not necessarily represented in the rules.
         external_tokens = json_externals(pass0)
