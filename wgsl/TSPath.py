@@ -117,13 +117,13 @@ class DescendantNode(ExprNode):
     def match(self,ts_node):
         result = []
         # Stack of treesitter nodes to explore
-        stack = [ts_node]
+        stack = list(reversed(ts_node.children))
         while len(stack) > 0:
             top = stack.pop()
             top_result = self.expr.match(top)
             if len(top_result) == 0:
                 # Explore children instead
-                stack.extend(top.children)
+                stack.extend(list(reversed(top.children)))
             else:
                 result.extend(top_result)
         return result
@@ -155,7 +155,8 @@ class NamedNode(ExprNode):
 
     def match(self,ts_node):
         if ts_node.type == self.name:
-            return self.expr.match(ts_node)
+            result = self.expr.match(ts_node)
+            return result
         else:
             return []
 
