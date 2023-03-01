@@ -1,7 +1,7 @@
 .PHONY: all clean nfkc validate lalr validate-examples
 
 all: index.html nfkc validate test diagrams
-validate: lalr unit_tests validate-examples
+validate: lalr tspath_tests unit_tests validate-examples
 
 clean:
 	rm -f index.html index.pre.html index.bs.pre grammar/grammar.js grammar/build wgsl.lalr.txt
@@ -34,6 +34,10 @@ $(TREESITTER_GRAMMAR_INPUT) $(TREESITTER_PARSER): index.bs scanner.cc extract-gr
 # Use Treesitter to parse many code examples in the spec.
 validate-examples: $(TREESITTER_PARSER)
 	python3 ./extract-grammar.py --flow e
+
+.PHONY: tspath_tests
+tspath_tests: TSPath.py
+	python3 TSPath.py
 
 .PHONY: unit_tests
 # Use Treesitter to parse code samples

@@ -36,6 +36,7 @@ import argparse
 import os
 import sys
 from tree_sitter import Language, Parser
+from TSPath import TSPath
 
 SCRIPT='wgsl_unit_tests.py'
 
@@ -52,16 +53,39 @@ class Case:
         expectation = "expect_pass" if self.expect_pass else "expect_fail"
         return "Case:{}:{}\n---\n{}\n---".format(expectation,self.name,self.text)
 
+    def run(self,parser):
+        tree = parser.parse(bytes(self.text,"utf8"))
+        if self.expect_pass == tree.root_node.has_error:
+            return (False,"parsing failed: {}".format(tree.root_node.sexp()))
+        return (True,tree)
+
 class XFail(Case):
     def __init__(self,text,name=''):
         super().__init__(text,expect_pass=False,name=name)
 
+class MatchCase(Case):
+    def __init__(self,text,path,expect,name=""):
+        super().__init__(text,expect_pass=True,name=name)
+        self.path = TSPath(path)
+        self.expect = expect
+
+    def run(self,parser):
+        (ok,tree) = super().run(parser)
+        if ok:
+            matched_nodes = self.path.match(tree)
+            got = " ".join(["{}:{}".format(x.type,x.text.decode("utf-8")) for x in matched_nodes])
+            if got != self.expect:
+                return (False, "\n{}\nexpect {}\ngot    {}\nin {}".format(str(self.path),self.expect,got,tree.root_node.sexp()))
+        return (ok,tree)
+
 def GetCases():
     import wgsl_unit_tests_simple
+    import wgsl_unit_tests_enable
     import wgsl_unit_tests_equals
     import wgsl_unit_tests_template
     cases = []
     cases.extend(wgsl_unit_tests_simple.cases)
+    cases.extend(wgsl_unit_tests_enable.cases)
     cases.extend(wgsl_unit_tests_equals.cases)
     cases.extend(wgsl_unit_tests_template.cases)
     return cases
@@ -92,10 +116,10 @@ def run_tests(options):
         print(".",flush=True,end='')
         if options.verbose:
             print(case)
-        tree = parser.parse(bytes(case.text,"utf8"))
-        if case.expect_pass == tree.root_node.has_error:
+        (ok,err) = case.run(parser)
+        if not ok:
             num_errors += 1
-            print("FAIL:",case, tree.root_node.sexp())
+            print("FAIL:", case, err)
             print("---Case end\n",flush=True)
 
     print("{} pass {} fail ".format(num_cases-num_errors,num_errors),flush=True)
