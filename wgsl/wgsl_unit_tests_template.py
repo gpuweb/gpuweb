@@ -90,6 +90,8 @@ cases = [
 
 UNMATCHED = ''
 match_cases = [
+    # Match result of UNMATCHED, i.e. the empty string, means there were no 'template_list'
+    # nodes in the tree.
     MatchCase("const z = a<b;","template_list",UNMATCHED,name="exposed <"),
     MatchCase("const z = a>b;","template_list",UNMATCHED,name="exposed >"),
     MatchCase("const z = (a<b)>c;","template_list",UNMATCHED,name="nested initial <"),
@@ -110,7 +112,9 @@ match_cases = [
     MatchCase("const z = a<(b||c)>(d);","template_list","template_list:<(b||c)>",name="(||)"),
 
     MatchCase("const z = a<b>();","template_list","template_list:<b>",name="templated value constructor"),
+    # e.g. This next test says the outermost template_list node exists, and corresponds to <vec3<i32,5> in the source.
     MatchCase("alias z = array<vec3<i32>,5>;","template_list","template_list:<vec3<i32>,5>",name="nested outer"),
+    # E.g. This next test syas there is a template_list node that has an inner template_list node, and that inner node maps to the source text <i32>
     MatchCase("alias z = array<vec3<i32>,5>;","//template_list//template_list","template_list:<i32>",name="nested inner"),
     MatchCase("const z = a<1+2>();","template_list","template_list:<1+2>"),
     MatchCase("const z = a<1,b>();","template_list","template_list:<1,b>"),
@@ -128,6 +132,8 @@ match_cases = [
     MatchCase("const z = a<b<c>()>();","template_list","template_list:<b<c>()>"),
     MatchCase("const z = a<b<c>()>();","template_list//template_list","template_list:<c>"),
     # Check '<='
+    #   There is a template_list in the parse tree, corresponding to <b<=c> in the source text.
+    #   The point is that the code points <= is recognized as an operator in the middle of an expression b<=c.
     MatchCase("alias z = a<b<=c>;",  "template_list","template_list:<b<=c>",name="template arg <="),
     MatchCase("alias z = a<(b<=c)>;","template_list","template_list:<(b<=c)>",name="template arg nested <="),
     # Check shifts
