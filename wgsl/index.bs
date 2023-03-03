@@ -9695,15 +9695,13 @@ There is no risk of being trapped in a cycle, as recurrence is forbidden in the 
 
 Note: Another way of saying the same thing is that we do a topological sort of functions ordered by the "is a (possibly indirect) callee of" partial order, and analyze them in that order.
 
-Additionally, the analysis computes and propagates information about
-calls to functions that must only be invoked in uniform control flow.
-This is used to [=triggered|trigger=] and potentially filter [=diagnostics=] for [=uniformity failures=] on those calls.
-A <dfn>witness</dfn> is a pair containing a [=call site=], and a [=diagnostic/triggering rule=].
-A <dfn>witness set</dfn> is a set of [=witnesses=], and only supports adding elements, not removing elements.
-In particular, a witness set is only formed via the following operations:
-* Create an empty set.
-* Create a witness set containing a single witness.
-* Form a witness set from the union of two others.
+Additionally, for each function call, the analysis computes and propagates
+the set of [=diagnostic/triggering rules=], if any, that would be triggered if that call cannot be proven to be in uniform control flow.
+We call this the <dfn noexport>potential-trigger-set</dfn> for the call.
+The elements of this set are drawn from two possibilites:
+* [=trigger/derivative_uniformity=], for functions relying on computing a derivative, or
+* an unnamed triggering rule, for the uniformity requirements that cannot be filtered.
+    * This is used for compute shader functions relying on [[#sync-builtin-functions|synchronization functions]].
 
 ### Analyzing the Uniformity Requirements of a Function ### {#uniformity-function}
 
@@ -9770,7 +9768,7 @@ For each [=formal parameter=] of a function, one or two tags are computed:
       <td>The function must only be called from [=uniform control flow=].
           Otherwise a diagnostic with severity |S| will be triggered.
 
-          Associated with a [=witness set=].
+          Associated with a [=potential-trigger-set=].
   <tr><td><dfn noexport>CallSiteNoRestriction</dfn>
       <td>The function may be called from [=uniform control flow|non-uniform control flow=].
 </table>
@@ -9797,7 +9795,7 @@ For each [=formal parameter=] of a function, one or two tags are computed:
       <td>The parameter must be a [=uniform value=].
           Otherwise a diagnostic with severity |S| will be triggered.
 
-          Associated with a [=witness set=].
+          Associated with a [=potential-trigger-set=].
   <tr><td><dfn noexport>ParameterNoRestriction</dfn>
       <td>The parameter value has no uniformity requirement.
 </table>
@@ -9829,7 +9827,7 @@ The following algorithm describes how to compute these tags for a given function
 * Create the following nodes:
     * <dfn noexport>RequiredToBeUniform.error</dfn>, <dfn noexport>RequiredToBeUniform.warning</dfn>, and <dfn noexport>RequiredToBeUniform.info</dfn>.
         Collectively these are called the <dfn noexport>RequiredToBeUniform.S</dfn> nodes.
-        * Each such node is associated with a [=witness set=], which is initially empty.
+        * Each such node is associated with a [=potential-trigger-set=], which is initially empty.
     * <dfn noexport>MayBeNonUniform</dfn>
     * <dfn noexport>CF_start</dfn>, representing the uniformity requirement for control flow when the function begins executing.
     * <dfn noexport>param_i</dfn>, where *i* ranges over the function's [=formal parameters=].
@@ -9849,14 +9847,14 @@ The following algorithm describes how to compute these tags for a given function
 * For each severity *S* in the order {[=severity/error=], [=severity/warning=], [=severity/info=]}, perform the following:
     * Let *R.S* be the set of unvisited nodes reachable from [=RequiredToBeUniform.S=].
     * Mark the [=interior nodes=] in *R.S* as visited.
-    * Let *W* be the [=witness set=] associated with [=RequiredToBeUniform.S=].
+    * Let *PTS* be the [=potential-trigger-set=] associated with [=RequiredToBeUniform.S=].
     * If *R.S* includes the node [=MayBeNonUniform=], then trigger a [=uniformity failure=]:
-         * For each [=witness=] *w* in *W*, [=triggered|trigger=] a diagnostic with severity *S*, using the call site and triggering rule from *w*.
+         * [=triggered|Trigger=] a diagnostic with severity *S* and triggering rule *t*, for each *t* in *PTS*.
     * Otherwise:
         * If *R.S* includes [=CF_start=], and the [=call site tag=] has not been updated since initialization, then
-             set the [=call site tag=] to [=CallSiteRequiredToBeUniform.S=], and set its [=witness set=] to *W*.
+             set the [=call site tag=] to [=CallSiteRequiredToBeUniform.S=], and set its [=potential-trigger-set=] to *PTS*.
         * For each [=param_i=] in *R.S*, if its corresponding [=parameter tag=] has not been updated since initialization, then
-             set that tag to [=ParameterRequiredToBeUniform.S=], and set its [=witness set=] to *W*.
+             set that tag to [=ParameterRequiredToBeUniform.S=], and set its [=potential-trigger-set=] to *PTS*.
 * Mark all the [=interior nodes=] as unvisited.
 * If [=Value_return=] exists, let *VR* be the set of nodes reachable from [=Value_return=].
     * If *VR* includes [=MayBeNonUniform=], then set the [=function tag=] to [=ReturnValueMayBeNonUniform=].
@@ -10280,14 +10278,14 @@ The most complex rule is for function calls:
 - Create two new nodes, named <dfn noexport>Result</dfn> and <dfn noexport>CF_after</dfn>
 - If the [=call site tag=] of the function is [=CallSiteRequiredToBeUniform.S=], then:
     - Add an edge from [=RequiredToBeUniform.S=] to the last [=CF_i=].
-    - Add the [=witness set=] of the [=call site tag=] to the witness set associated with [=RequiredToBeUniform.S=].
+    - Add the members of the [=potential-trigger-set=] of the [=call site tag=] to the potential-trigger-set associated with [=RequiredToBeUniform.S=].
 - Otherwise add an edge from [=CF_after=] to the last [=CF_i=]
 - If the [=function tag=] is [=ReturnValueMayBeNonUniform=], then add an edge from [=Result=] to [=MayBeNonUniform=]
 - Add an edge from [=Result=] to [=CF_after=]
 - For each argument *i*:
     - If the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform.S=], then:
         - Add an edge from [=RequiredToBeUniform.S=] to [=arg_i=].
-        - Add the [=witness set=] of the [=parameter tag=] to the witness set associated with [=RequiredToBeUniform.S=].
+        - Add the members of the [=potential-trigger-set=] of the [=parameter tag=] to the potential-trigger-set associated with [=RequiredToBeUniform.S=].
     - If the [=parameter return tag=] is [=ParameterReturnRequiredToBeUniform=], then add an edge from [=Result=] to [=arg_i=]
     - If the corresponding parameter has a [=pointer parameter tag=] of [=PointerParameterMayBeNonUniform=], then add an edge from *Vout*(*call*) to [=MayBeNonUniform=]
     - If the parameter is a pointer in the [=address spaces/function=] address space, add an edge from *Vout*(*call*) to each corresponding [=arg_i=] for the reachable parameters recorded previously
@@ -10306,23 +10304,24 @@ Most built-in functions have tags of:
 Here is the list of exceptions:
 - A call to a function in [[#sync-builtin-functions]]:
     - Has a [=function tag=] of [=NoRestriction=].
-    - Has a [=call site tag=] of [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=].
-        The tag's associated [=witness=] is the source location of the call site, combined with an unnamed [=diagnostic/triggering rule=].
+    - Has a [=call site tag=] of [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=]
+        consisting of an unnamed [=diagnostic/triggering rule=].
         - Note: The triggering rule has no name, and so it cannot be filtered.
     - Additionally for the case of a call to [[#workgroupUniformLoad-builtin|workgroupUniformLoad]],
-        the parameter `p` has a [=parameter tag=] of [=ParameterRequiredToBeUniform.S|ParameterRequiredToBeUniform.error=].
-        The tag's associated [=witness=] is the source location of the call site, combined with an unnamed [=diagnostic/triggering rule=].
+        the parameter `p` has a [=parameter tag=] of [=ParameterRequiredToBeUniform.S|ParameterRequiredToBeUniform.error=],
+        with [=potential-trigger-set=] consisting of an unnamed [=diagnostic/triggering rule=].
 - A call to a function in
     [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]]:
     - Has a [=function tag=] of [=ReturnValueMayBeNonUniform=].
     - Has a [=call site tag=] as follows:
-        - Let *w* be the [=witness=] formed by combining the source location of the call site, with the [=trigger/derivative_uniformity=] triggering rule.
-        - Let *DF* be the [=nearest enclosing diagnostic filter=] for *w*.
+        - Let *DF* be the [=nearest enclosing diagnostic filter=] for the call site location and triggering rule [=trigger/derivative_uniformity=]
         - If *DF* exists, then let *S* be the *DF*'s new severity parameter.
-            - If *S* is the severity [=severity/off=], the call site tag is [=CallSiteNoRestriction=]. Throw away the witness *w*.
-            - Otherwise the call site tag is [=CallSiteRequiredToBeUniform.S=], with witness *w*.
+            - If *S* is the severity [=severity/off=], the call site tag is [=CallSiteNoRestriction=].
+            - Otherwise the call site tag is [=CallSiteRequiredToBeUniform.S=], with [=potential-trigger-set=]
+                consisting of a [=trigger/derivative_uniformity=] element.
         - If there is no such *DF*,
-            the call site tag is [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with witness *w*.
+            the call site tag is [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=] 
+            consisting of a [=trigger/derivative_uniformity=] element.
 
 Note: A WGSL implementation will ensure that if control flow prior to a
 function call is [=uniform control flow|uniform=], it will also be uniform
