@@ -50,6 +50,7 @@
        
         translation_unit: $ => seq(optional(repeat1($.global_directive)), optional(repeat1($.global_decl))),
         global_directive: $ => choice(
+            $.diagnostic_directive,
             $.enable_directive,
             $.requires_directive
         ),
@@ -91,6 +92,7 @@
             token(/0[xX][0-9a-fA-F]+\.[0-9a-fA-F]*([pP][+-]?[0-9]+[fh]?)?/),
             token(/0[xX][0-9a-fA-F]+[pP][+-]?[0-9]+[fh]?/)
         ),
+        diagnostic_directive: $ => seq(token('diagnostic'), $.diagnostic_control, token(';')),
         literal: $ => choice(
             $.int_literal,
             $.float_literal,
@@ -98,6 +100,7 @@
         ),
         ident: $ => seq($.ident_pattern_token, $._disambiguate_template),
         member_ident: $ => $.ident_pattern_token,
+        diagnostic_rule_name: $ => $.ident_pattern_token,
         template_list: $ => seq($._template_args_start, $.template_arg_comma_list, $._template_args_end),
         template_arg_comma_list: $ => seq($.template_arg_expression, optional(repeat1(seq(token(','), $.template_arg_expression))), optional(token(','))),
         template_arg_expression: $ => $.expression,
@@ -106,6 +109,7 @@
             seq(token('@'), token('binding'), token('('), $.expression, $.attrib_end),
             seq(token('@'), token('builtin'), token('('), $.expression, $.attrib_end),
             seq(token('@'), token('const')),
+            seq(token('@'), token('diagnostic'), $.diagnostic_control),
             seq(token('@'), token('group'), token('('), $.expression, $.attrib_end),
             seq(token('@'), token('id'), token('('), $.expression, $.attrib_end),
             seq(token('@'), token('interpolate'), token('('), $.expression, $.attrib_end),
@@ -122,6 +126,7 @@
             seq(token('@'), token('compute'))
         ),
         attrib_end: $ => seq(optional(token(',')), token(')')),
+        diagnostic_control: $ => seq(token('('), $.severity_control_name, token(','), $.diagnostic_rule_name, $.attrib_end),
         struct_decl: $ => seq(token('struct'), $.ident, $.struct_body_decl),
         struct_body_decl: $ => seq(token('{'), $.struct_member, optional(repeat1(seq(token(','), $.struct_member))), optional(token(',')), token('}')),
         struct_member: $ => seq(optional(repeat1($.attribute)), $.member_ident, token(':'), $.type_specifier),
@@ -237,7 +242,7 @@
             seq($.short_circuit_and_expression, token('&&'), $.relational_expression),
             $.bitwise_expression
         ),
-        compound_statement: $ => seq(token('{'), optional(repeat1($.statement)), token('}')),
+        compound_statement: $ => seq(optional(repeat1($.attribute)), token('{'), optional(repeat1($.statement)), token('}')),
         assignment_statement: $ => choice(
             seq($.lhs_expression, choice(token('='), $.compound_assignment_operator), $.expression),
             seq(token('_'), token('='), $.expression)
@@ -256,12 +261,13 @@
         ),
         increment_statement: $ => seq($.lhs_expression, token('++')),
         decrement_statement: $ => seq($.lhs_expression, token('--')),
-        if_statement: $ => seq($.if_clause, optional(repeat1($.else_if_clause)), optional($.else_clause)),
+        if_statement: $ => seq(optional(repeat1($.attribute)), $.if_clause, optional(repeat1($.else_if_clause)), optional($.else_clause)),
         if_clause: $ => seq(token('if'), $.expression, $.compound_statement),
         else_if_clause: $ => seq(token('else'), token('if'), $.expression, $.compound_statement),
         else_clause: $ => seq(token('else'), $.compound_statement),
-        switch_statement: $ => seq(token('switch'), $.expression, token('{'), repeat1($.switch_body), token('}')),
-        switch_body: $ => choice(
+        switch_statement: $ => seq(optional(repeat1($.attribute)), token('switch'), $.expression, $.switch_body),
+        switch_body: $ => seq(optional(repeat1($.attribute)), token('{'), repeat1($.switch_clause), token('}')),
+        switch_clause: $ => choice(
             $.case_clause,
             $.default_alone_clause
         ),
@@ -272,8 +278,8 @@
             token('default'),
             $.expression
         ),
-        loop_statement: $ => seq(token('loop'), token('{'), optional(repeat1($.statement)), optional($.continuing_statement), token('}')),
-        for_statement: $ => seq(token('for'), token('('), $.for_header, token(')'), $.compound_statement),
+        loop_statement: $ => seq(optional(repeat1($.attribute)), token('loop'), optional(repeat1($.attribute)), token('{'), optional(repeat1($.statement)), optional($.continuing_statement), token('}')),
+        for_statement: $ => seq(optional(repeat1($.attribute)), token('for'), token('('), $.for_header, token(')'), $.compound_statement),
         for_header: $ => seq(optional($.for_init), token(';'), optional($.expression), token(';'), optional($.for_update)),
         for_init: $ => choice(
             $.variable_statement,
@@ -284,12 +290,12 @@
             $.variable_updating_statement,
             $.func_call_statement
         ),
-        while_statement: $ => seq(token('while'), $.expression, $.compound_statement),
+        while_statement: $ => seq(optional(repeat1($.attribute)), token('while'), $.expression, $.compound_statement),
         break_statement: $ => token('break'),
         break_if_statement: $ => seq(token('break'), token('if'), $.expression, token(';')),
         continue_statement: $ => token('continue'),
         continuing_statement: $ => seq(token('continuing'), $.continuing_compound_statement),
-        continuing_compound_statement: $ => seq(token('{'), optional(repeat1($.statement)), optional($.break_if_statement), token('}')),
+        continuing_compound_statement: $ => seq(optional(repeat1($.attribute)), token('{'), optional(repeat1($.statement)), optional($.break_if_statement), token('}')),
         return_statement: $ => seq(token('return'), optional($.expression)),
         func_call_statement: $ => $.call_phrase,
         const_assert_statement: $ => seq(token('const_assert'), $.expression),
@@ -325,6 +331,12 @@
         enable_extension_name: $ => $.ident_pattern_token,
         software_extension_name: $ => $.ident_pattern_token,
         ident_pattern_token: $ => token(/([_\p{XID_Start}][\p{XID_Continue}]+)|([\p{XID_Start}])/uy),
+        severity_control_name: $ => choice(
+            token('error'),
+            token('warning'),
+            token('info'),
+            token('off')
+        ),
         swizzle_name: $ => choice(
             token('/[rgba]/'),
             token('/[rgba][rgba]/'),
