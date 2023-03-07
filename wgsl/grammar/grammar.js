@@ -57,7 +57,7 @@
         global_decl: $ => choice(
             token(';'),
             seq($.global_variable_decl, token(';')),
-            seq($.global_constant_decl, token(';')),
+            seq($.global_value_decl, token(';')),
             seq($.type_alias_decl, token(';')),
             $.struct_decl,
             $.function_decl,
@@ -133,7 +133,7 @@
         type_alias_decl: $ => seq(token('alias'), $.ident, token('='), $.type_specifier),
         type_specifier: $ => $.template_elaborated_ident,
         template_elaborated_ident: $ => seq($.ident, $._disambiguate_template, optional($.template_list)),
-        variable_statement: $ => choice(
+        variable_or_value_statement: $ => choice(
             $.variable_decl,
             seq($.variable_decl, token('='), $.expression),
             seq(token('let'), $.optionally_typed_ident, token('='), $.expression),
@@ -142,7 +142,7 @@
         variable_decl: $ => seq(token('var'), $._disambiguate_template, optional($.template_list), $.optionally_typed_ident),
         optionally_typed_ident: $ => seq($.ident, optional(seq(token(':'), $.type_specifier))),
         global_variable_decl: $ => seq(optional(repeat1($.attribute)), $.variable_decl, optional(seq(token('='), $.expression))),
-        global_constant_decl: $ => choice(
+        global_value_decl: $ => choice(
             seq(token('const'), $.optionally_typed_ident, token('='), $.expression),
             seq(optional(repeat1($.attribute)), token('override'), $.optionally_typed_ident, optional(seq(token('='), $.expression)))
         ),
@@ -282,7 +282,7 @@
         for_statement: $ => seq(optional(repeat1($.attribute)), token('for'), token('('), $.for_header, token(')'), $.compound_statement),
         for_header: $ => seq(optional($.for_init), token(';'), optional($.expression), token(';'), optional($.for_update)),
         for_init: $ => choice(
-            $.variable_statement,
+            $.variable_or_value_statement,
             $.variable_updating_statement,
             $.func_call_statement
         ),
@@ -308,7 +308,7 @@
             $.for_statement,
             $.while_statement,
             seq($.func_call_statement, token(';')),
-            seq($.variable_statement, token(';')),
+            seq($.variable_or_value_statement, token(';')),
             seq($.break_statement, token(';')),
             seq($.continue_statement, token(';')),
             seq(token('discard'), token(';')),
