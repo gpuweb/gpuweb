@@ -1312,16 +1312,15 @@ WebGPU on top of that functionality.
 calling {{GPU/requestAdapter()}} multiple times returns a different [=adapter=]
 object each time.
 
-An [=adapter=] object may become [=invalid=] at any time.
-This happens inside "[=lose the device=]" and "[=mark adapters stale=]".
-An invalid adapter is unable to vend new [=devices=].
+Each [=adapter=] object can only be used to create one [=device=]:
+upon a successful {{GPUAdapter/requestDevice()}}, the adapter becomes [=invalid=].
+Additionally, [=adapter=] objects may [=adapter/expire=] at any time.
 
 Note:
-This mechanism ensures that various adapter-creation scenarios look similar to applications,
-so they can easily be robust to more scenarios with less testing: first initialization,
+This ensures applications use the latest system state for adapter selection when creating a device.
+It also encourages robustness to more scenarios by making them look similar: first initialization,
 reinitialization due to an unplugged adapter, reinitialization due to a test
-{{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc. It also ensures applications use
-the latest system state to make decisions about which adapter to use.
+{{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc.
 
 An [=adapter=] may be considered a <dfn>fallback adapter</dfn> if it has significant performance
 caveats in exchange for some combination of wider compatibility, more predictable behavior, or
@@ -1411,7 +1410,6 @@ the device **should** be lost to prevent these changes from being observable.
 <div algorithm data-timeline=device>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
 
-    1. Make |device|.{{device/[[adapter]]}} [=invalid=].
     1. Make |device| [=invalid=].
     1. Let |gpuDevice| be the [=content timeline=] {{GPUDevice}} corresponding to |device|.
 
@@ -2309,37 +2307,20 @@ interface GPU {
         </div>
 </dl>
 
-{{GPU}} has the following internal slots:
-
-<dl dfn-type=attribute dfn-for=GPU>
-    : <dfn>\[[previously_returned_adapters]]</dfn>, of type [=ordered set=]&lt;[=adapter=]&gt;
-    ::
-        The set of [=adapters=] that have been returned via {{GPU/requestAdapter()}}.
-        It is used, then cleared, in [=mark adapters stale=].
-</dl>
-
+[=Adapters=] **may** become [=invalid=] ("<dfn dfn for=adapter>expire</dfn>") at any time.
 Upon any change in the system's state that could affect the result of any {{GPU/requestAdapter()}}
-call, the user agent *should* [=mark adapters stale=]. For example:
+call, the user agent **should** expire all previously-returned adapters. For example:
 
-- A physical adapter is added/removed (via plug, driver update, TDR, etc.)
+- A physical adapter is added/removed (via plug/unplug, driver update, hang recovery, etc.)
 - The system's power configuration has changed (laptop unplugged, power settings changed, etc.)
 
-Additionally, [=mark adapters stale=] may by scheduled at any time.
-User agents may choose to do this often even when there has been no system state change (e.g.
-several seconds after the last call to {{GPUAdapter/requestDevice()}}.
-This has no effect on well-formed applications, obfuscates real system state changes, and makes
-developers more aware that calling {{GPU/requestAdapter()}} again is always necessary before
-calling {{GPUAdapter/requestDevice()}}.
-
-<div algorithm>
-    To <dfn dfn>mark adapters stale</dfn>:
-
-    1. For each |adapter| in `navigator.gpu.`{{GPU/[[previously_returned_adapters]]}}:
-        1. Make |adapter|.{{GPUAdapter/[[adapter]]}} [=invalid=].
-    1. [=list/Empty=] `navigator.gpu.`{{GPU/[[previously_returned_adapters]]}}.
-
-    <!-- POSTV1(adapterschanged event): update here -->
-</div>
+Note:
+User agenst may choose to [=adapter/expire=] adapters often, even when there has been no system
+state change (e.g. seconds or minutes after the adapter was created).
+This can help obfuscate real system state changes, and make developers more aware that calling
+{{GPU/requestAdapter()}} again is always necessary before calling {{GPUAdapter/requestDevice()}}.
+If an application does encounter this situation, standard device-loss recovery
+handling should allow it to recover.
 
 <div class=example>
     Requesting a {{GPUAdapter}} with no hints:
@@ -2533,6 +2514,9 @@ interface GPUAdapter {
     ::
         Requests a [=device=] from the [=adapter=].
 
+        This is a one-time action: if a device is returned successfully,
+        the adapter becomes [=invalid=].
+
         <div algorithm=GPUAdapter.requestDevice>
             <div data-timeline=content>
                 **Called on:** {{GPUAdapter}} |this|.
@@ -2617,6 +2601,7 @@ interface GPUAdapter {
                     Otherwise:
 
                     1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
+                    1. Make |adapter|.{{GPUAdapter/[[adapter]]}} [=invalid=].
 
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
