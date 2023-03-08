@@ -39,13 +39,13 @@ cases = [
 
     # Demonstrate TSPath pattern matching
     MatchCase("enable f16;","//enable_directive","enable_directive:enable f16;"),
-    MatchCase("enable f16;","//enable_directive/enable_extension_name","enable_extension_name:f16"), # child
-    MatchCase("enable f16;","enable_extension_name/ident_pattern_token","ident_pattern_token:f16"),
+    MatchCase("enable f16;","//enable_directive/enable_extension_list","enable_extension_list:f16"), # child
+    MatchCase("enable f16;","enable_extension_list//ident_pattern_token","ident_pattern_token:f16"),
     MatchCase("enable f16;","//enable_directive[0]","enable:enable"), # literal text in the rule
-    MatchCase("enable f16;","//enable_directive[1]","enable_extension_name:f16"),
+    MatchCase("enable f16;","//enable_directive[1]","enable_extension_list:f16"),
     MatchCase("enable f16;","//enable_directive[2]",";:;"), # literal text in the rule
     MatchCase("enable f16;","//enable_directive(0)","enable:enable"),
-    MatchCase("enable f16;","//enable_directive(1)","enable_extension_name:f16"),
+    MatchCase("enable f16;","//enable_directive(1)","enable_extension_list:f16"),
     MatchCase("enable f16;","//enable_directive(2)",";:;"),
-    MatchCase("enable f16;","//enable_directive(0 1 2)","enable:enable enable_extension_name:f16 ;:;"),
+    MatchCase("enable f16;","//enable_directive(0 1 2)","enable:enable enable_extension_list:f16 ;:;"),
 ]
