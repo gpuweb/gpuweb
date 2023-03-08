@@ -9795,10 +9795,19 @@ For each [=formal parameter=] of a function, one or two tags are computed:
   <thead>
     <tr><th>Parameter Tag<th>Description
   </thead>
-  <tr algorithm="ParameterRequiredToBeUniform tag">
+  <tr algorithm="ParameterRequiredToBeUniformValue tag">
       <td><dfn noexport>ParameterRequiredToBeUniform.S</dfn>,<br>
           where |S| is one of the severities: [=severity/error=], [=severity/warning=], or [=severity/info=].
       <td>The parameter must be a [=uniform value=].
+          If the parameter type is a pointer, the memory view, but not
+          necessarily its contents, must be uniform.
+          Otherwise a diagnostic with severity |S| will be triggered.
+
+          Associated with a [=potential-trigger-set=].
+  <tr algorithm="ParameterContentsRequiredToBeUniform tag">
+      <td><dfn noexport>ParameterContentsRequiredToBeUniform.S</dfn>,<br>
+          where |S| is one of the severities: [=severity/error=], [=severity/warning=], or [=severity/info=].
+      <td>The value stored in the memory pointed to by the pointer parameter must be a [=uniform value=].
           Otherwise a diagnostic with severity |S| will be triggered.
 
           Associated with a [=potential-trigger-set=].
@@ -9811,8 +9820,9 @@ For each [=formal parameter=] of a function, one or two tags are computed:
   <thead>
     <tr><th>Parameter Return Tag<th>Description
   </thead>
-  <tr><td><dfn noexport>ParameterReturnRequiredToBeUniform</dfn>
+  <tr><td><dfn noexport>ParameterReturnContentsRequiredToBeUniform</dfn>
       <td>The parameter [=shader-creation error|must=] be a [=uniform value=] in order for the [=return value=] to be a uniform value.
+      If the parameter is a pointer, then the values stored in the memory pointed to by the pointer must also be [=uniform value|uniform=].
   <tr><td><dfn noexport>ParameterReturnNoRestriction</dfn>
       <td>The parameter value has no uniformity requirement.
 </table>
@@ -9840,8 +9850,9 @@ The following algorithm describes how to compute these tags for a given function
     * If the function has a [=return type=], create a node called <dfn noexport>Value_return</dfn>.
 * Desugar pointers as described in [[#pointer-desugar]].
     * For each formal parameter that is a pointer in the [=address spaces/function=] address space,
-        create a <dfn noexport>Value_return_i</dfn> node.
-        This represents the function's effect on the uniformity of the value pointed to by the *i*<sup>th</sup> parameter.
+        create the following nodes:
+        * <dfn noexport>param_i_contents</dfn>: this represents the uniformity of the contents of the memory view.
+        * <dfn noexport>Value_return_i_contents</dfn>: this represents the function's effects on the uniformity of the contents of the memory view.
 * Walk over the syntax of the function, adding nodes and edges to the graph following the rules of the next sections ([[#func-var-value-analysis]], [[#uniformity-statements]], [[#uniformity-function-calls]], [[#uniformity-expressions]]), using [=CF_start=] as the starting control-flow for the function's body.
     * The nodes added in this step are called <dfn noexport>interior nodes</dfn>.
 * Initialize as follows:
@@ -9861,14 +9872,13 @@ The following algorithm describes how to compute these tags for a given function
              set the [=call site tag=] to [=CallSiteRequiredToBeUniform.S=], and set its [=potential-trigger-set=] to *PTS*.
         * For each [=param_i=] in *R.S*, if its corresponding [=parameter tag=] has not been updated since initialization, then
              set that tag to [=ParameterRequiredToBeUniform.S=], and set its [=potential-trigger-set=] to *PTS*.
+        * For each [=param_i_contents=] in *R.S*, if its corresponding [=parameter tag=] has not been updated since initialization, then
+             set that tag to [=ParameterContentsRequiredToBeUniform.S=], and set its [=potential-trigger-set=] to *PTS*.
 * Mark all the [=interior nodes=] as unvisited.
 * If [=Value_return=] exists, let *VR* be the set of nodes reachable from [=Value_return=].
     * If *VR* includes [=MayBeNonUniform=], then set the [=function tag=] to [=ReturnValueMayBeNonUniform=].
-    * For each [=param_i=] in *VR*, set the corresponding [=parameter return tag=] to [=ParameterReturnRequiredToBeUniform=].
-    * Issue: [#3677](https://github.com/gpuweb/gpuweb/issues/3677)
-         For pointer parameters, handle the distinction between uniformity of the pointer
-         value and the uniformity of the contents of the memory pointed at.
-* For each [=Value_return_i=] node, let *VRi* be the set of nodes reachable from [=Value_return_i=].
+    * For each [=param_i=] in *VR*, set the corresponding [=parameter return tag=] to [=ParameterReturnContentsRequiredToBeUniform=].
+* For each [=Value_return_i_contents=] node, let *VRi* be the set of nodes reachable from [=Value_return_i_contents=].
     * If *VRi* includes [=MayBeNonUniform=], set the corresponding [=pointer parameter tag=] to [=PointerParameterMayBeNonUniform=].
 
 Note: The entire graph can be destroyed at this point. The tags described above are all that we need to remember to analyze callers of this function.
@@ -9885,6 +9895,8 @@ spaces/function=] address space is desugared as a local variable declaration
 whose initial value is equivalent to dereferencing the parameter.
 That is, function address space pointers are viewed as aliases to a local
 variable declaration.
+The initial value assignment produces an edge to [=param_i_contents=] for
+*i*<sup>th</sup> parameter (i.e. *V(e)* is [=param_i_contents=]).
 
 Each [=let-declaration=], *L*, with an [=effective-value-type=] that is a [=pointer type=] is desugared as follows:
 * Visit each subexpression, *SE*, of the initializer expression of *L* in a postorder depth-first traversal:
@@ -10227,7 +10239,7 @@ When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `
       <td>*CF*
       <td>
       For each [=address spaces/function=] address space pointer parameter *i*,
-      [=Value_return_i=] -> *Vin*(*prev*) (see [[#func-var-value-analysis]])
+      [=Value_return_i_contents=] -> *Vin*(*prev*) (see [[#func-var-value-analysis]])
   <tr><td class="nowrap">return *e*;
       <td>
       <td class="nowrap">(*CF*, *e*) => (*CF'*, *V*)
@@ -10235,7 +10247,7 @@ When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `
       <td>[=Value_return=] -> *V*
 
       For each [=address spaces/function=] address space pointer parameter *i*,
-      [=Value_return_i=] -> *Vin*(*prev*) (see [[#func-var-value-analysis]])
+      [=Value_return_i_contents=] -> *Vin*(*prev*) (see [[#func-var-value-analysis]])
   <tr><td class="nowrap">*e2* = *e1*;
       <td>
       <td class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)<br>
@@ -10292,9 +10304,10 @@ The most complex rule is for function calls:
     - If the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform.S=], then:
         - Add an edge from [=RequiredToBeUniform.S=] to [=arg_i=].
         - Add the members of the [=potential-trigger-set=] of the [=parameter tag=] to the potential-trigger-set associated with [=RequiredToBeUniform.S=].
-    - If the [=parameter return tag=] is [=ParameterReturnRequiredToBeUniform=], then add an edge from [=Result=] to [=arg_i=]
+    - If the [=parameter return tag=] is [=ParameterReturnContentsRequiredToBeUniform=], then add an edge from [=Result=] to [=arg_i=]
     - If the corresponding parameter has a [=pointer parameter tag=] of [=PointerParameterMayBeNonUniform=], then add an edge from *Vout*(*call*) to [=MayBeNonUniform=]
     - If the parameter is a pointer in the [=address spaces/function=] address space, add an edge from *Vout*(*call*) to each corresponding [=arg_i=] for the reachable parameters recorded previously
+        - If the [=parameter tag=] is [=ParameterContentsRequiredToBeUniform.S=], add an edge from [=RequiredToBeUniform.S=] to *Vout*(*call*)
 
 Note: Refer to [[#func-var-value-analysis]] for the definition of *Vout*(*call*).
 
@@ -10305,7 +10318,7 @@ Most built-in functions have tags of:
 - A [=function tag=] of [=NoRestriction=].
 - For each parameter:
     - a [=parameter tag=] of [=ParameterNoRestriction=].
-    - a [=parameter return tag=] of [=ParameterReturnRequiredToBeUniform=].
+    - a [=parameter return tag=] of [=ParameterReturnContentsRequiredToBeUniform=].
 
 Here is the list of exceptions:
 - A call to a function in [[#sync-builtin-functions]]:
@@ -10369,6 +10382,15 @@ The rules for analyzing expressions take as argument both the expression itself 
 
       Note: *X* is equivalent to *Vout*(*prev*) for "x"<br>
       (see [[#func-var-value-analysis]])
+   <tr><td>identifier [=resolves|resolving=] to function-scope variable "x",
+      where "x" is the desugared pointer parameter *i*, and
+      where the identifier appears as the [=root identifier=] of a [=memory view=]
+      expression, *MVE*, and the [=load rule=] is not invoked on *MVE* during
+      [=type checking=]
+      <td>
+      <td class>
+      <td class="nowrap">*CF*, [=param_i=]
+      <td class>
    <tr><td>identifier [=resolves|resolving=] to function-scope variable "x",
       where the identifier appears as the [=root identifier=] of a [=memory view=]
       expression, *MVE*, and the [=load rule=] is not invoked on *MVE* during
@@ -10697,7 +10719,7 @@ end of the loop body (CF_after_if).
 This example is modification of the [[#uniformity-example1|first example]], but
 uses a user-defined function call.
 The analysis sets the [=parameter return tag=] of both parameters of `scale` as
-[=ParameterReturnRequiredToBeUniform=].
+[=ParameterReturnContentsRequiredToBeUniform=].
 This leads to the path in `main` between the return value of the `scale`
 function call and the `position` built-in value.
 That path is a subpath of the overall invalid path from [=RequiredToBeUniform.S=] to
