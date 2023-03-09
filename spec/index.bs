@@ -62,6 +62,8 @@ spec: HTML; urlPrefix: https://html.spec.whatwg.org/multipage/
     type: dfn
         text: origin-clean; url: canvas.html#concept-canvas-origin-clean
         text: check the usability of the image argument; url: canvas.html#check-the-usability-of-the-image-argument
+        text: placeholder canvas element; url: canvas.html#offscreencanvas-placeholder
+        text: event loop processing model; url: webappapis.html#event-loop-processing-model
 spec: WEBGL-1; urlPrefix: https://www.khronos.org/registry/webgl/specs/latest/1.0/#
     type: interface
         text: WebGLRenderingContext; url: WEBGLRENDERINGCONTEXT
@@ -2023,7 +2025,7 @@ developers are still strongly encouraged to test in multiple implementations.
 <div class=note>
     Note: Since task source priority is not normatively defined, there is a range of points at which
     tasks from this task queue can execute. In practice, this means these tasks can be implemented
-    with fixed steps inside the [[HTML#event-loop-processing-model|HTML processing model]].
+    with fixed steps inside the [=event loop processing model=].
     All of the following options are valid:
 
     - Immediately after running any task.
@@ -12732,7 +12734,7 @@ instance by passing the string literal `'webgpu'` as its `contextType` argument.
 
     1. Let |context| be a new {{GPUCanvasContext}}.
     1. Set |context|.{{GPUCanvasContext/canvas}} to |canvas|.
-    1. [$Replace the drawing buffer$].
+    1. [$Replace the drawing buffer$] of |context|.
     1. Return |context|.
 </div>
 
@@ -12793,8 +12795,7 @@ interface GPUCanvasContext {
         (returned by {{GPUCanvasContext/getCurrentTexture()}}).
 
         The drawing buffer is used to [$get a copy of the image contents of a context$], which
-        occurs at the end of every frame to present the drawing buffer to the screen,
-        in "[$update the rendering of the WebGPU canvas$]". It may be transparent, even if
+        occurs when the canvas is displayed or otherwise read. It may be transparent, even if
         {{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/alphaMode}} is
         {{GPUCanvasAlphaMode/"opaque"}}. The {{GPUCanvasConfiguration/alphaMode}} only affects the
         result of the "[$get a copy of the image contents of a context$]" algorithm.
@@ -12813,17 +12814,17 @@ interface GPUCanvasContext {
         It exposes a writable view onto the underlying {{GPUCanvasContext/[[drawingBuffer]]}}.
         {{GPUCanvasContext/getCurrentTexture()}} populates this slot if `null`, then returns it.
 
-        Any changes to the drawing buffer made through the currentTexture get presented at the end
-        of the frame, in "[$update the rendering of the WebGPU canvas$]", which also destroys
-        this texture and sets {{GPUCanvasContext/[[currentTexture]]}} to `null`, indicating
-        a new one will be created by {{GPUCanvasContext/getCurrentTexture()}}.
+        Any changes to the drawing buffer made through the currentTexture get presented when
+        [$updating the rendering of a WebGPU canvas$]. At this time, the texture is also destroyed
+        and {{GPUCanvasContext/[[currentTexture]]}} is set to to `null`, signalling that
+        a new one is to be created by the next call to {{GPUCanvasContext/getCurrentTexture()}}.
 
         {{GPUTexture/destroy()|Destroying}} the currentTexture has no effect on the drawing buffer
         contents; it only terminates write-access to the drawing buffer early.
         During the same frame, {{GPUCanvasContext/getCurrentTexture()}} continues returning the
         same destroyed texture.
 
-        [$Replace the drawing buffer$] sets the currentTexture to `null`.
+        [$Expire the current texture$] sets the currentTexture to `null`.
         It is called by {{GPUCanvasContext/configure()}}, resizing the canvas, and others.
 </dl>
 
@@ -12917,7 +12918,7 @@ interface GPUCanvasContext {
                 1. [=Assert=] |this|.{{GPUCanvasContext/[[textureDescriptor]]}} is not `null`.
                 1. Let |device| be |this|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/device}}.
                 1. If |this|.{{GPUCanvasContext/[[currentTexture]]}} is `null`:
-                    1. [$Replace the drawing buffer$].
+                    1. [$Replace the drawing buffer$] of |this|.
                     1. Set |this|.{{GPUCanvasContext/[[currentTexture]]}} to the result of calling
                         |device|.{{GPUDevice/createTexture()}} with |this|.{{GPUCanvasContext/[[textureDescriptor]]}},
                         except with the {{GPUTexture}}'s underlying storage pointing to
@@ -12931,74 +12932,19 @@ interface GPUCanvasContext {
                 1. [$queue an automatic expiry task$] with device |device| and the following steps:
 
                     <div data-timeline=content>
-                        1. [$commit the canvas texture$] for |this|.
+                        1. [$Expire the current texture$] of |this|.
+
+                            Note: If this already happened when
+                            [$updating the rendering of a WebGPU canvas$], it has no effect.
                     </div>
                 1. Return |this|.{{GPUCanvasContext/[[currentTexture]]}}.
             </div>
         </div>
 
         Note: The same {{GPUTexture}} object will be returned by every
-        call to {{GPUCanvasContext/getCurrentTexture()}} made within the same frame (i.e. between
-        invocations of "[$update the rendering of the WebGPU canvas$]"), even if that {{GPUTexture}}
-        is destroyed, failed validation, or failed to allocate, **unless** the current texture has
-        been removed (in [$Replace the drawing buffer$]).
+        call to {{GPUCanvasContext/getCurrentTexture()}} until "[$Expire the current texture$]"
+        runs, even if that {{GPUTexture}} is destroyed, failed validation, or failed to allocate.
 </dl>
-
-<div algorithm>
-    To <dfn abstract-op>commit the canvas texture</dfn> for {{GPUCanvasContext}} |context|:
-
-    1. Update the rendering of |context|.{{GPUCanvasContext/canvas}} with
-        [$get a copy of the image contents of a context|a copy of the image contents$] of |context|.
-
-        Note: The image still won't be presented until the whole document's rendering is updated
-        in "[=Update the rendering=]".
-    1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`:
-        1. Call |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}
-            (without destroying |context|.{{GPUCanvasContext/[[drawingBuffer]]}})
-            to terminate write access to the image.
-        1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
-
-    Note:
-    This will be called multiple times for the same texture, in some order, from both
-    {{GPUCanvasContext/getCurrentTexture()}} and [$update the rendering of the WebGPU canvas$].
-    The second call has no effect.
-
-    Note: If {{GPUCanvasConfiguration/alphaMode}} is {{GPUCanvasAlphaMode/"opaque"}},
-    the presented image has its alpha channel cleared. Implementations may skip this step if they
-    are able to composite images in a way that ignores the alpha channel (as if it is 1.0).
-</div>
-
-<div algorithm>
-    In the "update the rendering or user interface of that `Document`" sub-step of the
-    "[=Update the rendering=]" step of the
-    [[HTML#event-loop-processing-model|HTML processing model]], each {{GPUCanvasContext}} |context|
-    must <dfn abstract-op>update the rendering of the WebGPU canvas</dfn> by running the following steps:
-
-    1. [$commit the canvas texture$] for |context|.
-</div>
-
-<div algorithm="transferToImageBitmap from WebGPU">
-    When {{OffscreenCanvas/transferToImageBitmap()}} is called on a canvas with
-    {{GPUCanvasContext}} |context|:
-
-    1. Let |imageContents| be
-        [$get a copy of the image contents of a context|a copy of the image contents$]
-        of |context|.
-    1. [$Replace the drawing buffer$].
-    1. Return a new {{ImageBitmap}} containing the |imageContents|.
-
-    Note: This is equivalent to "moving" the (possibly alpha-cleared) image contents into the
-    ImageBitmap, without a copy.
-</div>
-
-When WebGPU canvas contents are read using other Web APIs, like
-[[HTML#drawing-images|drawImage()]], `texImage2D()`, `texSubImage2D()`,
-{{HTMLCanvasElement/toDataURL()}}, {{HTMLCanvasElement/toBlob()}}, and so on,
-they [$get a copy of the image contents of a context$].
-
-Note: If {{GPUCanvasConfiguration/alphaMode}} is {{GPUCanvasAlphaMode/"opaque"}},
-this incurs a clear of the alpha channel. If a canvas is only needed for interop
-(not presentation), avoid {{GPUCanvasAlphaMode/"opaque"}} if not needed.
 
 <div algorithm>
     To <dfn abstract-op>get a copy of the image contents of a context</dfn>:
@@ -13037,9 +12983,7 @@ this incurs a clear of the alpha channel. If a canvas is only needed for interop
 <div algorithm>
     To <dfn abstract-op>Replace the drawing buffer</dfn> of a {{GPUCanvasContext}} |context|:
 
-    1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`, call its
-        {{GPUTexture/destroy()}} method.
-    1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
+    1. [$Expire the current texture$] of |context|.
     1. Let |configuration| be |context|.{{GPUCanvasContext/[[configuration]]}}.
     1. Set |context|.{{GPUCanvasContext/[[drawingBuffer]]}} to a transparent black image of the same
         size as |context|.{{GPUCanvasContext/canvas}}.
@@ -13053,6 +12997,78 @@ this incurs a clear of the alpha channel. If a canvas is only needed for interop
 
         Note: |configuration|.{{GPUCanvasConfiguration/alphaMode}} is ignored until
         "[$get a copy of the image contents of a context$]".
+</div>
+
+<div algorithm>
+    To <dfn abstract-op>Expire the current texture</dfn> of a {{GPUCanvasContext}} |context|:
+
+    1. If |context|.{{GPUCanvasContext/[[currentTexture]]}} is not `null`:
+        1. Call |context|.{{GPUCanvasContext/[[currentTexture]]}}.{{GPUTexture/destroy()}}
+            (without destroying |context|.{{GPUCanvasContext/[[drawingBuffer]]}})
+            to terminate write access to the image.
+        1. Set |context|.{{GPUCanvasContext/[[currentTexture]]}} to `null`.
+</div>
+
+## HTML Specification Hooks ## {#canvas-hooks}
+
+The following algorithms "hook" into algorithms in the HTML specification, and must run at the
+specified points.
+
+<div algorithm="get the bitmap of a WebGPU canvas">
+    When the "bitmap" is read from an {{HTMLCanvasElement}} or {{OffscreenCanvas}} with a
+    {{GPUCanvasContext}} |context|:
+
+    1. Return [$get a copy of the image contents of a context|a copy of the image contents$]
+        of |context|.
+
+    <div class=note>
+        Note:
+        This occurs in many places, including:
+
+        - When an {{HTMLCanvasElement}} has its rendering updated.
+        - When an {{OffscreenCanvas}} with a [=placeholder canvas element=] has its rendering updated.
+        - When {{OffscreenCanvas/transferToImageBitmap()}} creates an {{ImageBitmap}} from the bitmap.
+        - When WebGPU canvas contents are read using other Web APIs, like
+            {{CanvasDrawImage/drawImage()}}, `texImage2D()`, `texSubImage2D()`,
+            {{HTMLCanvasElement/toDataURL()}}, {{HTMLCanvasElement/toBlob()}}, and so on.
+
+        If {{GPUCanvasConfiguration/alphaMode}} is {{GPUCanvasAlphaMode/"opaque"}},
+        this incurs a clear of the alpha channel. Implementations may skip this step when
+        they are able to read or display images in a way that ignores the alpha channel.
+
+        If an application needs a canvas only for interop (not presentation), avoid
+        {{GPUCanvasAlphaMode/"opaque"}} if it is not needed.
+    </div>
+</div>
+
+<div algorithm>
+    When <dfn abstract-op>updating the rendering of a WebGPU canvas</dfn>
+    (an {{HTMLCanvasElement}} or an {{OffscreenCanvas}} with a [=placeholder canvas element=])
+    with a {{GPUCanvasContext}} |context|, which occurs in the following sub-steps of the
+    [=event loop processing model=]:
+
+    - "update the rendering or user interface of that `Document`"
+    - "update the rendering of that dedicated worker"
+
+    Run the following steps:
+
+    1. [$Expire the current texture$] of |context|.
+
+        Note: If this already happened in the task queued by
+        {{GPUCanvasContext/getCurrentTexture()}}, it has no effect.
+
+    Note:
+    This does not happen for standalone {{OffscreenCanvas}}es (created by `new OffscreenCanvas()`).
+</div>
+
+<div algorithm="transferToImageBitmap from WebGPU">
+    When {{OffscreenCanvas/transferToImageBitmap()}} is called on a canvas with
+    {{GPUCanvasContext}} |context|, after creating an {{ImageBitmap}} from the canvas's bitmap:
+
+    1. [$Replace the drawing buffer$] of |context|.
+
+    Note: This is equivalent to "moving" the (possibly alpha-cleared) image contents into the
+    ImageBitmap, without a copy.
 </div>
 
 ## GPUCanvasConfiguration ## {#canvas-configuration}
@@ -13184,7 +13200,7 @@ In WebGPU, it does so by [$Replace the drawing buffer|replacing the drawing buff
         1. Set |context|.{{GPUCanvasContext/[[textureDescriptor]]}} to the
             [$GPUTextureDescriptor for the canvas and configuration$](|canvas|, |configuration|).
 
-    Note: This may result a {{GPUTextureDescriptor}} which exceeds the
+    Note: This may result in a {{GPUTextureDescriptor}} which exceeds the
     {{supported limits/maxTextureDimension2D}} of the device. In this case,
     validation will fail inside {{GPUCanvasContext/getCurrentTexture()}}.
 </div>
@@ -13214,8 +13230,7 @@ In WebGPU, it does so by [$Replace the drawing buffer|replacing the drawing buff
 </h3>
 
 This enum selects how the contents of the canvas will be interpreted when read, when
-[$update the rendering of the WebGPU canvas|rendered to the screen$] or
-[$get a copy of the image contents of a context|used as an image source$]
+[$get a copy of the image contents of a context|displayed to the screen or used as an image source$]
 (in drawImage, toDataURL, etc.)
 
 Below, `src` is a value in the canvas texture, and `dst` is an image that the canvas
@@ -13226,8 +13241,7 @@ is being composited into (e.g. an HTML page rendering, or a 2D canvas).
     ::
         Read RGB as opaque and ignore alpha values.
         If the content is not already opaque, the alpha channel is cleared to 1.0
-        when [$get a copy of the image contents of a context|used as an image source$] or
-        [$update the rendering of the WebGPU canvas|rendered to the screen$].
+        in "[$get a copy of the image contents of a context$]".
 
     : <dfn>"premultiplied"</dfn>
     ::
