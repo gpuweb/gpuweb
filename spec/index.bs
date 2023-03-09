@@ -238,7 +238,8 @@ div.algorithm > div[data-timeline] {
     border-color: #c900f1 !important;
 }
 [data-timeline="const"] {
-    border-color: rgba(186, 186, 186, 30%) !important;
+    /* 186 is perceptual 50% gray, so works for both light and dark modes. */
+    border-color: rgb(186 186 186 / 30%) !important;
 }
 
 /*
@@ -351,9 +352,11 @@ div.algorithm > div[data-timeline] {
 /*
  * Add vertical lines to demarcate multi-column cells.
  */
-table.data td[colspan] {
-    border-left-style: dotted;
-    border-right-style: dotted;
+table.data td,
+table.data th {
+    /* Only one side is needed because there are no outer borders on the tables.
+     * 186 is perceptual 50% gray, so works for both light and dark modes. */
+    border-left: 1px solid rgb(186 186 186 / 30%);
 }
 
 table.data.no-colspan-center td[colspan],
@@ -648,9 +651,6 @@ especially due to potentially malicious usage.
 If a user agent implements such a warning, it should include WebGPU usage in
 its heuristics, in addition to JavaScript, WebAssembly, WebGL, and so on.
 
-Issue(gpuweb/gpuweb#3483):
-Should WebGPU have Permissions Policy / Feature Policy?
-
 
 ## Privacy Considerations ## {#privacy-considerations}
 
@@ -770,10 +770,13 @@ In this specification, the following syntactic shorthands are used:
 ::
     The phrasing "`Foo.Bar`" means "the `Bar` member of the value (or interface) `Foo`."
 
+    The phrasing "`Foo.Bar` is [=map/exist|provided=]" means
+    "the `Bar` member [=map/exists=] in the [=map=] value `Foo`"
+
 : The `?.` ("optional chaining") syntax, adopted from JavaScript.
 ::
     The phrasing "`Foo?.Bar`" means
-    "if `Foo` is `null` or `undefined`, `undefined`; otherwise, `Foo.Bar`".
+    "if `Foo` is `null` or `undefined` or `Bar` does not [=map/exist=] in `Foo`, `undefined`; otherwise, `Foo.Bar`".
 
     For example, where `buffer` is a {{GPUBuffer}}, `buffer?.[[device]].[[adapter]]` means
     "if `buffer` is `null` or `undefined`, then `undefined`; otherwise,
@@ -988,7 +991,7 @@ Several operations in WebGPU return promises.
 - {{GPUDevice}}.{{GPUDevice/createComputePipelineAsync()}}
 - {{GPUDevice}}.{{GPUDevice/createRenderPipelineAsync()}}
 - {{GPUBuffer}}.{{GPUBuffer/mapAsync()}}
-- {{GPUShaderModule}}.{{GPUShaderModule/compilationInfo()}}
+- {{GPUShaderModule}}.{{GPUShaderModule/getCompilationInfo()}}
 - {{GPUQueue}}.{{GPUQueue/onSubmittedWorkDone()}}
 - {{GPUDevice}}.{{GPUDevice/lost}}
 - {{GPUDevice}}.{{GPUDevice/popErrorScope()}}
@@ -1437,6 +1440,15 @@ A [=capability=] is either a [=feature=] or a [=limit=].
 
 A user agent must not reveal more than 32 distinguishable configurations or buckets.
 
+The capabilities of an [=adapter=] must conform to [[#adapter-capability-guarantees]].
+
+Only supported capabilities may be requested in {{GPUAdapter/requestDevice()}};
+requesting unsupported capabilities results in failure.
+
+The capabilities of a [=device=] are exactly the ones which were requested in
+{{GPUAdapter/requestDevice()}}. These capabilities are enforced regardless of the
+capabilities of the [=adapter=].
+
 <p tracking-vector>
 For privacy considerations, see [[#privacy-machine-limits]].
 
@@ -1444,9 +1456,6 @@ For privacy considerations, see [[#privacy-machine-limits]].
 
 A <dfn dfn>feature</dfn> is a set of optional WebGPU functionality that is not supported
 on all implementations, typically due to hardware or system software constraints.
-
-Each {{GPUAdapter}} exposes a set of available features.
-Only those features may be requested in {{GPUAdapter/requestDevice()}}.
 
 Functionality that is part of a feature may only be used if the feature was requested at device
 creation (in {{GPUDeviceDescriptor/requiredFeatures}}).
@@ -1470,11 +1479,6 @@ See the [[#feature-index|Feature Index]] for a description of the functionality 
 ### Limits ### {#limits}
 
 Each <dfn dfn>limit</dfn> is a numeric limit on the usage of WebGPU on a device.
-
-A <dfn dfn>supported limits</dfn> object has a value for every defined limit.
-Each [=adapter=] has a set of [=supported limits=], and
-[=devices=] are {{GPUDeviceDescriptor/requiredLimits|created}} with specific [=supported limits=] in place.
-The device limits are enforced regardless of the adapter's limits.
 
 Each limit has a <dfn dfn for=limit>default</dfn> value.
 Every [=adapter=] is guaranteed to support the default value or [=limit/better=].
@@ -1513,6 +1517,8 @@ Setting "better" limits may not necessarily be desirable, as they may have a per
 Because of this, and to improve portability across devices and implementations,
 applications should generally request the "worst" limits that work for their content
 (ideally, the default values).
+
+A <dfn dfn>supported limits</dfn> object has a value for every limit defined by WebGPU:
 
 <table class="data no-colspan-center" dfn-type=attribute dfn-for="supported limits">
     <thead>
@@ -1555,20 +1561,6 @@ applications should generally request the "worst" limits that work for their con
     <tr class=row-continuation><td colspan=4>
         The maximum allowed number of {{GPUBindGroupLayoutEntry}}.{{GPUBindGroupLayoutEntry/binding}}
         values when creating a {{GPUBindGroupLayout}}.
-
-        The [=supported limit=] for an [=adapter=] must be &ge;
-        ([=max bindings per shader stage=] &times; [=max shader stages per pipeline=]) for the same
-        [=adapter=].
-
-        <dfn dfn for=>max bindings per shader stage</dfn> is
-        ({{supported limits/maxSampledTexturesPerShaderStage}} +
-        {{supported limits/maxSamplersPerShaderStage}} +
-        {{supported limits/maxStorageBuffersPerShaderStage}} +
-        {{supported limits/maxStorageTexturesPerShaderStage}} +
-        {{supported limits/maxUniformBuffersPerShaderStage}}).
-
-        <dfn dfn for=>max shader stages per pipeline</dfn> is `2`, because a
-        {{GPURenderPipeline}} supports both a vertex and fragment shader.
 
         Note: 640 "ought to be enough for anybody" who is using the default
         [=exceeds the binding slot limits|binding slot limits=].
@@ -1627,6 +1619,14 @@ applications should generally request the "worst" limits that work for their con
         which are uniform buffers.
         See [=Exceeds the binding slot limits=].
 
+    <tr><td><dfn>maxFragmentCombinedOutputResources</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
+    <tr class=row-continuation><td colspan=4>
+        The maximum total number of
+        {{GPUShaderStage/FRAGMENT}}-stage storage buffers,
+        {{GPUShaderStage/FRAGMENT}}-stage storage textures,
+        and color attachments in a {{GPURenderPipelineDescriptor}}.
+
     <tr><td><dfn>maxUniformBufferBindingSize</dfn>
         <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>65536 bytes
     <tr class=row-continuation><td colspan=4>
@@ -1636,7 +1636,7 @@ applications should generally request the "worst" limits that work for their con
         is {{GPUBufferBindingType/"uniform"}}.
 
     <tr><td><dfn>maxStorageBufferBindingSize</dfn>
-        <td>{{GPUSize64}} <td>[=limit class/maximum=] <td> 134217728 bytes (128 MiB)
+        <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>134217728 bytes (128 MiB)
     <tr class=row-continuation><td colspan=4>
         The maximum {{GPUBufferBinding}}.{{GPUBufferBinding/size}} for bindings with a
         {{GPUBindGroupLayoutEntry}} |entry| for which
@@ -1653,10 +1653,6 @@ applications should generally request the "worst" limits that work for their con
         |entry|.{{GPUBindGroupLayoutEntry/buffer}}?.{{GPUBufferBindingLayout/type}}
         is {{GPUBufferBindingType/"uniform"}}.
 
-        Implementations **must not** support values less than 32 bytes.
-
-        Note: 32 bytes would be the alignment of `vec4<f64>`. See [[WGSL#alignment-and-size]].
-
     <tr><td><dfn>minStorageBufferOffsetAlignment</dfn>
         <td>{{GPUSize32}} <td>[=limit class/alignment=] <td>256 bytes
     <tr class=row-continuation><td colspan=4>
@@ -1666,10 +1662,6 @@ applications should generally request the "worst" limits that work for their con
         |entry|.{{GPUBindGroupLayoutEntry/buffer}}?.{{GPUBufferBindingLayout/type}}
         is {{GPUBufferBindingType/"storage"}}
         or {{GPUBufferBindingType/"read-only-storage"}}.
-
-        Implementations **must not** support values less than 32 bytes.
-
-        Note: 32 bytes would be the alignment of `vec4<f64>`. See [[WGSL#alignment-and-size]].
 
     <tr><td><dfn>maxVertexBuffers</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
@@ -1682,10 +1674,6 @@ applications should generally request the "worst" limits that work for their con
     <tr class=row-continuation><td colspan=4>
         The maximum size of {{GPUBufferDescriptor/size}}
         when creating a {{GPUBuffer}}.
-
-        The [=supported limit=] for an [=adapter=] must be
-        &ge; {{supported limits/maxUniformBufferBindingSize}} and
-        &ge; {{supported limits/maxStorageBufferBindingSize}}.
 
     <tr><td><dfn>maxVertexAttributes</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16
@@ -1788,6 +1776,7 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxStorageBuffersPerShaderStage;
     readonly attribute unsigned long maxStorageTexturesPerShaderStage;
     readonly attribute unsigned long maxUniformBuffersPerShaderStage;
+    readonly attribute unsigned long maxFragmentCombinedOutputResources;
     readonly attribute unsigned long long maxUniformBufferBindingSize;
     readonly attribute unsigned long long maxStorageBufferBindingSize;
     readonly attribute unsigned long minUniformBufferOffsetAlignment;
@@ -2051,7 +2040,7 @@ developers are still strongly encouraged to test in multiple implementations.
 
         In the case of canvas texture expiry, expiry is also done in [$update the rendering of
         the WebGPU canvas$], so it's equivalent for an implementation to elide the task entirely.
-n</div>
+</div>
 
 ## Color Spaces and Encoding ## {#color-spaces}
 
@@ -2275,7 +2264,8 @@ interface GPU {
                 1. Let |adapter| be `null`.
                 1. If the user agent chooses to return an adapter, it should:
                     1. Set |adapter| to a [=valid=] [=adapter=], chosen according to
-                        the rules in [[#adapter-selection]] and the criteria in |options|.
+                        the rules in [[#adapter-selection]] and the criteria in |options|,
+                        adhering to [[#adapter-capability-guarantees]].
 
                         The [=supported limits=] of the adapter must adhere to the requirements
                         defined in [[#limits]].
@@ -2363,6 +2353,39 @@ calling {{GPUAdapter/requestDevice()}}.
         const gpuAdapter = await navigator.gpu.requestAdapter();
     </pre>
 </div>
+
+### Adapter Capability Guarantees ### {#adapter-capability-guarantees}
+
+Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}} must provide the following guarantees:
+
+- At least one of the following must be true:
+    - {{GPUFeatureName/"texture-compression-bc"}} is supported.
+    - Both {{GPUFeatureName/"texture-compression-etc2"}} and
+        {{GPUFeatureName/"texture-compression-astc"}} are supported.
+- All supported limits must be either the [=limit/default=] value or [=limit/better=].
+- {{supported limits/maxBindingsPerBindGroup}} must be must be &ge;
+    ([=max bindings per shader stage=] &times; [=max shader stages per pipeline=]), where:
+
+    - <dfn dfn for=>max bindings per shader stage</dfn> is
+        ({{supported limits/maxSampledTexturesPerShaderStage}} +
+        {{supported limits/maxSamplersPerShaderStage}} +
+        {{supported limits/maxStorageBuffersPerShaderStage}} +
+        {{supported limits/maxStorageTexturesPerShaderStage}} +
+        {{supported limits/maxUniformBuffersPerShaderStage}}).
+    - <dfn dfn for=>max shader stages per pipeline</dfn> is `2`, because a
+        {{GPURenderPipeline}} supports both a vertex and fragment shader.
+
+    Note: {{supported limits/maxBindingsPerBindGroup}} does not reflect a fundamental limit;
+    implementations should raise it to conform to this requirement, rather than lowering the
+    other limits.
+
+- {{supported limits/maxColorAttachments}} must be &le; {{supported limits/maxFragmentCombinedOutputResources}}.
+- {{supported limits/minUniformBufferOffsetAlignment}} and
+    {{supported limits/minStorageBufferOffsetAlignment}} must both be &ge; 32 bytes.
+
+        Note: 32 bytes would be the alignment of `vec4<f64>`. See [[WGSL#alignment-and-size]].
+- {{supported limits/maxUniformBufferBindingSize}} must be &le; {{supported limits/maxBufferSize}}.
+- {{supported limits/maxStorageBufferBindingSize}} must be &le; {{supported limits/maxBufferSize}}.
 
 ### Adapter Selection ### {#adapter-selection}
 
@@ -2746,7 +2769,8 @@ enum GPUFeatureName {
     "indirect-first-instance",
     "shader-f16",
     "rg11b10ufloat-renderable",
-    "bgra8unorm-storage"
+    "bgra8unorm-storage",
+    "float32-filterable"
 };
 </script>
 
@@ -4125,9 +4149,10 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
 
                 [=Content timeline=] steps:
 
-                1. [$Validate texture format required features$] of
+                1. [=?=] [$validate GPUExtent3D shape$](|descriptor|.{{GPUTextureDescriptor/size}}).
+                1. [=?=] [$Validate texture format required features$] of
                     |descriptor|.{{GPUTextureDescriptor/format}} with |this|.{{GPUObjectBase/[[device]]}}.
-                1. [$Validate texture format required features$] of each element of
+                1. [=?=] [$Validate texture format required features$] of each element of
                     |descriptor|.{{GPUTextureDescriptor/viewFormats}} with |this|.{{GPUObjectBase/[[device]]}}.
                 1. Let |t| be a new {{GPUTexture}} object.
                 1. Set |t|.{{GPUTexture/width}} to |descriptor|.{{GPUTextureDescriptor/size}}.[=Extent3D/width=].
@@ -4331,7 +4356,7 @@ dictionary GPUTextureViewDescriptor : GPUObjectDescriptorBase {
 };
 </script>
 
-{{GPUTextureDescriptor}} has the following members:
+{{GPUTextureViewDescriptor}} has the following members:
 
 <dl dfn-type=dict-member dfn-for=GPUTextureViewDescriptor>
     : <dfn>format</dfn>
@@ -4510,7 +4535,7 @@ enum GPUTextureAspect {
 
                 [=Content timeline=] steps:
 
-                1. [$Validate texture format required features$] of
+                1. [=?=] [$Validate texture format required features$] of
                     |descriptor|.{{GPUTextureViewDescriptor/format}} with |this|.{{GPUObjectBase/[[device]]}}.
                 1. Let |view| be a new {{GPUTextureView}} object.
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
@@ -4600,7 +4625,7 @@ enum GPUTextureAspect {
     |texture| with a {{GPUTextureViewDescriptor}} |descriptor| run the following steps:
 
     1. Let |resolved| be a copy of |descriptor|.
-    1. If |resolved|.{{GPUTextureViewDescriptor/format}} is `undefined`,
+    1. If |resolved|.{{GPUTextureViewDescriptor/format}} is not [=map/exist|provided=]:
         1. Let |format| be the result of [$resolving GPUTextureAspect$](
                 {{GPUTexture/format}},
                 |descriptor|.{{GPUTextureViewDescriptor/aspect}}).
@@ -4611,10 +4636,10 @@ enum GPUTextureAspect {
             Otherwise:
 
             - Set |resolved|.{{GPUTextureViewDescriptor/format}} to |format|.
-    1. If |resolved|.{{GPUTextureViewDescriptor/mipLevelCount}} is `undefined`,
+    1. If |resolved|.{{GPUTextureViewDescriptor/mipLevelCount}} is not [=map/exist|provided=]:
         set |resolved|.{{GPUTextureViewDescriptor/mipLevelCount}} to |texture|.{{GPUTexture/mipLevelCount}}
         &minus; |resolved|.{{GPUTextureViewDescriptor/baseMipLevel}}.
-    1. If |resolved|.{{GPUTextureViewDescriptor/dimension}} is `undefined` and
+    1. If |resolved|.{{GPUTextureViewDescriptor/dimension}} is not [=map/exist|provided=] and
         |texture|.{{GPUTexture/dimension}} is:
 
         <dl class=switch>
@@ -4633,7 +4658,7 @@ enum GPUTextureAspect {
             : {{GPUTextureDimension/"3d"}}
             :: Set |resolved|.{{GPUTextureViewDescriptor/dimension}} to {{GPUTextureViewDimension/"3d"}}.
         </dl>
-    1. If |resolved|.{{GPUTextureViewDescriptor/arrayLayerCount}} is `undefined` and
+    1. If |resolved|.{{GPUTextureViewDescriptor/arrayLayerCount}} is not [=map/exist|provided=] and
         |resolved|.{{GPUTextureViewDescriptor/dimension}} is:
 
         <dl class=switch>
@@ -4695,8 +4720,13 @@ The <dfn dfn>texel block width</dfn> and <dfn dfn>texel block height</dfn> speci
     and the [=texel block height=] is the number of texel rows in one [=texel block=]. See [[#texture-format-caps]] for an exhaustive list
     of values for every texture format.
 
-The <dfn dfn>texel block size</dfn> of a {{GPUTextureFormat}} is the number of bytes to store one [=texel block=].
-The [=texel block size=] of each {{GPUTextureFormat}} is constant except for {{GPUTextureFormat/"stencil8"}}, {{GPUTextureFormat/"depth24plus"}}, and {{GPUTextureFormat/"depth24plus-stencil8"}}.
+The <dfn dfn>texel block copy footprint</dfn> of an [=aspect=] of a {{GPUTextureFormat}} is the number of
+bytes one texel block occupies during an [=image copy=], if applicable.
+
+Note:
+The <dfn dfn>texel block memory cost</dfn> of a {{GPUTextureFormat}} is the number of
+bytes needed to store one [=texel block=]. It is not fully defined for all formats.
+**This value is informative and non-normative.**
 
 <script type=idl>
 enum GPUTextureFormat {
@@ -4842,10 +4872,20 @@ hidden and inaccessible.
     - For depth32float, 1 ULP has a variable value no greater than 1 / (2<sup>24</sup>).
 </div>
 
-A <dfn>renderable format</dfn> is either a <dfn>color renderable format</dfn>, or a [=depth-or-stencil format=].
+A format is <dfn lt="renderable|renderable format">renderable</dfn> if it is either a <dfn>color renderable format</dfn>, or a [=depth-or-stencil format=].
 If a format is listed in [[#plain-color-formats]] with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability, it is a
 color renderable format. Any other format is not a color renderable format.
 All [=depth-or-stencil formats=] are renderable.
+
+A [=renderable format=] is also <dfn lt="blendable|blendable format">blendable</dfn>
+if it can be used with render pipeline blending.
+See [[#texture-format-caps]].
+
+A format is <dfn lt="filterable|filterable format">filterable</dfn> if it supports the
+{{GPUTextureSampleType}} {{GPUTextureSampleType/"float"}}
+(not just {{GPUTextureSampleType/"unfilterable-float"}});
+that is, it can be used with {{GPUSamplerBindingType/"filtering"}} {{GPUSampler}}s.
+See [[#texture-format-caps]].
 
 <div algorithm>
     <dfn abstract-op>resolving GPUTextureAspect</dfn>(format, aspect)
@@ -5413,7 +5453,7 @@ GPUBindGroupLayout includes GPUObjectBase;
 {{GPUBindGroupLayout}} has the following internal slots:
 
 <dl dfn-type=attribute dfn-for=GPUBindGroupLayout>
-    : <dfn>\[[descriptor]]</dfn>
+    : <dfn>\[[descriptor]]</dfn>, of type {{GPUBindGroupLayoutDescriptor}}
     ::
 </dl>
 
@@ -5459,27 +5499,27 @@ dictionary GPUBindGroupLayoutEntry {
 
     : <dfn>buffer</dfn>
     ::
-        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When [=map/exist|provided=], indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUBufferBinding}}.
 
     : <dfn>sampler</dfn>
     ::
-        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When [=map/exist|provided=], indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUSampler}}.
 
     : <dfn>texture</dfn>
     ::
-        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When [=map/exist|provided=], indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUTextureView}}.
 
     : <dfn>storageTexture</dfn>
     ::
-        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When [=map/exist|provided=], indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUTextureView}}.
 
     : <dfn>externalTexture</dfn>
     ::
-        When not `undefined`, indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
+        When [=map/exist|provided=], indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
         is {{GPUExternalTexture}}.
 </dl>
 
@@ -5596,7 +5636,7 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
         </dl>
     1. For each shader stage |stage| in
         &laquo; {{GPUShaderStage/VERTEX}}, {{GPUShaderStage/FRAGMENT}}, {{GPUShaderStage/COMPUTE}} &raquo;:
-        1. For each |entry| in |entries|  for which
+        1. For each |entry| in |entries| for which
             |entry|.{{GPUBindGroupLayoutEntry/visibility}} contains |stage|, if:
 
             <dl class=switch>
@@ -5606,13 +5646,13 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
                 : |entry|.{{GPUBindGroupLayoutEntry/buffer}}?.{{GPUBufferBindingLayout/type}}
                     is {{GPUBufferBindingType/"storage"}} or {{GPUBufferBindingType/"read-only-storage"}}
                 :: Consider 1 {{supported limits/maxStorageBuffersPerShaderStage}} slot to be used.
-                : |entry|.{{GPUBindGroupLayoutEntry/sampler}} is not `undefined`
+                : |entry|.{{GPUBindGroupLayoutEntry/sampler}} is [=map/exist|provided=]
                 :: Consider 1 {{supported limits/maxSamplersPerShaderStage}} slot to be used.
-                : |entry|.{{GPUBindGroupLayoutEntry/texture}} is not `undefined`
+                : |entry|.{{GPUBindGroupLayoutEntry/texture}} is [=map/exist|provided=]
                 :: Consider 1 {{supported limits/maxSampledTexturesPerShaderStage}} slot to be used.
-                : |entry|.{{GPUBindGroupLayoutEntry/storageTexture}} is not `undefined`
+                : |entry|.{{GPUBindGroupLayoutEntry/storageTexture}} is [=map/exist|provided=]
                 :: Consider 1 {{supported limits/maxStorageTexturesPerShaderStage}} slot to be used.
-                : |entry|.{{GPUBindGroupLayoutEntry/externalTexture}} is not `undefined`
+                : |entry|.{{GPUBindGroupLayoutEntry/externalTexture}} is [=map/exist|provided=]
                 :: Consider
                     4 {{supported limits/maxSampledTexturesPerShaderStage}} slot,
                     1 {{supported limits/maxSamplersPerShaderStage}} slot, and
@@ -5705,9 +5745,6 @@ dictionary GPUTextureBindingLayout {
 };
 </script>
 
-Issue(https://github.com/gpuweb/gpuweb/issues/851): consider making {{GPUTextureBindingLayout/sampleType}}
-truly optional.
-
 {{GPUTextureBindingLayout}} dictionaries have the following members:
 
 <dl dfn-type=dict-member dfn-for=GPUTextureBindingLayout>
@@ -5737,16 +5774,16 @@ dictionary GPUStorageTextureBindingLayout {
 };
 </script>
 
-Issue(https://github.com/gpuweb/gpuweb/issues/851): consider making {{GPUStorageTextureBindingLayout/format}}
-truly optional.
-
 {{GPUStorageTextureBindingLayout}} dictionaries have the following members:
 
 <dl dfn-type=dict-member dfn-for=GPUStorageTextureBindingLayout>
     : <dfn>access</dfn>
     ::
-        Indicates whether texture views bound to this binding will be bound for read-only or
-        write-only access.
+        The access mode for this binding, indicating readability and writability.
+
+        Note:
+        There is currently only one access mode, {{GPUStorageTextureAccess/"write-only"}},
+        but this will expand in the future.
 
     : <dfn>format</dfn>
     ::
@@ -5803,8 +5840,8 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                 [=Content timeline=] steps:
 
                 1. For each {{GPUBindGroupLayoutEntry}} |entry| in |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
-                    1. If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}} is not `undefined`:
-                        1. [$Validate texture format required features$] for
+                    1. If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}} is [=map/exist|provided=]:
+                        1. [=?=] [$Validate texture format required features$] for
                             |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/format}}
                             with |this|.{{GPUObjectBase/[[device]]}}.
                 1. Let |layout| be a new {{GPUBindGroupLayout}} object.
@@ -5826,13 +5863,11 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                         - |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}} must not
                             [=exceeds the binding slot limits|exceed the binding slot limits=] of |limits|.
                         - For each {{GPUBindGroupLayoutEntry}} |entry| in |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
-                            - Let |bufferLayout| be |entry|.{{GPUBindGroupLayoutEntry/buffer}}
-                            - Let |samplerLayout| be |entry|.{{GPUBindGroupLayoutEntry/sampler}}
-                            - Let |textureLayout| be |entry|.{{GPUBindGroupLayoutEntry/texture}}
-                            - Let |storageTextureLayout| be |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}
-
-                            - Exactly one of |bufferLayout|, |samplerLayout|, |textureLayout|,
-                                or |storageTextureLayout| are not `undefined`.
+                            - Exactly one of
+                                |entry|.{{GPUBindGroupLayoutEntry/buffer}},
+                                |entry|.{{GPUBindGroupLayoutEntry/sampler}},
+                                |entry|.{{GPUBindGroupLayoutEntry/texture}}, and
+                                |entry|.{{GPUBindGroupLayoutEntry/storageTexture}} is [=map/exist|provided=].
 
                             - |entry|.{{GPUBindGroupLayoutEntry/visibility}} contains only bits defined in {{GPUShaderStage}}.
 
@@ -5843,23 +5878,22 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                                 - |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}?.{{GPUStorageTextureBindingLayout/access}}
                                     must not be {{GPUStorageTextureAccess/"write-only"}}.
 
-                            - If the |textureLayout| is not `undefined` and
-                                |textureLayout|.{{GPUTextureBindingLayout/multisampled}} is `true`:
-                                - |textureLayout|.{{GPUTextureBindingLayout/viewDimension}} is
+                            - If |entry|.{{GPUBindGroupLayoutEntry/texture}}?.{{GPUTextureBindingLayout/multisampled}} is `true`:
+                                - |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/viewDimension}} is
                                     {{GPUTextureViewDimension/"2d"}}.
-                                - |textureLayout|.{{GPUTextureBindingLayout/sampleType}} is not
+                                - |entry|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}} is not
                                     {{GPUTextureSampleType/"float"}}.
 
-                            - If |storageTextureLayout| is not `undefined`:
-                                - |storageTextureLayout|.{{GPUStorageTextureBindingLayout/viewDimension}} is not
+                            - If |entry|.{{GPUBindGroupLayoutEntry/storageTexture}} is [=map/exist|provided=]:
+                                - |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/viewDimension}} is not
                                     {{GPUTextureViewDimension/"cube"}} or {{GPUTextureViewDimension/"cube-array"}}.
-                                - |storageTextureLayout|.{{GPUStorageTextureBindingLayout/format}} must be a format
+                                - |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/format}} must be a format
                                     which can support storage usage.
                     </div>
 
                 1. Set |layout|.{{GPUBindGroupLayout/[[descriptor]]}} to |descriptor|.
                 1. Set |layout|.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}} to the number of
-                    entries in |descriptor| where {{GPUBindGroupLayoutEntry/buffer}} is not `undefined` and
+                    entries in |descriptor| where {{GPUBindGroupLayoutEntry/buffer}} is [=map/exist|provided=] and
                     {{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/hasDynamicOffset}} is `true`.
                 1. For each {{GPUBindGroupLayoutEntry}} |entry| in
                     |descriptor|.{{GPUBindGroupLayoutDescriptor/entries}}:
@@ -5985,7 +6019,8 @@ following members:
 
     : <dfn>size</dfn>
     ::
-        The size, in bytes, of the buffer binding. If `undefined`, specifies the range starting at
+        The size, in bytes, of the buffer binding.
+        If not [=map/exist|provided=], specifies the range starting at
         {{GPUBufferBinding/offset}} and ending at the end of {{GPUBufferBinding/buffer}}.
 </dl>
 
@@ -6138,7 +6173,7 @@ following members:
 
 <div algorithm>
     <dfn abstract-op>effective buffer binding size</dfn>(binding)
-        1. If |binding|.{{GPUBufferBinding/size}} is `undefined`:
+        1. If |binding|.{{GPUBufferBinding/size}} is not [=map/exist|provided=]:
             1. Return max(0, |binding|.{{GPUBufferBinding/buffer}}.{{GPUBuffer/size}} - |binding|.{{GPUBufferBinding/offset}});
         1. Return |binding|.{{GPUBufferBinding/size}}.
 </div>
@@ -6217,7 +6252,7 @@ pipeline, and have the following members:
 <dl dfn-type=dict-member dfn-for=GPUPipelineLayoutDescriptor>
     : <dfn>bindGroupLayouts</dfn>
     ::
-        A list of {{GPUBindGroupLayout}}s the pipline will use. Each element corresponds to a
+        A list of {{GPUBindGroupLayout}}s the pipeline will use. Each element corresponds to a
         [=@group=] attribute in the {{GPUShaderModule}}, with the `N`th element corresponding with
         `@group(N)`.
 </dl>
@@ -6326,7 +6361,7 @@ if their internal {{GPUPipelineLayout/[[bindGroupLayouts]]}} sequences contain
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUShaderModule {
-    Promise<GPUCompilationInfo> compilationInfo();
+    Promise<GPUCompilationInfo> getCompilationInfo();
 };
 GPUShaderModule includes GPUObjectBase;
 </script>
@@ -6422,7 +6457,7 @@ dictionary GPUShaderModuleDescriptor : GPUObjectDescriptorBase {
                     Note:
                     User agents **should not** include detailed compiler error messages or shader text in
                     the {{GPUError/message}} text of validation errors arising here:
-                    these details are accessible via {{GPUShaderModule/compilationInfo()}}.
+                    these details are accessible via {{GPUShaderModule/getCompilationInfo()}}.
                     User agents **should** surface human-readable, formatted error details *to
                     developers* for easier debugging (for example as a warning in the browser developer
                     console, expandable to show full shader source).
@@ -6607,14 +6642,14 @@ Note: {{GPUCompilationMessage}}.{{GPUCompilationMessage/offset}} and
 {{GPUCompilationMessage/message}} corresponds to.
 
 <dl dfn-type=method dfn-for=GPUShaderModule>
-    : <dfn>compilationInfo()</dfn>
+    : <dfn>getCompilationInfo()</dfn>
     ::
         Returns any messages generated during the {{GPUShaderModule}}'s compilation.
 
         The locations, order, and contents of messages are implementation-defined.
         In particular, messages may not be ordered by {{GPUCompilationMessage/lineNum}}.
 
-        <div algorithm=GPUShaderModule.compilationInfo>
+        <div algorithm=GPUShaderModule.getCompilationInfo>
             <div data-timeline=content>
                 **Called on:** {{GPUShaderModule}} this
 
@@ -7583,7 +7618,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     : <dfn>fragment</dfn>
     ::
         Describes the fragment shader entry point of the [=pipeline=] and its output colors. If
-        `undefined`, the [[#no-color-output]] mode is enabled.
+        not [=map/exist|provided=], the [[#no-color-output]] mode is enabled.
 </dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
@@ -7605,13 +7640,13 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
 
                 [=Content timeline=] steps:
 
-                1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is not `undefined`:
+                1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is [=map/exist|provided=]:
                     1. [=list/For each=] non-`null` |colorState| of
                         |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}:
-                        1. [$Validate texture format required features$] of
+                        1. [=?=] [$Validate texture format required features$] of
                             |colorState|.{{GPUColorTargetState/format}} with |this|.{{GPUObjectBase/[[device]]}}.
-                1. If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is not `null`:
-                    1. [$Validate texture format required features$] of
+                1. If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is [=map/exist|provided=]:
+                    1. [=?=] [$Validate texture format required features$] of
                         |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/format}}
                         with |this|.{{GPUObjectBase/[[device]]}}.
                 1. Let |pipeline| be a new {{GPURenderPipeline}} object.
@@ -7727,7 +7762,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
         |descriptor|.{{GPURenderPipelineDescriptor/vertex}}, |layout|) succeeds.
     - [$validating GPUVertexState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/vertex}},
         |descriptor|.{{GPURenderPipelineDescriptor/vertex}}) succeeds.
-    - If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is not `null`:
+    - If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is [=map/exist|provided=]:
         - [$validating GPUProgrammableStage$]({{GPUShaderStage/FRAGMENT}},
             |descriptor|.{{GPURenderPipelineDescriptor/fragment}}, |layout|) succeeds.
         - [$validating GPUFragmentState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}}) succeeds.
@@ -7741,7 +7776,7 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
             they will be discarded.
 
     - [$validating GPUPrimitiveState$](|descriptor|.{{GPURenderPipelineDescriptor/primitive}}, |device|) succeeds.
-    - If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is not `null`:
+    - If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is [=map/exist|provided=]:
         - [$validating GPUDepthStencilState$](|descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}) succeeds.
     - [$validating GPUMultisampleState$](|descriptor|.{{GPURenderPipelineDescriptor/multisample}}) succeeds.
     - [$validating inter-stage interfaces$](|device|, |descriptor|) returns `true`.
@@ -7869,7 +7904,7 @@ constructs and rasterizes primitives from its vertex inputs:
 
         - If |descriptor|.{{GPUPrimitiveState/topology}} is not
             {{GPUPrimitiveTopology/"line-strip"}} or {{GPUPrimitiveTopology/"triangle-strip"}}:
-            - |descriptor|.{{GPUPrimitiveState/stripIndexFormat}} is `undefined`
+            - |descriptor|.{{GPUPrimitiveState/stripIndexFormat}} must not be [=map/exist|provided=].
         - If |descriptor|.{{GPUPrimitiveState/unclippedDepth}} is `true`:
             - {{GPUFeatureName/"depth-clip-control"}} must be [=enabled for=] |device|.
 </div>
@@ -8017,13 +8052,14 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 
     - |descriptor|.{{GPUFragmentState/targets}}.length must be &le;
         |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
+    - The [=total number of fragment output resources=] must be &le;
+        |device|.{{device/[[limits]]}}.{{supported limits/maxFragmentCombinedOutputResources}}.
     - [=list/For each=] |index| of the [=list/indices=] of |descriptor|.{{GPUFragmentState/targets}}
         containing a non-`null` value |colorState|:
         - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
             with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
-        - If |colorState|.{{GPUColorTargetState/blend}} is not `undefined`:
-            - The |colorState|.{{GPUColorTargetState/format}} must be filterable
-                according to the [[#plain-color-formats]] table.
+        - If |colorState|.{{GPUColorTargetState/blend}} is [=map/exist|provided=]:
+            - The |colorState|.{{GPUColorTargetState/format}} must be [=blendable=].
             - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}
                 must be a [=valid GPUBlendComponent=].
             - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
@@ -8035,7 +8071,7 @@ dictionary GPUFragmentState : GPUProgrammableStage {
             - For each component in |colorState|.{{GPUColorTargetState/format}}, there must be a
                 corresponding component in |output|.
                 (That is, RGBA requires vec4, RGB requires vec3 or vec4, RG requires vec2 or vec3 or vec4.)
-            - If |colorState|.{{GPUColorTargetState/blend}} is not `undefined` and
+            - If |colorState|.{{GPUColorTargetState/blend}} is [=map/exist|provided=] and
                 |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.{{GPUBlendComponent/srcFactor}}
                 or .{{GPUBlendComponent/dstFactor}} uses the source alpha
                 (is any of {{GPUBlendFactor/"src-alpha"}}, {{GPUBlendFactor/"one-minus-src-alpha"}},
@@ -8046,6 +8082,15 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 
             - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
     - [$Validating GPUFragmentState's color attachment bytes per sample$](|device|, |descriptor|.{{GPUFragmentState/targets}}) succeeds.
+</div>
+
+<div algorithm>
+    The <dfn dfn>total number of fragment output resources</dfn> for a
+    {{GPUFragmentState}} |descriptor| is the sum of:
+
+    - the number of non-null elements in |descriptor|.{{GPUFragmentState/targets}}
+    - the number of storage buffers and storage textures (of any access mode)
+        [=statically used=] by |descriptor|
 </div>
 
 <div algorithm>
@@ -8267,8 +8312,8 @@ enum GPUBlendOperation {
 dictionary GPUDepthStencilState {
     required GPUTextureFormat format;
 
-    boolean depthWriteEnabled = false;
-    GPUCompareFunction depthCompare = "always";
+    required boolean depthWriteEnabled;
+    required GPUCompareFunction depthCompare;
 
     GPUStencilFaceState stencilFront = {};
     GPUStencilFaceState stencilBack = {};
@@ -9219,6 +9264,9 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 
                 [=Content timeline=] steps:
 
+                1. For each non-`null` |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/clearValue}} is not `null`.
+                        1. [=?=] [$validate GPUColor shape$](|colorAttachment|.{{GPURenderPassColorAttachment/clearValue}}).
                 1. Let |pass| be a new {{GPURenderPassEncoder}} object.
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |pass|.
@@ -9231,17 +9279,15 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
                 1. If any of the following requirements are unmet, make |pass| [=invalid=] and return.
                     <div class=validusage>
-                        - |descriptor| must meet the [$GPURenderPassDescriptor/Valid Usage$] rules.
-                        - If |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is not [=list/is empty|empty=]:
-                            - {{GPUFeatureName/"timestamp-query"}} must be [=enabled for=] |this|.
-                        - For each |timestampWrite| in |descriptor|.{{GPURenderPassDescriptor/timestampWrites}}:
-                            - |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}} must be [$valid to use with$] |this|.
+                        - |descriptor| must meet the [$GPURenderPassDescriptor/Valid Usage$] rules
+                            given device |this|.{{GPUObjectBase/[[device]]}}.
                     </div>
                 1. For each non-`null` |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
                     1. The [=texture subresource=] seen by |colorAttachment|.{{GPURenderPassColorAttachment/view}}
                         is considered to be used as [=internal usage/attachment=] for the
                         duration of the render pass.
-                1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
+                1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}},
+                    or `null` if not [=map/exist|provided=].
                 1. If |depthStencilAttachment| is not `null`:
                     1. Let |depthStencilView| be |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}.
                     1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} and
@@ -9307,10 +9353,9 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
                 1. If any of the following requirements are unmet, make |pass| [=invalid=] and return.
                     <div class=validusage>
-                        - If |descriptor|.{{GPURenderPassDescriptor/timestampWrites}} is not [=list/is empty|empty=]:
-                            - {{GPUFeatureName/"timestamp-query"}} must be [=enabled for=] |this|.
-                        - For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}}:
-                            - |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}} must be [$valid to use with$] |this|.
+                        - [$Validate timestampWrites$](|this|.{{GPUObjectBase/[[device]]}},
+                            |descriptor|.{{GPUComputePassDescriptor/timestampWrites}})
+                            must return true.
                     </div>
                 1. For each |timestampWrite| in |descriptor|.{{GPUComputePassDescriptor/timestampWrites}},
                     1. If |timestampWrite|.{{GPUComputePassTimestampWrite/location}} is {{GPUComputePassTimestampLocation/"beginning"}},
@@ -9367,13 +9412,9 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                         - |size| is a multiple of 4.
                         - |sourceOffset| is a multiple of 4.
                         - |destinationOffset| is a multiple of 4.
-                        - (|sourceOffset| + |size|) does not overflow a {{GPUSize64}}.
-                        - (|destinationOffset| + |size|) does not overflow a {{GPUSize64}}.
                         - |source|.{{GPUBuffer/size}} &ge; (|sourceOffset| + |size|).
                         - |destination|.{{GPUBuffer/size}} &ge; (|destinationOffset| + |size|).
                         - |source| and |destination| are not the same {{GPUBuffer}}.
-
-                        Issue(gpuweb/gpuweb#69): figure out how to handle overflows in the spec.
                     </div>
 
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
@@ -9462,6 +9503,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 
                 [=Content timeline=] steps:
 
+                1. [=?=] [$validate GPUOrigin3D shape$](|destination|.{{GPUImageCopyTexture/origin}}).
+                1. [=?=] [$validate GPUExtent3D shape$](|copySize|).
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             </div>
             <div data-timeline=device>
@@ -9485,8 +9528,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                             - Set |aspectSpecificFormat| to the [=aspect-specific format=] according to [[#depth-formats]].
                         - [=validating texture copy range=](|destination|, |copySize|) return `true`.
                         - If |dstTexture|.{{GPUTexture/format}} is not a [=depth-or-stencil format=]:
-                            - |source|.{{GPUImageDataLayout/offset}} is a multiple of the [=texel block size=] of
-                                |dstTexture|.{{GPUTexture/format}}.
+                            - |source|.{{GPUImageDataLayout/offset}} is a multiple of the
+                                [=texel block copy footprint=] of |dstTexture|.{{GPUTexture/format}}.
                         - If |dstTexture|.{{GPUTexture/format}} is a [=depth-or-stencil format=]:
                             - |source|.{{GPUImageDataLayout/offset}} is a multiple of 4.
                         - [$validating linear texture data$](|source|,
@@ -9527,6 +9570,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 
                 [=Content timeline=] steps:
 
+                1. [=?=] [$validate GPUOrigin3D shape$](|source|.{{GPUImageCopyTexture/origin}}).
+                1. [=?=] [$validate GPUExtent3D shape$](|copySize|).
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             </div>
             <div data-timeline=device>
@@ -9551,8 +9596,8 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
                             {{GPUBufferUsage/COPY_DST}}.
                         - [=validating texture copy range=](|source|, |copySize|) returns `true`.
                         - If |srcTexture|.{{GPUTexture/format}} is not a [=depth-or-stencil format=]:
-                            - |destination|.{{GPUImageDataLayout/offset}} is a multiple of the [=texel block size=] of
-                                |srcTexture|.{{GPUTexture/format}}.
+                            - |destination|.{{GPUImageDataLayout/offset}} is a multiple of the
+                                [=texel block copy footprint=] of |srcTexture|.{{GPUTexture/format}}.
                         - If |srcTexture|.{{GPUTexture/format}} is a [=depth-or-stencil format=]:
                             - |destination|.{{GPUImageDataLayout/offset}} is a multiple of 4.
                         - [$validating linear texture data$](|destination|,
@@ -9594,6 +9639,9 @@ dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
 
                 [=Content timeline=] steps:
 
+                1. [=?=] [$validate GPUOrigin3D shape$](|source|.{{GPUImageCopyTexture/origin}}).
+                1. [=?=] [$validate GPUOrigin3D shape$](|destination|.{{GPUImageCopyTexture/origin}}).
+                1. [=?=] [$validate GPUExtent3D shape$](|copySize|).
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}:
             </div>
             <div data-timeline=device>
@@ -9956,8 +10004,7 @@ It must only be included by interfaces which also include those mixins.
     1. For each {{GPUBindGroupEntry}} |entry| in |bindGroup|.{{GPUBindGroup/[[entries]]}} ordered in increasing values of |entry|.{{GPUBindGroupEntry/binding}}:
         1. Let |bindingDescriptor| be the {{GPUBindGroupLayoutEntry}} at
             |layout|.{{GPUBindGroupLayout/[[entryMap]]}}[|entry|.{{GPUBindGroupEntry/binding}}]:
-        1. If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}} is not `undefined` and
-            |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/hasDynamicOffset}} is `true`:
+        1. If |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}}?.{{GPUBufferBindingLayout/hasDynamicOffset}} is `true`:
             1. Let |bufferBinding| be |entry|.{{GPUBindGroupEntry/resource}}.
             1. Let |bufferLayout| be |bindingDescriptor|.{{GPUBindGroupLayoutEntry/buffer}}.
             1. Call |steps| with |bufferBinding|, |bufferLayout|, and |dynamicOffsetIndex|.
@@ -10040,7 +10087,7 @@ It must only be included by interfaces which also include those mixins.
 
                     1. Let {{GPUTextureView}} |resource| be |bindGroupEntry|.{{GPUBindGroupEntry/resource}}.
                     1. Let |resourceWritable| be (|bindGroupLayoutEntry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/access}} == {{GPUStorageTextureAccess/"write-only"}}).
-                    1. If |bindGroupLayoutEntry|.{{GPUBindGroupLayoutEntry/storageTexture}} is `null`, continue.
+                    1. If |bindGroupLayoutEntry|.{{GPUBindGroupLayoutEntry/storageTexture}} is not [=map/exist|provided=], **continue**.
                     1. For each pair ({{GPUTextureView}} |pastResource|, `boolean` |pastResourceWritable|) in |textureViews|,
                         1. If (|resourceWritable| or |pastResourceWritable|) is true, and
                             |pastResource| and |resource| is [=texture-view-aliasing=], return `true`.
@@ -10232,20 +10279,6 @@ dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
     ::
         A sequence of {{GPUComputePassTimestampWrite}} values define where and when timestamp values will be written for this pass.
 </dl>
-
-<div class=validusage dfn-for=GPUComputePassDescriptor>
-    <dfn abstract-op>Valid Usage</dfn>
-
-    Given a {{GPUComputePassDescriptor}} |this| the following validation rules apply:
-
-    1. No two entries in |this|.{{GPUComputePassDescriptor/timestampWrites}} have the same {{GPUComputePassTimestampWrite/location}}.
-
-    1. For each |timestampWrite| in |this|.{{GPUComputePassDescriptor/timestampWrites}}:
-
-        1. |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.{{GPUQuerySet/type}} is {{GPUQueryType/"timestamp"}}.
-
-        1. |timestampWrite|.{{GPUComputePassTimestampWrite/queryIndex}} &lt; |timestampWrite|.{{GPUComputePassTimestampWrite/querySet}}.{{GPUQuerySet/count}}.
-</div>
 
 ### Dispatch ### {#compute-pass-encoder-dispatch}
 
@@ -10628,7 +10661,7 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
         is a good default, unless it is known that more draw calls will be done.
 </dl>
 
-<div class=validusage dfn-for=GPURenderPassDescriptor data-timeline=device>
+<div algorithm class=validusage dfn-for=GPURenderPassDescriptor data-timeline=device>
     <dfn abstract-op>Valid Usage</dfn>
 
     Given a {{GPUDevice}} |device| and {{GPURenderPassDescriptor}} |this|, the following validation rules apply:
@@ -10638,13 +10671,13 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
 
     1. If |this|.{{GPURenderPassDescriptor/colorAttachments}} contains no non-`null` values:
 
-        1. |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} must not be `null`.
+        1. |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} must [=map/exist|be provided=].
 
     1. For each non-`null` |colorAttachment| in |this|.{{GPURenderPassDescriptor/colorAttachments}}:
 
         1. |colorAttachment| must meet the [$GPURenderPassColorAttachment/GPURenderPassColorAttachment Valid Usage$] rules.
 
-    1. If |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} is not `null`:
+    1. If |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} is [=map/exist|provided=]:
 
         1. |this|.{{GPURenderPassDescriptor/depthStencilAttachment}} must meet the [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$] rules.
 
@@ -10663,17 +10696,11 @@ dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
         1. |this|.{{GPURenderPassDescriptor/occlusionQuerySet}}.{{GPUQuerySet/type}}
             must be {{GPUQueryType/occlusion}}.
 
-    1. No two entries in |this|.{{GPURenderPassDescriptor/timestampWrites}} have the same {{GPURenderPassTimestampWrite/location}}.
+    1. [$Validate timestampWrites$](|device|, |this|.{{GPURenderPassDescriptor/timestampWrites}})
+        must return true.
 
-    1. For each |timestampWrite| in |this|.{{GPURenderPassDescriptor/timestampWrites}}:
-
-        1. |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.{{GPUQuerySet/type}} is {{GPUQueryType/"timestamp"}}.
-
-        1. |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}} &lt; |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}}.{{GPUQuerySet/count}}.
-
-        1. |timestampWrite|.{{GPURenderPassTimestampWrite/queryIndex}} is written at most once in the same |timestampWrite|.{{GPURenderPassTimestampWrite/querySet}} in this render pass.
-
-    Issue(gpuweb/gpuweb#503): support for no attachments
+    1. No two entries in |this|.{{GPURenderPassDescriptor/timestampWrites}} may have the same
+        [{{GPURenderPassTimestampWrite/querySet}}, {{GPURenderPassTimestampWrite/queryIndex}}] pair.
 </div>
 
 <div algorithm>
@@ -10755,7 +10782,7 @@ dictionary GPURenderPassColorAttachment {
 
             Note: An error is not thrown if the value is out-of-range for the format but in-range for
             the corresponding WGSL primitive type (`f32`, `i32`, or `u32`).
-    - If |this|.{{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
+    - If |this|.{{GPURenderPassColorAttachment/resolveTarget}} is [=map/exist|provided=]:
         - |renderTexture|.{{GPUTexture/sampleCount}} must be &gt; 1.
         - |resolveTexture|.{{GPUTexture/sampleCount}} must be 1.
         - |this|.{{GPURenderPassColorAttachment/resolveTarget}} must be a [$renderable texture view$].
@@ -10809,7 +10836,7 @@ dictionary GPURenderPassColorAttachment {
 dictionary GPURenderPassDepthStencilAttachment {
     required GPUTextureView view;
 
-    float depthClearValue = 0;
+    float depthClearValue;
     GPULoadOp depthLoadOp;
     GPUStoreOp depthStoreOp;
     boolean depthReadOnly = false;
@@ -10886,11 +10913,11 @@ dictionary GPURenderPassDepthStencilAttachment {
 
     - |this|.{{GPURenderPassDepthStencilAttachment/view}} must have a [=depth-or-stencil format=].
     - |this|.{{GPURenderPassDepthStencilAttachment/view}} must be a [$renderable texture view$].
+    - Let |format| be |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
     - If |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} is {{GPULoadOp/"clear"}},
-        |this|.{{GPURenderPassDepthStencilAttachment/depthClearValue}} must be between 0.0 and 1.0,
+        |this|.{{GPURenderPassDepthStencilAttachment/depthClearValue}} must [=map/exist|be provided=] and must be between 0.0 and 1.0,
         inclusive.
         <!-- POSTV1(unrestricted-depth): unless unrestricted depth is enabled -->
-    - Let |format| be |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
     - If |format| is a [=combined depth-stencil format=]:
         - |this|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} must be equal to |this|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}}
     - If |format| has a depth aspect and |this|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} is not `true`:
@@ -10902,8 +10929,8 @@ dictionary GPURenderPassDepthStencilAttachment {
         - |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} must not [=map/exist|be provided=].
         - |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} must not [=map/exist|be provided=].
     - If |format| has a stencil aspect and |this|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}} is not `true`:
-        - |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} must [=map/exist|be provided=].
-        - |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} must [=map/exist|be provided=].
+        - |this|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} must [=map/exist|be provided=].
+        - |this|.{{GPURenderPassDepthStencilAttachment/stencilStoreOp}} must [=map/exist|be provided=].
 
         Otherwise:
 
@@ -10968,9 +10995,12 @@ dictionary GPURenderPassLayout : GPUObjectDescriptorBase {
 };
 </script>
 
-Two {{GPURenderPassLayout}} values are <dfn dfn for="render pass layout" lt="equals|equal">equal</dfn>
-if their {{GPURenderPassLayout/depthStencilFormat}} and {{GPURenderPassLayout/sampleCount}} are equal,
-and their {{GPURenderPassLayout/colorFormats}} ignoring any trailing `null`s.
+<div algorithm=gpurenderpasslayout-equal>
+    Two {{GPURenderPassLayout}} values are <dfn dfn for="render pass layout" lt="equals|equal">equal</dfn> if:
+
+    - Their {{GPURenderPassLayout/depthStencilFormat}} and {{GPURenderPassLayout/sampleCount}} are equal, and
+    - Their {{GPURenderPassLayout/colorFormats}} are equal ignoring any trailing `null`s.
+</div>
 
 <div algorithm>
     <dfn abstract-op>derive render targets layout from pass</dfn>
@@ -10988,7 +11018,8 @@ and their {{GPURenderPassLayout/colorFormats}} ignoring any trailing `null`s.
             1. Append |colorAttachment|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}} to |layout|.{{GPURenderPassLayout/colorFormats}}.
         1. Otherwise:
             1. Append `null` to |layout|.{{GPURenderPassLayout/colorFormats}}.
-    1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
+    1. Let |depthStencilAttachment| be |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}},
+        or `null` if not [=map/exist|provided=].
     1. If |depthStencilAttachment| is not `null`:
         1. Let |view| be |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}.
         1. Set |layout|.{{GPURenderPassLayout/sampleCount}} to |view|.{{GPUTextureView/[[texture]]}}.{{GPUTexture/sampleCount}}.
@@ -11007,9 +11038,9 @@ and their {{GPURenderPassLayout/colorFormats}} ignoring any trailing `null`s.
 
     1. Let |layout| be a new {{GPURenderPassLayout}} object.
     1. Set |layout|.{{GPURenderPassLayout/sampleCount}} to |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}.
-    1. If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is not `null`:
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is [=map/exist|provided=]:
         1. Set |layout|.{{GPURenderPassLayout/depthStencilFormat}} to |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/format}}.
-    1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is not `null`:
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is [=map/exist|provided=]:
         1. For each |colorTarget| in |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}:
             1. Append |colorTarget|.{{GPUColorTargetState/format}} to |layout|.{{GPURenderPassLayout/colorFormats}}
                 if |colorTarget| is not `null`, or append `null` otherwise.
@@ -11731,6 +11762,7 @@ attachments used by this encoder.
 
                 [=Content timeline=] steps:
 
+                1. [=?=] [$validate GPUColor shape$](|color|).
                 1. Issue the subsequent steps on the [=Device timeline=] of
                     |this|.{{GPUObjectBase/[[device]]}}.
             </div>
@@ -12019,9 +12051,9 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
 
                 [=Content timeline=] steps:
 
-                1. [$Validate texture format required features$] of each non-`null` element of
+                1. [=?=] [$Validate texture format required features$] of each non-`null` element of
                     |descriptor|.{{GPURenderPassLayout/colorFormats}} with |this|.{{GPUObjectBase/[[device]]}}.
-                1. [$Validate texture format required features$] of
+                1. [=?=] [$Validate texture format required features$] of
                     |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} with |this|.{{GPUObjectBase/[[device]]}}.
                 1. Let |e| be a new {{GPURenderBundleEncoder}} object.
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
@@ -12038,12 +12070,13 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
                         - |descriptor|.{{GPURenderPassLayout/colorFormats}}.length must be &le;
                             |this|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
                         - If |descriptor|.{{GPURenderPassLayout/colorFormats}} contains no non-`null` members:
-                            - |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} must not be `null`.
+                            - |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} must [=map/exist|be provided=].
                         - For each non-`null` |colorFormat| in |descriptor|.{{GPURenderPassLayout/colorFormats}}:
                             - |colorFormat| must be a [=color renderable format=].
                         - [$Calculating color attachment bytes per sample$](|descriptor|.{{GPURenderPassLayout/colorFormats}})
                             must be &le; |this|.{{device/[[limits]]}}.{{supported limits/maxColorAttachmentBytesPerSample}}.
-                        - Let |depthStencilFormat| be |descriptor|.{{GPURenderPassLayout/depthStencilFormat}}.
+                        - Let |depthStencilFormat| be |descriptor|.{{GPURenderPassLayout/depthStencilFormat}},
+                            or `null` if not [=map/exist|provided=].
                         - If |depthStencilFormat| is not `null`:
                             - |depthStencilFormat| must be a [=depth-or-stencil format=].
                             - If |depthStencilFormat| is a [=combined depth-stencil format=]:
@@ -12251,6 +12284,8 @@ GPUQueue includes GPUObjectBase;
 
                 [=Content timeline=] steps:
 
+                1. [=?=] [$validate GPUOrigin3D shape$](|destination|.{{GPUImageCopyTexture/origin}}).
+                1. [=?=] [$validate GPUExtent3D shape$](|size|).
                 1. Let |dataBytes| be [=get a copy of the buffer source|a copy of the bytes held by the buffer source=] |data|.
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.
             </div>
@@ -12332,6 +12367,9 @@ GPUQueue includes GPUObjectBase;
 
                 [=Content timeline=] steps:
 
+                1. [=?=] [$validate GPUOrigin2D shape$](|source|.{{GPUImageCopyExternalImage/origin}}).
+                1. [=?=] [$validate GPUOrigin3D shape$](|destination|.{{GPUImageCopyTexture/origin}}).
+                1. [=?=] [$validate GPUExtent3D shape$](|copySize|).
                 1. Let |sourceImage| be |source|.{{GPUImageCopyExternalImage/source}}
                 1. If |sourceImage| <l spec=html>[=is not origin-clean=]</l>,
                     throw a {{SecurityError}} and stop.
@@ -12669,6 +12707,21 @@ Issue: Write normative text about timestamp value resets.
 
 Issue: Because timestamp query provides high-resolution GPU timestamp, we need to decide what constraints, if any, are on its availability.
 
+<div algorithm class=validusage>
+    <dfn abstract-op>Validate timestampWrites</dfn>({{GPUDevice}} |device|,
+    <code>({{GPUComputePassTimestampWrites}} or {{GPURenderPassTimestampWrites}})</code> |timestampWrites|)
+
+    Return `true` if the following requirements are met, and `false` if not.
+
+    - If |timestampWrites| is not [=list/is empty|empty=],
+        {{GPUFeatureName/"timestamp-query"}} must be [=enabled for=] |device|.
+    - No two entries in |timestampWrites| may have the same `location`.
+    - For each |timestampWrite| in |timestampWrites|:
+        - |timestampWrite|.`querySet` must be [$valid to use with$] |device|.
+        - |timestampWrite|.`querySet`.{{GPUQuerySet/type}} is {{GPUQueryType/"timestamp"}}.
+        - |timestampWrite|.`queryIndex` &lt; |timestampWrite|.`querySet`.{{GPUQuerySet/count}}.
+</div>
+
 # Canvas Rendering # {#canvas-rendering}
 
 ## {{HTMLCanvasElement/getContext()|HTMLCanvasElement.getContext()}} ## {#canvas-getcontext}
@@ -12801,9 +12854,9 @@ interface GPUCanvasContext {
                 [=Content timeline=] steps:
 
                 1. Let |device| be |configuration|.{{GPUCanvasConfiguration/device}}.
-                1. [$Validate texture format required features$] of
+                1. [=?=] [$Validate texture format required features$] of
                     |configuration|.{{GPUCanvasConfiguration/format}} with |device|.{{GPUObjectBase/[[device]]}}.
-                1. [$Validate texture format required features$] of each element of
+                1. [=?=] [$Validate texture format required features$] of each element of
                     |configuration|.{{GPUTextureDescriptor/viewFormats}} with |device|.{{GPUObjectBase/[[device]]}}.
                 1. Let |descriptor| be the
                     [$GPUTextureDescriptor for the canvas and configuration$](|this|.{{GPUCanvasContext/canvas}}, |configuration|).
@@ -14443,6 +14496,18 @@ typedef (sequence<double> or GPUColorDict) GPUColor;
 Note: `double` is large enough to precisely hold 32-bit signed/unsigned
 integers and single-precision floats.
 
+<div algorithm>
+    <dfn abstract-op>validate GPUColor shape</dfn>(color)
+
+    **Arguments:**
+
+    - |color|: The {{GPUColor}} to validate.
+
+   **Returns:** {{undefined}}
+
+    1. Throw a {{TypeError}} if |color| is a sequence and |color|.length &ne; 4.
+</div>
+
 <script type=idl>
 dictionary GPUOrigin2DDict {
     GPUIntegerCoordinate x = 0;
@@ -14464,6 +14529,17 @@ An <dfn dfn>Origin2D</dfn> is a {{GPUOrigin2D}}.
     - |origin|.<dfn dfn>y</dfn> refers to
         either {{GPUOrigin2DDict}}.{{GPUOrigin2DDict/y}}
         or the second item of the sequence or 0 if it isn't present.
+</div>
+<div algorithm>
+    <dfn abstract-op>validate GPUOrigin2D shape</dfn>(origin)
+
+    **Arguments:**
+
+    - |origin|: The {{GPUOrigin2D}} to validate.
+
+   **Returns:** {{undefined}}
+
+    1. Throw a {{TypeError}} if |origin| is a sequence and |origin|.length &gt; 2.
 </div>
 
 <script type=idl>
@@ -14492,6 +14568,18 @@ An <dfn dfn>Origin3D</dfn> is a {{GPUOrigin3D}}.
         either {{GPUOrigin3DDict}}.{{GPUOrigin3DDict/z}}
         or the third item of the sequence or 0 if it isn't present.
 </div>
+<div algorithm>
+    <dfn abstract-op>validate GPUOrigin3D shape</dfn>(origin)
+
+    **Arguments:**
+
+    - |origin|: The {{GPUOrigin3D}} to validate.
+
+   **Returns:** {{undefined}}
+
+    1. Throw a {{TypeError}} if |origin| is a sequence and |origin|.length &gt; 3.
+</div>
+
 
 <script type=idl>
 dictionary GPUExtent3DDict {
@@ -14511,13 +14599,27 @@ An <dfn dfn>Extent3D</dfn> is a {{GPUExtent3D}}.
 
     - |extent|.<dfn dfn>width</dfn> refers to
         either {{GPUExtent3DDict}}.{{GPUExtent3DDict/width}}
-        or the first item of the sequence (1 if not present).
+        or the first item of the sequence.
     - |extent|.<dfn dfn>height</dfn> refers to
         either {{GPUExtent3DDict}}.{{GPUExtent3DDict/height}}
         or the second item of the sequence (1 if not present).
     - |extent|.<dfn dfn>depthOrArrayLayers</dfn> refers to
         either {{GPUExtent3DDict}}.{{GPUExtent3DDict/depthOrArrayLayers}}
         or the third item of the sequence (1 if not present).
+</div>
+<div algorithm>
+    <dfn abstract-op>validate GPUExtent3D shape</dfn>(extent)
+
+    **Arguments:**
+
+    - |extent|: The {{GPUExtent3D}} to validate.
+
+   **Returns:** {{undefined}}
+
+    1. Throw a {{TypeError}} if:
+
+       - |extent| is a sequence, and
+       - |extent|.length &lt; 1 or |extent|.length &gt; > 3.
 </div>
 
 # Feature Index # {#feature-index}
@@ -14668,15 +14770,22 @@ This feature adds the following [=optional API surfaces=]:
 </h3>
 
 Allows the {{GPUTextureUsage/RENDER_ATTACHMENT}} usage on textures with format {{GPUTextureFormat/"rg11b10ufloat"}},
-and also allows textures of that format to be multisampled.
+and also allows textures of that format to be blended and multisampled.
 
 This feature adds no [=optional API surfaces=].
 
-## <dfn dfn-type=enum-value dfn-for=GPUFeatureName>"bgra8unorm-storage"</dfn> ## {#bgra8unorm-storage}
+<h3 id=bgra8unorm-storage data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"bgra8unorm-storage"`
+</h3>
 
 Allows the {{GPUTextureUsage/STORAGE_BINDING}} usage on textures with format {{GPUTextureFormat/"bgra8unorm"}}.
 
 This feature adds no [=optional API surfaces=].
+
+<h3 id=float32-filterable data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"float32-filterable"`
+</h3>
+
+Makes textures with formats {{GPUTextureFormat/"r32float"}}, {{GPUTextureFormat/"rg32float"}}, and
+{{GPUTextureFormat/"rgba32float"}} [=filterable=].
 
 # Appendices # {#appendices}
 
@@ -14690,21 +14799,28 @@ The {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/STORAGE_BINDING}
 specify support for {{GPUTextureUsage/RENDER_ATTACHMENT|GPUTextureUsage.RENDER_ATTACHMENT}}
 and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage respectively.
 
+The <dfn dfn>render target pixel byte cost</dfn>
+and <dfn dfn>render target component alignment</dfn>
+are used to validate the {{supported limits/maxColorAttachmentBytesPerSample}} limit.
+
+Note:
+The [=texel block memory cost=] of each of these formats is the same as its
+[=texel block copy footprint=].
+
 <table class=data>
     <thead class=stickyheader>
         <tr>
             <th>Format
             <th>{{GPUTextureSampleType}}
             <th><span class=vertical>{{GPUTextureUsage/RENDER_ATTACHMENT}}</span>
-            <th><span class=vertical>blending</span>
+            <th><span class=vertical>[=blendable=]</span>
             <th><span class=vertical>multisampling</span>
             <th><span class=vertical>resolve</span>
             <th><span class=vertical>{{GPUTextureUsage/STORAGE_BINDING}}</span>
-            <th>[=Texel block size=] (Bytes)
-            <th><dfn dfn>Render target pixel byte cost</dfn> (Bytes)
-            <th><dfn dfn>Render target component alignment</dfn> (Bytes)
+            <th>[=Texel block copy footprint=] (Bytes)
+            <th>[=Render target pixel byte cost=] (Bytes)
     </thead>
-    <tr><th>8-bit per component
+    <tr><th colspan=9>8 bits per component (1-byte [=render target component alignment=])
     <tr>
         <td>{{GPUTextureFormat/r8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14713,9 +14829,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>&checkmark;
         <td>
-        <td>1
-        <td>1
-        <td>1
+        <td colspan=2>1
     <tr>
         <td>{{GPUTextureFormat/r8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14726,7 +14840,6 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Vulkan -->
         <td>1
         <td>&ndash; <!-- no render target -->
-        <td>&ndash; <!-- no render target -->
     <tr>
         <td>{{GPUTextureFormat/r8uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14735,9 +14848,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
-        <td>1
-        <td>1
-        <td>1
+        <td colspan=2>1
     <tr>
         <td>{{GPUTextureFormat/r8sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14746,9 +14857,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
-        <td>1
-        <td>1
-        <td>1
+        <td colspan=2>1
     <tr>
         <td>{{GPUTextureFormat/rg8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14757,9 +14866,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>&checkmark;
         <td><!-- Vulkan -->
-        <td>2
-        <td>2
-        <td>1
+        <td colspan=2>2
     <tr>
         <td>{{GPUTextureFormat/rg8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14770,7 +14877,6 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Vulkan -->
         <td>2
         <td>&ndash; <!-- no render target -->
-        <td>&ndash; <!-- no render target -->
     <tr>
         <td>{{GPUTextureFormat/rg8uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14779,9 +14885,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
-        <td>2
-        <td>2
-        <td>1
+        <td colspan=2>2
     <tr>
         <td>{{GPUTextureFormat/rg8sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14790,9 +14894,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
-        <td>2
-        <td>2
-        <td>1
+        <td colspan=2>2
     <tr>
         <td>{{GPUTextureFormat/rgba8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14803,7 +14905,6 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>4
         <td>8
-        <td>1
     <tr>
         <td>{{GPUTextureFormat/rgba8unorm-srgb}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14814,7 +14915,6 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>4
         <td>8
-        <td>1
     <tr>
         <td>{{GPUTextureFormat/rgba8snorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14825,7 +14925,6 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>4
         <td>&ndash; <!-- no render target --> <!-- If we add render target support for this in the future, rgba8snorm has to be a special case where the render target pixel byte cost = 8 -->
-        <td>&ndash; <!-- no render target -->
     <tr>
         <td>{{GPUTextureFormat/rgba8uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14834,9 +14933,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>&checkmark;
-        <td>4
-        <td>4
-        <td>1
+        <td colspan=2>4
     <tr>
         <td>{{GPUTextureFormat/rgba8sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14845,9 +14942,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>&checkmark;
-        <td>4
-        <td>4
-        <td>1
+        <td colspan=2>4
     <tr>
         <td>{{GPUTextureFormat/bgra8unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14858,7 +14953,6 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>If {{GPUFeatureName/"bgra8unorm-storage"}} is enabled
         <td>4
         <td>8
-        <td>1
     <tr>
         <td>{{GPUTextureFormat/bgra8unorm-srgb}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14869,8 +14963,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>4
         <td>8
-        <td>1
-    <tr><th>16-bit per component
+    <tr><th colspan=9>16 bits per component (2-byte [=render target component alignment=])
     <tr>
         <td>{{GPUTextureFormat/r16uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14879,9 +14972,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
-        <td>2
-        <td>2
-        <td>2
+        <td colspan=2>2
     <tr>
         <td>{{GPUTextureFormat/r16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14890,9 +14981,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
-        <td>2
-        <td>2
-        <td>2
+        <td colspan=2>2
     <tr>
         <td>{{GPUTextureFormat/r16float}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14901,9 +14990,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>&checkmark;
         <td>
-        <td>2
-        <td>2
-        <td>2
+        <td colspan=2>2
     <tr>
         <td>{{GPUTextureFormat/rg16uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14912,9 +14999,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
-        <td>4
-        <td>4
-        <td>2
+        <td colspan=2>4
     <tr>
         <td>{{GPUTextureFormat/rg16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14923,9 +15008,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>
-        <td>4
-        <td>4
-        <td>2
+        <td colspan=2>4
     <tr>
         <td>{{GPUTextureFormat/rg16float}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14934,9 +15017,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>&checkmark;
         <td><!-- Vulkan -->
-        <td>4
-        <td>4
-        <td>2
+        <td colspan=2>4
     <tr>
         <td>{{GPUTextureFormat/rgba16uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14945,9 +15026,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>&checkmark;
-        <td>8
-        <td>8
-        <td>2
+        <td colspan=2>8
     <tr>
         <td>{{GPUTextureFormat/rgba16sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14956,9 +15035,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td><!-- Metal -->
         <td>&checkmark;
-        <td>8
-        <td>8
-        <td>2
+        <td colspan=2>8
     <tr>
         <td>{{GPUTextureFormat/rgba16float}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -14967,10 +15044,8 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>&checkmark;
         <td>&checkmark;
         <td>&checkmark;
-        <td>8
-        <td>8
-        <td>2
-    <tr><th>32-bit per component
+        <td colspan=2>8
+    <tr><th colspan=9>32 bits per component (4-byte [=render target component alignment=])
     <tr>
         <td>{{GPUTextureFormat/r32uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -14979,9 +15054,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
-        <td>4
-        <td>4
-        <td>4
+        <td colspan=2>4
     <tr>
         <td>{{GPUTextureFormat/r32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -14990,20 +15063,18 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
-        <td>4
-        <td>4
-        <td>4
+        <td colspan=2>4
     <tr>
         <td>{{GPUTextureFormat/r32float}}
         <td>{{GPUTextureSampleType/"unfilterable-float"}}
+
+            - {{GPUTextureSampleType/"float"}} if {{GPUFeatureName/"float32-filterable"}} is enabled
         <td>&checkmark;
         <td>
         <td>&checkmark;
         <td><!-- Metal -->
         <td>&checkmark;
-        <td>4
-        <td>4
-        <td>4
+        <td colspan=2>4
     <tr>
         <td>{{GPUTextureFormat/rg32uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -15012,9 +15083,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
-        <td>8
-        <td>8
-        <td>4
+        <td colspan=2>8
     <tr>
         <td>{{GPUTextureFormat/rg32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -15023,20 +15092,18 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
-        <td>8
-        <td>8
-        <td>4
+        <td colspan=2>8
     <tr>
         <td>{{GPUTextureFormat/rg32float}}
         <td>{{GPUTextureSampleType/"unfilterable-float"}}
+
+            - {{GPUTextureSampleType/"float"}} if {{GPUFeatureName/"float32-filterable"}} is enabled
         <td>&checkmark;
         <td>
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
-        <td>8
-        <td>8
-        <td>4
+        <td colspan=2>8
     <tr>
         <td>{{GPUTextureFormat/rgba32uint}}
         <td>{{GPUTextureSampleType/"uint"}}
@@ -15045,9 +15112,7 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
-        <td>16
-        <td>16
-        <td>4
+        <td colspan=2>16
     <tr>
         <td>{{GPUTextureFormat/rgba32sint}}
         <td>{{GPUTextureSampleType/"sint"}}
@@ -15056,21 +15121,19 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
-        <td>16
-        <td>16
-        <td>4
+        <td colspan=2>16
     <tr>
         <td>{{GPUTextureFormat/rgba32float}}
         <td>{{GPUTextureSampleType/"unfilterable-float"}}
+
+            - {{GPUTextureSampleType/"float"}} if {{GPUFeatureName/"float32-filterable"}} is enabled
         <td>&checkmark;
         <td>
         <td><!-- Metal -->
         <td>
         <td>&checkmark;
-        <td>16
-        <td>16
-        <td>4
-    <tr><th>mixed component width
+        <td colspan=2>16
+    <tr><th colspan=9>mixed component width, 32 bits per texel (4-byte [=render target component alignment=])
     <tr>
         <td>{{GPUTextureFormat/rgb10a2unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
@@ -15081,16 +15144,13 @@ and {{GPUTextureUsage/STORAGE_BINDING|GPUTextureUsage.STORAGE_BINDING}} usage re
         <td>
         <td>4
         <td>8
-        <td>4
     <tr>
         <td>{{GPUTextureFormat/rg11b10ufloat}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
-        <td colspan=3>If {{GPUFeatureName/"rg11b10ufloat-renderable"}} is enabled
-        <td>
+        <td colspan=4>If {{GPUFeatureName/"rg11b10ufloat-renderable"}} is enabled
         <td><!-- Vulkan -->
         <td>4
         <td>8
-        <td>4
 </table>
 
 ### Depth-stencil formats ### {#depth-formats}
@@ -15111,75 +15171,75 @@ be used with {{GPUSamplerBindingType/"comparison"}} samplers (which may use filt
     <thead>
         <tr>
             <th>Format
-            <th>Bytes per texel
+            <th class=note>[=Texel block memory cost=] (Bytes)
             <th>Aspect
-            <th>[=Texel block size=] (Bytes)
             <th>{{GPUTextureSampleType}}
             <th>Valid [=image copy=] source
             <th>Valid [=image copy=] destination
+            <th>[=Texel block copy footprint=] (Bytes)
             <th><dfn dfn>Aspect-specific format</dfn>
     </thead>
     <tr>
         <td>{{GPUTextureFormat/stencil8}}
         <td>1 &minus; 4
         <td>stencil
-        <td>1
         <td>{{GPUTextureSampleType/"uint"}}
         <td colspan=2>&checkmark;
+        <td>1
         <td>{{GPUTextureFormat/stencil8}}
     <tr>
         <td>{{GPUTextureFormat/depth16unorm}}
         <td>2
         <td>depth
-        <td>2
         <td>{{GPUTextureSampleType/"depth"}}, {{GPUTextureSampleType/"unfilterable-float"}}
         <td colspan=2>&checkmark;
+        <td>2
         <td>{{GPUTextureFormat/depth16unorm}}
     <tr>
         <td>{{GPUTextureFormat/depth24plus}}
         <td>4
         <td>depth
-        <td>&ndash; (<a href="#depthPlus">See prose</a>)
         <td>{{GPUTextureSampleType/"depth"}}, {{GPUTextureSampleType/"unfilterable-float"}}
         <td colspan=2>&cross;
+        <td>&ndash;
         <td>{{GPUTextureFormat/depth24plus}}
     <tr>
         <td rowspan=2 style="white-space: nowrap">{{GPUTextureFormat/depth24plus-stencil8}}
         <td rowspan=2>4 &minus; 8
         <td>depth
-        <td>&ndash; (<a href="#depthPlus">See prose</a>)
         <td>{{GPUTextureSampleType/"depth"}}, {{GPUTextureSampleType/"unfilterable-float"}}
         <td colspan=2>&cross;
+        <td>&ndash;
         <td>{{GPUTextureFormat/depth24plus}}
     <tr>
         <td>stencil
-        <td>1
         <td>{{GPUTextureSampleType/"uint"}}
         <td colspan=2>&checkmark;
+        <td>1
         <td>{{GPUTextureFormat/stencil8}}
     <tr>
         <td>{{GPUTextureFormat/depth32float}}
         <td>4
         <td>depth
-        <td>4
         <td>{{GPUTextureSampleType/"depth"}}, {{GPUTextureSampleType/"unfilterable-float"}}
-        <td colspan=1>&checkmark;
-        <td colspan=1>&cross;
+        <td>&checkmark;
+        <td>&cross;
+        <td>4
         <td>{{GPUTextureFormat/depth32float}}
     <tr>
         <td rowspan=2 style="white-space: nowrap">{{GPUTextureFormat/depth32float-stencil8}}
         <td rowspan=2>5 &minus; 8
         <td>depth
-        <td>4
         <td>{{GPUTextureSampleType/"depth"}}, {{GPUTextureSampleType/"unfilterable-float"}}
-        <td colspan=1>&checkmark;
-        <td colspan=1>&cross;
+        <td>&checkmark;
+        <td>&cross;
+        <td>4
         <td>{{GPUTextureFormat/depth32float}}
     <tr>
         <td>stencil
-        <td>1
         <td>{{GPUTextureSampleType/"uint"}}
         <td colspan=2>&checkmark;
+        <td>1
         <td>{{GPUTextureFormat/stencil8}}
 </table>
 
@@ -15244,20 +15304,23 @@ As a result, depth-aspect [=image copies=] are not allowed with these formats.
 ### Packed formats ### {#packed-formats}
 
 All packed texture formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}},
-and {{GPUTextureUsage/TEXTURE_BINDING}} usages. All of these formats have {{GPUTextureSampleType/"float"}}
-type and can be filtered on sampling. None of these formats support multisampling.
+and {{GPUTextureUsage/TEXTURE_BINDING}} usages.
+All of these formats are [=filterable=].
+None of these formats are [=renderable=] or support multisampling.
 
 A <dfn dfn>compressed format</dfn> is any format with a block size greater than 1&times;1.
 
-The [=texel block size=] (in bytes) of a packed format is equal to the Bytes per block column below.
+Note:
+The [=texel block memory cost=] of each of these formats is the same as its
+[=texel block copy footprint=].
 
 <table class=data>
     <thead class=stickyheader>
         <tr>
             <th>Format
-            <th>Bytes per block
+            <th>[=Texel block copy footprint=] (Bytes)
             <th>{{GPUTextureSampleType}}
-            <th>Block Size
+            <th>Texel block [=texel block width|width=]/[=texel block height|height=]
             <th>[=Feature=]
     </thead>
     <tr>
