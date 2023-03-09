@@ -254,6 +254,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
     type: dfn
         text: GPU command; url: gpu-command
         text: RasterizationPoint; url: rasterizationpoint
+        text: effective buffer binding size; url: abstract-opdef-effective-buffer-binding-size
         text: binding member; url: binding-member
         text: binding resource type; url: binding-resource-type
         text: binding type; url: binding-type
@@ -2827,6 +2828,10 @@ The element count expression |N| of a fixed-size array is subject to the followi
 * It is a [=pipeline-creation error=] if |N| is not greater than zero.
 
 Note:  The element count value is fully determined at [=pipeline creation=] time.
+
+The number of elements in a runtime-sized array
+is determined by the size of buffer binding associated with the corresponding [=storage buffer=] variable.
+See [[#buffer-binding-determines-runtime-sized-array-element-count]].
 
 An array element type [=shader-creation error|must=] be one of:
 * a [=scalar=] type
@@ -8627,6 +8632,122 @@ where compatibility is defined by the following table.
 See the [$validating GPUProgrammableStage|WebGPU API$]
 specification for interface validation requirements.
 
+### Buffer Binding Determines Runtime-Sized Array Element Count ### {#buffer-binding-determines-runtime-sized-array-element-count}
+
+When a [=storage buffer=] variable contains a [=runtime-sized=] array, then the number of elements in that array
+is determined from the size of the corresponding {{GPUBufferBinding}}:
+
+<blockquote algorithm="element count of runtime-sized array">
+* Let |T| be the [=store type=] for a [=storage buffer=] variable,
+    where |T| is a [=runtime-sized=] array type or contains a runtime-sized array type.
+* Let |EBS| be the
+    [=effective buffer binding size=]
+    for the {{GPUBufferBinding}} bound to the pipeline binding address corresponding to the storage buffer variable.
+* Then <dfn noexport>NRuntime</sub></dfn>, i.e.
+    the number of elements in the runtime-sized array,
+    is the largest integer such that [=SizeOf=](|T|) &le; |EBS|.
+
+</blockquote>
+
+In more detail, the [=NRuntime=] for a runtime-size array of type *RAT* is:
+<blockquote algorithm="element count of runtime-sized array, expanded">
+[=truncate=]((EBBS &minus; *array_offset*) &divide; *array_stride*), where:
+* EBBS is the [=effective buffer binding size=] associated with the variable,
+* *array_offset* is the byte offset of the runtime-sized array within the store type of the variable.
+    * It is zero if the store type is |RAT|, the runtime-sized array type itself.
+    * Otherwise the store type is a structure, and its last member is the runtime-sized array.
+        In this case *array_offset* is the [=OffsetOfMember|byte offset of that member=] within the structure.
+* *array_stride* is the stride of the array type, i.e. [=StrideOf=](|RAT|).
+
+</blockquote>
+
+A shader can compute [=NRuntime=] via the [[#arrayLength-builtin|arrayLength]] builtin function.
+
+<div class=note>
+<span class=marker>Note:</span>
+This algorithm is unambiguous:
+When a runtime-sized array is part of a larger type, it may only appear as the last element of a structure,
+which itself cannot be part of an enclosing array or structure.
+
+[=NRuntime=] is determined by the size of the corresponding buffer binding, and that can be different for each [=draw command|draw=]
+or [=dispatch command=].
+
+WebGPU validation rules ensure that 1 &le; [=NRuntime=].
+
+</div>
+
+
+<div class=note>
+In the following code sample:
+* The `weights` variable is a [=storage buffer=].
+* Its store type is the runtime-sized arry type `array<f32>`.
+* The array offset is 0.
+* The array stride is [=StrideOf=](array&lt;f32&gt;), which is 4.
+
+<div class='example wgsl' heading='number of elements in a simple runtime sized array'>
+  <xmp highlight='rust'>
+@group(0) @binding(1) var<storage> weights: array<f32>;
+  </xmp>
+</div>
+
+The following table shows examples of [=NRuntime=] for the `weights` variable, based on
+the corresponding effective buffer binding size.
+
+<table class='data'>
+  <caption>Example number of elements for simple runtime-sized array</caption>
+  <thead>
+    <tr><th style="width:15%">Effective buffer binding size<th>NRuntime for `weights` variable<td>Calculation
+  </thead>
+  <tr><td>1024<td>256<td>[=truncate=]( 1024 &divide; 4 )
+  <tr><td>1025<td>256<td>[=truncate=]( 1025 &divide; 4 )
+  <tr><td>1026<td>256<td>[=truncate=]( 1026 &divide; 4 )
+  <tr><td>1027<td>256<td>[=truncate=]( 1027 &divide; 4 )
+  <tr><td>1028<td>257<td>[=truncate=]( 1028 &divide; 4 )
+</table>
+</div>
+
+<div class=note>
+In the following code sample:
+* The `lights` variable is a [=storage buffer=].
+* Its store type is `LightStorage`.
+* The `point` member of `LightStorage` is a runtime-sized array of type `array<PointLight>`.
+    * The member is at byte offset 16 in the variable's storage.
+    * The array stride is [=StrideOf=](array&lt;`PointLight`&gt;) = [=roundUp=]([=AlignOf=](`PointLight`),[=SizeOf=](`PointLight`)) = [=roundUp=](16,32) = 32
+
+<div class='example wgsl' heading='number of elements in a complex runtime sized array'>
+  <xmp highlight='rust'>
+struct PointLight {                          //             align(16) size(32)
+  position : vec3f,                          // offset(0)   align(16) size(12)
+  // -- implicit member alignment padding -- // offset(12)            size(4)
+  color : vec3f,                             // offset(16)  align(16) size(12)
+  // -- implicit struct size padding --      // offset(28)            size(4)
+}
+
+struct LightStorage {                        //             align(16)
+  pointCount : u32,                          // offset(0)   align(4)  size(4)
+  // -- implicit member alignment padding -- // offset(4)             size(12)
+  point : array<PointLight>,                 // offset(16)  align(16) elementsize(32)
+}
+
+@group(0) @binding(1) var<storage> lights : LightStorage;
+  </xmp>
+</div>
+
+The following table shows examples of [=NRuntime=] for the `point` member of the `lights` variable.
+
+<table class='data'>
+  <caption>Example number of elements for complex runtime-sized array</caption>
+  <thead>
+    <tr><th style="width:15%">Effective buffer binding size<th>NRuntime for `point` member of `lights` variable<td>Calculation
+  </thead>
+  <tr><td>1024<td>31<td>[=truncate=]( ( 1024 - 16 ) &divide; 32) )
+  <tr><td>1025<td>31<td>[=truncate=]( ( 1025 - 16 ) &divide; 32) )
+  <tr><td>1039<td>31<td>[=truncate=]( ( 1039 - 16 ) &divide; 32) )
+  <tr><td>1040<td>32<td>[=truncate=]( ( 1040 - 16 ) &divide; 32) )
+  </thead>
+</table>
+</div>
+
 # Language Extensions # {#language-extensions}
 
 The WGSL language is expected to evolve over time.
@@ -9098,8 +9219,8 @@ following table:
       <td>|N| &times; [=roundUp=]([=AlignOf=](|E|), [=SizeOf=](|E|))
   <tr><td>array<|E|><br>
       <td>[=AlignOf=](|E|)
-      <td>N<sub>runtime</sub> &times; [=roundUp=]([=AlignOf=](|E|),[=SizeOf=](|E|))<br><br>
-          where N<sub>runtime</sub> is the runtime-determined number of elements of |T|
+      <td>[=NRuntime=] &times; [=roundUp=]([=AlignOf=](|E|),[=SizeOf=](|E|))<br><br>
+          where NRuntime is the runtime-determined number of elements of |T|
 </table>
 
 ### Structure Member Layout ###  {#structure-member-layout}
@@ -10339,7 +10460,7 @@ Here is the list of exceptions:
             - Otherwise the call site tag is [=CallSiteRequiredToBeUniform.S=], with [=potential-trigger-set=]
                 consisting of a [=trigger/derivative_uniformity=] element.
         - If there is no such *DF*,
-            the call site tag is [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=] 
+            the call site tag is [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=]
             consisting of a [=trigger/derivative_uniformity=] element.
 
 Note: A WGSL implementation will ensure that if control flow prior to a
@@ -12531,8 +12652,30 @@ The internal layout rules are described in [[#internal-value-layout]].
         [=access mode=] `AM` is [=access/read=] or [=access/read_write=]
   <tr>
     <td>Description
-    <td>Returns the number of elements in the [=runtime-sized=] array.
+    <td>Returns [=NRuntime=], the number of elements in the [=runtime-sized=] array.
+
+        See [[#buffer-binding-determines-runtime-sized-array-element-count]]
 </table>
+
+<div class='example wgsl global-scope' heading='Getting the number of elements in a runtime-sized array'>
+  <xmp highlight='rust'>
+struct PointLight {
+  position : vec3f,
+  color : vec3f,
+}
+
+struct LightStorage {
+  pointCount : u32,
+  point : array<PointLight>,
+}
+
+@group(0) @binding(1) var<storage> lights : LightStorage;
+
+fn num_point_lights() -> u32 {
+  return arrayLength( &lights.point );
+}
+  </xmp>
+</div>
 
 ## Numeric Built-in Functions ## {#numeric-builtin-functions}
 
