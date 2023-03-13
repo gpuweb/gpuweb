@@ -1,5 +1,7 @@
 # WebGPU Logo
 
+<img alt="WebGPU logo" src="webgpu-responsive.svg" width="400">
+
 This folder containts several variations of the WebGPU Logo for use in a variety of situations.
 For additional details see [https://www.w3.org/2023/02/webgpu-logos.html](https://www.w3.org/2023/02/webgpu-logos.html)
 
