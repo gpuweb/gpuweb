@@ -3352,29 +3352,94 @@ and vice versa,
 where |p| and |r| describe the same memory view.
 </blockquote>
 
+### Valid and Invalid Memory References ### {#valid-invalid-memory-references}
+
+A [=reference type|reference=] value is either [=valid reference|valid=] or [=invalid memory reference|invalid=].
+
+References are formed as described in detail in [[#forming-references-and-pointers]].
+Generally, a <dfn noexport>valid reference</dfn> is formed by:
+* naming a variable, or
+* applying the [=indirection=] (unary `*`) operation to a [=valid pointer=], or
+* forming a [=composite reference component expression=] around a valid reference,
+    where the index in an indexing phrase, if used, is within bounds for the type.
+
+Generally, an <dfn noexport>invalid memory reference</dfn> is formed by:
+* applying the indirection operator to an [=invalid pointer=], or
+* forming a [=composite reference component expression=] around an invalid reference,
+    or by indexing with an out-of-bounds index.
+
+A pointer value always corresponds to a reference value, so an
+<dfn noexport>valid pointer</dfn> is a pointer that corresponds to a [=valid reference=],
+and an <dfn noexport>invalid pointer</dfn> is a pointer that corresponds to an [=invalid memory reference=].
+
 ### Originating Variable ### {#originating-variable-section}
 
-In WGSL a reference value always corresponds to the memory view
-for some or all of the memory locations for some variable.
+A [=valid reference=] corresponds to the memory view for some or all of the memory locations for some variable.
 This defines the <dfn noexport>originating variable</dfn> for the reference value.
 
-A pointer value always corresponds to a reference value, and so the originating variable
-of a pointer is the same as the originating variable of the corresponding reference.
+The [=originating variable=] of a [=valid pointer=] is the same as the originating variable of the corresponding valid reference.
 
 Note: The originating variable is a dynamic concept.
 The originating variable for a formal parameter of a function depends on the
 [=call site|call sites=] for the function.
 Different call sites may supply pointers into different originating variables.
 
-### Invalid Memory Reference ### {#invalid-mem-reference}
+<div class=note>
+<span class=marker>Note:</span> A reference can correspond to memory locations inside a variable, and still be invalid.
+This can occur when an index is too large for the type being indexed, but the referenced locations
+would be inside a subsequent sibling data member.
 
-An operation that accesses one or more [=memory locations=] outside those
-associated with the operation's [=memory view=] is an
-<dfn noexport>out of bounds access</dfn>.
-Any reference or pointer that, when accessed, would produce an out of bounds
-access is an <dfn noexport>invalid memory reference</dfn>.
+In the following example, the reference `the_particle.position[i]` is valid if and only if `i` is 0 or 1.
+When `i` is 2, the reference will be an [=invalid memory reference=], but would otherwise correspond
+the memory locations for `the_particle.color_index`.
+<div class='example wgsl' heading='Invalid memory reference still inside a variable'>
+<span id="example-invalid-ref"></span>
+  <xmp highlight='rust'>
+    struct Particle {
+       position: vec2f,
+       velocity: vec2f,
+       color_index: i32,
+    }
 
-[=Load Rule|Loads=] from an invalid reference return one of:
+    @group(0) @binding(0)
+    var<storage,read_write> the_particle: Particle;
+
+    fn particle_velocity_component(p: Particle, i: i32) -> f32 {
+      return the_particle.velocity[i]; // A valid reference when i is 0 or 1.
+    }
+  </xmp>
+</div>
+</div>
+
+### Out of Bounds Access ### {#out-of-bounds-access-sec}
+
+An operation that [=memory access|accesses=] an
+[=invalid memory reference=] is an <dfn noexport>out of bounds access</dfn>.
+It is a [=dynamic error=] to perform an [=out of bounds access=].
+
+An out of bounds access, if performed as written, would typically:
+* read or write [=memory locations=] outside of a variable, or
+* interpret the contents of those locations as the wrong [=store type=], or
+* cause an unintended data race.
+
+Note: An example of interpreting the store type incorrectly occurs in
+<a href="#example-invalid-ref"> the example from the previous section</a>.
+When `i` is 2, the expression `the_particle.velocity[i]` has
+type `ref<storage,f32,read_write>`, meaning it is a memory view with [=f32=] as
+its [=store type=].
+However, the memory locations are allocated to for the
+`color_index` member, so the stored value is actually of type [=i32=].
+
+<div class=note>
+<span class=marker>Note:</span>An out of bounds access causes a dynamic error,
+which allows for many possible outcomes.
+
+Those outcomes include, but are not limited to, the following:
+
+: <dfn noexport>Trap</dfn>
+:: The shader invocation immediately terminates, and [=shader stage outputs=] are set to zero values.
+: <dfn noexport>Invalid Load</dfn>
+:: [=Load Rule|Loads=] from an invalid reference may return one of:
     * when the [=originating variable=] is a [=uniform buffer=] or a [=storage buffer=],
         the value from any [=memory locations|memory location(s)=]
         of the WebGPU {{GPUBuffer}} bound to the originating variable
@@ -3384,24 +3449,27 @@ access is an <dfn noexport>invalid memory reference</dfn>.
     * if the loaded value is a vector, the value (0, 0, 0, x), where x is:
         * 0, 1, or the maximum positive value for integer components
         * 0.0 or 1.0 for floating-point components
-[=statement/assignment|Stores=] to an invalid reference may do one of:
+: <dfn noexport>Invalid Store</dfn>
+:: [=statement/assignment|Stores=] to an invalid reference may do one of:
     * when the [=originating variable=] is a [=storage buffer=],
         store the value to any [=memory locations|memory location(s)=] of the
         WebGPU {{GPUBuffer}} bound to the [=originating variable=]
     * when the [=originating variable=] is not a [=storage buffer=],
         store the value to any [=memory locations|memory locations(s)=] in the
         originating variable
-    * not be executed
-It is a [=dynamic error=] if [[#atomic-rmw|read-modify-write atomics]] that
-operate on an invalid memory reference load and store from different [=memory
-locations|memory locations=] if they access memory.
-
-Note: An invalid memory reference can occur even if the bytes accessed would
-still be within memory locations of the originating variable.
-Each access into a [=composite=] type must be made by a valid memory reference.
-See [[#composite-value-decomposition-expr]].
+    * not be executed.
 
 Note: [=Uniform buffers=] do not support stores.
+
+A data race may occur if an invalid load or store is redirected to access different
+locations inside a variable in a shared address space.
+For example, the accesses of several concurrently executing invocations may be redirected
+to the first element in an array.
+If at least one access is a write, and they are not otherwise synchronized,
+then the result is a data race, and hence a dynamic error.
+
+An out of bounds access invalidates the assumptions of [[#uniformity|uniformity analysis]].
+</div>
 
 ### Use Cases for References and Pointers ### {#ref-ptr-use-cases}
 
@@ -3544,27 +3612,33 @@ Defining pointers in this way enables two key use cases:
 A reference value is formed in one of the following ways:
 
 * The [=identifier=] [=resolves|resolving=] to an [=in scope|in-scope=] variable *v* denotes the reference value for *v*'s memory.
+    * It is a [=valid reference=].
     * The resolved variable is the [=originating variable=] for the reference.
 * Use the [=indirection=] (unary `*`) operation on a pointer.
+    * It is a [=valid reference=] if and only if the pointer is [=valid pointer|valid=].
     * The originating variable of the result is defined as the originating variable of the pointer.
 * Use a <dfn noexport>composite reference component expression</dfn>.
-    In each case the originating variable of the result is defined as the originating variable of the
-    original reference.
-    * Given a reference with a [=vector=] store type, appending a single-letter vector access phrase
-        results in a reference to the named component of the vector.
-        See [[#component-reference-from-vector-reference]].
-    * Given a reference with a [=vector=] store type, appending an array index access phrase
-        results in a reference to the indexed component of the vector.
-        See [[#component-reference-from-vector-reference]].
-    * Given a reference with a [=matrix=] store type, appending an array index access phrase
-        results in a reference to the indexed column vector of the matrix.
-        See [[#matrix-access-expr]].
-    * Given a reference with an [=array=] store type, appending an array index access phrase
-        results in a reference to the indexed element of the array.
-        See [[#array-access-expr]].
-    * Given a reference with a [=structure=] store type, appending a member access phrase
-        results in a reference to the named member of the structure.
-        See [[#struct-access-expr]].
+    * In each case the result is a [=valid reference=] when the original reference is valid and any index, if used,
+        is at least zero and less than the element count of the vector, matrix, or array being indexed.
+        Otherwise the result is an [=invalid memory reference=].
+    * When the result is [=valid reference|valid=], the [=originating variable=] of the result is
+        defined as the originating variable of the original reference.
+    * The cases are:
+        * Given a reference with a [=vector=] store type, appending a single-letter vector access phrase
+            results in a reference to the named component of the vector.
+            See [[#component-reference-from-vector-reference]].
+        * Given a reference with a [=vector=] store type, appending an array index access phrase
+            results in a reference to the indexed component of the vector.
+            See [[#component-reference-from-vector-reference]].
+        * Given a reference with a [=matrix=] store type, appending an array index access phrase
+            results in a reference to the indexed column vector of the matrix.
+            See [[#matrix-access-expr]].
+        * Given a reference with an [=array=] store type, appending an array index access phrase
+            results in a reference to the indexed element of the array.
+            See [[#array-access-expr]].
+        * Given a reference with a [=structure=] store type, appending a member access phrase
+            results in a reference to the named member of the structure.
+            See [[#struct-access-expr]].
 
 In all cases, the [=access mode=] of the result is the same as the access mode of the original reference.
 
@@ -3659,14 +3733,17 @@ In all cases, the [=access mode=] of the result is the same as the access mode o
 A pointer value is formed in one of the following ways:
 
 * Use the [=address-of=] (unary `&`) operator on a reference.
-    * The originating variable of the result is defined as the originating variable of the reference.
+    * The result is a [=valid pointer=] if and only if the original reference is [=valid reference|valid=].
+    * The [=originating variable=] of a valid result is defined as the originating variable of the reference.
 * If a function [=formal parameter=] has pointer type, then when the function is invoked
     at runtime the uses of the formal parameter denote the pointer value
     provided to the corresponding operand at the [=call site=] in the [=calling function=].
-    * The originating variable of the formal parameter (at runtime) is defined as
+    * The value denoted by the formal parameter (at runtime) is a [=valid pointer=] if and only if
+         the pointer value at the call site is [=valid pointer|valid=].
+    * The [=originating variable=] of a [=valid pointer=] formal parameter (at runtime) is defined as
         the originating variable of the pointer operand at the call site.
 
-In all cases, the access mode of the result is the same as the access mode of the original pointer.
+In all cases, the [=access mode=] of the result is the same as the access mode of the original pointer.
 
 <div class='example wgsl' heading='Pointer from a variable'>
   <xmp highlight='rust'>
@@ -9843,6 +9920,10 @@ For a given group of invocations:
 The remaining subsections specify a static analysis that verifies that
 [[#collective-operations|collective operations]] are only executed in [=uniform
 control flow=].
+
+The analysis assumes [=dynamic errors=] do not occur.
+A shader stage with a [=dynamic error=] is already non-portable, no matter the outcome
+of uniformity analysis.
 
 <div class="note"><span class=marker>Note:</span>This analysis has the following desirable properties:
       - Sound, meaning that a [=uniformity failure=] [=behavioral requirement|will=] be triggered for a program that would break the uniformity requirements of builtins.
