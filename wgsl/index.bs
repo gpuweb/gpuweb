@@ -1444,7 +1444,7 @@ Note: The algorithm respects expression nesting: The start and end of a particul
 For example, in `array<i32,select(2,3,a>b)>`, the template list has three parameters, where the last one is `select(2,3,a>b)`.
 The `'>'` in `a>b` does not terminate the template list because it is enclosed in a parenthesized part of the expression calling the `select` function.
 
-Note: Both ends of a template list must appear within the same array indexing phrase. For example `a[b<d]>()` does not contain a valid template list.
+Note: Both ends of a template list must appear within the same [=indexing expression=]. For example `a[b<d]>()` does not contain a valid template list.
 
 Note: In the phrase `A<B<<C>`, the phrase `B<<C` is parsed as `B` followed by the left-shift operator <a for=syntax_sym lt=shift_left>`'<<'`</a> followed by `C`.
 The template discovery algorithm starts examining `B` then '`<`' (U+003C) but then sees that the next `'<'` (U+003C) code point cannot start a template argument, and so
@@ -1632,7 +1632,7 @@ Unless explicitly permitted below, an attribute [=shader-creation error|must not
         That is, a call to this function [=shader-creation error|must=] not be the entirety of a [[#function-call-statement|function call statement]].
 
         Note: Many functions return a value and do not have side effects.
-        It is often a programming error to call such a function as the only thing in a function call statement.
+        It is often a programming defect to call such a function as the only thing in a function call statement.
         Built-in functions with these properties are declared as `@must_use`.
         User-defined functions can also have the `@must_use` attribute.
 
@@ -3352,29 +3352,104 @@ and vice versa,
 where |p| and |r| describe the same memory view.
 </blockquote>
 
+### Valid and Invalid Memory References ### {#valid-invalid-memory-references}
+
+A [=reference type|reference=] value is either [=valid reference|valid=] or [=invalid memory reference|invalid=].
+
+References are formed as described in detail in [[#forming-references-and-pointers]].
+Generally, a <dfn noexport>valid reference</dfn> is formed by:
+* naming a variable, or
+* applying the [=indirection=] (unary `*`) operation to a [=valid pointer=], or
+* a [=named component expression=] where the [=decomposition/base=] is a valid reference, or
+* an [=indexing expression=] where the [=decomposition/base=] is a valid reference, and using an [=in-bounds index=].
+
+Generally, an <dfn noexport>invalid memory reference</dfn> is formed by:
+* applying the indirection operator to an [=invalid pointer=], or
+* a [=named component expression=] where the [=decomposition/base=] is an invalid memory reference, or
+* an [=indexing expression=] where the base is a reference, and either:
+     * the [=decomposition/base=] is an invalid memory reference, or
+     * the index is [=out-of-bounds index|out-of-bounds=].
+
+A <dfn noexport>valid pointer</dfn> is a pointer that corresponds to a [=valid reference=].
+An <dfn noexport>invalid pointer</dfn> is a pointer that corresponds to an [=invalid memory reference=].
+
 ### Originating Variable ### {#originating-variable-section}
 
-In WGSL a reference value always corresponds to the memory view
-for some or all of the memory locations for some variable.
-This defines the <dfn noexport>originating variable</dfn> for the reference value.
+<div algorithm="defining orginating variable">
+The <dfn noexport>originating variable</dfn> for a reference value |R| is defined as follows:
+* It is the variable, when |R| is a variable.
+* It is the originating variable of the pointer value |P|, when |R| is the application of the indirection operator (unary *) on |P|.
+* It is the originating variable of the [=decomposition/base=], when |R| is a [=named component expression=] or an [=indexing expression=].
 
-A pointer value always corresponds to a reference value, and so the originating variable
-of a pointer is the same as the originating variable of the corresponding reference.
+</div>
+
+The [=originating variable=] of a pointer value is defined as the originating variable of the corresponding reference value.
 
 Note: The originating variable is a dynamic concept.
 The originating variable for a formal parameter of a function depends on the
 [=call site|call sites=] for the function.
 Different call sites may supply pointers into different originating variables.
 
-### Invalid Memory Reference ### {#invalid-mem-reference}
+A [=valid reference=] always corresponds to a non-empty memory view for some or all of the memory locations for some variable.
 
-An operation that accesses one or more [=memory locations=] outside those
-associated with the operation's [=memory view=] is an
-<dfn noexport>out of bounds access</dfn>.
-Any reference or pointer that, when accessed, would produce an out of bounds
-access is an <dfn noexport>invalid memory reference</dfn>.
+<div class=note>
+<span class=marker>Note:</span> A reference can correspond to memory locations inside a variable, and still be invalid.
+This can occur when an index is too large for the type being indexed, but the referenced locations
+would be inside a subsequent sibling data member.
 
-[=Load Rule|Loads=] from an invalid reference return one of:
+In the following example, the reference `the_particle.position[i]` is valid if and only if `i` is 0 or 1.
+When `i` is 2, the reference will be an [=invalid memory reference=], but would otherwise correspond
+the memory locations for `the_particle.color_index`.
+<div class='example wgsl' heading='Invalid memory reference still inside a variable'>
+<span id="example-invalid-ref"></span>
+  <xmp highlight='rust'>
+    struct Particle {
+       position: vec2f,
+       velocity: vec2f,
+       color_index: i32,
+    }
+
+    @group(0) @binding(0)
+    var<storage,read_write> the_particle: Particle;
+
+    fn particle_velocity_component(p: Particle, i: i32) -> f32 {
+      return the_particle.velocity[i]; // A valid reference when i is 0 or 1.
+    }
+  </xmp>
+</div>
+</div>
+
+### Out-of-Bounds Access ### {#out-of-bounds-access-sec}
+
+An operation that [=memory access|accesses=] an
+[=invalid memory reference=] is an <dfn noexport>out-of-bounds access</dfn>.
+
+An out-of-bounds access is a program defect, because if it *were* performed as written, it would typically:
+* read or write [=memory locations=] outside of a variable, or
+* interpret the contents of those locations as the wrong [=store type=], or
+* cause an unintended data race.
+
+For this reason, an implementation [=behavioral requirement|will not=] perform the access as written.
+Executing an [=out-of-bounds access=] generates a [=dynamic error=].
+
+Note: An example of interpreting the store type incorrectly occurs in
+<a href="#example-invalid-ref"> the example from the previous section</a>.
+When `i` is 2, the expression `the_particle.velocity[i]` has
+type `ref<storage,f32,read_write>`, meaning it is a memory view with [=f32=] as
+its [=store type=].
+However, the memory locations are allocated to for the
+`color_index` member, so the stored value is actually of type [=i32=].
+
+<div class=note>
+<span class=marker>Note:</span>An out-of-bounds access causes a dynamic error,
+which allows for many possible outcomes.
+
+Those outcomes include, but are not limited to, the following:
+
+: <dfn noexport>Trap</dfn>
+:: The shader invocation immediately terminates, and [=shader stage outputs=] are set to zero values.
+: <dfn noexport>Invalid Load</dfn>
+:: [=Load Rule|Loads=] from an invalid reference may return one of:
     * when the [=originating variable=] is a [=uniform buffer=] or a [=storage buffer=],
         the value from any [=memory locations|memory location(s)=]
         of the WebGPU {{GPUBuffer}} bound to the originating variable
@@ -3384,24 +3459,29 @@ access is an <dfn noexport>invalid memory reference</dfn>.
     * if the loaded value is a vector, the value (0, 0, 0, x), where x is:
         * 0, 1, or the maximum positive value for integer components
         * 0.0 or 1.0 for floating-point components
-[=statement/assignment|Stores=] to an invalid reference may do one of:
+: <dfn noexport>Invalid Store</dfn>
+:: [=statement/assignment|Stores=] to an invalid reference may do one of:
     * when the [=originating variable=] is a [=storage buffer=],
         store the value to any [=memory locations|memory location(s)=] of the
         WebGPU {{GPUBuffer}} bound to the [=originating variable=]
     * when the [=originating variable=] is not a [=storage buffer=],
         store the value to any [=memory locations|memory locations(s)=] in the
         originating variable
-    * not be executed
-It is a [=dynamic error=] if [[#atomic-rmw|read-modify-write atomics]] that
-operate on an invalid memory reference load and store from different [=memory
-locations|memory locations=] if they access memory.
+    * not be executed.
 
-Note: An invalid memory reference can occur even if the bytes accessed would
-still be within memory locations of the originating variable.
-Each access into a [=composite=] type must be made by a valid memory reference.
-See [[#composite-value-decomposition-expr]].
+A data race may occur if an invalid load or store is redirected to access different
+locations inside a variable in a shared address space.
+For example, the accesses of several concurrently executing invocations may be redirected
+to the first element in an array.
+If at least one access is a write, and they are not otherwise synchronized,
+then the result is a data race, and hence a dynamic error.
 
-Note: [=Uniform buffers=] do not support stores.
+An out-of-bounds access invalidates the assumptions of [[#uniformity|uniformity analysis]].
+For example, if an invocation terminates early due to an out-of-bounds access, then it
+can no longer particpate in collective operations.
+In particular, a call to [[#sync-builtin-functions|workgroupBarrier]] may hang the shader,
+and derivatives may yield invalid results.
+</div>
 
 ### Use Cases for References and Pointers ### {#ref-ptr-use-cases}
 
@@ -3544,15 +3624,15 @@ Defining pointers in this way enables two key use cases:
 A reference value is formed in one of the following ways:
 
 * The [=identifier=] [=resolves|resolving=] to an [=in scope|in-scope=] variable *v* denotes the reference value for *v*'s memory.
-    * The resolved variable is the [=originating variable=] for the reference.
 * Use the [=indirection=] (unary `*`) operation on a pointer.
-    * The originating variable of the result is defined as the originating variable of the pointer.
-* Use a <dfn noexport>composite reference component expression</dfn>.
-    In each case the originating variable of the result is defined as the originating variable of the
-    original reference.
+* Use a [=named component expression=] on a reference to a composite:
     * Given a reference with a [=vector=] store type, appending a single-letter vector access phrase
         results in a reference to the named component of the vector.
         See [[#component-reference-from-vector-reference]].
+    * Given a reference with a [=structure=] store type, appending a member access phrase
+        results in a reference to the named member of the structure.
+        See [[#struct-access-expr]].
+* Use an [=indexing expression=] on a reference to a composite:
     * Given a reference with a [=vector=] store type, appending an array index access phrase
         results in a reference to the indexed component of the vector.
         See [[#component-reference-from-vector-reference]].
@@ -3562,9 +3642,6 @@ A reference value is formed in one of the following ways:
     * Given a reference with an [=array=] store type, appending an array index access phrase
         results in a reference to the indexed element of the array.
         See [[#array-access-expr]].
-    * Given a reference with a [=structure=] store type, appending a member access phrase
-        results in a reference to the named member of the structure.
-        See [[#struct-access-expr]].
 
 In all cases, the [=access mode=] of the result is the same as the access mode of the original reference.
 
@@ -3659,14 +3736,17 @@ In all cases, the [=access mode=] of the result is the same as the access mode o
 A pointer value is formed in one of the following ways:
 
 * Use the [=address-of=] (unary `&`) operator on a reference.
-    * The originating variable of the result is defined as the originating variable of the reference.
+    * The result is a [=valid pointer=] if and only if the original reference is [=valid reference|valid=].
+    * The [=originating variable=] of a valid result is defined as the originating variable of the reference.
 * If a function [=formal parameter=] has pointer type, then when the function is invoked
     at runtime the uses of the formal parameter denote the pointer value
     provided to the corresponding operand at the [=call site=] in the [=calling function=].
-    * The originating variable of the formal parameter (at runtime) is defined as
+    * The value denoted by the formal parameter (at runtime) is a [=valid pointer=] if and only if
+         the pointer value at the call site is [=valid pointer|valid=].
+    * The [=originating variable=] of a [=valid pointer=] formal parameter (at runtime) is defined as
         the originating variable of the pointer operand at the call site.
 
-In all cases, the access mode of the result is the same as the access mode of the original pointer.
+In all cases, the [=access mode=] of the result is the same as the access mode of the original pointer.
 
 <div class='example wgsl' heading='Pointer from a variable'>
   <xmp highlight='rust'>
@@ -5037,6 +5117,38 @@ the indeterminate value produced at runtime may be a NaN value.
 </table>
 
 ## Composite Value Decomposition Expressions ## {#composite-value-decomposition-expr}
+
+This section describes expressions for getting a [=component=] of a [=composite=] value,
+and for getting a [=reference type|reference=] to a [=component=] from a reference to the containing composite value.
+For this discussion, the composite value, or the reference to composite value,
+is known as the <dfn dfn-for=decomposition noexport>base</dfn>.
+
+There are two ways of doing so:
+: <dfn noexport>named component expression</dfn>
+:: The expression for the [=decomposition/base=] *B* is followed by a period `'.'` (U+002D), and then the name of the component.
+    * This is supported when *B* is of [=vector=] or [=structure=] type, or a reference to a vector or structure type.
+    * The valid names depend on *B*'s type.
+: <dfn noexport>indexing expression</dfn>
+:: The expression for the base is followed by `'['` (U+005B), then the expression for an index then `']'` (U+005D).
+    * The base may be a [=vector=], [=matrix=], or [=fixed-size array=] type, or
+        or a reference to a vector, matrix, fixed-size array, or [=runtime-sized=] array type.
+    * The index expression [=shader-creation error|must=] be of [=integer scalar=] type.
+
+Syntactically, these two forms are embodied by uses of the [=syntax/component_or_swizzle_specifier=] grammar rule.
+
+<div algorithm="out of bounds index">
+The index value |i| of an [=indexing expression=] is an <dfn noexport>in-bounds index</dfn> if 0 &le; |i| &lt; |N|, where |N| is the number of components (elements) of the composite type:
+    * |N| is the number of components of the [=vector=] type, when the base is a vector or a [=reference type|reference=] to a vector.
+    * |N| is the number of columns of the [=matrix=] type, when the base is a matrix or a reference to a matrix.
+    * |N| is the [=element count=] of the [=fixed-size array=] type, when the base is a fixed-size array or a reference to a fixed-size array.
+    * |N| is [=NRuntime=] for the base, when the base is a reference to a [=runtime-sized=] array.
+
+The index value is an <dfn noexport>out-of-bounds index</dfn> when it is not an [=in-bounds index=].
+An out-of-bounds index is often a programming defect, and will often cause a [[#processing-errors|processing error]].
+See below for details.
+</div>
+
+Additionally, vector types support a [=swizzle|swizzling=] syntax for creating a new vector value from the components of another vector.
 
 ### Vector Access Expression ### {#vector-access-expr}
 
@@ -9843,6 +9955,10 @@ For a given group of invocations:
 The remaining subsections specify a static analysis that verifies that
 [[#collective-operations|collective operations]] are only executed in [=uniform
 control flow=].
+
+The analysis assumes [=dynamic errors=] do not occur.
+A shader stage with a [=dynamic error=] is already non-portable, no matter the outcome
+of uniformity analysis.
 
 <div class="note"><span class=marker>Note:</span>This analysis has the following desirable properties:
       - Sound, meaning that a [=uniformity failure=] [=behavioral requirement|will=] be triggered for a program that would break the uniformity requirements of builtins.
