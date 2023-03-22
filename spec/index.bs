@@ -36,12 +36,10 @@ Assume Explicit For: yes
 </pre>
 
 <pre class=link-defaults>
-spec:html;
-    type:interface; text:Navigator
-spec:webidl;
-    type:interface; text:Promise
 </pre>
-
+<pre class=ignored-specs>
+spec:resource-hints;
+</pre>
 <pre class=anchors>
 spec: ECMA-262; urlPrefix: https://tc39.es/ecma262/#
     type: dfn
@@ -1318,16 +1316,15 @@ WebGPU on top of that functionality.
 calling {{GPU/requestAdapter()}} multiple times returns a different [=adapter=]
 object each time.
 
-An [=adapter=] object may become [=invalid=] at any time.
-This happens inside "[=lose the device=]" and "[=mark adapters stale=]".
-An invalid adapter is unable to vend new [=devices=].
+Each [=adapter=] object can only be used to create one [=device=]:
+upon a successful {{GPUAdapter/requestDevice()}}, the adapter becomes [=invalid=].
+Additionally, [=adapter=] objects may [=adapter/expire=] at any time.
 
 Note:
-This mechanism ensures that various adapter-creation scenarios look similar to applications,
-so they can easily be robust to more scenarios with less testing: first initialization,
+This ensures applications use the latest system state for adapter selection when creating a device.
+It also encourages robustness to more scenarios by making them look similar: first initialization,
 reinitialization due to an unplugged adapter, reinitialization due to a test
-{{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc. It also ensures applications use
-the latest system state to make decisions about which adapter to use.
+{{GPUDevice/destroy()|GPUDevice.destroy()}} call, etc.
 
 An [=adapter=] may be considered a <dfn>fallback adapter</dfn> if it has significant performance
 caveats in exchange for some combination of wider compatibility, more predictable behavior, or
@@ -1407,7 +1404,7 @@ A [=device=] has the following internal slots:
 </div>
 
 Any time the user agent needs to revoke access to a device, it calls
-[=lose the device=](`device`, `undefined`) on the device's [=device timeline=],
+[=lose the device=](`device`, {{GPUDeviceLostReason/"unknown"}}) on the device's [=device timeline=],
 potentially ahead of other operations currently queued on that timeline.
 
 If an operation fails with side effects that would observably change the state
@@ -1417,7 +1414,6 @@ the device **should** be lost to prevent these changes from being observable.
 <div algorithm data-timeline=device>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|):
 
-    1. Make |device|.{{device/[[adapter]]}} [=invalid=].
     1. Make |device| [=invalid=].
     1. Let |gpuDevice| be the [=content timeline=] {{GPUDevice}} corresponding to |device|.
 
@@ -1431,6 +1427,8 @@ the device **should** be lost to prevent these changes from being observable.
                 Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
                 information and should never be parsed by applications.
         </div>
+    1. Complete any outstanding {{GPUBuffer/mapAsync()}} steps.
+    1. Complete any outstanding {{GPUQueue/onSubmittedWorkDone()}} steps.
 </div>
 
 [=Devices=] are exposed via {{GPUDevice}}.
@@ -2007,9 +2005,10 @@ It is used for the {{GPUDevice/uncapturederror}} event and {{GPUDevice}}.{{GPUDe
         to create |device|, and the steps |steps|.
 </div>
 
-### Automatic Expiry Task Source ### {#-automatic-expiry-task-source}
+<h4 id=automatic-expiry-task-source data-dfn-type=dfn>Automatic Expiry Task Source
+</h4>
 
-WebGPU defines a new [=task source=] called the <dfn dfn>automatic expiry task source</dfn>.
+WebGPU defines a new [=task source=] called the [=automatic expiry task source=].
 It is used for the automatic, timed expiry (destruction) of certain objects:
 
 - {{GPUTexture}}s returned by {{GPUCanvasContext/getCurrentTexture()}}
@@ -2025,25 +2024,16 @@ It is used for the automatic, timed expiry (destruction) of certain objects:
 
 Tasks from the [=automatic expiry task source=] **should** be processed with high priority; in
 particular, once queued, they **should** run before user-defined (JavaScript) tasks.
-This results in stricter behavior that helps developers write more portable applications, but
-developers are still strongly encouraged to test in multiple implementations.
 
 <div class=note>
-    Note: Since task source priority is not normatively defined, there is a range of points at which
-    tasks from this task queue can execute. In practice, this means these tasks can be implemented
-    with fixed steps inside the [=event loop processing model=].
-    All of the following options are valid:
+    Note:
+    This behavior is more predictable, and the strictness helps developers write more portable
+    applications by eagerly detecting incorrect assumptions about implicit lifetimes that may be
+    hard to detect. Developers are still strongly encouraged to test in multiple implementations.
 
-    - Immediately after running any task.
-    - Immediately after running animation frame callbacks.
-    - Immediately before rendering.
-        Note this choice results in less predictable expiry, especially for non-visible canvases
-        (e.g. scrolled off the screen or in a background tab), potentially allowing invalid programs
-        to appear correct or changing the behavior of websites which (incorrectly) rely on expiry
-        timing.
-
-        In the case of canvas texture expiry, expiry is also done in [$update the rendering of
-        the WebGPU canvas$], so it's equivalent for an implementation to elide the task entirely.
+    Implementation note:
+    It is valid to implement a high-priority expiry "task" by instead inserting additional steps at
+    a fixed point inside the [=event loop processing model=] rather than running an actual task.
 </div>
 
 ## Color Spaces and Encoding ## {#color-spaces}
@@ -2318,37 +2308,20 @@ interface GPU {
         </div>
 </dl>
 
-{{GPU}} has the following internal slots:
-
-<dl dfn-type=attribute dfn-for=GPU>
-    : <dfn>\[[previously_returned_adapters]]</dfn>, of type [=ordered set=]&lt;[=adapter=]&gt;
-    ::
-        The set of [=adapters=] that have been returned via {{GPU/requestAdapter()}}.
-        It is used, then cleared, in [=mark adapters stale=].
-</dl>
-
+[=Adapters=] **may** become [=invalid=] ("<dfn dfn for=adapter>expire</dfn>") at any time.
 Upon any change in the system's state that could affect the result of any {{GPU/requestAdapter()}}
-call, the user agent *should* [=mark adapters stale=]. For example:
+call, the user agent **should** expire all previously-returned adapters. For example:
 
-- A physical adapter is added/removed (via plug, driver update, TDR, etc.)
+- A physical adapter is added/removed (via plug/unplug, driver update, hang recovery, etc.)
 - The system's power configuration has changed (laptop unplugged, power settings changed, etc.)
 
-Additionally, [=mark adapters stale=] may by scheduled at any time.
-User agents may choose to do this often even when there has been no system state change (e.g.
-several seconds after the last call to {{GPUAdapter/requestDevice()}}.
-This has no effect on well-formed applications, obfuscates real system state changes, and makes
-developers more aware that calling {{GPU/requestAdapter()}} again is always necessary before
-calling {{GPUAdapter/requestDevice()}}.
-
-<div algorithm>
-    To <dfn dfn>mark adapters stale</dfn>:
-
-    1. For each |adapter| in `navigator.gpu.`{{GPU/[[previously_returned_adapters]]}}:
-        1. Make |adapter|.{{GPUAdapter/[[adapter]]}} [=invalid=].
-    1. [=list/Empty=] `navigator.gpu.`{{GPU/[[previously_returned_adapters]]}}.
-
-    <!-- POSTV1(adapterschanged event): update here -->
-</div>
+Note:
+User agents may choose to [=adapter/expire=] adapters often, even when there has been no system
+state change (e.g. seconds or minutes after the adapter was created).
+This can help obfuscate real system state changes, and make developers more aware that calling
+{{GPU/requestAdapter()}} again is always necessary before calling {{GPUAdapter/requestDevice()}}.
+If an application does encounter this situation, standard device-loss recovery
+handling should allow it to recover.
 
 <div class=example>
     Requesting a {{GPUAdapter}} with no hints:
@@ -2542,6 +2515,9 @@ interface GPUAdapter {
     ::
         Requests a [=device=] from the [=adapter=].
 
+        This is a one-time action: if a device is returned successfully,
+        the adapter becomes [=invalid=].
+
         <div algorithm=GPUAdapter.requestDevice>
             <div data-timeline=content>
                 **Called on:** {{GPUAdapter}} |this|.
@@ -2613,7 +2589,7 @@ interface GPUAdapter {
                     or the user agent otherwise cannot fulfill the request:
 
                     1. Let |device| be a new [=device=].
-                    1. [=Lose the device=](|device|, `undefined`).
+                    1. [=Lose the device=](|device|, {{GPUDeviceLostReason/"unknown"}}).
 
                         Note:
                         This makes |adapter| [=invalid=], if it wasn't already.
@@ -2626,6 +2602,7 @@ interface GPUAdapter {
                     Otherwise:
 
                     1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
+                    1. Make |adapter|.{{GPUAdapter/[[adapter]]}} [=invalid=].
 
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
@@ -3561,27 +3538,20 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     Then:
 
-                    1. Issue the following steps on <var data-timeline=content>contentTimeline</var>:
-
-                        <div data-timeline=content>
-                            [=Content timeline=] steps:
-
-                            1. If |this|.{{GPUBuffer/[[pending_map]]}} != |p|:
-
-                                Note: The map has been cancelled by {{GPUBuffer/unmap()}}.
-
-                                1. [=Assert=] |p| is rejected.
-                                1. Return.
-                            1. [=Assert=] |p| is pending.
-                            1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`,
-                                and [=reject=] |p| with an {{OperationError}}.
-                        </div>
-
+                    1. Issue the <var data-timeline=content>map failure steps</var> on
+                        <var data-timeline=content>contentTimeline</var>.
                     1. [$Generate a validation error$].
                     1. Return.
 
                 1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/unavailable=]".
-                1. At an unspecified point:
+
+                    Note: Since the buffer is mapped, its contents cannot change between this completion and {{GPUBuffer/unmap()}}.
+                1. If |this|.{{GPUObjectBase/[[device]]}} is lost, or when it [=lose the device|becomes lost=]:
+
+                    1. Issue the <var data-timeline=content>map failure steps</var> on
+                        <var data-timeline=content>contentTimeline</var>.
+
+                    Otherwise, at an unspecified point:
 
                     - after the completion of
                         <span data-timeline=queue>currently-enqueued operations that use |this|</span>,
@@ -3590,25 +3560,21 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                         <span data-timeline=queue>all currently-enqueued operations</span>
                         (regardless of whether they use |this|),
 
-                    issue the subsequent steps on the <span data-timeline=device>current timeline</span>.
+                    run the following steps:
 
-                    Note: Since the buffer is mapped, its contents cannot change between this completion and {{GPUBuffer/unmap()}}.
+                    1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=].
+
+                        Note: If, and only if, at this point the buffer has become "[=buffer internals/state/available=]"
+                        again due to an {{GPUBuffer/unmap()}} call, then {{GPUBuffer/[[pending_map]]}} != |p| below,
+                        so mapping will not succeed in the steps below.
+                    1. Let |dataForMappedRegion| be the contents of |this| starting at offset |offset|, for |rangeSize| bytes.
+                    1. Issue the <var data-timeline=content>map success steps</var> on the
+                        <var data-timeline=content>contentTimeline</var>.
 
                     <!-- POSTV1(multi-queue): this may be better described using queue-transfer language. -->
             </div>
-            <div data-timeline=device>
-                [=Device timeline=] steps:
-
-                1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=].
-
-                    Note: If, and only if, at this point the buffer has become "[=buffer internals/state/available=]"
-                    again due to an {{GPUBuffer/unmap()}} call, then {{GPUBuffer/[[pending_map]]}} != |p| below,
-                    so mapping will not succeed in the steps below.
-                1. Let |dataForMappedRegion| be the contents of |this| starting at offset |offset|, for |rangeSize| bytes.
-                1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
-            </div>
             <div data-timeline=content>
-                [=Content timeline=] steps:
+                [=Content timeline=] <var data-timeline=content>map success steps</var>:
 
                 1. If |this|.{{GPUBuffer/[[pending_map]]}} != |p|:
 
@@ -3630,6 +3596,19 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                 1. Set |this|.{{GPUBuffer/[[mapping]]}} to |mapping|.
                 1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`,
                     and [=resolve=] |p|.
+            </div>
+            <div data-timeline=content>
+                [=Content timeline=] <var data-timeline=content>map failure steps</var>:
+
+                1. If |this|.{{GPUBuffer/[[pending_map]]}} != |p|:
+
+                    Note: The map has been cancelled by {{GPUBuffer/unmap()}}.
+
+                    1. [=Assert=] |p| is already rejected.
+                    1. Return.
+                1. [=Assert=] |p| is still pending.
+                1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`,
+                    and [=reject=] |p| with an {{OperationError}}.
             </div>
         </div>
 
@@ -5088,7 +5067,8 @@ dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
                     An external video texture should be imported in the same task that samples the texture
                     (which should generally be scheduled using `requestVideoFrameCallback` or
                     {{AnimationFrameProvider/requestAnimationFrame()}} depending on the application).
-                    Otherwise, a texture could get destroyed by these steps before it is used.
+                    Otherwise, a texture could get destroyed by these steps before the
+                    application is finished using it.
 
                 1. Set |result|.{{GPUObjectBase/label}} to |descriptor|.{{GPUObjectDescriptorBase/label}}.
                 1. Return |result|.
@@ -6773,13 +6753,12 @@ There are two ways to create pipelines:
 
 <dfn interface>GPUPipelineError</dfn> describes a pipeline creation failure.
 
-Issue: According to [whatwg/webidl#1211](https://github.com/whatwg/webidl/pull/1211),
-to conform to the standard pattern, `message` should be optional and default to `""`.
+<!--TODO(gpuweb/gpuweb#3709): Change `message` to optional, defaulting to `""`. -->
 
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext, Serializable]
 interface GPUPipelineError : DOMException {
-    constructor(DOMString message, GPUPipelineErrorInit options);
+    constructor((DOMString or undefined) message, GPUPipelineErrorInit options);
     readonly attribute GPUPipelineErrorReason reason;
 };
 
@@ -6805,7 +6784,7 @@ enum GPUPipelineErrorReason {
             </pre>
 
             1. Set [=this=].{{DOMException/name}} to `"GPUPipelineError"`.
-            1. Set [=this=].{{DOMException/message}} to |message|.
+            1. Set [=this=].{{DOMException/message}} to |message| ?? `""`.
             1. Set [=this=].{{GPUPipelineError/reason}} to |options|.{{GPUPipelineErrorInit/reason}}.
         </div>
 </dl>
@@ -7772,12 +7751,6 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
         - [$validating GPUFragmentState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}}) succeeds.
         - If the "sample_mask" [=builtin=] is a [=shader stage output=] of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
             - |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}} is `false`.
-        - For each user-defined input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}} there
-            must be a user-defined output of |descriptor|.{{GPURenderPipelineDescriptor/vertex}} that
-            [=location=], type, and [=interpolation=] of the input.
-
-            Note: This means that vertex-only pipelines can have user-defined outputs in the vertex stage:
-            they will be discarded.
 
     - [$validating GPUPrimitiveState$](|descriptor|.{{GPURenderPipelineDescriptor/primitive}}, |device|) succeeds.
     - If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is [=map/exist|provided=]:
@@ -7796,29 +7769,46 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
 
     **Returns:** {{boolean}}
 
-    1. Let |maxVertexShaderOutputComponents| be |device|.limits.{{supported limits/maxInterStageShaderComponents}}.
-        1. If |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}} is
-            {{GPUPrimitiveTopology/"point-list"}}:
+    1. Let |maxVertexShaderOutputComponents| be
+        |device|.limits.{{supported limits/maxInterStageShaderComponents}}.
+        1. If |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}}
+            is {{GPUPrimitiveTopology/"point-list"}}:
             1. Decrement |maxVertexShaderOutputComponents| by 1.
-    1. Let |maxFragmentShaderInputComponents| be |device|.limits.{{supported limits/maxInterStageShaderComponents}}.
-        1. If the `front_facing` [=builtin=] is an input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
-            1. Decrement |maxFragmentShaderInputComponents| by 1.
-        1. If the `sample_index` [=builtin=] is an input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
-            1. Decrement |maxFragmentShaderInputComponents| by 1.
-        1. If the `sample_mask` [=builtin=] is an input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
-            1. Decrement |maxFragmentShaderInputComponents| by 1.
-    1. Return `true` if and only if all of the following conditions are satisfied:
-        - The [=location=] of each user-defined output of |descriptor|.{{GPURenderPipelineDescriptor/vertex}} is less
-            than (|device|.limits.{{supported limits/maxInterStageShaderVariables}}).
-        - The [=location=] of each user-defined input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is less
-            than (|device|.limits.{{supported limits/maxInterStageShaderVariables}}).
-        - There are no more than |maxVertexShaderOutputComponents| scalar
+    1. Return `false` if any of the following requirements are unmet:
+        - There must be no more than |maxVertexShaderOutputComponents| scalar
             components across all user-defined outputs for
             |descriptor|.{{GPURenderPipelineDescriptor/vertex}}.
             (For example, a `f32` output uses 1 component, and a `vec3<f32>` output uses 3 components.)
-        - There are no more than |maxFragmentShaderInputComponents| scalar
-            components across all user-defined inputs for
-            |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.
+        - The [=location=] of each user-defined output of
+            |descriptor|.{{GPURenderPipelineDescriptor/vertex}} must be
+            &lt; |device|.limits.{{supported limits/maxInterStageShaderVariables}}.
+    1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} [=map/exist|is provided=]:
+        1. Let |maxFragmentShaderInputComponents| be
+            |device|.limits.{{supported limits/maxInterStageShaderComponents}}.
+            1. If the `front_facing` [=builtin=] is an input of
+                |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
+                1. Decrement |maxFragmentShaderInputComponents| by 1.
+            1. If the `sample_index` [=builtin=] is an input of
+                |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
+                1. Decrement |maxFragmentShaderInputComponents| by 1.
+            1. If the `sample_mask` [=builtin=] is an input of
+                |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
+                1. Decrement |maxFragmentShaderInputComponents| by 1.
+        1. Return `false` if any of the following requirements are unmet:
+            - There must be no more than |maxFragmentShaderInputComponents| scalar
+                components across all user-defined inputs for
+                |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.
+            - For each user-defined input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}} there
+                must be a user-defined output of |descriptor|.{{GPURenderPipelineDescriptor/vertex}} that
+                [=location=], type, and [=interpolation=] of the input.
+
+                Note: Vertex-only pipelines **can** have user-defined outputs in the vertex stage;
+                their values will be discarded.
+        1. [=Assert=] that the [=location=] of each user-defined input of
+            |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is less
+            than |device|.limits.{{supported limits/maxInterStageShaderVariables}}
+            (resulting from the above rules).
+    1. Return `true`.
 </div>
 
 <div class=example>
@@ -12512,7 +12502,8 @@ GPUQueue includes GPUObjectBase;
                 [=Device timeline=] |synchronization steps|:
 
                 1. When the [=device timeline=] becomes informed of the completion of all
-                    <span data-timeline=queue>currently-enqueued operations</span> on |this|:
+                    <span data-timeline=queue>currently-enqueued operations</span> on |this|, or
+                    if |this| is lost, or when |this| [=lose the device|becomes lost=]:
                     1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
             <div data-timeline=content>
@@ -12913,6 +12904,22 @@ interface GPUCanvasContext {
         Get the {{GPUTexture}} that will be composited to the document by the {{GPUCanvasContext}}
         next.
 
+        <div class=note>
+            Note:
+            An application **should** call {{GPUCanvasContext/getCurrentTexture()}}
+            in the same task that renders to the canvas texture.
+            Otherwise, the texture could get destroyed by these steps before the
+            application is finished rendering to it.
+
+            The expiry task (defined below) is optional to implement.
+            Even if implemented, task source priority is not normatively defined, so may happen as
+            early as the next task, or as late as after all other task sources are empty
+            (see [=automatic expiry task source=]).
+            Expiry is only guaranteed when a visible canvas is displayed
+            ([$updating the rendering of a WebGPU canvas$]) and in other
+            callers of [$Replace the drawing buffer$].
+        </div>
+
         <div algorithm=GPUCanvasContext.getCurrentTexture>
             <div data-timeline=content>
                 **Called on:** {{GPUCanvasContext}} |this|.
@@ -12937,7 +12944,7 @@ interface GPUCanvasContext {
                         this generates and error and returns an [=invalid=] {{GPUTexture}}.
                         Some validation here is redundant with that done in {{GPUCanvasContext/configure()}}.
                         Implementations **must not** skip this redundant validation.
-                1. [$queue an automatic expiry task$] with device |device| and the following steps:
+                1. **Optionally**, [$queue an automatic expiry task$] with device |device| and the following steps:
 
                     <div data-timeline=content>
                         1. [$Expire the current texture$] of |this|.
@@ -13278,12 +13285,13 @@ is being composited into (e.g. an HTML page rendering, or a 2D canvas).
 
 <script type=idl>
 enum GPUDeviceLostReason {
+    "unknown",
     "destroyed"
 };
 
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUDeviceLostInfo {
-    readonly attribute (GPUDeviceLostReason or undefined) reason;
+    readonly attribute GPUDeviceLostReason reason;
     readonly attribute DOMString message;
 };
 
@@ -14517,6 +14525,22 @@ typedef (sequence<double> or GPUColorDict) GPUColor;
 Note: `double` is large enough to precisely hold 32-bit signed/unsigned
 integers and single-precision floats.
 
+<div algorithm="GPUColor accessors" dfn-for=GPUColor>
+    For a given {{GPUColor}} value |color|, depending on its type, the syntax:
+
+    - |color|.<dfn dfn>r</dfn> refers to
+        either {{GPUColorDict}}.{{GPUColorDict/r}}
+        or the first item of the sequence ([=assert|asserting=] there is such an item).
+    - |color|.<dfn dfn>g</dfn> refers to
+        either {{GPUColorDict}}.{{GPUColorDict/g}}
+        or the second item of the sequence ([=assert|asserting=] there is such an item).
+    - |color|.<dfn dfn>b</dfn> refers to
+        either {{GPUColorDict}}.{{GPUColorDict/b}}
+        or the third item of the sequence ([=assert|asserting=] there is such an item).
+    - |color|.<dfn dfn>a</dfn> refers to
+        either {{GPUColorDict}}.{{GPUColorDict/a}}
+        or the fourth item of the sequence ([=assert|asserting=] there is such an item).
+</div>
 <div algorithm>
     <dfn abstract-op>validate GPUColor shape</dfn>(color)
 
@@ -14542,10 +14566,10 @@ typedef (sequence<GPUIntegerCoordinate> or GPUOrigin2DDict) GPUOrigin2D;
 
     - |origin|.<dfn dfn>x</dfn> refers to
         either {{GPUOrigin2DDict}}.{{GPUOrigin2DDict/x}}
-        or the first item of the sequence or 0 if it isn't present.
+        or the first item of the sequence (0 if not present).
     - |origin|.<dfn dfn>y</dfn> refers to
         either {{GPUOrigin2DDict}}.{{GPUOrigin2DDict/y}}
-        or the second item of the sequence or 0 if it isn't present.
+        or the second item of the sequence (0 if not present).
 </div>
 <div algorithm>
     <dfn abstract-op>validate GPUOrigin2D shape</dfn>(origin)
@@ -14573,13 +14597,13 @@ typedef (sequence<GPUIntegerCoordinate> or GPUOrigin3DDict) GPUOrigin3D;
 
     - |origin|.<dfn dfn>x</dfn> refers to
         either {{GPUOrigin3DDict}}.{{GPUOrigin3DDict/x}}
-        or the first item of the sequence or 0 if it isn't present.
+        or the first item of the sequence (0 if not present).
     - |origin|.<dfn dfn>y</dfn> refers to
         either {{GPUOrigin3DDict}}.{{GPUOrigin3DDict/y}}
-        or the second item of the sequence or 0 if it isn't present.
+        or the second item of the sequence (0 if not present).
     - |origin|.<dfn dfn>z</dfn> refers to
         either {{GPUOrigin3DDict}}.{{GPUOrigin3DDict/z}}
-        or the third item of the sequence or 0 if it isn't present.
+        or the third item of the sequence (0 if not present).
 </div>
 <div algorithm>
     <dfn abstract-op>validate GPUOrigin3D shape</dfn>(origin)
@@ -14592,7 +14616,6 @@ typedef (sequence<GPUIntegerCoordinate> or GPUOrigin3DDict) GPUOrigin3D;
 
     1. Throw a {{TypeError}} if |origin| is a sequence and |origin|.length &gt; 3.
 </div>
-
 
 <script type=idl>
 dictionary GPUExtent3DDict {
@@ -14608,7 +14631,7 @@ typedef (sequence<GPUIntegerCoordinate> or GPUExtent3DDict) GPUExtent3D;
 
     - |extent|.<dfn dfn>width</dfn> refers to
         either {{GPUExtent3DDict}}.{{GPUExtent3DDict/width}}
-        or the first item of the sequence.
+        or the first item of the sequence ([=assert|asserting=] there is such an item).
     - |extent|.<dfn dfn>height</dfn> refers to
         either {{GPUExtent3DDict}}.{{GPUExtent3DDict/height}}
         or the second item of the sequence (1 if not present).
@@ -15502,6 +15525,7 @@ Eventually all of these should disappear but they are useful to avoid warning wh
 [=buffer internals/state/available=]
 [=buffer internals/state/unavailable=]
 [=buffer internals/state/destroyed=]
+[=GPUColor/r=] [=GPUColor/g=] [=GPUColor/b=] [=GPUColor/a=]
 
 <script>
 // Small script to collect all xrefs that refer to different timelines and highlight
