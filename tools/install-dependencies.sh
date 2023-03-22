@@ -5,7 +5,7 @@ code=1
 for opt in "$@"; do
     case "$opt" in
         bikeshed)
-            pip3 install bikeshed==3.11.1
+            pip3 install bikeshed==3.11.16
             bikeshed update
             code=0
             ;;
