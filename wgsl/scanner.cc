@@ -5,7 +5,6 @@
 #include <bitset>
 #include <cassert>
 #include <cstring>
-#include <sstream>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -604,10 +603,8 @@ class Lexer {
       return false;
     }
 
-    std::stringstream ss;
     bool is_ascii = true;
     if (CodePoint start = next(); start < 0x80) {
-      ss.put(char(start));
     } else {
       is_ascii = false;
     }
@@ -617,14 +614,13 @@ class Lexer {
         break;
       }
       if (CodePoint code_point = next(); code_point < 0x80) {
-        ss.put(char(code_point));
       } else {
         is_ascii = false;
       }
     }
 
     if (is_ascii) {
-      LOG("ident: '%s'", ss.str().c_str());
+      LOG("ident is ascii");
     } else {
       LOG("ident");
     }
@@ -668,8 +664,8 @@ class Lexer {
 
 struct Scanner {
   struct State {
-    BitQueue<1024> lt_is_tmpl;  // Queue of disambiguated '<'
-    BitQueue<1024> gt_is_tmpl;  // Queue of disambiguated '>'
+    BitQueue<64> lt_is_tmpl;  // Queue of disambiguated '<'
+    BitQueue<64> gt_is_tmpl;  // Queue of disambiguated '>'
     bool empty() const { return lt_is_tmpl.empty() && gt_is_tmpl.empty(); }
   };
   State state;
