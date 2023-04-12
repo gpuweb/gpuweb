@@ -4,10 +4,12 @@ from datetime import date
 from string import Template
 
 import argparse
+import functools
 import os
 import re
 import subprocess
 import sys
+import string
 import shutil
 import wgsl_unit_tests
 
@@ -15,14 +17,75 @@ from distutils.ccompiler import new_compiler
 from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
 
+# TODO: Source from spec
+token_symbols = {
+    "'&'": "and",
+    "'&&'": "and_and",
+    "'->'": "arrow",
+    "'@'": "attr",
+    "'/'": "forward_slash",
+    "'!'": "bang",
+    "'['": "bracket_left",
+    "']'": "bracket_right",
+    "'{'": "brace_left",
+    "'}'": "brace_right",
+    "':'": "colon",
+    "','": "comma",
+    "'='": "equal",
+    "'=='": "equal_equal",
+    "'!='": "not_equal",
+    "'>'": "greater_than",
+    "'>='": "greater_than_equal",
+    "'>>'": "shift_right",
+    "'<'": "less_than",
+    "'<='": "less_than_equal",
+    "'<<'": "shift_left",
+    "'%'": "modulo",
+    "'-'": "minus",
+    "'--'": "minus_minus",
+    "'.'": "period",
+    "'+'": "plus",
+    "'++'": "plus_plus",
+    "'|'": "or",
+    "'||'": "or_or",
+    "'('": "paren_left",
+    "')'": "paren_right",
+    "';'": "semicolon",
+    "'*'": "star",
+    "'~'": "tilde",
+    "'_'": "underscore",
+    "'^'": "xor",
+    "'+='": "plus_equal",
+    "'-='": "minus_equal",
+    "'*='": "times_equal",
+    "'/='": "division_equal",
+    "'%='": "modulo_equal",
+    "'&='": "and_equal",
+    "'|='": "or_equal",
+    "'^='": "xor_equal",
+    "'>>='": "shift_right_assign",
+    "'<<='": "shift_left_assign"
+}
+
+# TODO: Source from spec
+derivative_patterns = {
+    "_comment": "/\\/\\/.*/",
+    "_blankspace": "/[\\u0020\\u0009\\u000a\\u000b\\u000c\\u000d\\u0085\\u200e\\u200f\\u2028\\u2029]/uy"
+}
+
 class Options():
-    def __init__(self,bs_filename, tree_sitter_dir, scanner_cc_filename):
+    """
+    A class to store varios options including file paths and verbosity.
+    """
+    def __init__(self,bs_filename, tree_sitter_dir, scanner_cc_filename, syntax_filename, syntax_dir):
         self.script = 'extract-grammar.py'
         self.bs_filename = bs_filename
         self.grammar_dir = tree_sitter_dir
         self.scanner_cc_filename = scanner_cc_filename
         self.wgsl_shared_lib = os.path.join(self.grammar_dir,"build","wgsl.so")
         self.grammar_filename = os.path.join(self.grammar_dir,"grammar.js")
+        self.syntax_filename = syntax_filename
+        self.syntax_dir = syntax_dir
         self.verbose = False
 
     def __str__(self):
@@ -33,9 +96,11 @@ class Options():
         parts.append("grammar_filename = {}".format(self.grammar_filename))
         parts.append("scanner_cc_filename = {}".format(self.scanner_cc_filename))
         parts.append("wgsl_shared_lib = {}".format(self.wgsl_shared_lib))
+        parts.append("syntax_filename = {}".format(self.syntax_filename))
+        parts.append("syntax_dir = {}".format(self.syntax_dir))
         return "Options({})".format(",".join(parts))
 
-def newer_than(first,second):
+def newer_than(first,second,second_ext=""):
     """
     Returns true if file 'first' is newer than 'second',
     or if 'second' does not exist
@@ -46,11 +111,30 @@ def newer_than(first,second):
         return True
     first_time = os.path.getmtime(first)
     second_time = os.path.getmtime(second)
+    # Find the most recent file if second is a directory
+    if os.path.isdir(second):
+        for root, dirs, files in os.walk(second):
+            for name in files:
+                if not name.endswith(second_ext):
+                    continue
+                p = os.path.join(root, name)
+                second_time = max(second_time, os.path.getmtime(p))
     return first_time >= second_time
 
+def remove_files(dir, ext=""):
+    """
+    Removes all files in the given directory,
+    optionally with the given extension.
+    """
+    for root, dirs, files in os.walk(dir):
+        for name in files:
+            if name.endswith(ext):
+                p = os.path.join(root, name)
+                os.remove(p)
 
 def read_lines_from_file(filename, exclusions):
-    """Returns the text lines from the given file.
+    """
+    Returns the text lines from the given file.
     Processes bikeshed path includes, except for files named the exclusion list.
     Skips empty lines.
     """
@@ -62,7 +146,7 @@ def read_lines_from_file(filename, exclusions):
     include_re = re.compile('path:\s+(\S+)')
     for line in parts:
         m = include_re.match(line)
-        if m:
+        if m and not ".syntax.bs.include" in line:
             included_file = m.group(1)
             if included_file not in exclusions:
                 result.extend(read_lines_from_file(included_file, exclusions))
@@ -241,7 +325,6 @@ class scanner_example(Scanner):
         line = lines[i].split("//")[0].rstrip()
         return (None, line, 0)
 
-
 # These fixed tokens must be parsed by the custom scanner.
 # This is needed to support template disambiguation.
 custom_simple_tokens = {
@@ -255,118 +338,287 @@ custom_simple_tokens = {
     '>>=': '_shift_right_assign'
 }
 
-def grammar_from_rule_item(rule_item):
-    """
-    Returns a string for the JavaScript expression for this rule.
-    """
-    global custom_simple_tokens
-    result = ""
-    item_choice = False
-    items = []
-    i = 0
-    while i < len(rule_item):
-        i_optional = False
-        i_repeatone = False
-        i_skip = 0
-        i_item = ""
-        if rule_item[i].startswith("[=syntax/"):
-            # From '[=syntax/foobar=]' pick out 'foobar'
-            i_item = rule_item[i].split("[=syntax/")[1].split("=]")[0]
-            i_item = f"$.{i_item}"
-        elif rule_item[i].startswith("`/"):
-            # From "`/pattern/`" pick out '/pattern/'
-            i_item = f"token({rule_item[i][1:-1]})"
-        elif rule_item[i].startswith("`'"):
-            # From "`'&&'`" pick out '&&'
-            content = rule_item[i][2:-2]
-            # If the name maps to a custom token, then use that, otherwise,
-            # use the content name itself.
-            if content in custom_simple_tokens:
-                i_item = custom_simple_tokens[content]
-            else:
-                i_item = f"token('{content}')"
-        elif rule_item[i].startswith("<span"):
-            # From ['<span', 'class=hidden>_disambiguate_template</span>']
-            # pick out '_disambiguate_template'
-            match = re.fullmatch("[^>]*>(.*)</span>",rule_item[i+1])
-            token = match.group(1)
-            i_item = f"$.{token}"
-            i += 1
-        elif rule_item[i].startswith("<a"):
-            # From  ['<a', 'for=syntax_kw', "lt=true>`'true'`</a>"]
-            # pick out "true"
-            match = re.fullmatch("[^>]*>`'(.*)'`</a>",rule_item[i+2])
-            if match:
-                token = match.group(1)
-            else:
-                # Now try it without `' '` surrounding the element content text.
-                # From  ['<a', 'for=syntax_sym', "lt=_disam>_disam</a>"]
-                # pick out "_disam"
-                match = re.fullmatch("[^>]*>(.*)</a>",rule_item[i+2])
-                token = match.group(1)
-            if token in custom_simple_tokens:
-                token = custom_simple_tokens[token]
-                i_item = f"$.{token}"
-            elif token.startswith("_") and token != "_":
-                i_item = f"$.{token}"
-            else:
-                i_item = f"""token('{token}')"""
-            i += 2
-        elif rule_item[i] == "(":
-            # Extract a parenthesized rule
-            j = i + 1
-            j_span = 0
-            rule_subitem = []
-            while j < len(rule_item):
-                if rule_item[j] == "(":
-                    j_span += 1
-                elif rule_item[j] == ")":
-                    j_span -= 1
-                rule_subitem.append(rule_item[j])
-                j += 1
-                if rule_item[j] == ")" and j_span == 0:
-                    break
-            i_item = grammar_from_rule_item(rule_subitem)
-            i = j
-        if len(rule_item) - i > 1:
-            if rule_item[i + 1] == "+":
-                i_repeatone = True
-                i_skip += 1
-            elif rule_item[i + 1] == "?":
-                i_optional = True
-                i_skip += 1
-            elif rule_item[i + 1] == "*":
-                i_repeatone = True
-                i_optional = True
-                i_skip += 1
-            elif rule_item[i + 1] == "|":
-                item_choice = True
-                i_skip += 1
-        if i_repeatone:
-            i_item = f"repeat1({i_item})"
-        if i_optional:
-            i_item = f"optional({i_item})"
-        items.append(i_item)
-        i += 1 + i_skip
-    if item_choice == True:
-        result = f"choice({', '.join(items)})"
-    else:
-        if len(items) == 1:
-            result = items[0]
-        else:
-            result = f"seq({', '.join(items)})"
-    return result
+def reproduce_quasibison_source(syntax_dict):
+    quasibison_source = """/* This file is not directly compatible with Yacc or Bison. Instead, it uses a
+ * dialect for a concise reading experience, such as pattern literals for
+ * tokens and generalizing RegEx operations that reduce the need for empty
+ * alternatives. For details on interpreting this dialect, see 1.2. Syntax
+ * Notation in WebGPU Shading Language (WGSL) Specification. */\n"""
 
+    def reproduce_rule_source(production, rule_name=""):
+        if production["type"] in ["symbol", "token", "pattern"]:
+            return production["value"]
+        elif production["type"] == "sequence":
+            if len(rule_name) == 0:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["members"]
+                        ]
+                    )
+                    + " )"
+                )
+            else:
+                return " ".join(
+                    [reproduce_rule_source(member) for member in production["members"]]
+                )
+        elif production["type"] == "choice":
+            return (
+                "( "
+                + " | ".join(
+                    [reproduce_rule_source(member) for member in production["members"]]
+                )
+                + " )"
+            )
+        elif production["type"] == "match_0_1":
+            if len(production["members"]) == 1:
+                return reproduce_rule_source(production["members"][0]) + " ?"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["members"]
+                        ]
+                    )
+                    + " ) ?"
+                )
+        elif production["type"] == "match_1_n":
+            if len(production["members"]) == 1:
+                return reproduce_rule_source(production["members"][0]) + " +"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["members"]
+                        ]
+                    )
+                    + " ) +"
+                )
+        elif production["type"] == "match_0_n":
+            if len(production["members"]) == 1:
+                return reproduce_rule_source(production["members"][0]) + " *"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["members"]
+                        ]
+                    )
+                    + " ) *"
+                )
+        else:
+            print(production["type"])
+
+    for rule_name in syntax_dict.keys():
+        if syntax_dict[rule_name]["type"] in ["symbol", "token", "pattern"]:
+            quasibison_source += f"\n{rule_name} :\n  {syntax_dict[rule_name]['value']}\n;\n"
+        elif syntax_dict[rule_name]["type"] == "sequence":
+            subsource = " ".join(
+                [
+                    reproduce_rule_source(member, rule_name)
+                    for member in syntax_dict[rule_name]["members"]
+                ]
+            )
+            quasibison_source += f"\n{rule_name} :\n  {subsource}\n;\n"
+        elif syntax_dict[rule_name]["type"] == "choice":
+            subsource = "\n| ".join(
+                [
+                    reproduce_rule_source(member, rule_name)
+                    for member in syntax_dict[rule_name]["members"]
+                ]
+            )
+            quasibison_source += f"\n{rule_name} :\n  {subsource}\n;\n"
+    return quasibison_source.strip()
 
 def grammar_from_rule(key, value):
-    result = f"        {key}: $ =>"
-    if len(value) == 1:
-        result += f" {grammar_from_rule_item(value[0])}"
-    else:
-        result += " choice(\n            {}\n        )".format(
-            ',\n            '.join([grammar_from_rule_item(i) for i in value]))
-    return result
+    def reproduce_rule_source(production, rule_name=""):
+        if production["type"] in ["token", "pattern"]:
+            return production["value"]
+        elif production["type"] == "symbol":
+            return f"$.{production['value']}"
+        elif production["type"] == "sequence":
+            return (
+                "seq("
+                + ", ".join(
+                    [
+                        reproduce_rule_source(member)
+                        for member in production["members"]
+                    ]
+                )
+                + ")"
+            )
+        elif production["type"] == "choice":
+            return (
+                "choice("
+                + ", ".join(
+                    [reproduce_rule_source(member) for member in production["members"]]
+                )
+                + ")"
+            )
+        elif production["type"] == "match_0_1":
+            return (
+                "optional(" + ("seq(" if len(production["members"]) > 1 else "")
+                + ", ".join(
+                    [
+                        reproduce_rule_source(member)
+                        for member in production["members"]
+                    ]
+                )
+                + ")" + (")" if len(production["members"]) > 1 else "")
+            )
+        elif production["type"] == "match_1_n":
+            return (
+                "repeat1(" + ("seq(" if len(production["members"]) > 1 else "")
+                + ", ".join(
+                    [
+                        reproduce_rule_source(member)
+                        for member in production["members"]
+                    ]
+                )
+                + ")" + (")" if len(production["members"]) > 1 else "")
+            )
+        elif production["type"] == "match_0_n":
+            return (
+                "repeat(" + ("seq(" if len(production["members"]) > 1 else "")
+                + ", ".join(
+                    [
+                        reproduce_rule_source(member)
+                        for member in production["members"]
+                    ]
+                )
+                + ")" + (")" if len(production["members"]) > 1 else "")
+            )
+        else:
+            print(production["type"])
 
+    return f"\n        {key}: $ => {reproduce_rule_source(value)}"
+
+def fragment_from_rule(key, value):
+
+    def reproduce_rule_source(production, rule_name=""):
+        if production["type"] in ["symbol", "token", "pattern"]:
+            subsource = ""
+            if production["type"] == "symbol":
+                affix = ""
+                if production["value"].startswith("_"):
+                    affix = "_sym"
+                subsource = f"[=syntax{affix}/{production['value']}=]"
+            elif production["type"] == "token":
+                if production["value"] in token_symbols:
+                    subsource = f"<a for=syntax_sym lt={token_symbols[production['value']]}>`{production['value']}`</a>"
+                else:
+                    subsource = f"`{production['value']}`"
+            elif production["type"] == "pattern":
+                subsource = f"`{production['value']}`"
+            return subsource
+        elif production["type"] == "sequence":
+            if len(rule_name) == 0:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["members"]
+                        ]
+                    )
+                    + " )"
+                )
+            else:
+                return " ".join(
+                    [reproduce_rule_source(member) for member in production["members"]]
+                )
+        elif production["type"] == "choice":
+            return (
+                "( "
+                + " | ".join(
+                    [reproduce_rule_source(member) for member in production["members"]]
+                )
+                + " )"
+            )
+        elif production["type"] == "match_0_1":
+            if len(production["members"]) == 1:
+                return reproduce_rule_source(production["members"][0]) + " ?"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["members"]
+                        ]
+                    )
+                    + " ) ?"
+                )
+        elif production["type"] == "match_1_n":
+            if len(production["members"]) == 1:
+                return reproduce_rule_source(production["members"][0]) + " +"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["members"]
+                        ]
+                    )
+                    + " ) +"
+                )
+        elif production["type"] == "match_0_n":
+            if len(production["members"]) == 1:
+                return reproduce_rule_source(production["members"][0]) + " *"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["members"]
+                        ]
+                    )
+                    + " ) *"
+                )
+        else:
+            print(production["type"])
+
+    if value["type"] in ["symbol", "token", "pattern"]:
+        subsource = ""
+        if value["type"] == "symbol":
+            affix = ""
+            if value["value"].startswith("_"):
+                affix = "_sym"
+            subsource = f"[=syntax{affix}/{value['value']}=]"
+        elif value["type"] == "token":
+            if value["value"] in token_symbols:
+                subsource = f"<a for=syntax_sym lt={token_symbols[value['value']]}>`{value['value']}`</a>"
+            else:
+                subsource = f"`{value['value']}`"
+        elif value["type"] == "pattern":
+            subsource = f"`{value['value']}`"
+        return f"<div class='syntax' noexport='true'>\n  <dfn for=syntax>{key}</dfn> :\n\n    <span class=\"choice\"></span> {subsource}\n</div>\n"
+    elif value["type"] == "sequence":
+        subsource = " ".join(
+            [
+                reproduce_rule_source(member, key)
+                for member in value["members"]
+            ]
+        )
+        return f"<div class='syntax' noexport='true'>\n  <dfn for=syntax>{key}</dfn> :\n\n    <span class=\"choice\"></span> {subsource}\n</div>\n"
+    elif value["type"] == "choice":
+        subsource = "\n\n    <span class=\"choice\">|</span> ".join(
+            [
+                reproduce_rule_source(member, key)
+                for member in value["members"]
+            ]
+        )
+        return f"<div class='syntax' noexport='true'>\n  <dfn for=syntax>{key}</dfn> :\n\n    <span class=\"choice\"></span> {subsource}\n</div>\n"
 
 class ScanResult(dict):
     """
@@ -400,7 +652,7 @@ def read_spec(options):
     # Make a *copy* of the text input because we'll filter it later.
     result['raw'] = [x for x in scanner_lines]
 
-
+    # TODO: Check if spec includes all rules
     # Skip lines like:
     #  <pre class=include>
     #  </pre>
@@ -415,9 +667,8 @@ def read_spec(options):
     # Global variable holding the current line text.
     line = ""
 
-
-    scanner_spans = [scanner_rule,
-                     scanner_example]
+    # First scan spec for examples (and in future, inclusion of rules and properties that should derive from spec)
+    scanner_spans = [scanner_example]
 
     scanner_i = 0  # line number of the current line
     scanner_span = None
@@ -510,7 +761,321 @@ def read_spec(options):
                     scanner_i += scanner_parse[-1]  # Advance line index
         scanner_i += 1
 
-    result[scanner_rule.name()]["_comment"] = [["`/\\/\\/.*/`"]]
+    RULE_NAME_CODE_POINTS = string.ascii_lowercase + string.digits + "_"
+    quasibison_data = ""
+
+    # Read the contents of the quasibison file
+    with open(options.syntax_filename, "r") as file:
+        quasibison_data = file.read()
+
+    scan_in = {"name": "blank", "value": "", "content": []}  # blank, comment, rule
+
+    syntax_dict = {}
+
+    s_i = 0
+    s_v = quasibison_data[s_i]
+    while s_i < len(quasibison_data):
+        if scan_in["name"] == "blank":
+            if s_v == "/" and s_i + 1 < len(quasibison_data):  # Comment start
+                if quasibison_data[s_i + 1] == "*":
+                    scan_in["name"] = "comment"
+                    scan_in["value"] = 1
+                    scan_in["content"] = []
+                    s_i += 2
+                else:
+                    s_i += 1
+            elif s_v in RULE_NAME_CODE_POINTS:  # Rule start
+                is_rule = False
+                rule_value = s_v
+                s_j = s_i + 1
+                while s_j < len(quasibison_data):
+                    if quasibison_data[s_j] in RULE_NAME_CODE_POINTS:
+                        rule_value += quasibison_data[s_j]
+                        s_j += 1
+                    elif quasibison_data[s_j] == ":":
+                        is_rule = True
+                        s_j += 1
+                        break
+                    # Return false when line or rule ends, pattern or token starts
+                    elif quasibison_data[s_j] in ["\n", ";", "/", "'"]:
+                        is_rule = False
+                        break
+                    else:
+                        s_j += 1
+                if is_rule:
+                    scan_in["name"] = "rule"
+                    scan_in["value"] = rule_value
+                    scan_in["content"] = [0, 0]
+                    s_i = s_j
+                    syntax_dict[rule_value] = {
+                        "type": "",
+                        "members": [{"type": "sequence", "members": []}],
+                    }
+                else:
+                    s_i += 1
+            else:
+                s_i += 1
+        elif scan_in["name"] == "comment":
+            # Comment nesting start
+            if s_v == "/" and s_i + 1 < len(quasibison_data):
+                if quasibison_data[s_i + 1] == "*":
+                    scan_in["value"] += 1
+                    s_i += 2
+                else:
+                    s_i += 1
+            # Comment or comment nesting end
+            elif s_v == "*" and s_i + 1 < len(quasibison_data):
+                if quasibison_data[s_i + 1] == "/":
+                    scan_in["value"] -= 1
+                    if scan_in["value"] == 0:
+                        if len(scan_in["content"]) == 0:
+                            scan_in["name"] = "blank"
+                            scan_in["value"] = ""
+                            scan_in["content"] = []
+                        else:
+                            scan_in = scan_in["content"][-1]
+                    s_i += 2
+                else:
+                    s_i += 1
+            else:
+                s_i += 1
+        elif scan_in["name"] == "rule":
+            # Comment or pattern start
+            if s_v == "/" and s_i + 1 < len(quasibison_data):
+                if quasibison_data[s_i + 1] == "*":
+                    scan_in["name"] = "comment"
+                    scan_in["value"] = 1
+                    scan_in["content"] = [scan_in]
+                    s_i += 2
+                else:  # Pattern literal
+                    pattern_value = "/"
+                    s_j = s_i + 1
+                    while s_j < len(quasibison_data):
+                        pattern_value += quasibison_data[s_j]
+                        if quasibison_data[s_j] == "/":
+                            s_j += 1
+                            while s_j < len(quasibison_data):
+                                if quasibison_data[s_j] in string.ascii_lowercase:
+                                    pattern_value += quasibison_data[s_j]
+                                    s_j += 1
+                                else:
+                                    break
+                            break
+                        else:
+                            s_j += 1
+                    functools.reduce(
+                        lambda x, y: x["members"][y],
+                        scan_in["content"][0:-1],
+                        syntax_dict[scan_in["value"]],
+                    )["members"].append({"type": "pattern", "value": pattern_value})
+                    scan_in["content"][-1] += 1
+                    s_i = s_j
+            elif s_v == "'" and s_i + 1 < len(quasibison_data):  # Token start
+                token_value = "'"
+                s_j = s_i + 1
+                while s_j < len(quasibison_data):
+                    token_value += quasibison_data[s_j]
+                    if quasibison_data[s_j] == "'":
+                        s_j += 1
+                        break
+                    else:
+                        s_j += 1
+                functools.reduce(
+                    lambda x, y: x["members"][y],
+                    scan_in["content"][0:-1],
+                    syntax_dict[scan_in["value"]],
+                )["members"].append({"type": "token", "value": token_value})
+                scan_in["content"][-1] += 1
+                s_i = s_j
+            elif s_v == ";":
+                scan_in["name"] = "blank"
+                scan_in["value"] = ""
+                scan_in["content"] = []
+                s_i += 1
+            elif s_v in RULE_NAME_CODE_POINTS:
+                symbol_value = s_v
+                s_j = s_i + 1
+                while s_j < len(quasibison_data):
+                    if quasibison_data[s_j] in RULE_NAME_CODE_POINTS:
+                        symbol_value += quasibison_data[s_j]
+                        s_j += 1
+                    else:
+                        break
+                functools.reduce(
+                    lambda x, y: x["members"][y],
+                    scan_in["content"][0:-1],
+                    syntax_dict[scan_in["value"]],
+                )["members"].append({"type": "symbol", "value": symbol_value})
+                scan_in["content"][-1] += 1
+                s_i = s_j
+            elif s_v == "\n":  # Check for group by newline
+                is_grouping = False
+                s_j = s_i + 1
+                while s_j < len(quasibison_data):
+                    if quasibison_data[s_j] in [
+                        "\u0020",
+                        "\u0009",
+                        "\u000a",
+                        "\u000b",
+                        "\u000c",
+                        "\u000d",
+                        "\u0085",
+                        "\u200e",
+                        "\u200f",
+                        "\u2028",
+                        "\u2029",
+                    ]:
+                        s_j += 1
+                    elif quasibison_data[s_j] == "|":
+                        is_grouping = True
+                        break
+                    else:
+                        is_grouping = False
+                        break
+                if is_grouping:
+                    syntax_dict[scan_in["value"]]["type"] = "choice"
+                    syntax_dict[scan_in["value"]]["members"].append(
+                        {"type": "sequence", "members": []}
+                    )
+                    scan_in["content"] = [scan_in["content"][0] + 1, 0]
+                    s_i = s_j + 1
+                else:
+                    s_i += 1
+            elif s_v == "?":
+                functools.reduce(
+                    lambda x, y: x["members"][y],
+                    scan_in["content"][0:-1],
+                    syntax_dict[scan_in["value"]],
+                )["members"][-1] = {
+                    "type": "match_0_1",
+                    "members": [
+                        functools.reduce(
+                            lambda x, y: x["members"][y],
+                            scan_in["content"][0:-1],
+                            syntax_dict[scan_in["value"]],
+                        )["members"][-1]
+                    ],
+                }
+                s_i += 1
+            elif s_v == "+":
+                functools.reduce(
+                    lambda x, y: x["members"][y],
+                    scan_in["content"][0:-1],
+                    syntax_dict[scan_in["value"]],
+                )["members"][-1] = {
+                    "type": "match_1_n",
+                    "members": [
+                        functools.reduce(
+                            lambda x, y: x["members"][y],
+                            scan_in["content"][0:-1],
+                            syntax_dict[scan_in["value"]],
+                        )["members"][-1]
+                    ],
+                }
+                s_i += 1
+            elif s_v == "*":
+                functools.reduce(
+                    lambda x, y: x["members"][y],
+                    scan_in["content"][0:-1],
+                    syntax_dict[scan_in["value"]],
+                )["members"][-1] = {
+                    "type": "match_0_n",
+                    "members": [
+                        functools.reduce(
+                            lambda x, y: x["members"][y],
+                            scan_in["content"][0:-1],
+                            syntax_dict[scan_in["value"]],
+                        )["members"][-1]
+                    ],
+                }
+                s_i += 1
+            elif s_v == "|":
+                functools.reduce(
+                    lambda x, y: x["members"][y],
+                    scan_in["content"][0:-2],
+                    syntax_dict[scan_in["value"]],
+                )["members"][-1]["type"] = "choice"
+                s_i += 1
+            elif s_v == "(":
+                functools.reduce(
+                    lambda x, y: x["members"][y],
+                    scan_in["content"][0:-1],
+                    syntax_dict[scan_in["value"]],
+                )["members"].append({"type": "sequence", "members": []})
+                scan_in["content"].append(0)
+                s_i += 1
+            elif s_v == ")":
+                scan_in["content"] = scan_in["content"][0:-1]
+                s_i += 1
+            else:
+                s_i += 1
+        else:
+            s_i += 1
+        if s_i < len(quasibison_data):
+            s_v = quasibison_data[s_i]
+        else:
+            s_v = ""
+
+    def reproduce_rule(production):
+        if production["type"] in ["sequence", "choice", ""]:
+            if len(production["members"]) == 1:
+                if production["members"][0]["type"] in ["token", "symbol", "pattern"]:
+                    return production["members"][0]
+                else:
+                    return reproduce_rule(production["members"][0])
+            else:
+                return {
+                    "type": production["type"],
+                    "members": [
+                        reproduce_rule(member) for member in production["members"]
+                    ],
+                }
+        elif production["type"].startswith("match_"):
+            if len(production["members"]) == 1:
+                if production["members"][0]["type"] == "sequence":
+                    return {
+                        "type": production["type"],
+                        "members": [
+                            reproduce_rule(member)
+                            for member in production["members"][0]["members"]
+                        ],
+                    }
+                else:
+                    return {
+                        "type": production["type"],
+                        "members": [
+                            reproduce_rule(member) for member in production["members"]
+                        ],
+                    }
+            else:
+                return {
+                    "type": production["type"],
+                    "members": [
+                        reproduce_rule(member) for member in production["members"]
+                    ],
+                }
+        else:
+            return production
+
+    # Simplify the syntax dictionary
+    for rule_name in syntax_dict.keys():
+        syntax_dict[rule_name] = reproduce_rule(syntax_dict[rule_name])
+
+    if reproduce_quasibison_source(syntax_dict).strip() != quasibison_data.strip():
+        print("ERROR: Syntax source should match reproduction for styling and language")
+        sys.exit(1)
+
+    # Extract syntax to bikeshed fragments
+    remove_files(options.syntax_dir, "*.syntax.bs.include")
+
+    for rule_name in syntax_dict.keys():
+        syntax_bs = fragment_from_rule(rule_name, syntax_dict[rule_name])
+        with open(
+            os.path.join(options.syntax_dir, rule_name + ".syntax.bs.include"), "w"
+        ) as syntax_file:
+            syntax_file.write(syntax_bs)
+    
+    result[scanner_rule.name()] = syntax_dict
     return result
 
 
@@ -542,45 +1107,42 @@ def flow_extract(options, scan_result):
 
         grammar_source = ""
 
-        grammar_source += r"""
-        module.exports = grammar({
-            name: 'wgsl',
+        grammar_source += """module.exports = grammar({
+    name: 'wgsl',
 
-            externals: $ => [
-                $._block_comment,
-                $._disambiguate_template,
-                $._template_args_start,
-                $._template_args_end,
-                $._less_than,
-                $._less_than_equal,
-                $._shift_left,
-                $._shift_left_assign,
-                $._greater_than,
-                $._greater_than_equal,
-                $._shift_right,
-                $._shift_right_assign,
-                $._error_sentinel,
-            ],
+    externals: $ => [
+        $._block_comment,
+        $._disambiguate_template,
+        $._template_args_start,
+        $._template_args_end,
+        $._less_than,
+        $._less_than_equal,
+        $._shift_left,
+        $._shift_left_assign,
+        $._greater_than,
+        $._greater_than_equal,
+        $._shift_right,
+        $._shift_right_assign,
+        $._error_sentinel,
+    ],
 
-            extras: $ => [
-                $._comment,
-                $._block_comment,
-                $._blankspace,
-            ],
+    extras: $ => [
+        $._comment,
+        $._block_comment,
+        $._blankspace,
+    ],
 
-            inline: $ => [
-                $.global_decl,
-                $._reserved,
-            ],
+    inline: $ => [
+        $.global_decl,
+        $._reserved,
+    ],
 
-            // WGSL has no parsing conflicts.
-            conflicts: $ => [],
+    // WGSL has no parsing conflicts.
+    conflicts: $ => [],
 
-            word: $ => $.ident_pattern_token,
+    word: $ => $.ident_pattern_token,
 
-            rules: {
-        """[1:-1]
-        grammar_source += "\n"
+    rules: {"""
 
         # Following sections are to allow out-of-order per syntactic grammar appearance of rules
 
@@ -647,7 +1209,8 @@ def flow_extract(options, scan_result):
 
 
         grammar_source += grammar_from_rule(
-            "_comment", rules["_comment"]) + ",\n"
+            "_comment", {'type': 'pattern',
+                               'value': derivative_patterns["_comment"]}) + ",\n"
         rule_skip.add("_comment")
 
 
@@ -655,31 +1218,30 @@ def flow_extract(options, scan_result):
 
 
         grammar_source += grammar_from_rule(
-            "_blankspace", rules["_blankspace"])
+            "_blankspace", {'type': 'pattern',
+                               'value': derivative_patterns["_blankspace"]})
         rule_skip.add("_blankspace")
 
 
         grammar_source += "\n"
         grammar_source += r"""
-            },
-        });
-        """[1:-1]
+    }
+});"""[1:-1]
 
-        HEADER = """
-        // Copyright (C) [$YEAR] World Wide Web Consortium,
-        // (Massachusetts Institute of Technology, European Research Consortium for
-        // Informatics and Mathematics, Keio University, Beihang).
-        // All Rights Reserved.
-        //
-        // This work is distributed under the W3C (R) Software License [1] in the hope
-        // that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
-        // warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-        //
-        // [1] http://www.w3.org/Consortium/Legal/copyright-software
+        HEADER = """// Copyright (C) [$YEAR] World Wide Web Consortium,
+// (Massachusetts Institute of Technology, European Research Consortium for
+// Informatics and Mathematics, Keio University, Beihang).
+// All Rights Reserved.
+//
+// This work is distributed under the W3C (R) Software License [1] in the hope
+// that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+// warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//
+// [1] http://www.w3.org/Consortium/Legal/copyright-software
 
-        // **** This file is auto-generated. Do not edit. ****
+// **** This file is auto-generated. Do not edit. ****
 
-        """.lstrip()
+""".lstrip()
 
     if input_bs_is_fresh:
         print("{}: ...Creating tree-sitter parser".format(options.script,options.grammar_filename))
@@ -885,8 +1447,15 @@ def main():
                            default="index.bs")
     argparser.add_argument("--scanner",
                            action='store',
-                           help="source file for the tree-sitter custom scanner",
+                           help="Source file for the tree-sitter custom scanner",
                            default="scanner.cc")
+    argparser.add_argument("--syntax",
+                           action='store',
+                           help="Source file for the WGSL syntax",
+                           default="syntax.yy")
+    argparser.add_argument("--syntax-dir",
+                           help="Target directory for the WGSL Bikeshed syntax",
+                           default="syntax")
 
     args = argparser.parse_args()
     if args.help:
@@ -894,7 +1463,7 @@ def main():
         print(FLOW_HELP)
         return 0
 
-    options = Options(args.spec,args.tree_sitter_dir,args.scanner)
+    options = Options(args.spec,args.tree_sitter_dir,args.scanner, args.syntax, args.syntax_dir)
     options.verbose = args.verbose
     if args.verbose:
         print(options)
