@@ -1,6 +1,6 @@
-/* This file is not directly compatible with Yacc or Bison. Instead, it uses a
- * dialect for a concise reading experience, such as pattern literals for
- * tokens and generalizing RegEx operations that reduce the need for empty
+/* This file is not directly compatible with existing BNF parsers. Instead, it
+ * uses a dialect for a concise reading experience, such as pattern literals
+ * for tokens and generalizing RegEx operations that reduce the need for empty
  * alternatives. For details on interpreting this dialect, see 1.2. Syntax
  * Notation in WebGPU Shading Language (WGSL) Specification. */
 

@@ -89,9 +89,9 @@ recursive : $(ANALYZER) $(WGSL_GRAMMAR)
 recursive_bs : $(ANALYZER) $(WGSL_GRAMMAR)
 	@python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json
 
-wgsl.recursive.bs.include : $(ANALYZER) $(WGSL_GRAMMAR)
-	python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json >$@.pre
-	sh ../tools/copy-if-different.sh $@.pre $@
+# wgsl.recursive.bs.include : $(ANALYZER) $(WGSL_GRAMMAR)
+#	python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json >$@.pre
+#	sh ../tools/copy-if-different.sh $@.pre $@
 
 # Print a simple (uncanonicalized form) of the grammar and check LL(1)
 .PHONY: recursive_ll

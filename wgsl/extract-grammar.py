@@ -338,10 +338,10 @@ custom_simple_tokens = {
     '>>=': '_shift_right_assign'
 }
 
-def reproduce_quasibison_source(syntax_dict):
-    quasibison_source = """/* This file is not directly compatible with Yacc or Bison. Instead, it uses a
- * dialect for a concise reading experience, such as pattern literals for
- * tokens and generalizing RegEx operations that reduce the need for empty
+def reproduce_bnfdialect_source(syntax_dict):
+    bnfdialect_source = """/* This file is not directly compatible with existing BNF parsers. Instead, it
+ * uses a dialect for a concise reading experience, such as pattern literals
+ * for tokens and generalizing RegEx operations that reduce the need for empty
  * alternatives. For details on interpreting this dialect, see 1.2. Syntax
  * Notation in WebGPU Shading Language (WGSL) Specification. */\n"""
 
@@ -419,7 +419,7 @@ def reproduce_quasibison_source(syntax_dict):
 
     for rule_name in syntax_dict.keys():
         if syntax_dict[rule_name]["type"] in ["symbol", "token", "pattern"]:
-            quasibison_source += f"\n{rule_name} :\n  {syntax_dict[rule_name]['value']}\n;\n"
+            bnfdialect_source += f"\n{rule_name} :\n  {syntax_dict[rule_name]['value']}\n;\n"
         elif syntax_dict[rule_name]["type"] == "sequence":
             subsource = " ".join(
                 [
@@ -427,7 +427,7 @@ def reproduce_quasibison_source(syntax_dict):
                     for member in syntax_dict[rule_name]["members"]
                 ]
             )
-            quasibison_source += f"\n{rule_name} :\n  {subsource}\n;\n"
+            bnfdialect_source += f"\n{rule_name} :\n  {subsource}\n;\n"
         elif syntax_dict[rule_name]["type"] == "choice":
             subsource = "\n| ".join(
                 [
@@ -435,8 +435,8 @@ def reproduce_quasibison_source(syntax_dict):
                     for member in syntax_dict[rule_name]["members"]
                 ]
             )
-            quasibison_source += f"\n{rule_name} :\n  {subsource}\n;\n"
-    return quasibison_source.strip()
+            bnfdialect_source += f"\n{rule_name} :\n  {subsource}\n;\n"
+    return bnfdialect_source.strip()
 
 def grammar_from_rule(key, value):
     def reproduce_rule_source(production, rule_name=""):
@@ -762,22 +762,22 @@ def read_spec(options):
         scanner_i += 1
 
     RULE_NAME_CODE_POINTS = string.ascii_lowercase + string.digits + "_"
-    quasibison_data = ""
+    bnfdialect_data = ""
 
-    # Read the contents of the quasibison file
+    # Read the contents of the bnfdialect file
     with open(options.syntax_filename, "r") as file:
-        quasibison_data = file.read()
+        bnfdialect_data = file.read()
 
     scan_in = {"name": "blank", "value": "", "content": []}  # blank, comment, rule
 
     syntax_dict = {}
 
     s_i = 0
-    s_v = quasibison_data[s_i]
-    while s_i < len(quasibison_data):
+    s_v = bnfdialect_data[s_i]
+    while s_i < len(bnfdialect_data):
         if scan_in["name"] == "blank":
-            if s_v == "/" and s_i + 1 < len(quasibison_data):  # Comment start
-                if quasibison_data[s_i + 1] == "*":
+            if s_v == "/" and s_i + 1 < len(bnfdialect_data):  # Comment start
+                if bnfdialect_data[s_i + 1] == "*":
                     scan_in["name"] = "comment"
                     scan_in["value"] = 1
                     scan_in["content"] = []
@@ -788,16 +788,16 @@ def read_spec(options):
                 is_rule = False
                 rule_value = s_v
                 s_j = s_i + 1
-                while s_j < len(quasibison_data):
-                    if quasibison_data[s_j] in RULE_NAME_CODE_POINTS:
-                        rule_value += quasibison_data[s_j]
+                while s_j < len(bnfdialect_data):
+                    if bnfdialect_data[s_j] in RULE_NAME_CODE_POINTS:
+                        rule_value += bnfdialect_data[s_j]
                         s_j += 1
-                    elif quasibison_data[s_j] == ":":
+                    elif bnfdialect_data[s_j] == ":":
                         is_rule = True
                         s_j += 1
                         break
                     # Return false when line or rule ends, pattern or token starts
-                    elif quasibison_data[s_j] in ["\n", ";", "/", "'"]:
+                    elif bnfdialect_data[s_j] in ["\n", ";", "/", "'"]:
                         is_rule = False
                         break
                     else:
@@ -817,15 +817,15 @@ def read_spec(options):
                 s_i += 1
         elif scan_in["name"] == "comment":
             # Comment nesting start
-            if s_v == "/" and s_i + 1 < len(quasibison_data):
-                if quasibison_data[s_i + 1] == "*":
+            if s_v == "/" and s_i + 1 < len(bnfdialect_data):
+                if bnfdialect_data[s_i + 1] == "*":
                     scan_in["value"] += 1
                     s_i += 2
                 else:
                     s_i += 1
             # Comment or comment nesting end
-            elif s_v == "*" and s_i + 1 < len(quasibison_data):
-                if quasibison_data[s_i + 1] == "/":
+            elif s_v == "*" and s_i + 1 < len(bnfdialect_data):
+                if bnfdialect_data[s_i + 1] == "/":
                     scan_in["value"] -= 1
                     if scan_in["value"] == 0:
                         if len(scan_in["content"]) == 0:
@@ -841,8 +841,8 @@ def read_spec(options):
                 s_i += 1
         elif scan_in["name"] == "rule":
             # Comment or pattern start
-            if s_v == "/" and s_i + 1 < len(quasibison_data):
-                if quasibison_data[s_i + 1] == "*":
+            if s_v == "/" and s_i + 1 < len(bnfdialect_data):
+                if bnfdialect_data[s_i + 1] == "*":
                     scan_in["name"] = "comment"
                     scan_in["value"] = 1
                     scan_in["content"] = [scan_in]
@@ -850,13 +850,13 @@ def read_spec(options):
                 else:  # Pattern literal
                     pattern_value = "/"
                     s_j = s_i + 1
-                    while s_j < len(quasibison_data):
-                        pattern_value += quasibison_data[s_j]
-                        if quasibison_data[s_j] == "/":
+                    while s_j < len(bnfdialect_data):
+                        pattern_value += bnfdialect_data[s_j]
+                        if bnfdialect_data[s_j] == "/":
                             s_j += 1
-                            while s_j < len(quasibison_data):
-                                if quasibison_data[s_j] in string.ascii_lowercase:
-                                    pattern_value += quasibison_data[s_j]
+                            while s_j < len(bnfdialect_data):
+                                if bnfdialect_data[s_j] in string.ascii_lowercase:
+                                    pattern_value += bnfdialect_data[s_j]
                                     s_j += 1
                                 else:
                                     break
@@ -870,12 +870,12 @@ def read_spec(options):
                     )["members"].append({"type": "pattern", "value": pattern_value})
                     scan_in["content"][-1] += 1
                     s_i = s_j
-            elif s_v == "'" and s_i + 1 < len(quasibison_data):  # Token start
+            elif s_v == "'" and s_i + 1 < len(bnfdialect_data):  # Token start
                 token_value = "'"
                 s_j = s_i + 1
-                while s_j < len(quasibison_data):
-                    token_value += quasibison_data[s_j]
-                    if quasibison_data[s_j] == "'":
+                while s_j < len(bnfdialect_data):
+                    token_value += bnfdialect_data[s_j]
+                    if bnfdialect_data[s_j] == "'":
                         s_j += 1
                         break
                     else:
@@ -895,9 +895,9 @@ def read_spec(options):
             elif s_v in RULE_NAME_CODE_POINTS:
                 symbol_value = s_v
                 s_j = s_i + 1
-                while s_j < len(quasibison_data):
-                    if quasibison_data[s_j] in RULE_NAME_CODE_POINTS:
-                        symbol_value += quasibison_data[s_j]
+                while s_j < len(bnfdialect_data):
+                    if bnfdialect_data[s_j] in RULE_NAME_CODE_POINTS:
+                        symbol_value += bnfdialect_data[s_j]
                         s_j += 1
                     else:
                         break
@@ -911,8 +911,8 @@ def read_spec(options):
             elif s_v == "\n":  # Check for group by newline
                 is_grouping = False
                 s_j = s_i + 1
-                while s_j < len(quasibison_data):
-                    if quasibison_data[s_j] in [
+                while s_j < len(bnfdialect_data):
+                    if bnfdialect_data[s_j] in [
                         "\u0020",
                         "\u0009",
                         "\u000a",
@@ -926,7 +926,7 @@ def read_spec(options):
                         "\u2029",
                     ]:
                         s_j += 1
-                    elif quasibison_data[s_j] == "|":
+                    elif bnfdialect_data[s_j] == "|":
                         is_grouping = True
                         break
                     else:
@@ -1011,8 +1011,8 @@ def read_spec(options):
                 s_i += 1
         else:
             s_i += 1
-        if s_i < len(quasibison_data):
-            s_v = quasibison_data[s_i]
+        if s_i < len(bnfdialect_data):
+            s_v = bnfdialect_data[s_i]
         else:
             s_v = ""
 
@@ -1061,7 +1061,7 @@ def read_spec(options):
     for rule_name in syntax_dict.keys():
         syntax_dict[rule_name] = reproduce_rule(syntax_dict[rule_name])
 
-    if reproduce_quasibison_source(syntax_dict).strip() != quasibison_data.strip():
+    if reproduce_bnfdialect_source(syntax_dict).strip() != bnfdialect_data.strip():
         print("ERROR: Syntax source should match reproduction for styling and language")
         sys.exit(1)
 
