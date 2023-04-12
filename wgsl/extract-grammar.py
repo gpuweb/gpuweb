@@ -1264,7 +1264,7 @@ def flow_extract(options, scan_result):
         grammar_package.write('        "nan": "^2.15.0"\n')
         grammar_package.write('    },\n')
         grammar_package.write('    "devDependencies": {\n')
-        grammar_package.write('        "tree-sitter-cli": "^0.20.7"\n')
+        grammar_package.write('        "tree-sitter-cli": "0.20.7"\n')
         grammar_package.write('    },\n')
         grammar_package.write('    "main": "bindings/node"\n')
         grammar_package.write('}\n')
@@ -1305,11 +1305,11 @@ def flow_build(options):
         pass
     else:
         subprocess.run(["npm", "install"], cwd=options.grammar_dir, check=True)
-    subprocess.run(["npx", "tree-sitter", "generate"],
+    subprocess.run(["npx", "tree-sitter-cli@0.20.7", "generate"],
                    cwd=options.grammar_dir, check=True)
     # Following are commented for future reference to expose playground
     # Remove "--docker" if local environment matches with the container
-    # subprocess.run(["npx", "tree-sitter", "build-wasm", "--docker"],
+    # subprocess.run(["npx", "tree-sitter-cli@0.20.7", "build-wasm", "--docker"],
     #                cwd=options.grammar_dir, check=True)
 
 
