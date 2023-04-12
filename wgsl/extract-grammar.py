@@ -743,11 +743,11 @@ def flow_build(options):
         pass
     else:
         subprocess.run(["npm", "install"], cwd=options.grammar_dir, check=True)
-    subprocess.run(["npx", "tree-sitter-cli@0.20.7", "generate"],
+    subprocess.run(["npx", "tree-sitter@0.20.1", "generate"],
                    cwd=options.grammar_dir, check=True)
     # Following are commented for future reference to expose playground
     # Remove "--docker" if local environment matches with the container
-    # subprocess.run(["npx", "tree-sitter-cli@0.20.7", "build-wasm", "--docker"],
+    # subprocess.run(["npx", "tree-sitter@0.20.1", "build-wasm", "--docker"],
     #                cwd=options.grammar_dir, check=True)
 
 
