@@ -938,6 +938,11 @@ def json_hook(grammar,memo,tokens_only,dct):
                     result = grammar.MakeSeq(dct["members"])
                 elif  type_entry == "REPEAT1":
                     result = grammar.MakeRepeat1([dct["content"]])
+                elif  type_entry == "REPEAT":
+                    # This node type was introduced in a later version of treesitter.
+                    # REPEAT { X } is the same as CHOICE { REPEAT1 {X} | BLANK }
+                    result = grammar.MakeRepeat1([dct["content"]])
+                    result = grammar.MakeChoice([result, grammar.empty])
                 elif  type_entry == "SYMBOL":
                     result = memoize(memo,dct["name"],grammar.MakeSymbolName(dct["name"]))
     return result
