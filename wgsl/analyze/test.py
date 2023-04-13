@@ -536,11 +536,19 @@ def _rep1(content):
         {}
     }}""".format(content)
 
+def _rep(content):
+    return """
+    {{
+      "type": "REPEAT",
+      "content":
+        {}
+    }}""".format(content)
+
 def _optional(content):
     return _choice(content,_empty())
 
 def _star(content): # Kleene star
-    return _choice(_rep1(content),_empty())
+    return _rep(content)
 
 def _g(*args):
     pre = """
