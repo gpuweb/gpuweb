@@ -1452,7 +1452,7 @@ def main():
     argparser.add_argument("--syntax",
                            action='store',
                            help="Source file for the WGSL syntax",
-                           default="syntax.yy")
+                           default="syntax.bnf")
     argparser.add_argument("--syntax-dir",
                            help="Target directory for the WGSL Bikeshed syntax",
                            default="syntax")
