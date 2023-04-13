@@ -945,6 +945,8 @@ def json_hook(grammar,memo,tokens_only,dct):
                     result = grammar.MakeChoice([result, grammar.empty])
                 elif  type_entry == "SYMBOL":
                     result = memoize(memo,dct["name"],grammar.MakeSymbolName(dct["name"]))
+                else:
+                    raise RuntimeError("unknown node type: {}".format(type_entry))
     return result
 
 def canonicalize_grammar(grammar,empty):
