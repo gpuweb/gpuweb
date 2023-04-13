@@ -92,6 +92,10 @@
             token(/0[xX][0-9a-fA-F]+\.[0-9a-fA-F]*([pP][+-]?[0-9]+[fh]?)?/),
             token(/0[xX][0-9a-fA-F]+[pP][+-]?[0-9]+[fh]?/)
         ),
+        diagnostic_rule_name: $ => choice(
+            $.diagnostic_name_token,
+            seq($.diagnostic_name_token, token('.'), $.diagnostic_name_token)
+        ),
         diagnostic_directive: $ => seq(token('diagnostic'), $.diagnostic_control, token(';')),
         literal: $ => choice(
             $.int_literal,
@@ -100,7 +104,7 @@
         ),
         ident: $ => seq($.ident_pattern_token, $._disambiguate_template),
         member_ident: $ => $.ident_pattern_token,
-        diagnostic_rule_name: $ => $.ident_pattern_token,
+        diagnostic_name_token: $ => $.ident_pattern_token,
         template_list: $ => seq($._template_args_start, $.template_arg_comma_list, $._template_args_end),
         template_arg_comma_list: $ => seq($.template_arg_expression, optional(repeat1(seq(token(','), $.template_arg_expression))), optional(token(','))),
         template_arg_expression: $ => $.expression,
