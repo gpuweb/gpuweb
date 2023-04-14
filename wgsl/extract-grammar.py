@@ -4,7 +4,7 @@ from datetime import date
 from string import Template
 
 import argparse
-import functools
+import difflib
 import os
 import re
 import subprocess
@@ -18,64 +18,14 @@ from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
 
 # TODO: Source from spec
-token_symbols = {
-    "'&'": "and",
-    "'&&'": "and_and",
-    "'->'": "arrow",
-    "'@'": "attr",
-    "'/'": "forward_slash",
-    "'!'": "bang",
-    "'['": "bracket_left",
-    "']'": "bracket_right",
-    "'{'": "brace_left",
-    "'}'": "brace_right",
-    "':'": "colon",
-    "','": "comma",
-    "'='": "equal",
-    "'=='": "equal_equal",
-    "'!='": "not_equal",
-    "'>'": "greater_than",
-    "'>='": "greater_than_equal",
-    "'>>'": "shift_right",
-    "'<'": "less_than",
-    "'<='": "less_than_equal",
-    "'<<'": "shift_left",
-    "'%'": "modulo",
-    "'-'": "minus",
-    "'--'": "minus_minus",
-    "'.'": "period",
-    "'+'": "plus",
-    "'++'": "plus_plus",
-    "'|'": "or",
-    "'||'": "or_or",
-    "'('": "paren_left",
-    "')'": "paren_right",
-    "';'": "semicolon",
-    "'*'": "star",
-    "'~'": "tilde",
-    "'_'": "underscore",
-    "'^'": "xor",
-    "'+='": "plus_equal",
-    "'-='": "minus_equal",
-    "'*='": "times_equal",
-    "'/='": "division_equal",
-    "'%='": "modulo_equal",
-    "'&='": "and_equal",
-    "'|='": "or_equal",
-    "'^='": "xor_equal",
-    "'>>='": "shift_right_assign",
-    "'<<='": "shift_left_assign"
-}
-
-# TODO: Source from spec
 derivative_patterns = {
     "_comment": "/\\/\\/.*/",
-    "_blankspace": "/[\\u0020\\u0009\\u000a\\u000b\\u000c\\u000d\\u0085\\u200e\\u200f\\u2028\\u2029]/uy"
+    "_blankspace": "/[\\u0020\\u0009\\u000a\\u000b\\u000c\\u000d\\u0085\\u200e\\u200f\\u2028\\u2029]/u"
 }
 
 class Options():
     """
-    A class to store varios options including file paths and verbosity.
+    A class to store various options including file paths and verbosity.
     """
     def __init__(self,bs_filename, tree_sitter_dir, scanner_cc_filename, syntax_filename, syntax_dir):
         self.script = 'extract-grammar.py'
@@ -143,10 +93,10 @@ def read_lines_from_file(filename, exclusions):
     parts = [j for i in [i.split("\n") for i in file.readlines()]
              for j in i if len(j) > 0]
     result = []
-    include_re = re.compile('path:\s+(\S+)')
+    include_re = re.compile('(?!.*\.syntax\.bs\.include)path:\s+(\S+)')
     for line in parts:
         m = include_re.match(line)
-        if m and not ".syntax.bs.include" in line:
+        if m:
             included_file = m.group(1)
             if included_file not in exclusions:
                 result.extend(read_lines_from_file(included_file, exclusions))
@@ -325,6 +275,56 @@ class scanner_example(Scanner):
         line = lines[i].split("//")[0].rstrip()
         return (None, line, 0)
 
+
+class scanner_token(Scanner):
+    """
+    A scanner that reads WGSL syntax tokens from bikeshed source text.
+    """
+    @staticmethod
+    def name():
+        return "token"
+
+    """
+     Returns true if this scanner should be used starting at the i'th line
+    """
+    @staticmethod
+    def begin(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        result = "* <dfn for=syntax_sym lt='" in line
+        key = None
+        if result:
+            key = line.split(" noexport>`")[1].split("`")[0]
+        return (result, key, 0)
+
+    @staticmethod
+    def end(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        return (True, 0) # Token definitions always start and end at the same line
+
+    @staticmethod
+    def record(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        return (True, 0)
+
+    @staticmethod
+    def skip(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        return (False, 0)
+
+    @staticmethod
+    def valid(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        return True
+
+    @staticmethod
+    def parse(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        result = "* <dfn for=syntax_sym lt='" in line
+        value = None
+        if result:
+            value = line.split("* <dfn for=syntax_sym lt='")[1].split("'")[0]
+        return (None, value, 0)
+
 # These fixed tokens must be parsed by the custom scanner.
 # This is needed to support template disambiguation.
 custom_simple_tokens = {
@@ -339,11 +339,11 @@ custom_simple_tokens = {
 }
 
 def reproduce_bnfdialect_source(syntax_dict):
-    bnfdialect_source = """/* This file is not directly compatible with existing BNF parsers. Instead, it
- * uses a dialect for a concise reading experience, such as pattern literals
- * for tokens and generalizing RegEx operations that reduce the need for empty
- * alternatives. For details on interpreting this dialect, see 1.2. Syntax
- * Notation in WebGPU Shading Language (WGSL) Specification. */\n"""
+    bnfdialect_source = """// This file is not directly compatible with existing BNF parsers. Instead, it
+// uses a dialect for a concise reading experience, such as pattern literals
+// for tokens and generalizing RegEx operations that reduce the need for empty
+// alternatives. For details on interpreting this dialect, see 1.2. Syntax
+// Notation in WebGPU Shading Language (WGSL) Specification.\n"""
 
     def reproduce_rule_source(production, rule_name=""):
         if production["type"] in ["symbol", "token", "pattern"]:
@@ -355,61 +355,61 @@ def reproduce_bnfdialect_source(syntax_dict):
                     + " ".join(
                         [
                             reproduce_rule_source(member)
-                            for member in production["members"]
+                            for member in production["value"]
                         ]
                     )
                     + " )"
                 )
             else:
                 return " ".join(
-                    [reproduce_rule_source(member) for member in production["members"]]
+                    [reproduce_rule_source(member) for member in production["value"]]
                 )
         elif production["type"] == "choice":
             return (
                 "( "
                 + " | ".join(
-                    [reproduce_rule_source(member) for member in production["members"]]
+                    [reproduce_rule_source(member) for member in production["value"]]
                 )
                 + " )"
             )
         elif production["type"] == "match_0_1":
-            if len(production["members"]) == 1:
-                return reproduce_rule_source(production["members"][0]) + " ?"
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " ?"
             else:
                 return (
                     "( "
                     + " ".join(
                         [
                             reproduce_rule_source(member)
-                            for member in production["members"]
+                            for member in production["value"]
                         ]
                     )
                     + " ) ?"
                 )
         elif production["type"] == "match_1_n":
-            if len(production["members"]) == 1:
-                return reproduce_rule_source(production["members"][0]) + " +"
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " +"
             else:
                 return (
                     "( "
                     + " ".join(
                         [
                             reproduce_rule_source(member)
-                            for member in production["members"]
+                            for member in production["value"]
                         ]
                     )
                     + " ) +"
                 )
         elif production["type"] == "match_0_n":
-            if len(production["members"]) == 1:
-                return reproduce_rule_source(production["members"][0]) + " *"
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " *"
             else:
                 return (
                     "( "
                     + " ".join(
                         [
                             reproduce_rule_source(member)
-                            for member in production["members"]
+                            for member in production["value"]
                         ]
                     )
                     + " ) *"
@@ -424,7 +424,7 @@ def reproduce_bnfdialect_source(syntax_dict):
             subsource = " ".join(
                 [
                     reproduce_rule_source(member, rule_name)
-                    for member in syntax_dict[rule_name]["members"]
+                    for member in syntax_dict[rule_name]["value"]
                 ]
             )
             bnfdialect_source += f"\n{rule_name} :\n  {subsource}\n;\n"
@@ -432,7 +432,7 @@ def reproduce_bnfdialect_source(syntax_dict):
             subsource = "\n| ".join(
                 [
                     reproduce_rule_source(member, rule_name)
-                    for member in syntax_dict[rule_name]["members"]
+                    for member in syntax_dict[rule_name]["value"]
                 ]
             )
             bnfdialect_source += f"\n{rule_name} :\n  {subsource}\n;\n"
@@ -450,7 +450,7 @@ def grammar_from_rule(key, value):
                 + ", ".join(
                     [
                         reproduce_rule_source(member)
-                        for member in production["members"]
+                        for member in production["value"]
                     ]
                 )
                 + ")"
@@ -459,49 +459,49 @@ def grammar_from_rule(key, value):
             return (
                 "choice("
                 + ", ".join(
-                    [reproduce_rule_source(member) for member in production["members"]]
+                    [reproduce_rule_source(member) for member in production["value"]]
                 )
                 + ")"
             )
         elif production["type"] == "match_0_1":
             return (
-                "optional(" + ("seq(" if len(production["members"]) > 1 else "")
+                "optional(" + ("seq(" if len(production["value"]) > 1 else "")
                 + ", ".join(
                     [
                         reproduce_rule_source(member)
-                        for member in production["members"]
+                        for member in production["value"]
                     ]
                 )
-                + ")" + (")" if len(production["members"]) > 1 else "")
+                + ")" + (")" if len(production["value"]) > 1 else "")
             )
         elif production["type"] == "match_1_n":
             return (
-                "repeat1(" + ("seq(" if len(production["members"]) > 1 else "")
+                "repeat1(" + ("seq(" if len(production["value"]) > 1 else "")
                 + ", ".join(
                     [
                         reproduce_rule_source(member)
-                        for member in production["members"]
+                        for member in production["value"]
                     ]
                 )
-                + ")" + (")" if len(production["members"]) > 1 else "")
+                + ")" + (")" if len(production["value"]) > 1 else "")
             )
         elif production["type"] == "match_0_n":
             return (
-                "repeat(" + ("seq(" if len(production["members"]) > 1 else "")
+                "repeat(" + ("seq(" if len(production["value"]) > 1 else "")
                 + ", ".join(
                     [
                         reproduce_rule_source(member)
-                        for member in production["members"]
+                        for member in production["value"]
                     ]
                 )
-                + ")" + (")" if len(production["members"]) > 1 else "")
+                + ")" + (")" if len(production["value"]) > 1 else "")
             )
         else:
             print(production["type"])
 
     return f"\n        {key}: $ => {reproduce_rule_source(value)}"
 
-def fragment_from_rule(key, value):
+def fragment_from_rule(key, value, result):
 
     def reproduce_rule_source(production, rule_name=""):
         if production["type"] in ["symbol", "token", "pattern"]:
@@ -512,8 +512,8 @@ def fragment_from_rule(key, value):
                     affix = "_sym"
                 subsource = f"[=syntax{affix}/{production['value']}=]"
             elif production["type"] == "token":
-                if production["value"] in token_symbols:
-                    subsource = f"<a for=syntax_sym lt={token_symbols[production['value']]}>`{production['value']}`</a>"
+                if production["value"] in result[scanner_token.name()]:
+                    subsource = f"<a for=syntax_sym lt={result[scanner_token.name()][production['value']]}>`{production['value']}`</a>"
                 else:
                     subsource = f"`{production['value']}`"
             elif production["type"] == "pattern":
@@ -526,61 +526,61 @@ def fragment_from_rule(key, value):
                     + " ".join(
                         [
                             reproduce_rule_source(member)
-                            for member in production["members"]
+                            for member in production["value"]
                         ]
                     )
                     + " )"
                 )
             else:
                 return " ".join(
-                    [reproduce_rule_source(member) for member in production["members"]]
+                    [reproduce_rule_source(member) for member in production["value"]]
                 )
         elif production["type"] == "choice":
             return (
                 "( "
                 + " | ".join(
-                    [reproduce_rule_source(member) for member in production["members"]]
+                    [reproduce_rule_source(member) for member in production["value"]]
                 )
                 + " )"
             )
         elif production["type"] == "match_0_1":
-            if len(production["members"]) == 1:
-                return reproduce_rule_source(production["members"][0]) + " ?"
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " ?"
             else:
                 return (
                     "( "
                     + " ".join(
                         [
                             reproduce_rule_source(member)
-                            for member in production["members"]
+                            for member in production["value"]
                         ]
                     )
                     + " ) ?"
                 )
         elif production["type"] == "match_1_n":
-            if len(production["members"]) == 1:
-                return reproduce_rule_source(production["members"][0]) + " +"
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " +"
             else:
                 return (
                     "( "
                     + " ".join(
                         [
                             reproduce_rule_source(member)
-                            for member in production["members"]
+                            for member in production["value"]
                         ]
                     )
                     + " ) +"
                 )
         elif production["type"] == "match_0_n":
-            if len(production["members"]) == 1:
-                return reproduce_rule_source(production["members"][0]) + " *"
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " *"
             else:
                 return (
                     "( "
                     + " ".join(
                         [
                             reproduce_rule_source(member)
-                            for member in production["members"]
+                            for member in production["value"]
                         ]
                     )
                     + " ) *"
@@ -596,8 +596,8 @@ def fragment_from_rule(key, value):
                 affix = "_sym"
             subsource = f"[=syntax{affix}/{value['value']}=]"
         elif value["type"] == "token":
-            if value["value"] in token_symbols:
-                subsource = f"<a for=syntax_sym lt={token_symbols[value['value']]}>`{value['value']}`</a>"
+            if value["value"] in result[scanner_token.name()]:
+                subsource = f"<a for=syntax_sym lt={result[scanner_token.name()][value['value']]}>`{value['value']}`</a>"
             else:
                 subsource = f"`{value['value']}`"
         elif value["type"] == "pattern":
@@ -607,7 +607,7 @@ def fragment_from_rule(key, value):
         subsource = " ".join(
             [
                 reproduce_rule_source(member, key)
-                for member in value["members"]
+                for member in value["value"]
             ]
         )
         return f"<div class='syntax' noexport='true'>\n  <dfn for=syntax>{key}</dfn> :\n\n    <span class=\"choice\"></span> {subsource}\n</div>\n"
@@ -615,7 +615,7 @@ def fragment_from_rule(key, value):
         subsource = "\n\n    <span class=\"choice\">|</span> ".join(
             [
                 reproduce_rule_source(member, key)
-                for member in value["members"]
+                for member in value["value"]
             ]
         )
         return f"<div class='syntax' noexport='true'>\n  <dfn for=syntax>{key}</dfn> :\n\n    <span class=\"choice\"></span> {subsource}\n</div>\n"
@@ -635,8 +635,8 @@ class ScanResult(dict):
          The name is taken from the "heading" attriute of the <div> element.
     """
     def __init__(self):
-        self['rule'] = dict()
-        self['example'] = dict()
+        for subscanner in Scanner.__subclasses__():
+            self[subscanner.name()] = dict()
         self['raw'] = []
 
 
@@ -668,7 +668,7 @@ def read_spec(options):
     line = ""
 
     # First scan spec for examples (and in future, inclusion of rules and properties that should derive from spec)
-    scanner_spans = [scanner_example]
+    scanner_spans = [scanner_example, scanner_token]
 
     scanner_i = 0  # line number of the current line
     scanner_span = None
@@ -690,16 +690,6 @@ def read_spec(options):
                 if scanner_begin[1] != None:
                     last_key = scanner_begin[1]
                 scanner_i += scanner_begin[-1]
-            if scanner_span == j:
-                # Check if we should stop using this scanner.
-                scanner_end = j.end(scanner_lines, scanner_i)
-                if scanner_end[0]:
-                    # Yes, stop using this scanner.
-                    scanner_span = None
-                    scanner_record = False
-                    last_key = None
-                    last_value = None
-                    scanner_i += scanner_end[-1]
         if scanner_span != None:
             # We're are in the middle of scanning a span of lines.
             if scanner_record:
@@ -753,15 +743,28 @@ def read_spec(options):
                             last_value = None
                             result[scanner_span.name()][last_key] = []
                     else:
-                        # It's example text
+                        # A token or example
                         if scanner_parse[1] != None:
                             last_value = scanner_parse[1]
-                            result[scanner_span.name()][last_key].append(
-                                last_value)
-                    scanner_i += scanner_parse[-1]  # Advance line index
+                            if scanner_span.name() == scanner_example.name():
+                                result[scanner_span.name()][last_key].append(
+                                    last_value)
+                            if scanner_span.name() == scanner_token.name():
+                                result[scanner_span.name()][last_key] = last_value
+                    scanner_i += scanner_parse[-1]  # Advance line index 
+        for j in scanner_spans:
+            if scanner_span == j:
+                # Check if we should stop using this scanner.
+                scanner_end = j.end(scanner_lines, scanner_i)
+                if scanner_end[0]:
+                    # Yes, stop using this scanner.
+                    scanner_span = None
+                    scanner_record = False
+                    last_key = None
+                    last_value = None
+                    scanner_i += scanner_end[-1]
         scanner_i += 1
 
-    RULE_NAME_CODE_POINTS = string.ascii_lowercase + string.digits + "_"
     bnfdialect_data = ""
 
     # Read the contents of the bnfdialect file
@@ -771,287 +774,134 @@ def read_spec(options):
     scan_in = {"name": "blank", "value": "", "content": []}  # blank, comment, rule
 
     syntax_dict = {}
-
-    s_i = 0
-    s_v = bnfdialect_data[s_i]
-    while s_i < len(bnfdialect_data):
-        if scan_in["name"] == "blank":
-            if s_v == "/" and s_i + 1 < len(bnfdialect_data):  # Comment start
-                if bnfdialect_data[s_i + 1] == "*":
-                    scan_in["name"] = "comment"
-                    scan_in["value"] = 1
-                    scan_in["content"] = []
-                    s_i += 2
-                else:
-                    s_i += 1
-            elif s_v in RULE_NAME_CODE_POINTS:  # Rule start
-                is_rule = False
-                rule_value = s_v
-                s_j = s_i + 1
-                while s_j < len(bnfdialect_data):
-                    if bnfdialect_data[s_j] in RULE_NAME_CODE_POINTS:
-                        rule_value += bnfdialect_data[s_j]
-                        s_j += 1
-                    elif bnfdialect_data[s_j] == ":":
-                        is_rule = True
-                        s_j += 1
-                        break
-                    # Return false when line or rule ends, pattern or token starts
-                    elif bnfdialect_data[s_j] in ["\n", ";", "/", "'"]:
-                        is_rule = False
-                        break
-                    else:
-                        s_j += 1
-                if is_rule:
-                    scan_in["name"] = "rule"
-                    scan_in["value"] = rule_value
-                    scan_in["content"] = [0, 0]
-                    s_i = s_j
-                    syntax_dict[rule_value] = {
-                        "type": "",
-                        "members": [{"type": "sequence", "members": []}],
-                    }
-                else:
-                    s_i += 1
-            else:
-                s_i += 1
-        elif scan_in["name"] == "comment":
-            # Comment nesting start
-            if s_v == "/" and s_i + 1 < len(bnfdialect_data):
-                if bnfdialect_data[s_i + 1] == "*":
-                    scan_in["value"] += 1
-                    s_i += 2
-                else:
-                    s_i += 1
-            # Comment or comment nesting end
-            elif s_v == "*" and s_i + 1 < len(bnfdialect_data):
-                if bnfdialect_data[s_i + 1] == "/":
-                    scan_in["value"] -= 1
-                    if scan_in["value"] == 0:
-                        if len(scan_in["content"]) == 0:
-                            scan_in["name"] = "blank"
-                            scan_in["value"] = ""
-                            scan_in["content"] = []
-                        else:
-                            scan_in = scan_in["content"][-1]
-                    s_i += 2
-                else:
-                    s_i += 1
-            else:
-                s_i += 1
-        elif scan_in["name"] == "rule":
-            # Comment or pattern start
-            if s_v == "/" and s_i + 1 < len(bnfdialect_data):
-                if bnfdialect_data[s_i + 1] == "*":
-                    scan_in["name"] = "comment"
-                    scan_in["value"] = 1
-                    scan_in["content"] = [scan_in]
-                    s_i += 2
-                else:  # Pattern literal
-                    pattern_value = "/"
-                    s_j = s_i + 1
-                    while s_j < len(bnfdialect_data):
-                        pattern_value += bnfdialect_data[s_j]
-                        if bnfdialect_data[s_j] == "/":
-                            s_j += 1
-                            while s_j < len(bnfdialect_data):
-                                if bnfdialect_data[s_j] in string.ascii_lowercase:
-                                    pattern_value += bnfdialect_data[s_j]
-                                    s_j += 1
-                                else:
-                                    break
-                            break
-                        else:
-                            s_j += 1
-                    functools.reduce(
-                        lambda x, y: x["members"][y],
-                        scan_in["content"][0:-1],
-                        syntax_dict[scan_in["value"]],
-                    )["members"].append({"type": "pattern", "value": pattern_value})
-                    scan_in["content"][-1] += 1
-                    s_i = s_j
-            elif s_v == "'" and s_i + 1 < len(bnfdialect_data):  # Token start
-                token_value = "'"
-                s_j = s_i + 1
-                while s_j < len(bnfdialect_data):
-                    token_value += bnfdialect_data[s_j]
-                    if bnfdialect_data[s_j] == "'":
-                        s_j += 1
-                        break
-                    else:
-                        s_j += 1
-                functools.reduce(
-                    lambda x, y: x["members"][y],
-                    scan_in["content"][0:-1],
-                    syntax_dict[scan_in["value"]],
-                )["members"].append({"type": "token", "value": token_value})
-                scan_in["content"][-1] += 1
-                s_i = s_j
-            elif s_v == ";":
-                scan_in["name"] = "blank"
-                scan_in["value"] = ""
-                scan_in["content"] = []
-                s_i += 1
-            elif s_v in RULE_NAME_CODE_POINTS:
-                symbol_value = s_v
-                s_j = s_i + 1
-                while s_j < len(bnfdialect_data):
-                    if bnfdialect_data[s_j] in RULE_NAME_CODE_POINTS:
-                        symbol_value += bnfdialect_data[s_j]
-                        s_j += 1
-                    else:
-                        break
-                functools.reduce(
-                    lambda x, y: x["members"][y],
-                    scan_in["content"][0:-1],
-                    syntax_dict[scan_in["value"]],
-                )["members"].append({"type": "symbol", "value": symbol_value})
-                scan_in["content"][-1] += 1
-                s_i = s_j
-            elif s_v == "\n":  # Check for group by newline
-                is_grouping = False
-                s_j = s_i + 1
-                while s_j < len(bnfdialect_data):
-                    if bnfdialect_data[s_j] in [
-                        "\u0020",
-                        "\u0009",
-                        "\u000a",
-                        "\u000b",
-                        "\u000c",
-                        "\u000d",
-                        "\u0085",
-                        "\u200e",
-                        "\u200f",
-                        "\u2028",
-                        "\u2029",
-                    ]:
-                        s_j += 1
-                    elif bnfdialect_data[s_j] == "|":
-                        is_grouping = True
-                        break
-                    else:
-                        is_grouping = False
-                        break
-                if is_grouping:
-                    syntax_dict[scan_in["value"]]["type"] = "choice"
-                    syntax_dict[scan_in["value"]]["members"].append(
-                        {"type": "sequence", "members": []}
-                    )
-                    scan_in["content"] = [scan_in["content"][0] + 1, 0]
-                    s_i = s_j + 1
-                else:
-                    s_i += 1
-            elif s_v == "?":
-                functools.reduce(
-                    lambda x, y: x["members"][y],
-                    scan_in["content"][0:-1],
-                    syntax_dict[scan_in["value"]],
-                )["members"][-1] = {
-                    "type": "match_0_1",
-                    "members": [
-                        functools.reduce(
-                            lambda x, y: x["members"][y],
-                            scan_in["content"][0:-1],
-                            syntax_dict[scan_in["value"]],
-                        )["members"][-1]
-                    ],
+    current_rule = None
+    for line in bnfdialect_data.splitlines():
+        comment = ""
+        if "//" in line:
+            line, comment = line.split("//", 1)
+        line = line.strip() # Either blankspace is insignificant
+        comment = comment.rstrip() # Right blankspace is insignificant
+        if len(line) == 0:
+            continue
+        elif current_rule is None:
+            if line.endswith(":"):
+                current_rule = line[:-1].strip()
+                syntax_dict[current_rule] = {
+                    "type": "sequence",
+                    "value": []
                 }
-                s_i += 1
-            elif s_v == "+":
-                functools.reduce(
-                    lambda x, y: x["members"][y],
-                    scan_in["content"][0:-1],
-                    syntax_dict[scan_in["value"]],
-                )["members"][-1] = {
-                    "type": "match_1_n",
-                    "members": [
-                        functools.reduce(
-                            lambda x, y: x["members"][y],
-                            scan_in["content"][0:-1],
-                            syntax_dict[scan_in["value"]],
-                        )["members"][-1]
-                    ],
-                }
-                s_i += 1
-            elif s_v == "*":
-                functools.reduce(
-                    lambda x, y: x["members"][y],
-                    scan_in["content"][0:-1],
-                    syntax_dict[scan_in["value"]],
-                )["members"][-1] = {
-                    "type": "match_0_n",
-                    "members": [
-                        functools.reduce(
-                            lambda x, y: x["members"][y],
-                            scan_in["content"][0:-1],
-                            syntax_dict[scan_in["value"]],
-                        )["members"][-1]
-                    ],
-                }
-                s_i += 1
-            elif s_v == "|":
-                functools.reduce(
-                    lambda x, y: x["members"][y],
-                    scan_in["content"][0:-2],
-                    syntax_dict[scan_in["value"]],
-                )["members"][-1]["type"] = "choice"
-                s_i += 1
-            elif s_v == "(":
-                functools.reduce(
-                    lambda x, y: x["members"][y],
-                    scan_in["content"][0:-1],
-                    syntax_dict[scan_in["value"]],
-                )["members"].append({"type": "sequence", "members": []})
-                scan_in["content"].append(0)
-                s_i += 1
-            elif s_v == ")":
-                scan_in["content"] = scan_in["content"][0:-1]
-                s_i += 1
-            else:
-                s_i += 1
         else:
-            s_i += 1
-        if s_i < len(bnfdialect_data):
-            s_v = bnfdialect_data[s_i]
-        else:
-            s_v = ""
+            if line.startswith(";"):
+                current_rule = None
+            else:
+                if line.startswith("|"):
+                    syntax_dict[current_rule]["type"] = "choice"
+                    line = line[1:].strip()
+                tokens = [i for i in line.split(" ") if len(i) > 0] # Strip blankspace
+                def build_production(token_j):
+                    """
+                    Takes token index and returns token steps and a (sub)production
+                    """
+                    if tokens[token_j].startswith("/"):
+                        return (1, {
+                            "type": "pattern",
+                            "value": tokens[token_j]
+                        })
+                    if tokens[token_j].startswith("'"):
+                        return (1, {
+                            "type": "token",
+                            "value": tokens[token_j]
+                        })
+                    if tokens[token_j].startswith("?"):
+                        value = build_production(token_j - 1)
+                        return (1 + value[0], {
+                            "type": "match_0_1",
+                            "value": [value[1]]
+                        })
+                    if tokens[token_j].startswith("+"):
+                        value = build_production(token_j - 1)
+                        return (1 + value[0], {
+                            "type": "match_1_n",
+                            "value": [value[1]]
+                        })
+                    if tokens[token_j].startswith("*"):
+                        value = build_production(token_j - 1)
+                        return (1 + value[0], {
+                            "type": "match_0_n",
+                            "value": [value[1]]
+                        })
+                    if tokens[token_j].startswith("|"):
+                        return (1, {
+                            "type": "__MAKE_CHOICE",
+                            "value": ""
+                        })
+                    if tokens[token_j].startswith(")"):
+                        offset = 1
+                        production = {
+                            "type": "sequence",
+                            "value": []
+                        }
+                        while tokens[token_j - offset] != "(":
+                            value = build_production(token_j - offset)
+                            if value[1]["type"].startswith("__MAKE_CHOICE"):
+                                production["type"] = "choice"
+                            else:
+                                production["value"].insert(0, value[1])
+                            offset += value[0]
+                        offset += 1
+                        return (offset, production)
+                    else:
+                        return (1, {
+                            "type": "symbol",
+                            "value": tokens[token_j]
+                        })
+                production = {
+                    "type": "sequence",
+                    "value": []
+                }
+                token_i = len(tokens) - 1
+                while token_i >= 0:
+                    value = build_production(token_i)
+                    production["value"].insert(0, value[1])
+                    token_i -= value[0]
+                syntax_dict[current_rule]["value"].append(production)
 
     def reproduce_rule(production):
         if production["type"] in ["sequence", "choice", ""]:
-            if len(production["members"]) == 1:
-                if production["members"][0]["type"] in ["token", "symbol", "pattern"]:
-                    return production["members"][0]
+            if len(production["value"]) == 1:
+                if production["value"][0]["type"] in ["token", "symbol", "pattern"]:
+                    return production["value"][0]
                 else:
-                    return reproduce_rule(production["members"][0])
+                    return reproduce_rule(production["value"][0])
             else:
                 return {
                     "type": production["type"],
-                    "members": [
-                        reproduce_rule(member) for member in production["members"]
+                    "value": [
+                        reproduce_rule(member) for member in production["value"]
                     ],
                 }
         elif production["type"].startswith("match_"):
-            if len(production["members"]) == 1:
-                if production["members"][0]["type"] == "sequence":
+            if len(production["value"]) == 1:
+                if production["value"][0]["type"] == "sequence":
                     return {
                         "type": production["type"],
-                        "members": [
+                        "value": [
                             reproduce_rule(member)
-                            for member in production["members"][0]["members"]
+                            for member in production["value"][0]["value"]
                         ],
                     }
                 else:
                     return {
                         "type": production["type"],
-                        "members": [
-                            reproduce_rule(member) for member in production["members"]
+                        "value": [
+                            reproduce_rule(member) for member in production["value"]
                         ],
                     }
             else:
                 return {
                     "type": production["type"],
-                    "members": [
-                        reproduce_rule(member) for member in production["members"]
+                    "value": [
+                        reproduce_rule(member) for member in production["value"]
                     ],
                 }
         else:
@@ -1061,23 +911,30 @@ def read_spec(options):
     for rule_name in syntax_dict.keys():
         syntax_dict[rule_name] = reproduce_rule(syntax_dict[rule_name])
 
-    if reproduce_bnfdialect_source(syntax_dict).strip() != bnfdialect_data.strip():
+    syntax_source = "\n".join([i.strip() for i in bnfdialect_data.strip().splitlines()])
+    syntax_target = "\n".join([i.strip() for i in reproduce_bnfdialect_source(syntax_dict).strip().splitlines()])
+    if syntax_source != syntax_target:
         print("ERROR: Syntax source should match reproduction for styling and language")
+        print("\n".join(difflib.unified_diff(syntax_source.splitlines(), syntax_target.splitlines())))
         sys.exit(1)
-
-    # Extract syntax to bikeshed fragments
-    remove_files(options.syntax_dir, "*.syntax.bs.include")
-
-    for rule_name in syntax_dict.keys():
-        syntax_bs = fragment_from_rule(rule_name, syntax_dict[rule_name])
-        with open(
-            os.path.join(options.syntax_dir, rule_name + ".syntax.bs.include"), "w"
-        ) as syntax_file:
-            syntax_file.write(syntax_bs)
     
     result[scanner_rule.name()] = syntax_dict
     return result
 
+def extract_rules_to_bs(options, scan_result):
+    """
+    Produce .syntax.bs.include files
+    """
+
+    # Extract syntax to bikeshed fragments
+    remove_files(options.syntax_dir, "*.syntax.bs.include")
+
+    for rule_name in scan_result[scanner_rule.name()].keys():
+        syntax_bs = fragment_from_rule(rule_name, scan_result[scanner_rule.name()][rule_name], scan_result)
+        with open(
+            os.path.join(options.syntax_dir, rule_name + ".syntax.bs.include"), "w"
+        ) as syntax_file:
+            syntax_file.write(syntax_bs)
 
 def flow_extract(options, scan_result):
     """
@@ -1404,7 +1261,8 @@ def flow_examples(options,scan_result):
 FLOW_HELP = """
 A complete flow has the following steps, in order
     'x' (think 'extract'): Generate a tree-sitter grammar definition from the
-          bikeshed source for the WGSL specification.
+          bikeshed source for the WGSL specification and generates
+          bikeshed include fragments for syntax rules.
     'b' (think 'build'): Build the tree-sitter parser
     'e' (think 'example'): Check the examples from the WGSL spec parse correctly.
     't' (think 'test'): Run parser unit tests.
@@ -1472,6 +1330,7 @@ def main():
 
     if 'x' in args.flow:
         scan_result = read_spec(options)
+        extract_rules_to_bs(options, scan_result)
         if not flow_extract(options,scan_result):
             return 1
     if 'b' in args.flow:
