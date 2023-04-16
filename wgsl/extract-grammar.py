@@ -771,8 +771,6 @@ def read_spec(options):
     with open(options.syntax_filename, "r") as file:
         bnfdialect_data = file.read()
 
-    scan_in = {"name": "blank", "value": "", "content": []}  # blank, comment, rule
-
     syntax_dict = {}
     current_rule = None
     for line in bnfdialect_data.splitlines():
