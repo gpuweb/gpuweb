@@ -95,6 +95,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: shader-creation error; url: shader-creation-error
         text: pipeline-creation error; url: pipeline-creation-error
         text: store type; url: store-type
+        text: language extension; url: language-extension
         text: runtime-sized; url: runtime-sized
         text: WGSL floating point conversion; url: floating-point-conversion
         text: WGSL identifier comparison; url: identifier-comparison
@@ -1632,14 +1633,6 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         which are uniform buffers.
         See [=Exceeds the binding slot limits=].
 
-    <tr><td><dfn>maxFragmentCombinedOutputResources</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
-    <tr class=row-continuation><td colspan=4>
-        The maximum total number of
-        {{GPUShaderStage/FRAGMENT}}-stage storage buffers,
-        {{GPUShaderStage/FRAGMENT}}-stage storage textures,
-        and color attachments in a {{GPURenderPipelineDescriptor}}.
-
     <tr><td><dfn>maxUniformBufferBindingSize</dfn>
         <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>65536 bytes
     <tr class=row-continuation><td colspan=4>
@@ -1790,7 +1783,6 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxStorageBuffersPerShaderStage;
     readonly attribute unsigned long maxStorageTexturesPerShaderStage;
     readonly attribute unsigned long maxUniformBuffersPerShaderStage;
-    readonly attribute unsigned long maxFragmentCombinedOutputResources;
     readonly attribute unsigned long long maxUniformBufferBindingSize;
     readonly attribute unsigned long long maxStorageBufferBindingSize;
     readonly attribute unsigned long minUniformBufferOffsetAlignment;
@@ -1846,6 +1838,20 @@ interface GPUSupportedFeatures {
         </pre>
     </div>
 </div>
+
+<h5 id=gpuwgsllanguagefeatures data-dfn-type=interface>`WGSLLanguageFeatures`
+</h5>
+
+{{WGSLLanguageFeatures}} is a [=setlike=] interface.
+Its [=set entries=] are
+the string names of the WGSL [=language extensions=] supported all adapters.
+
+<script type=idl>
+[Exposed=(Window, DedicatedWorker), SecureContext]
+interface WGSLLanguageFeatures {
+    readonly setlike<DOMString>;
+};
+</script>
 
 <h5 id=gpuadapterinfo data-dfn-type=interface>`GPUAdapterInfo`
 <span id=gpu-adapterinfo></span>
@@ -2233,10 +2239,11 @@ WorkerNavigator includes NavigatorGPU;
 interface GPU {
     Promise<GPUAdapter?> requestAdapter(optional GPURequestAdapterOptions options = {});
     GPUTextureFormat getPreferredCanvasFormat();
+    [SameObject] readonly attribute WGSLLanguageFeatures wgslLanguageFeatures;
 };
 </script>
 
-{{GPU}} has the following methods:
+{{GPU}} has the following methods and attributes:
 
 <dl dfn-type=method dfn-for=GPU>
     : <dfn>requestAdapter(options)</dfn>
@@ -2318,6 +2325,11 @@ interface GPU {
                     {{GPUTextureFormat/"bgra8unorm"}}, depending on which format is optimal for
                     displaying WebGPU canvases on this system.
         </div>
+
+    : <dfn dfn-type=attribute>wgslLanguageFeatures</dfn>
+    ::
+        The names of supported WGSL [=language extensions=].
+        Supported language extensions are automatically enabled.
 </dl>
 
 [=Adapters=] **may** become [=invalid=] ("<dfn dfn for=adapter>expire</dfn>") at any time.
@@ -2369,7 +2381,6 @@ Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}} must provide the followi
     implementations should raise it to conform to this requirement, rather than lowering the
     other limits.
 
-- {{supported limits/maxColorAttachments}} must be &le; {{supported limits/maxFragmentCombinedOutputResources}}.
 - {{supported limits/maxBindGroups}} must be &le; {{supported limits/maxBindGroupsPlusVertexBuffers}}.
 - {{supported limits/maxVertexBuffers}} must be &le; {{supported limits/maxBindGroupsPlusVertexBuffers}}.
 - {{supported limits/minUniformBufferOffsetAlignment}} and
@@ -7787,6 +7798,13 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     - If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is [=map/exist|provided=]:
         - [$validating GPUDepthStencilState$](|descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}) succeeds.
     - [$validating GPUMultisampleState$](|descriptor|.{{GPURenderPipelineDescriptor/multisample}}) succeeds.
+    - If |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}}
+        is true:
+        1. |descriptor|.{{GPURenderPipelineDescriptor/fragment}} must be [=map/exist|provided=].
+        1. |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}[0]
+            must [=list/exist=] and be non-null.
+        1. |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}[0].{{GPUColorTargetState/format}}
+            must be a {{GPUTextureFormat}} with an alpha channel.
     - There must exist at least one attachment, either:
         - A non-`null` value in
             |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}, or
@@ -8081,8 +8099,6 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 
     - |descriptor|.{{GPUFragmentState/targets}}.length must be &le;
         |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
-    - The [=total number of fragment output resources=] must be &le;
-        |device|.{{device/[[limits]]}}.{{supported limits/maxFragmentCombinedOutputResources}}.
     - [=list/For each=] |index| of the [=list/indices=] of |descriptor|.{{GPUFragmentState/targets}}
         containing a non-`null` value |colorState|:
         - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
@@ -8111,15 +8127,6 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 
             - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
     - [$Validating GPUFragmentState's color attachment bytes per sample$](|device|, |descriptor|.{{GPUFragmentState/targets}}) succeeds.
-</div>
-
-<div algorithm>
-    The <dfn dfn>total number of fragment output resources</dfn> for a
-    {{GPUFragmentState}} |descriptor| is the sum of:
-
-    - the number of non-null elements in |descriptor|.{{GPUFragmentState/targets}}
-    - the number of storage buffers and storage textures (of any access mode)
-        [=statically used=] by |descriptor|
 </div>
 
 <div algorithm>
@@ -12236,13 +12243,13 @@ interface GPUQueue {
     undefined writeBuffer(
         GPUBuffer buffer,
         GPUSize64 bufferOffset,
-        [AllowShared] BufferSource data,
+        ([AllowShared] ArrayBuffer or [AllowShared] ArrayBufferView) data,
         optional GPUSize64 dataOffset = 0,
         optional GPUSize64 size);
 
     undefined writeTexture(
         GPUImageCopyTexture destination,
-        [AllowShared] BufferSource data,
+        ([AllowShared] ArrayBuffer or [AllowShared] ArrayBufferView) data,
         GPUImageDataLayout dataLayout,
         GPUExtent3D size);
 
@@ -12788,6 +12795,22 @@ A {{GPUCanvasContext}} object is [$create a 'webgpu' context on a canvas|created
 via the {{HTMLCanvasElement/getContext()}} method of an {{HTMLCanvasElement}}
 instance by passing the string literal `'webgpu'` as its `contextType` argument.
 
+<div class=example>
+    Get a {{GPUCanvasContext}} from an offscreen {{HTMLCanvasElement}}:
+
+    <pre highlight=js>
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('webgpu');
+    </pre>
+</div>
+
+Unlike WebGL or 2D context creation, the second argument of
+{{HTMLCanvasElement/getContext()|HTMLCanvasElement.getContext()}} or
+{{OffscreenCanvas/getContext()|OffscreenCanvas.getContext()}},
+the context creation attribute dictionary `options`, is ignored.
+Instead, use {{GPUCanvasContext/configure()|GPUCanvasContext.configure()}},
+which allows changing the canvas configuration without replacing the canvas.
+
 <div algorithm>
     To <dfn abstract-op>create a 'webgpu' context on a canvas</dfn>
     ({{HTMLCanvasElement}} or {{OffscreenCanvas}}) |canvas|:
@@ -12796,15 +12819,10 @@ instance by passing the string literal `'webgpu'` as its `contextType` argument.
     1. Set |context|.{{GPUCanvasContext/canvas}} to |canvas|.
     1. [$Replace the drawing buffer$] of |context|.
     1. Return |context|.
-</div>
-
-<div class=example>
-    Get a {{GPUCanvasContext}} from an offscreen {{HTMLCanvasElement}}:
-
-    <pre highlight=js>
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('webgpu');
-    </pre>
+    
+    Note: User agents should consider issuing developer-visible warnings when
+    an ignored `options` argument is provided when calling `getContext()`
+    to get a WebGPU canvas context.
 </div>
 
 ## GPUCanvasContext ## {#canvas-context}
