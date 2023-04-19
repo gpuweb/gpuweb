@@ -1038,13 +1038,35 @@ Applications must not rely on any other promise settlement ordering.
 
 ## Coordinate Systems ## {#coordinate-systems}
 
-- Y-axis is up in normalized device coordinate (NDC): point(-1.0, -1.0) in NDC is located at the bottom-left corner of NDC.
-    In addition, x and y in NDC should be between -1.0 and 1.0 inclusive, while z in NDC should be between 0.0 and 1.0 inclusive.
-    Vertices out of this range in NDC will not introduce any errors, but they will be clipped.
-- Y-axis is down in [=framebuffer=] coordinate, viewport coordinate and fragment/pixel coordinate:
-    origin(0, 0) is located at the top-left corner in these coordinate systems.
-- Window/present coordinate matches [=framebuffer=] coordinate.
-- UV of origin(0, 0) in texture coordinate represents the first texel (the lowest byte) in texture memory.
+Rendering operations use the following coordinate systems:
+
+* <dfn lt="NDC">Normalized device coordinates</dfn> (or NDC) have three dimensions, where:
+    * -1.0 &leq; x &leq; 1.0
+    * -1.0 &leq; y &leq; 1.0
+    * 0.0 &leq; z &leq; 1.0
+    * The bottom-left corner is at (-1.0, -1.0, z).
+    * Vertices outside these bounds will not introduce errors, but they will
+        be clipped.
+* <dfn noexport>Framebuffer coordinates</dfn> address the pixels in the [=framebuffer=]
+    * They have two dimensions.
+    * Each pixel extends 1 unit in x and y dimensions.
+    * The top-left corner is at (0.0, 0.0).
+    * x increases to the right.
+    * y increases down.
+    * See [[#render-passes]] and [[#rasterization]].
+* <dfn>Viewport coordinates</dfn> combine [=framebuffer coordinates=] in x and y dimensions,
+    with depth in z.
+    * Normally 0.0 &leq; z &leq; 1.0, but this can be modified by setting {{RenderState/[[viewport]]}}.`minDepth` and `maxDepth` via
+        {{GPURenderPassEncoder/setViewport()}}
+* <dfn noexport>Fragment coordinates</dfn> match [=viewport coordinates=].
+* <dfn noexport>UV coordinates</dfn> are used to sample textures, and have two dimensions:
+    * 0 &leq; u &leq; 1.0
+    * 0 &leq; v &leq; 1.0
+    * (0.0, 0.0) is in the first texel in texture memory address order.
+    * (1.0, 1.0) is in the last texel texture memory address order.
+* <dfn noexport>Window coordinates</dfn>, or <dfn noexport>present coordinates</dfn>,
+    match [=framebuffer coordinates=], and are used when interacting with
+    an external display or conceptually similar interface.
 
 Note: WebGPU's coordinate systems match DirectX's coordinate systems in a graphics pipeline.
 
@@ -11930,8 +11952,8 @@ attachments used by this encoder.
 <dl dfn-type=method dfn-for=GPURenderPassEncoder>
     : <dfn>setViewport(x, y, width, height, minDepth, maxDepth)</dfn>
     ::
-        Sets the viewport used during the rasterization stage to linearly map from normalized device
-        coordinates to viewport coordinates.
+        Sets the viewport used during the rasterization stage to linearly map from
+          [=NDC|normalized device coordinates=] to [=viewport coordinates=].
 
         <div algorithm=GPURenderPassEncoder.setViewport>
             <div data-timeline=content>
@@ -11988,7 +12010,7 @@ attachments used by this encoder.
     : <dfn>setScissorRect(x, y, width, height)</dfn>
     ::
         Sets the scissor rectangle used during the rasterization stage.
-        After transformation into viewport coordinates any fragments which fall outside the scissor
+        After transformation into [=viewport coordinates=] any fragments which fall outside the scissor
         rectangle will be discarded.
 
         <div algorithm=GPURenderPassEncoder.setScissorRect>
@@ -14510,7 +14532,7 @@ the set of render attachments in the current {{GPURenderPassEncoder}}.
 This rendering area is split into an even grid of pixels.
 
 The [=framebuffer=] coordinates start from the top-left corner of the render targets.
-Each unit corresponds exactly to a pixel. See [[#coordinate-systems]] for more information.
+Each unit corresponds exactly to one pixel. See [[#coordinate-systems]] for more information.
 
 Rasterization determines the set of pixels affected by a primitive. In case of multi-sampling,
 each pixel is further split into
@@ -14535,13 +14557,13 @@ such that the pixel ranges from (0, 0) to (1, 1):
 Let's define a <dfn dfn>FragmentDestination</dfn> to contain:
 <dl dfn-for=FragmentDestination>
     : <dfn dfn>position</dfn>
-    :: the 2D pixel position in [=framebuffer=] space
+    :: the 2D pixel position using [=framebuffer coordinates=]
     : <dfn dfn>sampleIndex</dfn>
     :: an integer in case [[#sample-frequency-shading]] is active,
         or `null` otherwise
 </dl>
 
-We'll also use a notion of <dfn dfn>NDC</dfn> - normalized device coordinates.
+We'll also use a notion of [=NDC|normalized device coordinates=], or NDC.
 In this coordinate system, the viewport bounds range in X and Y from -1 to 1, and in Z from 0 to 1.
 
 Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each containing the following data:
@@ -14555,7 +14577,7 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
     : <dfn dfn>perspectiveDivisor</dfn>
     :: refers to interpolated 1.0 &divide; W across the primitive
     : <dfn dfn>depth</dfn>
-    :: refers to the depth in viewport coordinates,
+    :: refers to the depth in [=viewport coordinates=],
         i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
     : <dfn dfn>primitiveVertices</dfn>
     :: refers to the list of vertex outputs forming the primitive
@@ -14579,14 +14601,14 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
     However, the order of primitives affects later stages, such as depth/stencil operations and pixel writes.
 
     1. First, the clipped vertices are transformed into [=NDC=] - normalized device coordinates.
-        Given the output position |p|, the [=NDC=] coordinates are computed as:
-
-        divisor(|p|) = 1.0 &divide; |p|.w
+        Given the output position |p|, the [=NDC=] position and perspective divisor are:
 
         ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
 
+        divisor(|p|) = 1.0 &divide; |p|.w
+
     1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
-        Map the [=NDC=] coordinates |n| into viewport space:
+        Map the [=NDC=] position |n| into [=viewport coordinates=]:
         * Compute [=framebuffer=] coordinates from the render target offset and size:
 
             framebufferCoords(|n|) = vector(|vp|.`x` &plus; 0.5 &times; (|n|.x &plus; 1) &times; |vp|.`width`, |vp|.`y` &plus; .5 &times; (|n|.y &plus; 1) &times; |vp|.`height`)
@@ -14758,7 +14780,7 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
 <div algorithm="Fragment accessors" dfn-for=Fragment>
     - <dfn dfn>destination</dfn> refers to [=FragmentDestination=].
     - <dfn dfn>coverageMask</dfn> refers to multisample coverage mask (see [[#sample-masking]]).
-    - <dfn dfn>depth</dfn> refers to the depth in viewport coordinates,
+    - <dfn dfn>depth</dfn> refers to the depth in [=viewport coordinates=],
         i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
     - <dfn dfn>colors</dfn> refers to the list of color values,
         one for each target in {{GPURenderPassDescriptor/colorAttachments}}.
