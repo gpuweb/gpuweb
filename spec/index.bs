@@ -1565,6 +1565,13 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         allowed in {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
         when creating a {{GPUPipelineLayout}}.
 
+    <tr><td><dfn>maxBindGroupsPlusVertexBuffers</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>24
+    <tr class=row-continuation><td colspan=4>
+        The maximum number of bind group and vertex buffer slots used simultaneously,
+        counting any empty slots below the highest index.
+        Validated in {{GPUDevice/createRenderPipeline()}} and [$valid to draw|in draw calls$].
+
     <tr><td><dfn>maxBindingsPerBindGroup</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>1000
     <tr class=row-continuation><td colspan=4>
@@ -1772,6 +1779,7 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxTextureDimension3D;
     readonly attribute unsigned long maxTextureArrayLayers;
     readonly attribute unsigned long maxBindGroups;
+    readonly attribute unsigned long maxBindGroupsPlusVertexBuffers;
     readonly attribute unsigned long maxBindingsPerBindGroup;
     readonly attribute unsigned long maxDynamicUniformBuffersPerPipelineLayout;
     readonly attribute unsigned long maxDynamicStorageBuffersPerPipelineLayout;
@@ -2378,6 +2386,8 @@ Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}} must provide the followi
     implementations should raise it to conform to this requirement, rather than lowering the
     other limits.
 
+- {{supported limits/maxBindGroups}} must be &le; {{supported limits/maxBindGroupsPlusVertexBuffers}}.
+- {{supported limits/maxVertexBuffers}} must be &le; {{supported limits/maxBindGroupsPlusVertexBuffers}}.
 - {{supported limits/minUniformBufferOffsetAlignment}} and
     {{supported limits/minStorageBufferOffsetAlignment}} must both be &ge; 32 bytes.
 
@@ -7689,6 +7699,9 @@ dictionary GPURenderPipelineDescriptor
                     <div class=validusage>
                         - |layout| is [$valid to use with$] |this|.
                         - [$validating GPURenderPipelineDescriptor$](|descriptor|, |layout|, |this|) succeeds.
+                        - |layout|.{{GPUPipelineLayout/[[bindGroupLayouts]]}}.length + |vertexBufferCount| is &le;
+                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroupsPlusVertexBuffers}},
+                            where |vertexBufferCount| is the maximum index in |descriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}} that is not `undefined`.
                     </div>
                 1. Set |pipeline|.{{GPURenderPipeline/[[descriptor]]}} to |descriptor|.
                 1. Set |pipeline|.{{GPURenderPipeline/[[writesDepth]]}} to false.
@@ -9889,10 +9902,10 @@ command encoder can no longer be used.
 
 <script type=idl>
 interface mixin GPUBindingCommandsMixin {
-    undefined setBindGroup(GPUIndex32 index, GPUBindGroup bindGroup,
+    undefined setBindGroup(GPUIndex32 index, GPUBindGroup? bindGroup,
         optional sequence<GPUBufferDynamicOffset> dynamicOffsets = []);
 
-    undefined setBindGroup(GPUIndex32 index, GPUBindGroup bindGroup,
+    undefined setBindGroup(GPUIndex32 index, GPUBindGroup? bindGroup,
         Uint32Array dynamicOffsetsData,
         GPUSize64 dynamicOffsetsDataStart,
         GPUSize32 dynamicOffsetsDataLength);
@@ -9941,7 +9954,7 @@ It must only be included by interfaces which also include those mixins.
                     ::
                         The index to set the bind group at.
 
-                    : <dfn>|bindGroup|</dfn>, of type {{GPUBindGroup}}, non-nullable, required
+                    : <dfn>|bindGroup|</dfn>, of type {{GPUBindGroup}}, nullable, required
                     ::
                         Bind group to use for subsequent render or compute commands.
 
@@ -9968,34 +9981,41 @@ It must only be included by interfaces which also include those mixins.
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
+                1. Let |dynamicOffsetCount| be 0 if `bindGroup` is `null`, or
+                    |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}} if not.
+                1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
 
                     <div class=validusage>
-                        - |bindGroup| is [$valid to use with$] |this|.
-                        - |index| &lt; |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}.
-                        - |dynamicOffsets|.length is
-                            |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}}.
-
-                        - [$Iterate over each dynamic binding offset$] in |bindGroup| and
-                            run the following steps for each |bufferBinding|, |bufferLayout|,
-                            and |dynamicOffsetIndex|:
-
-                            - Let |bufferDynamicOffset| be |dynamicOffsets|[|dynamicOffsetIndex|].
-                            - |bufferBinding|.{{GPUBufferBinding/offset}} + |bufferDynamicOffset| +
-                                |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} &le;
-                                |bufferBinding|.{{GPUBufferBinding/buffer}}.{{GPUBuffer/size}}.
-                            - if |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"uniform"}}:
-
-                                - |dynamicOffset| is a multiple of {{supported limits/minUniformBufferOffsetAlignment}}.
-
-                            - if |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"storage"}}
-                                or {{GPUBufferBindingType/"read-only-storage"}}:
-
-                                - |dynamicOffset| is a multiple of {{supported limits/minStorageBufferOffsetAlignment}}.
-
+                        - |index| must be &lt;
+                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}.
+                        - |dynamicOffsets|.length must equal |dynamicOffsetCount|.
                     </div>
-                1. Set |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|] to be |bindGroup|.
-                1. Set |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|] to be a copy of |dynamicOffsets|.
+                1. If |bindGroup| is `null`:
+                    1. [=map/Remove=] |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|].
+                    1. [=map/Remove=] |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|].
+
+                    Otherwise:
+
+                    1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
+
+                        <div class=validusage>
+                            - |bindGroup| must be [$valid to use with$] |this|.
+                            - [$Iterate over each dynamic binding offset|For each dynamic binding$]
+                                (|bufferBinding|, |bufferLayout|, |dynamicOffsetIndex|) in |bindGroup|:
+                                - |bufferBinding|.{{GPUBufferBinding/offset}} + |dynamicOffsets|[|dynamicOffsetIndex|] +
+                                    |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} must be &le;
+                                    |bufferBinding|.{{GPUBufferBinding/buffer}}.{{GPUBuffer/size}}.
+                                - If |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"uniform"}}:
+
+                                    - |dynamicOffset| must be a multiple of {{supported limits/minUniformBufferOffsetAlignment}}.
+
+                                - If |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"storage"}}
+                                    or {{GPUBufferBindingType/"read-only-storage"}}:
+
+                                    - |dynamicOffset| must be a multiple of {{supported limits/minStorageBufferOffsetAlignment}}.
+                        </div>
+                    1. Set |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|] to be |bindGroup|.
+                    1. Set |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|] to be a copy of |dynamicOffsets|.
             </div>
         </div>
 
@@ -11173,7 +11193,7 @@ interface mixin GPURenderCommandsMixin {
     undefined setPipeline(GPURenderPipeline pipeline);
 
     undefined setIndexBuffer(GPUBuffer buffer, GPUIndexFormat indexFormat, optional GPUSize64 offset = 0, optional GPUSize64 size);
-    undefined setVertexBuffer(GPUIndex32 slot, GPUBuffer buffer, optional GPUSize64 offset = 0, optional GPUSize64 size);
+    undefined setVertexBuffer(GPUIndex32 slot, GPUBuffer? buffer, optional GPUSize64 offset = 0, optional GPUSize64 size);
 
     undefined draw(GPUSize32 vertexCount, optional GPUSize32 instanceCount = 1,
         optional GPUSize32 firstVertex = 0, optional GPUSize32 firstInstance = 0);
@@ -11356,19 +11376,31 @@ It must only be included by interfaces which also include those mixins.
 
             <div class=device-timeline>
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. If |size| is missing, set |size| to max(0, |buffer|.{{GPUBuffer/size}} - |offset|).
-                1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
+                1. Let |bufferSize| be 0 if |buffer| is `null`, or |buffer|.{{GPUBuffer/size}} if not.
+                1. If |size| is missing, set |size| to max(0, |bufferSize| - |offset|).
+                1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
 
                     <div class=validusage>
-                        - |buffer| is [$valid to use with$] |this|.
-                        - |buffer|.{{GPUBuffer/usage}} contains {{GPUBufferUsage/VERTEX}}.
-                        - |slot| &lt; |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexBuffers}}.
-                        - |offset| is a multiple of 4.
-                        - |offset| + |size| &le; |buffer|.{{GPUBuffer/size}}.
+                        - |slot| must be &lt;
+                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexBuffers}}.
+                        - |offset| must be a multiple of 4.
+                        - |offset| + |size| must be &le; |bufferSize|.
                     </div>
-                1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
-                1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|] to be |buffer|.
-                1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|] to be |size|.
+                1. If |buffer| is `null`:
+                    1. [=map/Remove=] |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|].
+                    1. [=map/Remove=] |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|].
+
+                    Otherwise:
+
+                    1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
+
+                        <div class=validusage>
+                            - |buffer| must be [$valid to use with$] |this|.
+                            - |buffer|.{{GPUBuffer/usage}} must contain {{GPUBufferUsage/VERTEX}}.
+                        </div>
+                    1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
+                    1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|] to be |buffer|.
+                    1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|] to be |size|.
             </div>
         </div>
 
@@ -11657,6 +11689,13 @@ It must only be included by interfaces which also include those mixins.
                 |pipelineDescriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}.length:
                 - If |pipelineDescriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}[|slot|] is not `null`,
                     |encoder|.{{GPURenderCommandsMixin/[[vertex_buffers]]}} must [=map/contain=] |slot|.
+            - Validate {{supported limits/maxBindGroupsPlusVertexBuffers}}:
+                1. Let |bindGroupSpaceUsed| be
+                    (the maximum key in |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}) + 1.
+                1. Let |vertexBufferSpaceUsed| be
+                    (the maximum key in |encoder|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}) + 1.
+                1. |bindGroupSpaceUsed| + |vertexBufferSpaceUsed| must be &le;
+                    |encoder|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroupsPlusVertexBuffers}}.
         </div>
     1. Otherwise return `true`.
 </div>
