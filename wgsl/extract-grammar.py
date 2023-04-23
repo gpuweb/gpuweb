@@ -85,7 +85,8 @@ def remove_files(dir, ext=""):
 def read_lines_from_file(filename, exclusions):
     """
     Returns the text lines from the given file.
-    Processes bikeshed path includes, except for files named the exclusion list.
+    Processes bikeshed path includes, except for files named in the exclusion list,
+    or files with ".syntax.bs.include" in their name.
     Skips empty lines.
     """
     file = open(filename, "r")
@@ -293,6 +294,8 @@ class scanner_token(Scanner):
         result = "* <dfn for=syntax_sym lt='" in line
         key = None
         if result:
+            # From a line like:  "* <dfn for=syntax_sym lt='and' noexport>`'&'`..."
+            # set key to "'&'"
             key = line.split(" noexport>`")[1].split("`")[0]
         return (result, key, 0)
 
@@ -322,6 +325,8 @@ class scanner_token(Scanner):
         result = "* <dfn for=syntax_sym lt='" in line
         value = None
         if result:
+            # From a line like:  "* <dfn for=syntax_sym lt='and' noexport>`'&'`..."
+            # set key to "and"
             value = line.split("* <dfn for=syntax_sym lt='")[1].split("'")[0]
         return (None, value, 0)
 
@@ -415,7 +420,7 @@ def reproduce_bnfdialect_source(syntax_dict):
                     + " ) *"
                 )
         else:
-            print(production["type"])
+            raise RuntimeError(f"Unknown production type: {production['type']}")
 
     for rule_name in syntax_dict.keys():
         if syntax_dict[rule_name]["type"] in ["symbol", "token", "pattern"]:
@@ -497,11 +502,14 @@ def grammar_from_rule(key, value):
                 + ")" + (")" if len(production["value"]) > 1 else "")
             )
         else:
-            print(production["type"])
+            raise RuntimeError(f"Unknown production type: {production['type']}")
 
     return f"\n        {key}: $ => {reproduce_rule_source(value)}"
 
-def fragment_from_rule(key, value, result):
+def bs_fragment_from_rule(key, value, result):
+    """
+    Returns a valid Bikeshed fragment from a given rule
+    """
 
     def reproduce_rule_source(production, rule_name=""):
         if production["type"] in ["symbol", "token", "pattern"]:
@@ -586,7 +594,7 @@ def fragment_from_rule(key, value, result):
                     + " ) *"
                 )
         else:
-            print(production["type"])
+            raise RuntimeError(f"Unknown production type: {production['type']}")
 
     if value["type"] in ["symbol", "token", "pattern"]:
         subsource = ""
@@ -635,8 +643,9 @@ class ScanResult(dict):
          The name is taken from the "heading" attriute of the <div> element.
     """
     def __init__(self):
-        for subscanner in Scanner.__subclasses__():
-            self[subscanner.name()] = dict()
+        self[scanner_rule.name()] = dict()
+        self[scanner_example.name()] = dict()
+        self[scanner_token.name()] = dict()
         self['raw'] = []
 
 
@@ -781,88 +790,89 @@ def read_spec(options):
         comment = comment.rstrip() # Right blankspace is insignificant
         if len(line) == 0:
             continue
-        elif current_rule is None:
+        if current_rule is None:
             if line.endswith(":"):
                 current_rule = line[:-1].strip()
                 syntax_dict[current_rule] = {
                     "type": "sequence",
                     "value": []
                 }
-        else:
-            if line.startswith(";"):
-                current_rule = None
-            else:
-                if line.startswith("|"):
-                    syntax_dict[current_rule]["type"] = "choice"
-                    line = line[1:].strip()
-                tokens = [i for i in line.split(" ") if len(i) > 0] # Strip blankspace
-                def build_production(token_j):
-                    """
-                    Takes token index and returns token steps and a (sub)production
-                    """
-                    if tokens[token_j].startswith("/"):
-                        return (1, {
-                            "type": "pattern",
-                            "value": tokens[token_j]
-                        })
-                    if tokens[token_j].startswith("'"):
-                        return (1, {
-                            "type": "token",
-                            "value": tokens[token_j]
-                        })
-                    if tokens[token_j].startswith("?"):
-                        value = build_production(token_j - 1)
-                        return (1 + value[0], {
-                            "type": "match_0_1",
-                            "value": [value[1]]
-                        })
-                    if tokens[token_j].startswith("+"):
-                        value = build_production(token_j - 1)
-                        return (1 + value[0], {
-                            "type": "match_1_n",
-                            "value": [value[1]]
-                        })
-                    if tokens[token_j].startswith("*"):
-                        value = build_production(token_j - 1)
-                        return (1 + value[0], {
-                            "type": "match_0_n",
-                            "value": [value[1]]
-                        })
-                    if tokens[token_j].startswith("|"):
-                        return (1, {
-                            "type": "__MAKE_CHOICE",
-                            "value": ""
-                        })
-                    if tokens[token_j].startswith(")"):
-                        offset = 1
-                        production = {
-                            "type": "sequence",
-                            "value": []
-                        }
-                        while tokens[token_j - offset] != "(":
-                            value = build_production(token_j - offset)
-                            if value[1]["type"].startswith("__MAKE_CHOICE"):
-                                production["type"] = "choice"
-                            else:
-                                production["value"].insert(0, value[1])
-                            offset += value[0]
-                        offset += 1
-                        return (offset, production)
-                    else:
-                        return (1, {
-                            "type": "symbol",
-                            "value": tokens[token_j]
-                        })
+            continue
+        if line.startswith(";"):
+            current_rule = None
+            continue
+        if line.startswith("|"):
+            syntax_dict[current_rule]["type"] = "choice"
+            line = line[1:].strip()
+        tokens = [i for i in line.split(" ") if len(i) > 0] # Strip blankspace
+        def build_production(token_j):
+            """
+            Takes token index and returns token steps and a (sub)production
+            """
+            token = tokens[token_j]
+            if token.startswith("/"):
+                return (1, {
+                    "type": "pattern",
+                    "value": token
+                })
+            if token.startswith("'"):
+                return (1, {
+                    "type": "token",
+                    "value": token
+                })
+            if token == "?":
+                value = build_production(token_j - 1)
+                return (1 + value[0], {
+                    "type": "match_0_1",
+                    "value": [value[1]]
+                })
+            if token == "+":
+                value = build_production(token_j - 1)
+                return (1 + value[0], {
+                    "type": "match_1_n",
+                    "value": [value[1]]
+                })
+            if token == "*":
+                value = build_production(token_j - 1)
+                return (1 + value[0], {
+                    "type": "match_0_n",
+                    "value": [value[1]]
+                })
+            if token == "|":
+                return (1, {
+                    "type": "__MAKE_CHOICE",
+                    "value": ""
+                })
+            if token == ")":
+                offset = 1
                 production = {
                     "type": "sequence",
                     "value": []
                 }
-                token_i = len(tokens) - 1
-                while token_i >= 0:
-                    value = build_production(token_i)
-                    production["value"].insert(0, value[1])
-                    token_i -= value[0]
-                syntax_dict[current_rule]["value"].append(production)
+                while tokens[token_j - offset] != "(":
+                    value = build_production(token_j - offset)
+                    if value[1]["type"].startswith("__MAKE_CHOICE"):
+                        production["type"] = "choice"
+                    else:
+                        production["value"].insert(0, value[1])
+                    offset += value[0]
+                offset += 1
+                return (offset, production)
+            else:
+                return (1, {
+                    "type": "symbol",
+                    "value": token
+                })
+        production = {
+            "type": "sequence",
+            "value": []
+        }
+        token_i = len(tokens) - 1
+        while token_i >= 0:
+            value = build_production(token_i)
+            production["value"].insert(0, value[1])
+            token_i -= value[0]
+        syntax_dict[current_rule]["value"].append(production)
 
     def reproduce_rule(production):
         if production["type"] in ["sequence", "choice", ""]:
@@ -928,7 +938,7 @@ def extract_rules_to_bs(options, scan_result):
     remove_files(options.syntax_dir, "*.syntax.bs.include")
 
     for rule_name in scan_result[scanner_rule.name()].keys():
-        syntax_bs = fragment_from_rule(rule_name, scan_result[scanner_rule.name()][rule_name], scan_result)
+        syntax_bs = bs_fragment_from_rule(rule_name, scan_result[scanner_rule.name()][rule_name], scan_result)
         with open(
             os.path.join(options.syntax_dir, rule_name + ".syntax.bs.include"), "w"
         ) as syntax_file:
