@@ -1434,6 +1434,8 @@ the device **should** be lost to prevent these changes from being observable.
         </div>
     1. Complete any outstanding {{GPUBuffer/mapAsync()}} steps.
     1. Complete any outstanding {{GPUQueue/onSubmittedWorkDone()}} steps.
+
+    Note: No errors are generated after device loss. See [[#errors-and-debugging]].
 </div>
 
 [=Devices=] are exposed via {{GPUDevice}}.
@@ -1563,14 +1565,24 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         allowed in {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
         when creating a {{GPUPipelineLayout}}.
 
-    <tr><td><dfn>maxBindingsPerBindGroup</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>640
+    <tr><td><dfn>maxBindGroupsPlusVertexBuffers</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>24
     <tr class=row-continuation><td colspan=4>
-        The maximum allowed number of {{GPUBindGroupLayoutEntry}}.{{GPUBindGroupLayoutEntry/binding}}
-        values when creating a {{GPUBindGroupLayout}}.
+        The maximum number of bind group and vertex buffer slots used simultaneously,
+        counting any empty slots below the highest index.
+        Validated in {{GPUDevice/createRenderPipeline()}} and [$valid to draw|in draw calls$].
 
-        Note: 640 "ought to be enough for anybody" who is using the default
-        [=exceeds the binding slot limits|binding slot limits=].
+    <tr><td><dfn>maxBindingsPerBindGroup</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>1000
+    <tr class=row-continuation><td colspan=4>
+        The number of binding indices available when creating a {{GPUBindGroupLayout}}.
+
+        Note: This limit is normative, but arbitrary.
+        With the default [=exceeds the binding slot limits|binding slot limits=], it is impossible
+        to use 1000 bindings in one bind group, but this allows
+        {{GPUBindGroupLayoutEntry}}.{{GPUBindGroupLayoutEntry/binding}} values up to 999.
+        This limit allows implementations to treat binding space as an array,
+        within reasonable memory space, rather than a sparse map structure.
 
     <tr><td><dfn>maxDynamicUniformBuffersPerPipelineLayout</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
@@ -1625,14 +1637,6 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
         which are uniform buffers.
         See [=Exceeds the binding slot limits=].
-
-    <tr><td><dfn>maxFragmentCombinedOutputResources</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
-    <tr class=row-continuation><td colspan=4>
-        The maximum total number of
-        {{GPUShaderStage/FRAGMENT}}-stage storage buffers,
-        {{GPUShaderStage/FRAGMENT}}-stage storage textures,
-        and color attachments in a {{GPURenderPipelineDescriptor}}.
 
     <tr><td><dfn>maxUniformBufferBindingSize</dfn>
         <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>65536 bytes
@@ -1775,6 +1779,7 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxTextureDimension3D;
     readonly attribute unsigned long maxTextureArrayLayers;
     readonly attribute unsigned long maxBindGroups;
+    readonly attribute unsigned long maxBindGroupsPlusVertexBuffers;
     readonly attribute unsigned long maxBindingsPerBindGroup;
     readonly attribute unsigned long maxDynamicUniformBuffersPerPipelineLayout;
     readonly attribute unsigned long maxDynamicStorageBuffersPerPipelineLayout;
@@ -1783,7 +1788,6 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxStorageBuffersPerShaderStage;
     readonly attribute unsigned long maxStorageTexturesPerShaderStage;
     readonly attribute unsigned long maxUniformBuffersPerShaderStage;
-    readonly attribute unsigned long maxFragmentCombinedOutputResources;
     readonly attribute unsigned long long maxUniformBufferBindingSize;
     readonly attribute unsigned long long maxStorageBufferBindingSize;
     readonly attribute unsigned long minUniformBufferOffsetAlignment;
@@ -2382,7 +2386,8 @@ Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}} must provide the followi
     implementations should raise it to conform to this requirement, rather than lowering the
     other limits.
 
-- {{supported limits/maxColorAttachments}} must be &le; {{supported limits/maxFragmentCombinedOutputResources}}.
+- {{supported limits/maxBindGroups}} must be &le; {{supported limits/maxBindGroupsPlusVertexBuffers}}.
+- {{supported limits/maxVertexBuffers}} must be &le; {{supported limits/maxBindGroupsPlusVertexBuffers}}.
 - {{supported limits/minUniformBufferOffsetAlignment}} and
     {{supported limits/minStorageBufferOffsetAlignment}} must both be &ge; 32 bytes.
 
@@ -2711,7 +2716,8 @@ interface GPUAdapter {
 {{GPUDeviceDescriptor}} describes a device request.
 
 <script type=idl>
-dictionary GPUDeviceDescriptor : GPUObjectDescriptorBase {
+dictionary GPUDeviceDescriptor
+         : GPUObjectDescriptorBase {
     sequence<GPUFeatureName> requiredFeatures = [];
     record<DOMString, GPUSize64> requiredLimits = {};
     GPUQueueDescriptor defaultQueue = {};
@@ -3182,12 +3188,14 @@ extends [=internal object=] with the following [=device timeline slots=]:
     </figure>
 </div>
 
-## Buffer Creation ## {#buffer-creation}
-
-### {{GPUBufferDescriptor}} ### {#GPUBufferDescriptor}
+<h4 id=gpubufferdescriptor data-dfn-type=dictionary>`GPUBufferDescriptor`
+<span id=GPUBufferDescriptor></span>
+<span id=dictdef-gpubufferdescriptor></span>
+</h4>
 
 <script type=idl>
-dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
+dictionary GPUBufferDescriptor
+         : GPUObjectDescriptorBase {
     required GPUSize64 size;
     required GPUBufferUsageFlags usage;
     boolean mappedAtCreation = false;
@@ -3217,20 +3225,7 @@ dictionary GPUBufferDescriptor : GPUObjectDescriptorBase {
         mapped range can be written/read to until it is unmapped.
 </dl>
 
-<div algorithm data-timeline=device>
-    <dfn abstract-op>validating GPUBufferDescriptor</dfn>(|device|, |descriptor|)
-
-    1. If |device| is lost return `false`.
-    1. If any of the bits of |descriptor|'s {{GPUBufferDescriptor/usage}} aren't present in
-        |device|'s [=allowed buffer usages=], return `false`.
-    1. If both the {{GPUBufferUsage/MAP_READ}} and {{GPUBufferUsage/MAP_WRITE}} bits of
-        |descriptor|'s {{GPUBufferDescriptor/usage}} attribute are set, return `false`.
-    1. If |descriptor|.{{GPUBufferDescriptor/size}} is greater than
-        |device|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBufferSize}}, return `false`.
-    1. Return `true`.
-</div>
-
-### Buffer Usage ### {#buffer-usage}
+### Buffer Usages ### {#buffer-usage}
 
 <script type=idl>
 typedef [EnforceRange] unsigned long GPUBufferUsageFlags;
@@ -3315,6 +3310,8 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
         a {{GPUCommandEncoder/resolveQuerySet()}} call.)
 </dl>
 
+### Buffer Creation ### {#buffer-creation}
+
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createBuffer(descriptor)</dfn>
     ::
@@ -3347,22 +3344,24 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
             <div data-timeline=device>
                 [=Device timeline=] |initialization steps|:
 
-                1. If any of the following conditions are unsatisfied
+                1. If any of the following requirements are unmet,
                     [$generate a validation error$], make |bi| [=invalid=], and stop.
 
                     <div class=validusage>
-                        - |this| is [=valid=].
-                        - [$validating GPUBufferDescriptor$](|this|, |descriptor|) returns true.
+                        - |device| must be [=valid=].
                         - |descriptor|.{{GPUBufferDescriptor/usage}} must not be 0.
-                        - |descriptor|.{{GPUBufferDescriptor/usage}} is a subset of |this|'s [=allowed buffer usages=].
+                        - |descriptor|.{{GPUBufferDescriptor/usage}} must be a subset of |device|'s
+                            [=allowed buffer usages=].
                         - If |descriptor|.{{GPUBufferDescriptor/usage}} contains {{GPUBufferUsage/MAP_READ}}:
-                            - |descriptor|.{{GPUBufferDescriptor/usage}} contains no other flags
+                            - |descriptor|.{{GPUBufferDescriptor/usage}} must contain no other flags
                                 except {{GPUBufferUsage/COPY_DST}}.
                         - If |descriptor|.{{GPUBufferDescriptor/usage}} contains {{GPUBufferUsage/MAP_WRITE}}:
-                            - |descriptor|.{{GPUBufferDescriptor/usage}} contains no other flags
+                            - |descriptor|.{{GPUBufferDescriptor/usage}} must contain no other flags
                                 except {{GPUBufferUsage/COPY_SRC}}.
+                        - If |descriptor|.{{GPUBufferDescriptor/size}} must be &le;
+                            |device|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBufferSize}}.
                         - If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
-                            - |descriptor|.{{GPUBufferDescriptor/size}} is a multiple of 4.
+                            - |descriptor|.{{GPUBufferDescriptor/size}} must be a multiple of 4.
                     </div>
 
                 Note: If buffer creation fails, and |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `false`,
@@ -3396,7 +3395,7 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
     </pre>
 </div>
 
-## Buffer Destruction ## {#buffer-destruction}
+### Buffer Destruction ### {#buffer-destruction}
 
 An application that no longer requires a {{GPUBuffer}} can choose to lose
 access to it before garbage collection by calling {{GPUBuffer/destroy()}}. Destroying a buffer also
@@ -3977,12 +3976,14 @@ to form complete [=texel blocks=] in the [=texture=]. It is calculated by this p
     1. Return |extent|.
 </div>
 
-### Texture Creation ### {#texture-creation}
-
-{{GPUTexture}}s are created via {{GPUDevice/createTexture()}}.
+<h4 id=gputexturedescriptor data-dfn-type=dictionary>`GPUTextureDescriptor`
+<span id=GPUTextureDescriptor></span>
+<span id=dictdef-gputexturedescriptor></span>
+</h4>
 
 <script type=idl>
-dictionary GPUTextureDescriptor : GPUObjectDescriptorBase {
+dictionary GPUTextureDescriptor
+         : GPUObjectDescriptorBase {
     required GPUExtent3D size;
     GPUIntegerCoordinate mipLevelCount = 1;
     GPUSize32 sampleCount = 1;
@@ -4077,6 +4078,8 @@ enum GPUTextureDimension {
         Specifies a texture that has a width, height, and depth.
 </dl>
 
+### Texture Usages ### {#texture-usage}
+
 <script type=idl>
 typedef [EnforceRange] unsigned long GPUTextureUsageFlags;
 [Exposed=(Window, DedicatedWorker), SecureContext]
@@ -4145,6 +4148,8 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
             </dl>
     1. Return floor(log<sub>2</sub>(|m|)) + 1.
 </div>
+
+### Texture Creation ### {#texture-creation}
 
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createTexture(descriptor)</dfn>
@@ -4361,7 +4366,8 @@ GPUTextureView includes GPUObjectBase;
 ### Texture View Creation ### {#texture-view-creation}
 
 <script type=idl>
-dictionary GPUTextureViewDescriptor : GPUObjectDescriptorBase {
+dictionary GPUTextureViewDescriptor
+         : GPUObjectDescriptorBase {
     GPUTextureFormat format;
     GPUTextureViewDimension dimension;
     GPUTextureAspect aspect = "all";
@@ -5022,7 +5028,8 @@ If the same object is returned again, it will compare equal, and {{GPUBindGroup}
 {{GPURenderBundle}}s, etc. referencing the previous object can still be used.
 
 <script type=idl>
-dictionary GPUExternalTextureDescriptor : GPUObjectDescriptorBase {
+dictionary GPUExternalTextureDescriptor
+         : GPUObjectDescriptorBase {
     required HTMLVideoElement source;
     PredefinedColorSpace colorSpace = "srgb";
 };
@@ -5206,14 +5213,13 @@ GPUSampler includes GPUObjectBase;
         Whether the {{GPUSampler}} weights multiple samples of a texture.
 </dl>
 
-## Sampler Creation ## {#sampler-creation}
-
 ### {{GPUSamplerDescriptor}} ### {#GPUSamplerDescriptor}
 
 A {{GPUSamplerDescriptor}} specifies the options to use to create a {{GPUSampler}}.
 
 <script type=idl>
-dictionary GPUSamplerDescriptor : GPUObjectDescriptorBase {
+dictionary GPUSamplerDescriptor
+         : GPUObjectDescriptorBase {
     GPUAddressMode addressModeU = "clamp-to-edge";
     GPUAddressMode addressModeV = "clamp-to-edge";
     GPUAddressMode addressModeW = "clamp-to-edge";
@@ -5381,6 +5387,8 @@ enum GPUCompareFunction {
         Comparison tests always pass.
 </dl>
 
+### Sampler Creation ### {#sampler-creation}
+
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>createSampler(descriptor)</dfn>
     ::
@@ -5479,7 +5487,8 @@ GPUBindGroupLayout includes GPUObjectBase;
 A {{GPUBindGroupLayout}} is created via {{GPUDevice/createBindGroupLayout()|GPUDevice.createBindGroupLayout()}}.
 
 <script type=idl>
-dictionary GPUBindGroupLayoutDescriptor : GPUObjectDescriptorBase {
+dictionary GPUBindGroupLayoutDescriptor
+         : GPUObjectDescriptorBase {
     required sequence<GPUBindGroupLayoutEntry> entries;
 };
 </script>
@@ -5969,7 +5978,8 @@ A {{GPUBindGroup}} object has the following internal slots:
 A {{GPUBindGroup}} is created via {{GPUDevice/createBindGroup()|GPUDevice.createBindGroup()}}.
 
 <script type=idl>
-dictionary GPUBindGroupDescriptor : GPUObjectDescriptorBase {
+dictionary GPUBindGroupDescriptor
+         : GPUObjectDescriptorBase {
     required GPUBindGroupLayout layout;
     required sequence<GPUBindGroupEntry> entries;
 };
@@ -6258,7 +6268,8 @@ Note: the expected usage of the {{GPUPipelineLayout}} is placing the most common
 A {{GPUPipelineLayout}} is created via {{GPUDevice/createPipelineLayout()|GPUDevice.createPipelineLayout()}}.
 
 <script type=idl>
-dictionary GPUPipelineLayoutDescriptor : GPUObjectDescriptorBase {
+dictionary GPUPipelineLayoutDescriptor
+         : GPUObjectDescriptorBase {
     required sequence<GPUBindGroupLayout> bindGroupLayouts;
 };
 </script>
@@ -6388,7 +6399,8 @@ GPUShaderModule includes GPUObjectBase;
 ### Shader Module Creation ### {#shader-module-creation}
 
 <script type=idl>
-dictionary GPUShaderModuleDescriptor : GPUObjectDescriptorBase {
+dictionary GPUShaderModuleDescriptor
+         : GPUObjectDescriptorBase {
     required USVString code;
     object sourceMap;
     record<USVString, GPUShaderModuleCompilationHint> hints;
@@ -6857,7 +6869,8 @@ enum GPUAutoLayoutMode {
     "auto"
 };
 
-dictionary GPUPipelineDescriptorBase : GPUObjectDescriptorBase {
+dictionary GPUPipelineDescriptorBase
+         : GPUObjectDescriptorBase {
     required (GPUPipelineLayout or GPUAutoLayoutMode) layout;
 };
 
@@ -7396,7 +7409,8 @@ A {{GPUComputePipelineDescriptor}} describes a compute [=pipeline=]. See
 [[#computing-operations]] for additional details.
 
 <script type=idl>
-dictionary GPUComputePipelineDescriptor : GPUPipelineDescriptorBase {
+dictionary GPUComputePipelineDescriptor
+         : GPUPipelineDescriptorBase {
     required GPUProgrammableStage compute;
 };
 </script>
@@ -7603,7 +7617,8 @@ A {{GPURenderPipelineDescriptor}} describes a render [=pipeline=] by configuring
 of the [=render stages=]. See [[#rendering-operations]] for additional details.
 
 <script type=idl>
-dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
+dictionary GPURenderPipelineDescriptor
+         : GPUPipelineDescriptorBase {
     required GPUVertexState vertex;
     GPUPrimitiveState primitive = {};
     GPUDepthStencilState depthStencil;
@@ -7681,6 +7696,9 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
                     <div class=validusage>
                         - |layout| is [$valid to use with$] |this|.
                         - [$validating GPURenderPipelineDescriptor$](|descriptor|, |layout|, |this|) succeeds.
+                        - |layout|.{{GPUPipelineLayout/[[bindGroupLayouts]]}}.length + |vertexBufferCount| is &le;
+                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroupsPlusVertexBuffers}},
+                            where |vertexBufferCount| is the maximum index in |descriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}} that is not `undefined`.
                     </div>
                 1. Set |pipeline|.{{GPURenderPipeline/[[descriptor]]}} to |descriptor|.
                 1. Set |pipeline|.{{GPURenderPipeline/[[writesDepth]]}} to false.
@@ -7795,6 +7813,13 @@ dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
     - If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is [=map/exist|provided=]:
         - [$validating GPUDepthStencilState$](|descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}) succeeds.
     - [$validating GPUMultisampleState$](|descriptor|.{{GPURenderPipelineDescriptor/multisample}}) succeeds.
+    - If |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}}
+        is true:
+        1. |descriptor|.{{GPURenderPipelineDescriptor/fragment}} must be [=map/exist|provided=].
+        1. |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}[0]
+            must [=list/exist=] and be non-null.
+        1. |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}[0].{{GPUColorTargetState/format}}
+            must be a {{GPUTextureFormat}} with an alpha channel.
     - There must exist at least one attachment, either:
         - A non-`null` value in
             |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}, or
@@ -8077,7 +8102,8 @@ interacts with a render pass's multisampled attachments.
 ### Fragment State ### {#fragment-state}
 
 <script type=idl>
-dictionary GPUFragmentState : GPUProgrammableStage {
+dictionary GPUFragmentState
+         : GPUProgrammableStage {
     required sequence<GPUColorTargetState?> targets;
 };
 </script>
@@ -8089,8 +8115,6 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 
     - |descriptor|.{{GPUFragmentState/targets}}.length must be &le;
         |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
-    - The [=total number of fragment output resources=] must be &le;
-        |device|.{{device/[[limits]]}}.{{supported limits/maxFragmentCombinedOutputResources}}.
     - [=list/For each=] |index| of the [=list/indices=] of |descriptor|.{{GPUFragmentState/targets}}
         containing a non-`null` value |colorState|:
         - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
@@ -8119,15 +8143,6 @@ dictionary GPUFragmentState : GPUProgrammableStage {
 
             - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
     - [$Validating GPUFragmentState's color attachment bytes per sample$](|device|, |descriptor|.{{GPUFragmentState/targets}}) succeeds.
-</div>
-
-<div algorithm>
-    The <dfn dfn>total number of fragment output resources</dfn> for a
-    {{GPUFragmentState}} |descriptor| is the sum of:
-
-    - the number of non-null elements in |descriptor|.{{GPUFragmentState/targets}}
-    - the number of storage buffers and storage textures (of any access mode)
-        [=statically used=] by |descriptor|
 </div>
 
 <div algorithm>
@@ -8918,7 +8933,8 @@ current vertex or instance index:
 </dl>
 
 <script type=idl>
-dictionary GPUVertexState : GPUProgrammableStage {
+dictionary GPUVertexState
+         : GPUProgrammableStage {
     sequence<GPUVertexBufferLayout?> buffers = [];
 };
 </script>
@@ -9089,7 +9105,8 @@ GPUCommandBuffer includes GPUObjectBase;
 ### Command Buffer Creation ### {#command-buffer-creation}
 
 <script type=idl>
-dictionary GPUCommandBufferDescriptor : GPUObjectDescriptorBase {
+dictionary GPUCommandBufferDescriptor
+         : GPUObjectDescriptorBase {
 };
 </script>
 
@@ -9225,7 +9242,8 @@ GPUCommandEncoder includes GPUDebugCommandsMixin;
 ### Command Encoder Creation ### {#command-encoder-creation}
 
 <script type=idl>
-dictionary GPUCommandEncoderDescriptor : GPUObjectDescriptorBase {
+dictionary GPUCommandEncoderDescriptor
+         : GPUObjectDescriptorBase {
 };
 </script>
 
@@ -9881,10 +9899,10 @@ command encoder can no longer be used.
 
 <script type=idl>
 interface mixin GPUBindingCommandsMixin {
-    undefined setBindGroup(GPUIndex32 index, GPUBindGroup bindGroup,
+    undefined setBindGroup(GPUIndex32 index, GPUBindGroup? bindGroup,
         optional sequence<GPUBufferDynamicOffset> dynamicOffsets = []);
 
-    undefined setBindGroup(GPUIndex32 index, GPUBindGroup bindGroup,
+    undefined setBindGroup(GPUIndex32 index, GPUBindGroup? bindGroup,
         Uint32Array dynamicOffsetsData,
         GPUSize64 dynamicOffsetsDataStart,
         GPUSize32 dynamicOffsetsDataLength);
@@ -9933,7 +9951,7 @@ It must only be included by interfaces which also include those mixins.
                     ::
                         The index to set the bind group at.
 
-                    : <dfn>|bindGroup|</dfn>, of type {{GPUBindGroup}}, non-nullable, required
+                    : <dfn>|bindGroup|</dfn>, of type {{GPUBindGroup}}, nullable, required
                     ::
                         Bind group to use for subsequent render or compute commands.
 
@@ -9960,34 +9978,41 @@ It must only be included by interfaces which also include those mixins.
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
+                1. Let |dynamicOffsetCount| be 0 if `bindGroup` is `null`, or
+                    |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}} if not.
+                1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
 
                     <div class=validusage>
-                        - |bindGroup| is [$valid to use with$] |this|.
-                        - |index| &lt; |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}.
-                        - |dynamicOffsets|.length is
-                            |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[dynamicOffsetCount]]}}.
-
-                        - [$Iterate over each dynamic binding offset$] in |bindGroup| and
-                            run the following steps for each |bufferBinding|, |bufferLayout|,
-                            and |dynamicOffsetIndex|:
-
-                            - Let |bufferDynamicOffset| be |dynamicOffsets|[|dynamicOffsetIndex|].
-                            - |bufferBinding|.{{GPUBufferBinding/offset}} + |bufferDynamicOffset| +
-                                |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} &le;
-                                |bufferBinding|.{{GPUBufferBinding/buffer}}.{{GPUBuffer/size}}.
-                            - if |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"uniform"}}:
-
-                                - |dynamicOffset| is a multiple of {{supported limits/minUniformBufferOffsetAlignment}}.
-
-                            - if |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"storage"}}
-                                or {{GPUBufferBindingType/"read-only-storage"}}:
-
-                                - |dynamicOffset| is a multiple of {{supported limits/minStorageBufferOffsetAlignment}}.
-
+                        - |index| must be &lt;
+                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}.
+                        - |dynamicOffsets|.length must equal |dynamicOffsetCount|.
                     </div>
-                1. Set |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|] to be |bindGroup|.
-                1. Set |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|] to be a copy of |dynamicOffsets|.
+                1. If |bindGroup| is `null`:
+                    1. [=map/Remove=] |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|].
+                    1. [=map/Remove=] |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|].
+
+                    Otherwise:
+
+                    1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
+
+                        <div class=validusage>
+                            - |bindGroup| must be [$valid to use with$] |this|.
+                            - [$Iterate over each dynamic binding offset|For each dynamic binding$]
+                                (|bufferBinding|, |bufferLayout|, |dynamicOffsetIndex|) in |bindGroup|:
+                                - |bufferBinding|.{{GPUBufferBinding/offset}} + |dynamicOffsets|[|dynamicOffsetIndex|] +
+                                    |bufferLayout|.{{GPUBufferBindingLayout/minBindingSize}} must be &le;
+                                    |bufferBinding|.{{GPUBufferBinding/buffer}}.{{GPUBuffer/size}}.
+                                - If |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"uniform"}}:
+
+                                    - |dynamicOffset| must be a multiple of {{supported limits/minUniformBufferOffsetAlignment}}.
+
+                                - If |bufferLayout|.{{GPUBufferBindingLayout/type}} is {{GPUBufferBindingType/"storage"}}
+                                    or {{GPUBufferBindingType/"read-only-storage"}}:
+
+                                    - |dynamicOffset| must be a multiple of {{supported limits/minStorageBufferOffsetAlignment}}.
+                        </div>
+                    1. Set |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|] to be |bindGroup|.
+                    1. Set |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|] to be a copy of |dynamicOffsets|.
             </div>
         </div>
 
@@ -10306,7 +10331,8 @@ dictionary GPUComputePassTimestampWrite {
 
 typedef sequence<GPUComputePassTimestampWrite> GPUComputePassTimestampWrites;
 
-dictionary GPUComputePassDescriptor : GPUObjectDescriptorBase {
+dictionary GPUComputePassDescriptor
+         : GPUObjectDescriptorBase {
     GPUComputePassTimestampWrites timestampWrites = [];
 };
 </script>
@@ -10657,7 +10683,8 @@ dictionary GPURenderPassTimestampWrite {
 
 typedef sequence<GPURenderPassTimestampWrite> GPURenderPassTimestampWrites;
 
-dictionary GPURenderPassDescriptor : GPUObjectDescriptorBase {
+dictionary GPURenderPassDescriptor
+         : GPUObjectDescriptorBase {
     required sequence<GPURenderPassColorAttachment?> colorAttachments;
     GPURenderPassDepthStencilAttachment depthStencilAttachment;
     GPUQuerySet occlusionQuerySet;
@@ -11025,7 +11052,8 @@ enum GPUStoreOp {
 which determines the compatibility of the pass with render pipelines.
 
 <script type=idl>
-dictionary GPURenderPassLayout : GPUObjectDescriptorBase {
+dictionary GPURenderPassLayout
+         : GPUObjectDescriptorBase {
     required sequence<GPUTextureFormat?> colorFormats;
     GPUTextureFormat depthStencilFormat;
     GPUSize32 sampleCount = 1;
@@ -11162,7 +11190,7 @@ interface mixin GPURenderCommandsMixin {
     undefined setPipeline(GPURenderPipeline pipeline);
 
     undefined setIndexBuffer(GPUBuffer buffer, GPUIndexFormat indexFormat, optional GPUSize64 offset = 0, optional GPUSize64 size);
-    undefined setVertexBuffer(GPUIndex32 slot, GPUBuffer buffer, optional GPUSize64 offset = 0, optional GPUSize64 size);
+    undefined setVertexBuffer(GPUIndex32 slot, GPUBuffer? buffer, optional GPUSize64 offset = 0, optional GPUSize64 size);
 
     undefined draw(GPUSize32 vertexCount, optional GPUSize32 instanceCount = 1,
         optional GPUSize32 firstVertex = 0, optional GPUSize32 firstInstance = 0);
@@ -11345,19 +11373,31 @@ It must only be included by interfaces which also include those mixins.
 
             <div class=device-timeline>
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. If |size| is missing, set |size| to max(0, |buffer|.{{GPUBuffer/size}} - |offset|).
-                1. If any of the following conditions are unsatisfied, make |this| [=invalid=] and stop.
+                1. Let |bufferSize| be 0 if |buffer| is `null`, or |buffer|.{{GPUBuffer/size}} if not.
+                1. If |size| is missing, set |size| to max(0, |bufferSize| - |offset|).
+                1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
 
                     <div class=validusage>
-                        - |buffer| is [$valid to use with$] |this|.
-                        - |buffer|.{{GPUBuffer/usage}} contains {{GPUBufferUsage/VERTEX}}.
-                        - |slot| &lt; |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexBuffers}}.
-                        - |offset| is a multiple of 4.
-                        - |offset| + |size| &le; |buffer|.{{GPUBuffer/size}}.
+                        - |slot| must be &lt;
+                            |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexBuffers}}.
+                        - |offset| must be a multiple of 4.
+                        - |offset| + |size| must be &le; |bufferSize|.
                     </div>
-                1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
-                1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|] to be |buffer|.
-                1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|] to be |size|.
+                1. If |buffer| is `null`:
+                    1. [=map/Remove=] |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|].
+                    1. [=map/Remove=] |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|].
+
+                    Otherwise:
+
+                    1. If any of the following requirements are unmet, make |this| [=invalid=] and stop.
+
+                        <div class=validusage>
+                            - |buffer| must be [$valid to use with$] |this|.
+                            - |buffer|.{{GPUBuffer/usage}} must contain {{GPUBufferUsage/VERTEX}}.
+                        </div>
+                    1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
+                    1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|] to be |buffer|.
+                    1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|] to be |size|.
             </div>
         </div>
 
@@ -11646,6 +11686,13 @@ It must only be included by interfaces which also include those mixins.
                 |pipelineDescriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}.length:
                 - If |pipelineDescriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}[|slot|] is not `null`,
                     |encoder|.{{GPURenderCommandsMixin/[[vertex_buffers]]}} must [=map/contain=] |slot|.
+            - Validate {{supported limits/maxBindGroupsPlusVertexBuffers}}:
+                1. Let |bindGroupSpaceUsed| be
+                    (the maximum key in |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}) + 1.
+                1. Let |vertexBufferSpaceUsed| be
+                    (the maximum key in |encoder|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}) + 1.
+                1. |bindGroupSpaceUsed| + |vertexBufferSpaceUsed| must be &le;
+                    |encoder|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroupsPlusVertexBuffers}}.
         </div>
     1. Otherwise return `true`.
 </div>
@@ -12053,7 +12100,8 @@ GPURenderBundle includes GPUObjectBase;
 ### Render Bundle Creation ### {#render-bundle-creation}
 
 <script type=idl>
-dictionary GPURenderBundleDescriptor : GPUObjectDescriptorBase {
+dictionary GPURenderBundleDescriptor
+         : GPUObjectDescriptorBase {
 };
 </script>
 
@@ -12136,7 +12184,8 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
 ### Encoding ### {#render-bundle-encoding}
 
 <script type=idl>
-dictionary GPURenderBundleEncoderDescriptor : GPURenderPassLayout {
+dictionary GPURenderBundleEncoderDescriptor
+         : GPURenderPassLayout {
     boolean depthReadOnly = false;
     boolean stencilReadOnly = false;
 };
@@ -12200,7 +12249,8 @@ dictionary GPURenderBundleEncoderDescriptor : GPURenderPassLayout {
 {{GPUQueueDescriptor}} describes a queue request.
 
 <script type=idl>
-dictionary GPUQueueDescriptor : GPUObjectDescriptorBase {
+dictionary GPUQueueDescriptor
+         : GPUObjectDescriptorBase {
 };
 </script>
 
@@ -12612,7 +12662,8 @@ which is one of the following:
 A {{GPUQuerySetDescriptor}} specifies the options to use in creating a {{GPUQuerySet}}.
 
 <script type=idl>
-dictionary GPUQuerySetDescriptor : GPUObjectDescriptorBase {
+dictionary GPUQuerySetDescriptor
+         : GPUObjectDescriptorBase {
     required GPUQueryType type;
     required GPUSize32 count;
 };
@@ -13337,6 +13388,16 @@ is being composited into (e.g. an HTML page rendering, or a 2D canvas).
 
 # Errors &amp; Debugging # {#errors-and-debugging}
 
+During the normal course of operation of WebGPU, errors are raised via [$dispatch error$].
+
+After a device is [=lose the device|lost=] (described below), errors are no longer surfaced.
+At this point, implementations do not need to run validation or error tracking:
+{{GPUDevice/popErrorScope()}} and {{GPUDevice/uncapturederror}} stop reporting errors,
+and the validity of objects on the device becomes unobservable.
+
+Additionally, no errors are generated by the device loss itself.
+Instead, the {{GPUDevice}}.{{GPUDevice/lost}} promise resolves to indicate the device is lost.
+
 ## Fatal Errors ## {#fatal-errors}
 
 <script type=idl>
@@ -13384,6 +13445,8 @@ and the {{GPUDevice/uncapturederror}} event.
 Errors must only be generated for operations that explicitly state the conditions one may
 be generated under in their respective algorithms, and the subtype of error that is generated.
 
+No errors are generated after device loss. See [[#errors-and-debugging]].
+
 Note: {{GPUError}} may gain new subtypes in future versions of this spec. Applications should handle
 this possibility, using only the error's {{GPUError/message}} when possible, and specializing using
 `instanceof`. Use `error.constructor.name` when it's necessary to serialize an error (e.g. into
@@ -13415,7 +13478,8 @@ JSON, for a debug report).
 
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
-interface GPUValidationError : GPUError {
+interface GPUValidationError
+        : GPUError {
     constructor(DOMString message);
 };
 </script>
@@ -13439,7 +13503,8 @@ error, and is expected to fail the same way across all devices assuming the same
 
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
-interface GPUOutOfMemoryError : GPUError {
+interface GPUOutOfMemoryError
+        : GPUError {
     constructor(DOMString message);
 };
 </script>
@@ -13463,7 +13528,8 @@ resources is released first.
 
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
-interface GPUInternalError : GPUError {
+interface GPUInternalError
+        : GPUError {
     constructor(DOMString message);
 };
 </script>
@@ -13575,6 +13641,9 @@ partial interface GPUDevice {
     <div data-timeline=device>
         [=Device timeline=] steps:
 
+        1. If |device| is [=invalid|lost=], return.
+
+            Note: No errors are generated after device loss. See [[#errors-and-debugging]].
         1. Let |scope| be the [$current error scope$] for |error| and |device|.
         1. If |scope| is not `undefined`:
             1. [=list/Append=] |error| to |scope|.{{GPU error scope/[[errors]]}}.
@@ -13655,10 +13724,20 @@ partial interface GPUDevice {
             <div data-timeline=device>
                 [=Device timeline=] |check steps|:
 
+                1. If |this| is [=invalid|lost=], issue the following steps on
+                    <var data-timeline=content>contentTimeline</var> and return:
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Resolve=] |promise| with `null`.
+                    </div>
+
+                    Note: No errors are generated after device loss. See [[#errors-and-debugging]].
+
                 1. If any of the following requirements are unmet:
 
                     <div class=validusage>
-                        - |this| must be [=valid=].
                         - |this|.{{GPUDevice/[[errorScopeStack]]}}.[=list/size=] must be &gt; 0.
                     </div>
 
@@ -14194,14 +14273,28 @@ to the 2-dimensional rendering area of the <dfn dfn>framebuffer</dfn> -
 the set of render attachments in the current {{GPURenderPassEncoder}}.
 This rendering area is split into an even grid of pixels.
 
-Rasterization determines the set of pixels affected by a primitive. In case of multi-sampling,
-each pixel is further split into |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}
-samples. The locations of samples are the same for each pixel, but not defined in this spec.
-
-Issue: do we want to force-enable the "Standard sample locations" in Vulkan?
-
 The [=framebuffer=] coordinates start from the top-left corner of the render targets.
 Each unit corresponds exactly to a pixel. See [[#coordinate-systems]] for more information.
+
+Rasterization determines the set of pixels affected by a primitive. In case of multi-sampling,
+each pixel is further split into
+|descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}} samples.
+The <dfn dfn noexport>standard sample patterns</dfn> are as follows,
+with positions in framebuffer coordinates relative to the top-left corner of the pixel,
+such that the pixel ranges from (0, 0) to (1, 1):
+
+<table class=data>
+    <thead>
+        <tr><th>{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}<th>Sample positions
+    <tbody>
+        <tr><td>1<td>
+            Sample 0: (0.5, 0.5)
+        <tr><td>4<td>
+            Sample 0: (0.375, 0.125)<br>
+            Sample 1: (0.875, 0.375)<br>
+            Sample 2: (0.125, 0.625)<br>
+            Sample 3: (0.625, 0.875)
+</table>
 
 Let's define a <dfn dfn>FragmentDestination</dfn> to contain:
 <dl dfn-for=FragmentDestination>
@@ -14226,7 +14319,8 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
     : <dfn dfn>perspectiveDivisor</dfn>
     :: refers to interpolated 1.0 &divide; W across the primitive
     : <dfn dfn>depth</dfn>
-    :: refers to the depth in [=NDC=]
+    :: refers to the depth in viewport coordinates,
+        i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
     : <dfn dfn>primitiveVertices</dfn>
     :: refers to the list of vertex outputs forming the primitive
     : <dfn dfn>barycentricCoordinates</dfn>
@@ -14256,17 +14350,19 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
         ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
 
     1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
-        Then the [=NDC=] coordinates |n| are converted into [=framebuffer=] coordinates,
-        based on the size of the render targets:
+        Map the [=NDC=] coordinates |n| into viewport space:
+        * Compute [=framebuffer=] coordinates from the render target offset and size:
 
-        framebufferCoords(|n|) = vector(|vp|.`x` &plus; 0.5 &times; (|n|.x &plus; 1) &times; |vp|.`width`, |vp|.`y` &plus; .5 &times; (|n|.y &plus; 1) &times; |vp|.`height`)
+            framebufferCoords(|n|) = vector(|vp|.`x` &plus; 0.5 &times; (|n|.x &plus; 1) &times; |vp|.`width`, |vp|.`y` &plus; .5 &times; (|n|.y &plus; 1) &times; |vp|.`height`)
 
-        <p class="note editorial">Editorial: specify the depth translation into viewport as well
+        * Compute depth by linearly mapping [0,1] to the viewport depth range:
+
+            depth(|n|) = |vp|.`minDepth` &plus; |n|.`z` &times; ( |vp|.`maxDepth` - |vp|.`minDepth` )
 
     1. Let |rasterizationPoints| be an empty list.
 
-        <p class="note editorial">Editorial: specify that each rasterization point gets assigned an interpolated `divisor(p)`
-        and `framebufferCoords(n)`, as well as the other attributes.
+        <p class="note editorial">Editorial: specify that each rasterization point gets assigned an interpolated `divisor(p)`,
+        `framebufferCoords(n)`, `depth(n)`, as well as the other attributes.
 
     1. Proceed with a specific rasterization algorithm,
         depending on {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}}:
@@ -14426,7 +14522,8 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
 <div algorithm="Fragment accessors" dfn-for=Fragment>
     - <dfn dfn>destination</dfn> refers to [=FragmentDestination=].
     - <dfn dfn>coverageMask</dfn> refers to multisample coverage mask (see [[#sample-masking]]).
-    - <dfn dfn>depth</dfn> refers to the depth in [=NDC=] coordinates.
+    - <dfn dfn>depth</dfn> refers to the depth in viewport coordinates,
+        i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
     - <dfn dfn>colors</dfn> refers to the list of color values,
         one for each target in {{GPURenderPassDescriptor/colorAttachments}}.
 </div>

@@ -261,6 +261,13 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         text: front-facing; url: front-facing
         text: shader-output mask; url: shader-output-mask
         text: framebuffer; url: framebuffer
+        text: normalized device coordinates; url: ndc
+        text: clip position; url: clip-position
+        text: viewport; url: dom-renderstate-viewport-slot
+        text: rasterizationpoint-destination; url: rasterizationpoint-destination
+        text: rasterizationpoint-depth; url: rasterizationpoint-depth
+        text: rasterizationpoint-perspectivedivisor; url: rasterizationpoint-perspectivedivisor
+        text: fragmentdestination-position; url: fragmentdestination-position
         for: supported limits
             text: maxComputeWorkgroupStorageSize; url: dom-supported-limits-maxcomputeworkgroupstoragesize
     type: attribute
@@ -2746,6 +2753,9 @@ The element count expression |N| of a fixed-size array is subject to the followi
 
 Note:  The element count value is fully determined at [=pipeline creation=] time.
 
+Note:  To qualify for type-equivalency, any override expression that is not a const expression must be an **identifier**.
+See <a href="#example-workgroup-variables-sized-by-override">Workgroup variables sized by overridable constants</a>
+
 The number of elements in a runtime-sized array
 is determined by the size of buffer binding associated with the corresponding [=storage buffer=] variable.
 See [[#buffer-binding-determines-runtime-sized-array-element-count]].
@@ -2797,7 +2807,9 @@ as a [=memory view=] in the [=address spaces/workgroup=] address space.
 This includes the [=store type=] of a workgroup variable.
 See [[#var-and-value]].
 
-<div class='example wgsl global-scope' heading="Workgroup variables sized by overridable constants">
+<div class='example wgsl global-scope'
+   heading="Workgroup variables sized by overridable constants"
+   id="example-workgroup-variables-sized-by-override">
   <xmp highlight='rust'>
     override blockSize = 16;
 
@@ -10799,7 +10811,7 @@ and that entire range is covered.</p>
 A compute shader begins execution when a WebGPU implementation
 removes a dispatch command from a queue and begins the specified work on the GPU.
 The dispatch command specifies a <dfn noexport>dispatch size</dfn>,
-which is an integer triple *(group_count_x, group_count_y, group_count_z)*
+which is an integer triple (<dfn>group_count_x</dfn>, <dfn>group_count_y</dfn>, <dfn>group_count_z</dfn>)
 indicating the number of workgroups to be executed, as described in the following.
 
 The <dfn noexport>compute shader grid</dfn> for a particular dispatch
@@ -10819,18 +10831,21 @@ invocation of the entry point for each point in the compute shader grid.
 An invocation's <dfn noexport>global invocation ID</dfn> is the coordinate
 triple for the invocation's corresponding compute shader grid point.
 
-The invocations are organized into workgroups, so that each invocation
-*(CSi, CSj, CSk)* is identified with the workgroup grid point
-
-   ( *CSi* mod workgroup_size_x ,
-     *CSj* mod workgroup_size_y ,
-     *CSk* mod workgroup_size_z )
-
-in <dfn noexport>workgroup ID</dfn>
+The invocations are organized into workgroups, so that each invocation's
+[=global invocation ID=] *(CSi, CSj, CSk)* maps to
+a single workgroup, identified by <dfn noexport>workgroup ID</dfn>:
 
    ( &lfloor; *CSi* &div; workgroup_size_x &rfloor;,
      &lfloor; *CSj* &div; workgroup_size_y &rfloor;,
-     &lfloor; *CSk* &div; workgroup_size_z &rfloor;).
+     &lfloor; *CSk* &div; workgroup_size_z &rfloor;)
+
+and a single invocation within that workgroup, identified by [=local invocation ID=]:
+
+   ( *CSi* mod workgroup_size_x ,
+     *CSj* mod workgroup_size_y ,
+     *CSk* mod workgroup_size_z ).
+
+Note: Workgroup IDs span from (0,0,0) to ([=group_count_x=] - 1, [=group_count_y=] - 1, [=group_count_z=] - 1).
 
 WebGPU provides no guarantees about:
 
@@ -11423,19 +11438,55 @@ See [[#builtin-inputs-outputs]] for how to specify that a pipeline input or outp
       <td>vertex
       <td>output
       <td>vec4&lt;f32&gt;
-      <td style="width:50%">Output position of the current vertex, using homogeneous coordinates.
-      After homogeneous normalization (where each of the *x*, *y*, and *z* components
-      are divided by the *w* component), the position is in the WebGPU normalized device
-      coordinate space.
-      See [[WebGPU#coordinate-systems]].
+      <td style="width:50%">The [=clip position=] of the current vertex.
+
+      An output value (*x*,*y*,*z*,*w*)
+      [=behavioral requirement|will=] map to (*x*/*w*, *y*/*w*, *z*/*w*) in
+      WebGPU [=normalized device coordinates=].
+
+      See [[WebGPU#coordinate-systems]] and [[WebGPU#primitive-clipping]].
 
   <tr>
       <td>fragment
       <td>input
       <td>vec4&lt;f32&gt;
-      <td style="width:50%">Framebuffer position of the current fragment in [=framebuffer=] space.
-      (The *x*, *y*, and *z* components have already been scaled such that *w* is now 1.)
-      See [[WebGPU#coordinate-systems]].
+      <td style="width:50%">
+      <div algorithm="fragment position calculation">
+      Input position of the current fragment.
+
+      Let |fp| be the input position of the fragment.<br>
+      Let |rp| be the [=RasterizationPoint=] for the fragment.<br>
+      Let |vp| be the {{RenderState/[[viewport]]}} in effect for the draw command.
+
+      Then schematically:
+      <blockquote>
+      |fp|.xy = |rp|.[=rasterizationpoint-destination|destination=].[=fragmentdestination-position|position=]<br>
+      |fp|.z = |rp|.[=rasterizationpoint-depth|depth=]<br>
+      |fp|.w = |rp|.[=rasterizationpoint-perspectivedivisor|perspectiveDivisor=]
+      </blockquote>
+
+      In more detail:
+      *  |fp|.x and |fp|.y are the interpolated x and y coordinates of the
+          position the current fragment in
+          the [=framebuffer=].
+
+          The framebuffer is a two-dimensional grid of pixels with the top-left at (0.0,0.0)
+          and the bottom right at (|vp|.width, |vp|.height).
+          Each pixel has an extent of 1.0 unit in each of the x and y dimensions,
+          and pixel centers are at (0.5,0.5) offset from integer coordinates.
+
+      * |fp|.z is the interpolated depth of the current fragment.
+          For example:
+          * depth 0 in [=normalized device coordinates=] maps to |fp|.z = |vp|.minDepth,
+          * depth 1 in normalized device coordinates maps to |fp|.z = |vp|.maxDepth.
+
+      * |fp|.w is the perspective divisor for the fragment,
+          which is the interpolation of 1.0 &divide; |vertex_w|,
+          where |vertex_w| is the w component
+          of the [=built-in values/position=] output of the vertex shader.
+
+      See [[WebGPU#coordinate-systems]] and [[WebGPU#rasterization]].
+      </div>
 
   <tr><td><dfn noexport dfn-for="built-in values">front_facing</dfn>
       <td>fragment
@@ -11477,13 +11528,17 @@ See [[#builtin-inputs-outputs]] for how to specify that a pipeline input or outp
       <td>input
       <td>vec3&lt;u32&gt;
       <td style="width:50%">The current invocation's [=workgroup ID=],
-          i.e. the position of the workgroup in the [=workgroup grid=].
+          i.e. the position of the workgroup in overall [=compute shader grid=].
+
+          All invocations in the same workgroup have the same workgroup ID.
+
+          Workgroup IDs span from (0,0,0) to ([=group_count_x=] - 1, [=group_count_y=] - 1, [=group_count_z=] - 1).
 
   <tr><td><dfn noexport dfn-for="built-in values">num_workgroups</dfn>
       <td>compute
       <td>input
       <td>vec3&lt;u32&gt;
-      <td style="width:50%">The [=dispatch size=], `vec<u32>(group_count_x,
+      <td style="width:50%">The [=dispatch size=], `vec3<u32>(group_count_x,
       group_count_y, group_count_z)`, of the compute shader
       [[WebGPU#compute-pass-encoder-dispatch|dispatched]] by the API.
 
@@ -11818,6 +11873,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 2x2 column-major [=matrix=] from elements.
+
+          Same as mat2x2(vec2(e1,e2), vec2(e3,e4)).
 </table>
 
 #### `mat2x3` #### {#mat2x3-builtin}
@@ -11860,6 +11917,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 2x3 column-major [=matrix=] from elements.
+
+          Same as mat2x3(vec3(e1,e2,e3), vec3(e4,e5,e6)).
 </table>
 
 #### `mat2x4` #### {#mat2x4-builtin}
@@ -11902,6 +11961,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 2x4 column-major [=matrix=] from elements.
+
+          Same as mat2x4(vec4(e1,e2,e3,e4), vec4(e5,e6,e7,e8)).
 </table>
 
 #### `mat3x2` #### {#mat3x2-builtin}
@@ -11948,6 +12009,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 3x2 column-major [=matrix=] from elements.
+
+          Same as mat3x2(vec2(e1,e2), vec2(e3,e4), vec2(e5,e6)).
 </table>
 
 #### `mat3x3` #### {#mat3x3-builtin}
@@ -11994,6 +12057,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 3x3 column-major [=matrix=] from elements.
+
+          Same as mat3x3(vec3(e1,e2,e3), vec3(e4,e4,e6), vec3(e7,e8,e9)).
 </table>
 
 #### `mat3x4` #### {#mat3x4-builtin}
@@ -12040,6 +12105,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 3x4 column-major [=matrix=] from elements.
+
+          Same as mat3x4(vec4(e1,e2,e3,e4), vec4(e5,e6,e7,e8), vec4(e9,e10,e11,e12)).
 </table>
 
 #### `mat4x2` #### {#mat4x2-builtin}
@@ -12088,6 +12155,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 4x2 column-major [=matrix=] from elements.
+
+          Same as mat4x2(vec2(e1,e2), vec2(e3,e4), vec2(e5,e6), vec2(e7,e8)).
 </table>
 
 #### `mat4x3` #### {#mat4x3-builtin}
@@ -12136,6 +12205,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 4x3 column-major [=matrix=] from elements.
+
+          Same as mat4x3(vec3(e1,e2,e3), vec3(e4,e5,e6), vec3(e7,e8,e9), vec3(e10,e11,e12)).
 </table>
 
 #### `mat4x4` #### {#mat4x4-builtin}
@@ -12184,6 +12255,8 @@ specify the component type; the component type is inferred from the constructor 
       <td>`T` is [FLOATSCALAR]
   <tr><td>Description
       <td>Construct a 4x4 column-major [=matrix=] from elements.
+
+          Same as mat4x4(vec4(e1,e2,e3,e4), vec4(e5,e6,e7,e8), vec4(e9,e10,e11,e12), vec4(e13,e14,e15,e16)).
 </table>
 
 #### Structures #### {#structures-builtin}
