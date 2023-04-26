@@ -65,6 +65,9 @@ spec: HTML; urlPrefix: https://html.spec.whatwg.org/multipage/
         for: video
             text: intrinsic width; url: media.html#concept-video-intrinsic-width
             text: intrinsic height; url: media.html#concept-video-intrinsic-height
+spec: WebCodecs; urlPrefix: https://www.w3.org/TR/webcodecs/#
+    type: dfn
+        text: Close VideoFrame; url: close-videoframe
 spec: WEBGL-1; urlPrefix: https://www.khronos.org/registry/webgl/specs/latest/1.0/#
     type: interface
         text: WebGLRenderingContext; url: WEBGLRENDERINGCONTEXT
@@ -5039,9 +5042,20 @@ GPUExternalTexture includes GPUObjectBase;
 An external texture is created from an external video object
 using {{GPUDevice/importExternalTexture()}}.
 
-An external texture created from an {{HTMLVideoElement}} is destroyed automatically in a task after
-it is imported, instead of manually or upon garbage collection like other resources.
+An external texture created from an {{HTMLVideoElement}} expires (is destroyed) automatically in a
+task after it is imported, instead of manually or upon garbage collection like other resources.
 When an external texture expires, its {{GPUExternalTexture/[[expired]]}} slot changes to `true`.
+
+An external texture created from a {{VideoFrame}} expires (is destroyed) when, and only when,
+the source {{VideoFrame}} is [=Close VideoFrame|closed=],
+either explicitly by {{VideoFrame/close()}}, or by other means.
+
+Note: As noted in {{VideoDecoder/decode()}}, authors **should** call
+{{VideoFrame/close()}} on output {{VideoFrame}}s to avoid decoder stalls.
+If an imported {{VideoFrame}} is dropped without being closed, the imported
+{{GPUExternalTexture}} object will keep it alive until it is also dropped.
+The {{VideoFrame}} cannot be garbage collected until both objects are dropped.
+Garbage collection is unpredictable, so this may still stall the video decoder.
 
 Once the {{GPUExternalTexture}} expires, {{GPUDevice/importExternalTexture()}} must be called again.
 However, the user agent may un-expire and return the same {{GPUExternalTexture}} again, instead of
@@ -5053,7 +5067,7 @@ If the same object is returned again, it will compare equal, and {{GPUBindGroup}
 <script type=idl>
 dictionary GPUExternalTextureDescriptor
          : GPUObjectDescriptorBase {
-    required HTMLVideoElement source;
+    required (HTMLVideoElement or VideoFrame) source;
     PredefinedColorSpace colorSpace = "srgb";
 };
 </script>
@@ -5119,7 +5133,8 @@ dictionary GPUExternalTextureDescriptor
 
                     1. Let |result| be a new {{GPUExternalTexture}} object wrapping |data|.
 
-                1. [$queue an automatic expiry task$] with device |this| and the following steps:
+                1. If |source| is an {{HTMLVideoElement}},
+                    [$queue an automatic expiry task$] with device |this| and the following steps:
 
                     <div data-timeline=content>
                         1. Set |result|.{{GPUExternalTexture/[[expired]]}} to `true`,
@@ -5127,12 +5142,17 @@ dictionary GPUExternalTextureDescriptor
                     </div>
 
                     Note:
-                    An external video texture should be imported in the same task that samples the texture
+                    An {{HTMLVideoElement}} should be imported in the same task that samples the texture
                     (which should generally be scheduled using `requestVideoFrameCallback` or
                     {{AnimationFrameProvider/requestAnimationFrame()}} depending on the application).
                     Otherwise, a texture could get destroyed by these steps before the
                     application is finished using it.
+                1. If |source| is a {{VideoFrame}}, then when |source| is
+                    [=Close VideoFrame|closed=], run the following steps:
 
+                    <div data-timeline=content>
+                        1. Set |result|.{{GPUExternalTexture/[[expired]]}} to `true`.
+                    </div>
                 1. Set |result|.{{GPUObjectBase/label}} to |descriptor|.{{GPUObjectDescriptorBase/label}}.
                 1. Return |result|.
             </div>
