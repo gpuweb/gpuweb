@@ -1,4 +1,3 @@
-
 #include <tree_sitter/parser.h>
 #include <wctype.h>
 #include <algorithm>
