@@ -1,14 +1,15 @@
 .PHONY: all clean nfkc validate lalr validate-examples
 
 all: index.html nfkc validate test diagrams
-validate: lalr unit_tests validate-examples
+validate: lalr tspath_tests unit_tests validate-examples
 
 clean:
-	rm -f index.html index.pre.html index.bs.pre grammar/grammar.js grammar/build wgsl.lalr.txt
+	rm -f index.html index.bs.pre index.pre.html wgsl.recursive.bs.include.pre grammar/grammar.js wgsl.lalr.txt
+	rm -rf grammar/build
 
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include
+WGSL_SOURCES:=index.bs scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include)
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
@@ -34,6 +35,10 @@ $(TREESITTER_GRAMMAR_INPUT) $(TREESITTER_PARSER): index.bs scanner.cc extract-gr
 # Use Treesitter to parse many code examples in the spec.
 validate-examples: $(TREESITTER_PARSER)
 	python3 ./extract-grammar.py --flow e
+
+.PHONY: tspath_tests
+tspath_tests: TSPath.py
+	python3 TSPath.py
 
 .PHONY: unit_tests
 # Use Treesitter to parse code samples
