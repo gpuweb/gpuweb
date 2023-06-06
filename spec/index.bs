@@ -88,6 +88,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: shader stage output; url: shader-stage-output
         text: shader stage input; url: shader-stage-input
         text: builtin; url: built-in-values
+        text: position builtin; url: built-in-values-position
         text: channel formats; url: channel-formats
         text: invalid memory reference; url: invalid-memory-reference
         text: shader module creation; url: shader-module-creation
@@ -117,7 +118,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: SizeOf; url: sizeof
 spec: Internationalization Glossary; urlPrefix: https://www.w3.org/TR/i18n-glossary/#
     type: dfn
-        text: localizable text; url: def_localizable_text
+        text: localizable text; url: dfn-localizable-text
 spec: Strings on the Web; urlPrefix: https://w3c.github.io/string-meta/#
     type: dfn
         text: best practices for language and direction information; url: bp_and-reco
@@ -1028,23 +1029,58 @@ Several operations in WebGPU return promises.
 WebGPU does not make any guarantees about the order in which these promises settle
 (resolve or reject), except for the following:
 
-- <div algorithm="mapAsync-onSubmittedWorkDone ordering">
-        If |p1| = |b|.{{GPUBuffer/mapAsync()}} is called before
+- <div algorithm="onSubmittedWorkDone ordering">
+        For some {{GPUQueue}} |q|,
+        if |p1| = |q|.{{GPUQueue/onSubmittedWorkDone()}} is called before
         |p2| = |q|.{{GPUQueue/onSubmittedWorkDone()}},
-        and |b| was last used exclusively on |q|, then |p2| must not resolve before |p1| resolves.
+        then |p1| must settle before |p2|.
+    </div>
+- <div algorithm="mapAsync-onSubmittedWorkDone ordering">
+        For some {{GPUQueue}} |q| and {{GPUBuffer}} |b| on the same {{GPUDevice}},
+        if |p1| = |b|.{{GPUBuffer/mapAsync()}} is called before
+        |p2| = |q|.{{GPUQueue/onSubmittedWorkDone()}},
+        then |p1| must settle before |p2|.
+
+        <!-- POSTV1(multi-queue):
+        and |b|'s most recent usage was either another mapping or an exclusive usage on |q| -->
     </div>
 
 Applications must not rely on any other promise settlement ordering.
 
 ## Coordinate Systems ## {#coordinate-systems}
 
-- Y-axis is up in normalized device coordinate (NDC): point(-1.0, -1.0) in NDC is located at the bottom-left corner of NDC.
-    In addition, x and y in NDC should be between -1.0 and 1.0 inclusive, while z in NDC should be between 0.0 and 1.0 inclusive.
-    Vertices out of this range in NDC will not introduce any errors, but they will be clipped.
-- Y-axis is down in [=framebuffer=] coordinate, viewport coordinate and fragment/pixel coordinate:
-    origin(0, 0) is located at the top-left corner in these coordinate systems.
-- Window/present coordinate matches [=framebuffer=] coordinate.
-- UV of origin(0, 0) in texture coordinate represents the first texel (the lowest byte) in texture memory.
+Rendering operations use the following coordinate systems:
+
+* <dfn lt="NDC">Normalized device coordinates</dfn> (or NDC) have three dimensions, where:
+    * -1.0 &leq; x &leq; 1.0
+    * -1.0 &leq; y &leq; 1.0
+    * 0.0 &leq; z &leq; 1.0
+    * The bottom-left corner is at (-1.0, -1.0, z).
+* <dfn noexport>Clip space coordinates</dfn> have four dimensions: (x, y, z, w)
+    * Clip space coordinates are used for the the [=clip position=] of a vertex (i.e. the [=position builtin|position=] output of a vertex shader),
+        and for the [=clip volume=].
+    * [=NDC|Normalized device coordinates=] and clip space coordinates are related as follows:
+        If point *p = (p.x, p.y, p.z, p.w)* is in the [=clip volume=], then its normalized device coordinates are (*p.x* &divide; *p.w*, *p.y* &divide; *p.w*, *p.z* &divide; *p.w*).
+* <dfn noexport>Framebuffer coordinates</dfn> address the pixels in the [=framebuffer=]
+    * They have two dimensions.
+    * Each pixel extends 1 unit in x and y dimensions.
+    * The top-left corner is at (0.0, 0.0).
+    * x increases to the right.
+    * y increases down.
+    * See [[#render-passes]] and [[#rasterization]].
+* <dfn>Viewport coordinates</dfn> combine [=framebuffer coordinates=] in x and y dimensions,
+    with depth in z.
+    * Normally 0.0 &leq; z &leq; 1.0, but this can be modified by setting {{RenderState/[[viewport]]}}.`minDepth` and `maxDepth` via
+        {{GPURenderPassEncoder/setViewport()}}
+* <dfn noexport>Fragment coordinates</dfn> match [=viewport coordinates=].
+* <dfn noexport>UV coordinates</dfn> are used to sample textures, and have two dimensions:
+    * 0 &leq; u &leq; 1.0
+    * 0 &leq; v &leq; 1.0
+    * (0.0, 0.0) is in the first texel in texture memory address order.
+    * (1.0, 1.0) is in the last texel texture memory address order.
+* <dfn noexport>Window coordinates</dfn>, or <dfn noexport>present coordinates</dfn>,
+    match [=framebuffer coordinates=], and are used when interacting with
+    an external display or conceptually similar interface.
 
 Note: WebGPU's coordinate systems match DirectX's coordinate systems in a graphics pipeline.
 
@@ -2262,6 +2298,14 @@ Navigator includes NavigatorGPU;
 WorkerNavigator includes NavigatorGPU;
 </script>
 
+{{NavigatorGPU}} has the following attributes:
+
+<dl dfn-type=attribute dfn-for=NavigatorGPU>
+    : <dfn>gpu</dfn>
+    ::
+        A global singleton providing top-level entry points like {{GPU/requestAdapter()}}.
+</dl>
+
 ## GPU ## {#gpu-interface}
 
 <dfn interface>GPU</dfn> is the entry point to WebGPU.
@@ -3045,8 +3089,8 @@ Buffers may be {{GPUBufferDescriptor/mappedAtCreation}}.
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext]
 interface GPUBuffer {
-    readonly attribute GPUSize64 size;
-    readonly attribute GPUBufferUsageFlags usage;
+    readonly attribute GPUSize64Out size;
+    readonly attribute GPUFlagsConstant usage;
 
     readonly attribute GPUBufferMapState mapState;
 
@@ -3841,14 +3885,14 @@ interface GPUTexture {
 
     undefined destroy();
 
-    readonly attribute GPUIntegerCoordinate width;
-    readonly attribute GPUIntegerCoordinate height;
-    readonly attribute GPUIntegerCoordinate depthOrArrayLayers;
-    readonly attribute GPUIntegerCoordinate mipLevelCount;
-    readonly attribute GPUSize32 sampleCount;
+    readonly attribute GPUIntegerCoordinateOut width;
+    readonly attribute GPUIntegerCoordinateOut height;
+    readonly attribute GPUIntegerCoordinateOut depthOrArrayLayers;
+    readonly attribute GPUIntegerCoordinateOut mipLevelCount;
+    readonly attribute GPUSize32Out sampleCount;
     readonly attribute GPUTextureDimension dimension;
     readonly attribute GPUTextureFormat format;
-    readonly attribute GPUTextureUsageFlags usage;
+    readonly attribute GPUFlagsConstant usage;
 };
 GPUTexture includes GPUObjectBase;
 </script>
@@ -6538,9 +6582,10 @@ dictionary GPUShaderModuleDescriptor
                         - |result| must not be a [=shader-creation error|shader-creation=] [=program error=].
                     </div>
 
-                Issue(gpuweb/gpuweb#2308):
-                Should internal errors ([=uncategorized errors=]) be allowed here or should we
-                force them to be deferred to pipeline creation?
+                    Note: [=Uncategorized errors=] cannot arise from shader module creation.
+                    Implementations which detect such errors during shader module creation
+                    must behave as if the shader module is valid, and defer surfacing the
+                    error until pipeline creation.
 
                 Issue: Describe remaining {{GPUDevice/createShaderModule()}} validation and
                 algorithm steps.
@@ -6866,7 +6911,7 @@ There are two ways to create pipelines:
 <script type=idl>
 [Exposed=(Window, DedicatedWorker), SecureContext, Serializable]
 interface GPUPipelineError : DOMException {
-    constructor((DOMString or undefined) message, GPUPipelineErrorInit options);
+    constructor(optional DOMString message = "", GPUPipelineErrorInit options);
     readonly attribute GPUPipelineErrorReason reason;
 };
 
@@ -6892,7 +6937,7 @@ enum GPUPipelineErrorReason {
             </pre>
 
             1. Set [=this=].{{DOMException/name}} to `"GPUPipelineError"`.
-            1. Set [=this=].{{DOMException/message}} to |message| ?? `""`.
+            1. Set [=this=].{{DOMException/message}} to |message|.
             1. Set [=this=].{{GPUPipelineError/reason}} to |options|.{{GPUPipelineErrorInit/reason}}.
         </div>
 </dl>
@@ -6936,7 +6981,19 @@ dictionary GPUPipelineDescriptorBase
          : GPUObjectDescriptorBase {
     required (GPUPipelineLayout or GPUAutoLayoutMode) layout;
 };
+</script>
 
+<dl dfn-type=dict-member dfn-for=GPUPipelineDescriptorBase>
+    : <dfn>layout</dfn>
+    ::
+        The {{GPUPipelineLayout}} for this pipeline, or {{GPUAutoLayoutMode/"auto"}} to generate
+        the pipeline layout automatically.
+
+        Note: If {{GPUAutoLayoutMode/"auto"}} is used the pipeline cannot share {{GPUBindGroup}}s
+        with any other pipelines.
+</dl>
+
+<script type=idl>
 interface mixin GPUPipelineBase {
     [NewObject] GPUBindGroupLayout getBindGroupLayout(unsigned long index);
 };
@@ -7162,7 +7219,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
 
 {{GPUProgrammableStage}} has the following members:
 
-<dl dfn-for=GPUProgrammableStage dfn-type=dict-member>
+<dl dfn-type=dict-member dfn-for=GPUProgrammableStage>
     : <dfn>module</dfn>
     ::
         The {{GPUShaderModule}} containing the code that this programmable stage will execute.
@@ -7192,7 +7249,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         <div class=example>
             Pipeline-overridable constants defined in WGSL:
 
-            <pre highlight=rust>
+            <pre highlight=wgsl>
                 @id(0)      override has_point_light: bool = true;  // Algorithmic control.
                 @id(1200)   override specular_param: f32 = 2.3;     // Numeric control.
                 @id(1300)   override gain: f32;                     // Must be overridden.
@@ -7247,7 +7304,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     - {{GPUProgrammableStage}} |descriptor|
     - {{GPUPipelineLayout}} |layout|
 
-    Return `true` if all of the following conditions are met:
+    Return `true` if all of the following conditions are met, and `false` otherwise:
 
     - |descriptor|.{{GPUProgrammableStage/module}} must be a [=valid=] {{GPUShaderModule}}.
     - |descriptor|.{{GPUProgrammableStage/module}} must contain
@@ -7272,8 +7329,8 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         - If the pipeline-overridable constant identified by |key|
             [=pipeline-overridable constant default value|does not have a default value=],
             |descriptor|.{{GPUProgrammableStage/constants}} must [=map/contain=] |key|.
-
-    A return value of `false` corresponds to a [=pipeline-creation error=].
+    - [=pipeline-creation error|Pipeline-creation=] [=program errors=] must not
+        result from the rules of the [[WGSL]] specification.
 </div>
 
 <div algorithm>
@@ -7539,6 +7596,14 @@ dictionary GPUComputePipelineDescriptor
                             |device|.limits.{{supported limits/maxComputeWorkgroupSizeZ}}].
                     </div>
 
+                1. If any [=pipeline-creation error|pipeline-creation=] [=uncategorized errors=]
+                    result from the implementation of pipeline creation,
+                    [$generate an internal error$], make |pipeline| [=invalid=], and stop.
+
+                    Note:
+                    Even if the implementation detected [=uncategorized errors=] in shader module
+                    creation, the error is surfaced here.
+
                 1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |layout|.
             </div>
         </div>
@@ -7760,6 +7825,13 @@ dictionary GPURenderPipelineDescriptor
                             |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroupsPlusVertexBuffers}},
                             where |vertexBufferCount| is the maximum index in |descriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}} that is not `undefined`.
                     </div>
+                1. If any [=pipeline-creation error|pipeline-creation=] [=uncategorized errors=]
+                    result from the implementation of pipeline creation,
+                    [$generate an internal error$], make |pipeline| [=invalid=], and stop.
+
+                    Note:
+                    Even if the implementation detected [=uncategorized errors=] in shader module
+                    creation, the error is surfaced here.
                 1. Set |pipeline|.{{GPURenderPipeline/[[descriptor]]}} to |descriptor|.
                 1. Set |pipeline|.{{GPURenderPipeline/[[writesDepth]]}} to false.
                 1. Set |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} to false.
@@ -8168,6 +8240,13 @@ dictionary GPUFragmentState
 };
 </script>
 
+<dl dfn-type=dict-member dfn-for=GPUFragmentState>
+    : <dfn>targets</dfn>
+    ::
+        A list of {{GPUColorTargetState}} defining the formats and behaviors of the color targets
+        this pipeline writes to.
+</dl>
+
 <div algorithm>
     <dfn abstract-op>validating GPUFragmentState</dfn>({{GPUDevice}} |device|, {{GPUFragmentState}} |descriptor|)
 
@@ -8192,6 +8271,17 @@ dictionary GPUFragmentState
             - For each component in |colorState|.{{GPUColorTargetState/format}}, there must be a
                 corresponding component in |output|.
                 (That is, RGBA requires vec4, RGB requires vec3 or vec4, RG requires vec2 or vec3 or vec4.)
+            - If the {{GPUTextureSampleType}}s for |colorState|.{{GPUColorTargetState/format}}
+                (defined in [[#texture-format-caps]]) are:
+
+                <dl class=switch>
+                    : {{GPUTextureSampleType/"float"}} and/or {{GPUTextureSampleType/"unfilterable-float"}}
+                    :: |output| must have a floating-point scalar type.
+                    : {{GPUTextureSampleType/"sint"}}
+                    :: |output| must have a signed integer scalar type.
+                    : {{GPUTextureSampleType/"uint"}}
+                    :: |output| must have an unsigned integer scalar type.
+                </dl>
             - If |colorState|.{{GPUColorTargetState/blend}} is [=map/exist|provided=] and
                 |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.{{GPUBlendComponent/srcFactor}}
                 or .{{GPUBlendComponent/dstFactor}} uses the source alpha
@@ -8239,12 +8329,39 @@ dictionary GPUColorTargetState {
 };
 </script>
 
+<dl dfn-type=dict-member dfn-for=GPUColorTargetState>
+    : <dfn>format</dfn>
+    ::
+        The {{GPUTextureFormat}} of this color target. The pipeline will only be compatible with
+        {{GPURenderPassEncoder}}s which use a {{GPUTextureView}} of this format in the
+        corresponding color attachment.
+
+    : <dfn>blend</dfn>
+    ::
+        The blending behavior for this color target. If left undefined, disables blending for this
+        color target.
+
+    : <dfn>writeMask</dfn>
+    ::
+        Bitmask controlling which channels are are written to when drawing to this color target.
+</dl>
+
 <script type=idl>
 dictionary GPUBlendState {
     required GPUBlendComponent color;
     required GPUBlendComponent alpha;
 };
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPUBlendState>
+    : <dfn>color</dfn>
+    ::
+        Defines the blending behavior of the corresponding render target for color channels.
+
+    : <dfn>alpha</dfn>
+    ::
+        Defines the blending behavior of the corresponding render target for the alpha channel.
+</dl>
 
 <script type=idl>
 typedef [EnforceRange] unsigned long GPUColorWriteFlags;
@@ -8996,6 +9113,13 @@ dictionary GPUVertexState
     sequence<GPUVertexBufferLayout?> buffers = [];
 };
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPUVertexState>
+    : <dfn>buffers</dfn>
+    ::
+        A list of {{GPUVertexBufferLayout}}s, each defining the layout of vertex attribute data in a
+        vertex buffer used by this pipeline.
+</dl>
 
 A <dfn dfn noexport>vertex buffer</dfn> is, conceptually, a view into buffer memory as an *array of structures*.
 {{GPUVertexBufferLayout/arrayStride}} is the stride, in bytes, between *elements* of that array.
@@ -9834,6 +9958,9 @@ dictionary GPUCommandEncoderDescriptor
     ::
         Writes a timestamp value into a querySet when all previous commands have completed executing.
 
+        Note: Timestamp query values are written in nanoseconds, but how the value is determined is
+        implementation-defined and may not increase monotonically. See [[#timestamp]] for details.
+
         <div algorithm=GPUCommandEncoder.writeTimestamp>
             <div data-timeline=content>
                 **Called on:** {{GPUCommandEncoder}} |this|.
@@ -10413,6 +10540,26 @@ dictionary GPUComputePassTimestampWrites {
 };
 </script>
 
+<dl dfn-type=dict-member dfn-for=GPUComputePassTimestampWrites>
+    : <dfn>querySet</dfn>
+    ::
+        The {{GPUQuerySet}}, of type {{GPUQueryType/"timestamp"}}, that the query results will be
+        written to.
+
+    : <dfn>beginningOfPassWriteIndex</dfn>
+    ::
+        If defined, indicates the query index in {{GPURenderPassTimestampWrites/querySet}} into
+        which the timestamp at the beginning of the compute pass will be written.
+
+    : <dfn>endOfPassWriteIndex</dfn>
+    ::
+        If defined, indicates the query index in {{GPURenderPassTimestampWrites/querySet}} into
+        which the timestamp at the end of the compute pass will be written.
+</dl>
+
+Note: Timestamp query values are written in nanoseconds, but how the value is determined is
+implementation-defined and may not increase monotonically. See [[#timestamp]] for details.
+
 <script type=idl>
 dictionary GPUComputePassDescriptor
          : GPUObjectDescriptorBase {
@@ -10756,6 +10903,26 @@ dictionary GPURenderPassTimestampWrites {
     GPUSize32 endOfPassWriteIndex;
 };
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPURenderPassTimestampWrites>
+    : <dfn>querySet</dfn>
+    ::
+        The {{GPUQuerySet}}, of type {{GPUQueryType/"timestamp"}}, that the query results will be
+        written to.
+
+    : <dfn>beginningOfPassWriteIndex</dfn>
+    ::
+        If defined, indicates the query index in {{GPURenderPassTimestampWrites/querySet}} into
+        which the timestamp at the beginning of the render pass will be written.
+
+    : <dfn>endOfPassWriteIndex</dfn>
+    ::
+        If defined, indicates the query index in {{GPURenderPassTimestampWrites/querySet}} into
+        which the timestamp at the end of the render pass will be written.
+</dl>
+
+Note: Timestamp query values are written in nanoseconds, but how the value is determined is
+implementation-defined and may not increase monotonically. See [[#timestamp]] for details.
 
 <script type=idl>
 dictionary GPURenderPassDescriptor
@@ -11121,8 +11288,11 @@ enum GPUStoreOp {
 
 #### Render Pass Layout #### {#render-pass-layout}
 
-{{GPURenderPassLayout}} contains the layout of the render targets for the current pass,
-which determines the compatibility of the pass with render pipelines.
+{{GPURenderPassLayout}} declares the layout of the render targets of a {{GPURenderBundle}}.
+It is also used internally to describe
+{{GPURenderPassEncoder}} [$derive render targets layout from pass|layouts$] and
+{{GPURenderPipeline}} [$derive render targets layout from pipeline|layouts$].
+It determines compatibility between render passes, render bundles, and render pipelines.
 
 <script type=idl>
 dictionary GPURenderPassLayout
@@ -11132,6 +11302,20 @@ dictionary GPURenderPassLayout
     GPUSize32 sampleCount = 1;
 };
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPURenderPassLayout>
+    : <dfn>colorFormats</dfn>
+    ::
+        A list of the {{GPUTextureFormat}}s of the color attachments for this pass or bundle.
+
+    : <dfn>depthStencilFormat</dfn>
+    ::
+        The {{GPUTextureFormat}} of the depth/stencil attachment for this pass or bundle.
+
+    : <dfn>sampleCount</dfn>
+    ::
+        Number of samples per pixel in the attachments for this pass or bundle.
+</dl>
 
 <div algorithm=gpurenderpasslayout-equal>
     Two {{GPURenderPassLayout}} values are <dfn dfn for="render pass layout" lt="equals|equal">equal</dfn> if:
@@ -11791,8 +11975,8 @@ attachments used by this encoder.
 <dl dfn-type=method dfn-for=GPURenderPassEncoder>
     : <dfn>setViewport(x, y, width, height, minDepth, maxDepth)</dfn>
     ::
-        Sets the viewport used during the rasterization stage to linearly map from normalized device
-        coordinates to viewport coordinates.
+        Sets the viewport used during the rasterization stage to linearly map from
+          [=NDC|normalized device coordinates=] to [=viewport coordinates=].
 
         <div algorithm=GPURenderPassEncoder.setViewport>
             <div data-timeline=content>
@@ -11849,7 +12033,7 @@ attachments used by this encoder.
     : <dfn>setScissorRect(x, y, width, height)</dfn>
     ::
         Sets the scissor rectangle used during the rasterization stage.
-        After transformation into viewport coordinates any fragments which fall outside the scissor
+        After transformation into [=viewport coordinates=] any fragments which fall outside the scissor
         rectangle will be discarded.
 
         <div algorithm=GPURenderPassEncoder.setScissorRect>
@@ -12134,6 +12318,11 @@ attachments used by this encoder.
 
 # Bundles # {#bundles}
 
+A bundle is a partial, limited pass that is encoded once and can then be executed multiple times as
+part of future pass encoders without expiring after use like typical command buffers. This can
+reduce the overhead of encoding and submission of commands which are issued repeatedly without
+changing.
+
 <h3 id=gpurenderbundle data-dfn-type=interface>`GPURenderBundle`
 <span id=render-bundle></span>
 </h3>
@@ -12261,6 +12450,20 @@ dictionary GPURenderBundleEncoderDescriptor
     boolean stencilReadOnly = false;
 };
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPURenderBundleEncoderDescriptor>
+    : <dfn>depthReadOnly</dfn>
+    ::
+        If `true`, indicates that the render bundle does not modify the depth component of the
+        {{GPURenderPassDepthStencilAttachment}} of any render pass the render bundle is executed
+        in.
+
+    : <dfn>stencilReadOnly</dfn>
+    ::
+        If `true`, indicates that the render bundle does not modify the stencil component of the
+        {{GPURenderPassDepthStencilAttachment}} of any render pass the render bundle is executed
+        in.
+</dl>
 
 ### Finalization ### {#render-bundle-finalization}
 
@@ -12693,7 +12896,7 @@ interface GPUQuerySet {
     undefined destroy();
 
     readonly attribute GPUQueryType type;
-    readonly attribute GPUSize32 count;
+    readonly attribute GPUSize32Out count;
 };
 GPUQuerySet includes GPUObjectBase;
 </script>
@@ -12861,11 +13064,11 @@ Timestamp queries allow applications to write timestamps to a {{GPUQuerySet}}, u
 and then resolve timestamp values (in nanoseconds as a 64-bit unsigned integer) into
 a {{GPUBuffer}}, using {{GPUCommandEncoder}}.{{GPUCommandEncoder/resolveQuerySet()}}.
 
-Timestamp query requires {{GPUFeatureName/"timestamp-query"}} to be [=enabled for=] the device.
-
-Note: The timestamp values may be zero if the physical device reset timestamp counter, please ignore it and the following values.
-
-Issue(gpuweb/gpuweb#4069): Write normative text about timestamp value resets.
+Timestamp values are implementation defined and may not increase monotonically. The physical device
+may reset the timestamp counter occasionally, which can result in unexpected values such as negative
+deltas between timestamps that logically should be monotonically increasing. These instances should
+be rare and can safely be ignored. Applications should not be written in such a way that unexpected
+timestamps cause an application failure.
 
 <p tracking-vector>
 Timestamp queries can provide high-resolution GPU timing.
@@ -12923,7 +13126,7 @@ which allows changing the canvas configuration without replacing the canvas.
     1. Set |context|.{{GPUCanvasContext/canvas}} to |canvas|.
     1. [$Replace the drawing buffer$] of |context|.
     1. Return |context|.
-    
+
     Note: User agents should consider issuing developer-visible warnings when
     an ignored `options` argument is provided when calling `getContext()`
     to get a WebGPU canvas context.
@@ -14278,10 +14481,8 @@ Primitives are assembled by a fixed-function stage of GPUs.
 
 ### Primitive Clipping ### {#primitive-clipping}
 
-Vertex shaders have to produce a built-in "position" (of type `vec4<f32>`),
+Vertex shaders have to produce a built-in [=position builtin|position=] (of type `vec4<f32>`),
 which denotes the <dfn dfn>clip position</dfn> of a vertex.
-
-<p class="note editorial">Editorial: link to WGSL built-ins
 
 Primitives are clipped to the <dfn dfn>clip volume</dfn>, which, for any [=clip position=] |p|
 inside a primitive, is defined by the following inequalities:
@@ -14352,7 +14553,7 @@ the set of render attachments in the current {{GPURenderPassEncoder}}.
 This rendering area is split into an even grid of pixels.
 
 The [=framebuffer=] coordinates start from the top-left corner of the render targets.
-Each unit corresponds exactly to a pixel. See [[#coordinate-systems]] for more information.
+Each unit corresponds exactly to one pixel. See [[#coordinate-systems]] for more information.
 
 Rasterization determines the set of pixels affected by a primitive. In case of multi-sampling,
 each pixel is further split into
@@ -14377,13 +14578,13 @@ such that the pixel ranges from (0, 0) to (1, 1):
 Let's define a <dfn dfn>FragmentDestination</dfn> to contain:
 <dl dfn-for=FragmentDestination>
     : <dfn dfn>position</dfn>
-    :: the 2D pixel position in [=framebuffer=] space
+    :: the 2D pixel position using [=framebuffer coordinates=]
     : <dfn dfn>sampleIndex</dfn>
     :: an integer in case [[#sample-frequency-shading]] is active,
         or `null` otherwise
 </dl>
 
-We'll also use a notion of <dfn dfn>NDC</dfn> - normalized device coordinates.
+We'll also use a notion of [=NDC|normalized device coordinates=], or NDC.
 In this coordinate system, the viewport bounds range in X and Y from -1 to 1, and in Z from 0 to 1.
 
 Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each containing the following data:
@@ -14397,7 +14598,7 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
     : <dfn dfn>perspectiveDivisor</dfn>
     :: refers to interpolated 1.0 &divide; W across the primitive
     : <dfn dfn>depth</dfn>
-    :: refers to the depth in viewport coordinates,
+    :: refers to the depth in [=viewport coordinates=],
         i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
     : <dfn dfn>primitiveVertices</dfn>
     :: refers to the list of vertex outputs forming the primitive
@@ -14421,14 +14622,14 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
     However, the order of primitives affects later stages, such as depth/stencil operations and pixel writes.
 
     1. First, the clipped vertices are transformed into [=NDC=] - normalized device coordinates.
-        Given the output position |p|, the [=NDC=] coordinates are computed as:
-
-        divisor(|p|) = 1.0 &divide; |p|.w
+        Given the output position |p|, the [=NDC=] position and perspective divisor are:
 
         ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
 
+        divisor(|p|) = 1.0 &divide; |p|.w
+
     1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
-        Map the [=NDC=] coordinates |n| into viewport space:
+        Map the [=NDC=] position |n| into [=viewport coordinates=]:
         * Compute [=framebuffer=] coordinates from the render target offset and size:
 
             framebufferCoords(|n|) = vector(|vp|.`x` &plus; 0.5 &times; (|n|.x &plus; 1) &times; |vp|.`width`, |vp|.`y` &plus; .5 &times; (|n|.y &plus; 1) &times; |vp|.`height`)
@@ -14600,7 +14801,7 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
 <div algorithm="Fragment accessors" dfn-for=Fragment>
     - <dfn dfn>destination</dfn> refers to [=FragmentDestination=].
     - <dfn dfn>coverageMask</dfn> refers to multisample coverage mask (see [[#sample-masking]]).
-    - <dfn dfn>depth</dfn> refers to the depth in viewport coordinates,
+    - <dfn dfn>depth</dfn> refers to the depth in [=viewport coordinates=],
         i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
     - <dfn dfn>colors</dfn> refers to the list of color values,
         one for each target in {{GPURenderPassDescriptor/colorAttachments}}.
@@ -14738,6 +14939,10 @@ typedef [EnforceRange] unsigned long GPUIndex32;
 typedef [EnforceRange] unsigned long GPUSize32;
 typedef [EnforceRange] long GPUSignedOffset32;
 
+typedef unsigned long long GPUSize64Out;
+typedef unsigned long GPUIntegerCoordinateOut;
+typedef unsigned long GPUSize32Out;
+
 typedef unsigned long GPUFlagsConstant;
 </script>
 
@@ -14755,6 +14960,24 @@ typedef (sequence<double> or GPUColorDict) GPUColor;
 
 Note: `double` is large enough to precisely hold 32-bit signed/unsigned
 integers and single-precision floats.
+
+<dl dfn-type=dict-member dfn-for=GPUColorDict>
+    : <dfn>r</dfn>
+    ::
+        The red channel value.
+
+    : <dfn>g</dfn>
+    ::
+        The green channel value.
+
+    : <dfn>b</dfn>
+    ::
+        The blue channel value.
+
+    : <dfn>a</dfn>
+    ::
+        The alpha channel value.
+</dl>
 
 <div algorithm="GPUColor accessors" dfn-for=GPUColor>
     For a given {{GPUColor}} value |color|, depending on its type, the syntax:
@@ -14856,6 +15079,23 @@ dictionary GPUExtent3DDict {
 };
 typedef (sequence<GPUIntegerCoordinate> or GPUExtent3DDict) GPUExtent3D;
 </script>
+
+<dl dfn-type=dict-member dfn-for=GPUExtent3DDict>
+    : <dfn>width</dfn>
+    ::
+        The width of the extent.
+
+    : <dfn>height</dfn>
+    ::
+        The height of the extent.
+
+    : <dfn>depthOrArrayLayers</dfn>
+    ::
+        The depth of the extent or the number of array layers it contains.
+        If used with a {{GPUTexture}} with a {{GPUTextureDimension}} of {{GPUTextureDimension/"3d"}}
+        defines the depth of the texture. If used with a {{GPUTexture}} with a {{GPUTextureDimension}}
+        of {{GPUTextureDimension/"2d"}} defines the number of array layers in the texture.
+</dl>
 
 <div algorithm="GPUExtent3D accessors" dfn-for=GPUExtent3D>
     For a given {{GPUExtent3D}} value |extent|, depending on its type, the syntax:
