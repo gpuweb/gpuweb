@@ -16,7 +16,5 @@ cp -r explainer/img/ out/explainer/
 
 cp correspondence/index.html out/correspondence/
 
-cp -r samples/ out/
-
 # Redirect wgsl.html to wgsl/
 echo '<meta http-equiv="refresh" content="0;url=wgsl/" />' > out/wgsl.html
