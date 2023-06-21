@@ -3,7 +3,7 @@
 # publish on GitHub Pages and PR previews.
 set -e
 
-mkdir -p out/{wgsl,wgsl/grammar,explainer,correspondence,samples}
+mkdir -p out/{wgsl,wgsl/grammar,explainer,correspondence}
 
 cp -r spec/{index.html,webgpu.idl,img} out/
 cp spec/webgpu.idl out/webgpu.idl.txt
