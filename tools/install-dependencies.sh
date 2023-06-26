@@ -14,7 +14,7 @@ for opt in "$@"; do
             code=0
             ;;
         diagrams)
-            npx --yes -- @mermaid-js/mermaid-cli@9.1.4 --version
+            npx --yes -- @mermaid-js/mermaid-cli@10.2.2 --version
             code=0
             ;;
     esac

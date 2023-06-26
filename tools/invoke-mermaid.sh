@@ -6,7 +6,7 @@ cfg_p_file=$(dirname "$0")/mermaid-p.json
 # This script is meant to be run in parallel with itself, so it uses --no to
 # disable the prompt to install new packages (and avoid npx racing with itself).
 # Use tools/install-dependencies.sh to install the package explicitly.
-npx --no -- @mermaid-js/mermaid-cli@9.1.4 -p "$cfg_p_file" --backgroundColor black --configFile "$cfg_file" "$@"
+npx --no -- @mermaid-js/mermaid-cli@10.2.2 -p "$cfg_p_file" --backgroundColor black --configFile "$cfg_file" "$@"
 ret=$?
 
 if [ "$ret" != 0 ]; then
