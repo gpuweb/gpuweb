@@ -1,4 +1,5 @@
-#!/bin/sh
+#!/bin/bash
+set -eo pipefail
 
 cfg_file=$(dirname "$0")/mermaid.json
 cfg_p_file=$(dirname "$0")/mermaid-p.json

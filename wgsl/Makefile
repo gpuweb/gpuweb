@@ -22,7 +22,7 @@ index.html: index.pre.html nfkc
 MERMAID_OUTPUTS := $(patsubst diagrams/%.mmd,img/%.mmd.svg,$(wildcard diagrams/*.mmd))
 diagrams: $(MERMAID_OUTPUTS)
 img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
-	sh ../tools/invoke-mermaid.sh -i $< -o $@
+	bash ../tools/invoke-mermaid.sh -i $< -o $@
 
 TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
 TREESITTER_PARSER := grammar/build/wgsl.so
@@ -91,7 +91,7 @@ recursive_bs : $(ANALYZER) $(WGSL_GRAMMAR)
 
 wgsl.recursive.bs.include : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json >$@.pre
-	sh ../tools/copy-if-different.sh $@.pre $@
+	bash ../tools/copy-if-different.sh $@.pre $@
 
 # Print a simple (uncanonicalized form) of the grammar and check LL(1)
 .PHONY: recursive_ll
