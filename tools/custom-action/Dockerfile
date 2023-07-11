@@ -36,10 +36,10 @@ RUN \
   echo '{ \
     "name": "tree-sitter-wgsl", \
     "dependencies": { \
-        "nan": "^2.15.0" \
+        "nan": "2.15.0" \
     }, \
     "devDependencies": { \
-        "tree-sitter-cli": "^0.20.7" \
+        "tree-sitter-cli": "0.20.7" \
     }, \
     "main": "bindings/node" \
   }' > /grammar/package.json && \

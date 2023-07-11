@@ -1126,7 +1126,7 @@ def flow_extract(options, scan_result):
         grammar_package.write('{\n')
         grammar_package.write('    "name": "tree-sitter-wgsl",\n')
         grammar_package.write('    "dependencies": {\n')
-        grammar_package.write('        "nan": "^2.15.0"\n')
+        grammar_package.write('        "nan": "2.15.0"\n')
         grammar_package.write('    },\n')
         grammar_package.write('    "devDependencies": {\n')
         grammar_package.write('        "tree-sitter-cli": "0.20.7"\n')
