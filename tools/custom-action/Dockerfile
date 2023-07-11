@@ -24,7 +24,6 @@ RUN \
     rsync
 
 RUN \
-  export DEBIAN_FRONTEND=noninteractive && \
   python3 -m pip install --break-system-packages \
     bikeshed==3.13.1 \
     tree_sitter==0.20.1 && \
@@ -47,13 +46,11 @@ RUN \
   npm install
   
 RUN \
-  export DEBIAN_FRONTEND=noninteractive && \
   bikeshed update
 
 COPY entrypoint.sh /entrypoint.sh
 
 RUN \
-  export DEBIAN_FRONTEND=noninteractive && \
   chmod +x /entrypoint.sh
 
 ENTRYPOINT [ "/entrypoint.sh" ]

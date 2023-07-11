@@ -1,4 +1,4 @@
-#!/bin/bash -l
+#!/bin/bash --login
 set -eo pipefail
 
 cp -r /grammar ./wgsl/
