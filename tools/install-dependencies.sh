@@ -1,6 +1,6 @@
 #!/bin/bash
 set -eo pipefail
-export $(cat ./tools/custom-action/dependency-versions.env | xargs) # Source the .env file
+source ./tools/custom-action/dependency-versions.sh # Source dependency versions
 
 code=1
 for opt in "$@"; do

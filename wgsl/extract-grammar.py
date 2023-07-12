@@ -946,7 +946,7 @@ def extract_rules_to_bs(options, scan_result):
 
 def value_from_dotenv(key):
     if key not in os.environ:
-        raise Exception(f"Missing {key} in environment! The key is present in ./tools/custom-action/dependency-versions.env, please source before execution.")
+        raise Exception(f"Missing {key} in environment! The key is present in ./tools/custom-action/dependency-versions.sh, please source before execution.")
     return os.environ[key]
 
 def flow_extract(options, scan_result):
