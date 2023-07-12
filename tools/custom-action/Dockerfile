@@ -21,7 +21,8 @@ RUN \
     libasound2 \
     python3-full \
     python3-pip \
-    rsync
+    rsync && \
+  chsh -s /bin/bash
 
 COPY entrypoint.sh prepare.sh dependency-versions.sh /
 
