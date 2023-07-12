@@ -29,12 +29,12 @@ TREESITTER_PARSER := grammar/build/wgsl.so
 
 # Extract WGSL grammar from the spec, validate it by building a Treesitter parser from it.
 $(TREESITTER_GRAMMAR_INPUT) $(TREESITTER_PARSER): index.bs scanner.cc extract-grammar.py
-	python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
+	. ../tools/.env && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
 
 .PHONY: validate-examples
 # Use Treesitter to parse many code examples in the spec.
 validate-examples: $(TREESITTER_PARSER)
-	python3 ./extract-grammar.py --flow e
+	. ../tools/.env && python3 ./extract-grammar.py --flow e
 
 .PHONY: tspath_tests
 tspath_tests: TSPath.py

@@ -23,34 +23,29 @@ RUN \
     python3-pip \
     rsync
 
+COPY entrypoint.sh prepare.sh ../.env /
+
 RUN \
+  chmod +x /entrypoint.sh /prepare.sh /.env && \
+  . /.env && \
   python3 -m pip install --break-system-packages \
-    bikeshed==3.13.1 \
-    tree_sitter==0.20.1 && \
-  npm install -g @mermaid-js/mermaid-cli@9.1.4 && \
-  npx --yes -- @mermaid-js/mermaid-cli@9.1.4 --version && \
-  npm install -g tree-sitter-cli@0.20.7 && \
-  npx --yes -- tree-sitter-cli@0.20.7 --version && \
+    tree_sitter==$PIP_TREE_SITTER_VERSION && \
+  npm install -g @mermaid-js/mermaid-cli@$NPM_MERMAID_CLI_VERSION && \
+  npx --yes -- @mermaid-js/mermaid-cli@$NPM_MERMAID_CLI_VERSION --version && \
+  npm install -g tree-sitter-cli@$NPM_TREE_SITTER_CLI_VERSION && \
+  npx --yes -- tree-sitter-cli@$NPM_TREE_SITTER_CLI_VERSION --version && \
   mkdir /grammar && \
-  echo '{ \
-    "name": "tree-sitter-wgsl", \
-    "dependencies": { \
-        "nan": "2.15.0" \
-    }, \
-    "devDependencies": { \
-        "tree-sitter-cli": "0.20.7" \
-    }, \
-    "main": "bindings/node" \
-  }' > /grammar/package.json && \
+  echo "{" > /grammar/package.json && \
+  echo "  \"name\": \"tree-sitter-wgsl\"," >> /grammar/package.json && \
+  echo "  \"dependencies\": {" >> /grammar/package.json && \
+  echo "    \"nan\": \"$NPM_NAN_VERSION\"" >> /grammar/package.json && \
+  echo "  }," >> /grammar/package.json && \
+  echo "  \"devDependencies\": {" >> /grammar/package.json && \
+  echo "    \"tree-sitter-cli\": \"$NPM_TREE_SITTER_CLI_VERSION\"" >> /grammar/package.json && \
+  echo "  }," >> /grammar/package.json && \
+  echo "  \"main\": \"bindings/node\"" >> /grammar/package.json && \
+  echo "}" >> /grammar/package.json && \
   cd /grammar && \
   npm install
-  
-RUN \
-  bikeshed update
-
-COPY entrypoint.sh /entrypoint.sh
-
-RUN \
-  chmod +x /entrypoint.sh
 
 ENTRYPOINT [ "/entrypoint.sh" ]
