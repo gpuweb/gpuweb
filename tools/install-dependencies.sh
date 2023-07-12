@@ -6,7 +6,8 @@ code=1
 for opt in "$@"; do
     case "$opt" in
         bikeshed)
-            pip3 install bikeshed
+            # Always use the latest bikeshed because that's what spec-prod uses.
+            pip3 install --upgrade bikeshed
             bikeshed update
             code=0
             ;;
