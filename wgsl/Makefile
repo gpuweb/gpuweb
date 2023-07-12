@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: all clean nfkc validate lalr validate-examples
 
 all: index.html nfkc validate test diagrams
