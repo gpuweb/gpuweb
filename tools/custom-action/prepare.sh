@@ -1,9 +1,9 @@
 #!/bin/bash
 set -eo pipefail
 
-export $(cat /.env | xargs) # Source the .env file
+export $(cat /dependency-versions.env | xargs) # Source the .env file
 cp -r /grammar ./wgsl/
-sudo python3 -m pip install --break-system-packages \
+python3 -m pip install --break-system-packages --upgrade \
   bikeshed
 export PATH="$(python3 -m site --user-base)/bin:${PATH}"
-sudo bikeshed update
+bikeshed update

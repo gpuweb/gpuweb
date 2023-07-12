@@ -1,6 +1,6 @@
 #!/bin/bash
 set -eo pipefail
-export $(cat ../tools/custom-action/.env | xargs) # Source the .env file
+export $(cat ../tools/custom-action/dependency-versions.env | xargs) # Source the .env file
 
 cfg_file=$(dirname "$0")/mermaid.json
 cfg_puppeteer_file=$(dirname "$0")/mermaid-puppeteer.json

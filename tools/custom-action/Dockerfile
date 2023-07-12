@@ -26,14 +26,12 @@ RUN \
 COPY entrypoint.sh prepare.sh .env /
 
 RUN \
-  chmod +x /entrypoint.sh /prepare.sh /.env && \
-  export $(cat /.env | xargs) && \
+  chmod +x /entrypoint.sh /prepare.sh /dependency-versions.env && \
+  export $(cat /dependency-versions.env | xargs) && \
   python3 -m pip install --break-system-packages \
     tree_sitter==$PIP_TREE_SITTER_VERSION && \
   npm install -g @mermaid-js/mermaid-cli@$NPM_MERMAID_CLI_VERSION && \
-  npx --yes -- @mermaid-js/mermaid-cli@$NPM_MERMAID_CLI_VERSION --version && \
   npm install -g tree-sitter-cli@$NPM_TREE_SITTER_CLI_VERSION && \
-  npx --yes -- tree-sitter-cli@$NPM_TREE_SITTER_CLI_VERSION --version && \
   mkdir /grammar && \
   echo "{" > /grammar/package.json && \
   echo "  \"name\": \"tree-sitter-wgsl\"," >> /grammar/package.json && \
