@@ -24,6 +24,8 @@ RUN \
     rsync && \
   chsh -s /bin/bash
 
+SHELL ["/bin/bash", "-c"]
+
 COPY entrypoint.sh prepare.sh dependency-versions.sh /
 
 RUN \
