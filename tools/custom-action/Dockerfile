@@ -23,7 +23,7 @@ RUN \
     python3-pip \
     rsync
 
-COPY entrypoint.sh prepare.sh .env /
+COPY entrypoint.sh prepare.sh dependency-versions.env /
 
 RUN \
   chmod +x /entrypoint.sh /prepare.sh /dependency-versions.env && \
