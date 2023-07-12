@@ -1,6 +1,6 @@
 #!/bin/bash
 set -eo pipefail
-. ./tools/.env
+export $(cat ./tools/custom-action/.env | xargs) # Source the .env file
 
 code=1
 for opt in "$@"; do

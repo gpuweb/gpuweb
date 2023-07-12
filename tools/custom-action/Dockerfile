@@ -23,11 +23,11 @@ RUN \
     python3-pip \
     rsync
 
-COPY entrypoint.sh prepare.sh ../.env /
+COPY entrypoint.sh prepare.sh .env /
 
 RUN \
   chmod +x /entrypoint.sh /prepare.sh /.env && \
-  . /.env && \
+  export $(cat /.env | xargs) && \
   python3 -m pip install --break-system-packages \
     tree_sitter==$PIP_TREE_SITTER_VERSION && \
   npm install -g @mermaid-js/mermaid-cli@$NPM_MERMAID_CLI_VERSION && \
