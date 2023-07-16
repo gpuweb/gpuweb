@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: all clean diagrams
 
 all: index.html webgpu.idl diagrams

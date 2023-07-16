@@ -33,6 +33,7 @@ Abstract: Shading language for WebGPU.
 Markup Shorthands: markdown yes
 Markup Shorthands: biblio yes
 Markup Shorthands: idl yes
+Markup Shorthands: css no
 Assume Explicit For: yes
 </pre>
 
@@ -2497,11 +2498,11 @@ Each has a corresponding negative value.
 <table class='data'>
   <caption>Extreme values for floating point types</caption>
   <thead>
-    <tr><th>Type<th>Smallest positive denormal<th>Smallest positive normal<th>Largest positive finite
+    <tr><th>Type<th>Smallest positive denormal<th>Smallest positive normal<th>Largest positive finite<th>Largest finite power of 2
   </thead>
-    <tr><td rowspan=2>f32<td>1.40129846432481707092e-45f<td>1.17549435082228750797e-38f<td>3.40282346638528859812e+38f
+    <tr><td rowspan=2>f32<td>1.40129846432481707092e-45f<td>1.17549435082228750797e-38f<td>3.40282346638528859812e+38f<td rowspan=2>0x1p+127f
     <tr><td>0x1p-149f<td>0x1p-126f<td>0x1.fffffep+127f
-    <tr><td rowspan=2>f16<td>5.9604644775390625e-8h<td>0.00006103515625h<td>65504.0h
+    <tr><td rowspan=2>f16<td>5.9604644775390625e-8h<td>0.00006103515625h<td>65504.0h<td rowspan=2>0x1p+15h
     <tr><td>0x1p-24h<td>0x1p-14h<td>0x1.ffcp+15h
 </table>
 
@@ -4958,7 +4959,7 @@ An override-expression |E| [=behavioral requirement|will=] be evaluated if and o
     [=behavioral requirement|will=] be evaluated, and evaluation of |OuterE|
     requires |E| to be evaluated.
 
-Note: An override-expression may not be usable as the initializer for an
+Note: Not all override-expressions may be usable as the initializer for an
 [=override-declaration=], because such initializers must [=type rules|resolve=]
 to a [=type/concrete=] [=scalar=] type.
 
@@ -6391,7 +6392,7 @@ path: syntax/compound_statement.syntax.bs.include
 
 The [=syntax/continuing_compound_statement=] is a special form of compound
 statement that forms the body of a [[#continuing-statement|continuing]]
-statement, and allows an option [[#break-if-statement|break-if]] statement at
+statement, and allows an optional [[#break-if-statement|break-if]] statement at
 the end.
 
 ## Assignment Statement ## {#assignment}
@@ -10771,7 +10772,7 @@ The most complex rule is for function calls:
 - If the [=call site tag=] of the function is [=CallSiteRequiredToBeUniform.S=], then:
     - Add an edge from [=RequiredToBeUniform.S=] to the last [=CF_i=].
     - Add the members of the [=potential-trigger-set=] of the [=call site tag=] to the potential-trigger-set associated with [=RequiredToBeUniform.S=].
-- Otherwise add an edge from [=CF_after=] to the last [=CF_i=]
+- Add an edge from [=CF_after=] to the last [=CF_i=]
 - If the [=function tag=] is [=ReturnValueMayBeNonUniform=], then add an edge from [=Result=] to [=MayBeNonUniform=]
 - Add an edge from [=Result=] to [=CF_after=]
 - For each argument *i*:
@@ -10784,8 +10785,6 @@ The most complex rule is for function calls:
         - If the [=parameter tag=] is [=ParameterContentsRequiredToBeUniform.S=], add an edge from [=RequiredToBeUniform.S=] to *Vout*(*call*)
 
 Note: Refer to [[#func-var-value-analysis]] for the definition of *Vout*(*call*).
-
-A [=value constructor=] expression is analyzed as if it were a function call with the same arguments.
 
 Most built-in functions have tags of:
 - A [=call site tag=] of [=CallSiteNoRestriction=].
@@ -11406,19 +11405,29 @@ the following exceptions:
 * No floating point exceptions are generated.
 * Signaling NaNs may not be generated.
     Any signaling NaN may be converted to a quiet NaN.
+* No rounding mode is specified. An implementation may round a value up or down.
+* Infinities and NaNs generated before runtime are errors.
+    * [=Const-expressions=] and [=override-expressions=] over finite values
+        [=behavioral requirement|will=] generate infinities and NaNs
+        as intermediate values, following IEEE-754 rules. See [[#floating-point-overflow]].
+        * For example, IEEE-754 prescribes when
+            adding two finite values will overflow and produce an infinite value result.
+            A const-expression or override-expression of a floating point addition
+            must produce an infinite intermediate value result under the same conditions.
+        * Note: This rule requires implementations to reliably detect infinities and NaNs,
+            to within accuracy limits, so that errors can be generated consistently.
+    * A [=shader-creation error=] results if any [=const-expression=] of
+        floating-point type evaluates to NaN or infinity.
+    * A [=pipeline-creation error=] results if any [=override-expression=] of
+        floating-point type evaluates to NaN or infinity.
 * Implementations may assume that NaNs and infinities are not present at runtime.
-    * In such an implementation, when an expression evaluation would produce an
+    * In such an implementation, when a [=runtime expression=] evaluation would produce an
         infinity or a NaN, an [=indeterminate value=] of the target type is produced instead.
-    * It is a [=shader-creation error=] if any [=const-expression=] of
-        floating-point type evaluates to NaN or infinity.
-    * It is a [=pipeline-creation error=] if any [=override-expression=] of
-        floating-point type evaluates to NaN or infinity.
     * Note: This means some functions (e.g. `min` and `max`)
         may not return the expected result due to optimizations about the presence
         of NaNs and infinities.
 * Implementations may ignore the sign of a zero.
     That is, a zero with a positive sign may behave like a zero a with a negative sign, and vice versa.
-* No rounding mode is specified.
 * To <dfn noexport title="flushed to zero">flush to zero</dfn> is to replace a denormalized value for a floating point type
     with a zero value of that type.
     * Any inputs or outputs of operations listed in [[#floating-point-accuracy]] may be flushed to zero.
@@ -11426,6 +11435,38 @@ the following exceptions:
         [[#pack-builtin-functions]] or [[#unpack-builtin-functions]] may be flushed to zero.
     * Other operations are required to preserve denormalized numbers.
 * The accuracy of operations is given in [[#floating-point-accuracy]].
+
+### Floating Point Overflow ### {#floating-point-overflow}
+
+Overflowing computations can round to infinity or to the
+nearest finite value.
+The outcome depends on the magnitude of the overflowing value and on whether
+evaluation occurs during shader execution.
+
+For a floating point type *T*, define *MAX(T)* as the largest positive finite value of *T*,
+and 2<sup>*EMAX(T)*</sup> as the largest power of 2 representable by *T*.
+In particular, EMAX([=f32=]) = 127, and EMAX([=f16=]) = 15.
+
+Let *X* be an infinite-precision intermediate result from a floating point computation.
+The final value of the expression is determined in two stages, via intermediate values *X'* and *X''* as follows:
+
+From *X*, compute *X'* in *T* by rounding:
+* If *X* is in the finite range of *T* then *X'* is the result of rounding *X* up or down.
+* If *X* is NaN, then *X'* is NaN.
+* If *MAX(T)* &lt; *X* &lt; 2<sup>*EMAX(T)+1*</sup>, then either rounding direction is used: *X'* is *MAX(T)* or &plus;&infin;.
+* If 2<sup>*EMAX(T)+1*</sup> &le; *X*, then *X'* = &plus;&infin;.
+    * Note: This matches the [[!IEEE-754|IEEE-754]] rule.
+* If &minus;*MAX(T)* &gt; *X* &gt; &minus;2<sup>*EMAX(T)+1*</sup>, then either rounding direction is used: *X'* is &minus;*MAX(T)* or &minus;&infin;.
+* If &minus;2<sup>*EMAX(T)+1*</sup> &ge; *X*, then *X'* = &minus;&infin;.
+    * Note: This matches the IEEE-754 rule.
+
+From *X'*, compute the final value of the expression, *X''*, or detect a program error:
+* If *X'* is infinity or NaN, then:
+    * If the expression is a [=const-expression=], generate a [=shader-creation error=].
+    * If the expression is a [=override-expression=], generate a [=pipeline-creation error=].
+    * Otherwise the expression is a [=runtime expression=] and *X''* is an [=indeterminate value=].
+* Otherwise *X''* = *X'*.
+
 
 ### Floating Point Accuracy ### {#floating-point-accuracy}
 
@@ -11459,8 +11500,11 @@ possibilities:
 * Correct result (for non-floating point return values).
 * [=Correctly rounded=].
 * A relative error bound expressed as [=ULP=].
-* A function that the accuracy is <dfn noexport>inherited from</dfn>.
-    That is, the accuracy is equal to implementing the operation in terms of the derived function.
+* An expression that the accuracy is <dfn noexport>inherited from</dfn>.
+    That is, the accuracy of the operation is defined as the accuracy of evaluating the given WGSL expression.
+    The given expression is only one valid implementation of the function.
+    A WebGPU implementation may implement the operation differently, with better accuracy
+    or with greater tolerance for extreme inputs.
 * An absolute error bound.
 
 For any accuracy values specified over a range, the accuracy is undefined for
@@ -11612,10 +11656,10 @@ value with the same sign.
   <tr><td>`transpose(x)`<td colspan=2 style="text-align:left;">Correctly rounded
   <tr><td>`trunc(x)`<td colspan=2 style="text-align:left;">Correctly rounded
 
-  <tr><td>`unpack4x8snorm(x)`<td>Correctly rounded<td>N/A
-  <tr><td>`unpack4x8unorm(x)`<td>Correctly rounded<td>N/A
+  <tr><td>`unpack4x8snorm(x)`<td>3 ULP<td>N/A
+  <tr><td>`unpack4x8unorm(x)`<td>3 ULP<td>N/A
   <tr><td>`unpack2x16snorm(x)`<td>3 ULP<td>N/A
-  <tr><td>`unpack2x16unorm(x)`<td>Correctly rounded<td>N/A
+  <tr><td>`unpack2x16unorm(x)`<td>3 ULP<td>N/A
   <tr><td>`unpack2x16float(x)`<td>Correctly rounded<td>N/A
 
 </table>
