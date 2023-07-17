@@ -52,3 +52,11 @@ All contributions must comply with the group's
 ## Code of Conduct
 
 This group operates under [W3C's Code of Conduct Policy](http://www.w3.org/Consortium/cepc/).
+
+## Communication
+
+Our primary public chat channel is via Matrix *([what is matrix?](https://matrix.org/docs/chat_basics/matrix-for-im/))* at [#WebGPU:matrix.org](https://matrix.to/#/#WebGPU:matrix.org).
+
+For asynchronous concerns, we use Github for both our [issue tracker](https://github.com/gpuweb/gpuweb/issues) and our [discussions forum](https://github.com/gpuweb/gpuweb/discussions).
+
+Both the Community Group and the Working Group have W3C email lists as well, though these are largely administrative.
