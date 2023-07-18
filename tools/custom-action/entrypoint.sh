@@ -9,3 +9,4 @@ if [[ "$1" == "ON" ]]; then
   echo "Checking if repo is clean"
   bash tools/check-repo-clean.sh
 fi
+chmod --recursive a+rwX out # For subsequent steps
