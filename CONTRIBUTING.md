@@ -68,21 +68,23 @@ To build all documents:
 make -j
 ```
 
-To build the WebGPU specification (`spec/index.html`), `spec/webgpu.idl`, and run associated steps:
+To build just the WebGPU specification (`spec/index.html`):
 
 ```bash
-make -C spec
+make -C spec index.html
 ```
 
-To build the WGSL specification (`wgsl/index.html`) and run associated steps:
+To build just the WGSL specification (`wgsl/index.html`):
 
 ```bash
-make -C wgsl
+make -C wgsl index.html
 ```
-
-and similar for the other documents in this repository.
 
 Alternatively, `cd` into your target document's subdirectory, and call `make` or `make -j`.
+
+**Both `spec` and `wgsl` also have other targets in their `Makefile`s, which are documented inline.**
+
+The other documents in this repository (`correspondence` and `explainer`) can be built similarly.
 
 ## Previewing the spec
 
