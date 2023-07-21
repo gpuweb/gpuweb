@@ -1851,4 +1851,4 @@ class RhsIsChoiceWithASymbolAlternative(unittest.TestCase):
         self.assertEqual(follow_str(g,"R"),"{':'}")
 
 if __name__ == '__main__':
-	unittest.main()
+    unittest.main()
