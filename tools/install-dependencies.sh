@@ -7,12 +7,12 @@ for opt in "$@"; do
     case "$opt" in
         bikeshed)
             # Always use the latest bikeshed because that's what spec-prod uses.
-            pip3 install --upgrade bikeshed
+            python3 -m pip install --upgrade bikeshed
             bikeshed update
             code=0
             ;;
         wgsl)
-            pip3 install tree_sitter==$PIP_TREE_SITTER_VERSION
+            python3 -m pip install tree_sitter==$PIP_TREE_SITTER_VERSION
             code=0
             ;;
         diagrams)

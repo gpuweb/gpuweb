@@ -49,6 +49,8 @@ the W3C Patent Policy.
 All contributions must comply with the group's
 [contribution guidelines](https://github.com/gpuweb/admin/blob/master/CONTRIBUTING.md).
 
+**See [CONTRIBUTING.md](CONTRIBUTING.md) for technical guidance on contributing.**
+
 ## Code of Conduct
 
 This group operates under [W3C's Code of Conduct Policy](http://www.w3.org/Consortium/cepc/).
