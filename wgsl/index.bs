@@ -481,7 +481,7 @@ Following syntax notation describes the conventions of the syntactic grammar of 
 
 <dfn noexport>Angles</dfn>:
 * By convention, angles are measured in radians.
-* The reference ray for measuring angles is the ray from the origin (0,0) toward (0,&infin;).
+* The reference ray for measuring angles is the ray from the origin (0,0) toward (+&infin;,0).
 * Let &theta; be the angle subtended by a comparison ray and the reference ray.
     Then &theta; increases as the comparison ray moves counterclockwise.
 * There are 2 &pi; radians in a complete circle.
@@ -4226,8 +4226,6 @@ WGSL also predeclares the return types for the [[#frexp-builtin|frexp]],
 functions.
 However, they cannot be spelled in WGSL source.
 
-TODO: Editorial: Make dfn nodes for each predeclared type.
-
 The predeclared [=type-generators=] are listed in the following table:
 <table class=data>
 <caption>
@@ -4902,6 +4900,11 @@ A const-expression |E| [=behavioral requirement|will=] be evaluated if and only 
 
 Note: The evaluation rule implies that short-circuiting operators `&&` and `||` guard evaluation of their right-hand
 side subexpressions.
+
+A const-expression may be evaluated by the CPU implementing the WebGPU API methods.
+Therefore accuracy requirements for operations on [=AbstractFloat=] values are *no more strict* than
+required for common WebGPU runtime environments, such as WebAssembly [[WASM-CORE-2]] and ECMAScript [[ECMASCRIPT]].
+Accuracy requirements for [=type/concrete=] floating point types (such as f32) are specified in [[#concrete-float-accuracy]].
 
 Example:  `(42)` is analyzed as follows:
 * The term `42` is the [=AbstractInt=] value 42.
@@ -7674,11 +7677,11 @@ There are two kinds of functions:
 * A [=built-in function=] is provided by the WGSL implementation,
     and is always available to a WGSL module.
     See [[#builtin-functions]].
-* A <dfn noexport>user-defined function</dfn> is declared in a WGSL module.
+* A [=user-defined function=] is declared in a WGSL module.
 
 ## Declaring a User-defined Function ## {#function-declaration-sec}
 
-A <dfn noexport>function declaration</dfn> creates a user-defined function, by specifying:
+A <dfn noexport>function declaration</dfn> creates a <dfn noexport>user-defined function</dfn>, by specifying:
 * An optional set of [=attributes=].
 * The name of the function.
 * The formal parameter list: an ordered sequence of zero
@@ -7692,6 +7695,8 @@ A <dfn noexport>function declaration</dfn> creates a user-defined function, by s
 
 A function declaration [=shader-creation error|must=] only occur at [=module scope=].
 A function name is [=in scope=] for the entire program.
+
+Note: Each [=user-defined function=] only has one [=overload=].
 
 A <dfn noexport>formal parameter</dfn> [=declaration=] specifies an [=identifier=] name and a type for a value that [=shader-creation error|must=] be
 provided when invoking the function.
@@ -11495,28 +11500,28 @@ number `x` is defined as follows [[!Muller2005]]:
 * Otherwise, ULP(x) is `|b - a|` where `b` and `a` are the largest and second-largest
     representable finite floating point values.
 
-In the following tables, the accuracy of an operation is provided among five
+The accuracy of an operation is provided among five
 possibilities:
-* Correct result (for non-floating point return values).
+* Correct result (for non-floating point result values).
 * [=Correctly rounded=].
+* An absolute error bound.
 * A relative error bound expressed as [=ULP=].
 * An expression that the accuracy is <dfn noexport>inherited from</dfn>.
     That is, the accuracy of the operation is defined as the accuracy of evaluating the given WGSL expression.
     The given expression is only one valid implementation of the function.
     A WebGPU implementation may implement the operation differently, with better accuracy
     or with greater tolerance for extreme inputs.
-* An absolute error bound.
 
-For any accuracy values specified over a range, the accuracy is undefined for
-results outside that range.
+When the accuracy for an operation is specified over an input range,
+the accuracy is undefined for input values outside that range.
 
-If an allowable return value for any operation is greater in magnitude than the
-largest representable finite floating-point value, then that operation may additionally
-return either the infinity with the same sign or the largest finite
-value with the same sign.
+If an allowed result is outside the finite range of the result type, then
+the rules in [[#floating-point-overflow]] apply.
+
+#### Accuracy of Concrete Floating Point Expressions #### {#concrete-float-accuracy}
 
 <table class='data'>
-  <caption>Accuracy of expressions</caption>
+  <caption>Accuracy of concrete floating point operations</caption>
   <thead>
     <tr><th>Expression<th>Accuracy for f32<th>Accuracy for f16
   </thead>
@@ -11537,7 +11542,7 @@ value with the same sign.
 </table>
 
 <table class='data'>
-  <caption>Accuracy of built-in functions</caption>
+  <caption>Accuracy of concrete floating point built-in functions</caption>
   <thead>
     <tr><th>Built-in Function<th>Accuracy for f32<th>Accuracy for f16
   </thead>
@@ -11663,6 +11668,43 @@ value with the same sign.
   <tr><td>`unpack2x16float(x)`<td>Correctly rounded<td>N/A
 
 </table>
+
+#### Accuracy of AbstractFloat Expressions #### {#abstract-float-accuracy}
+
+The accuracy of an [=AbstractFloat=] operation is as follows:
+* A correct result is required when the corresponding [=f32=] operation requires a correct result.
+* A [=correctly rounded=] result is required when the corresponding [=f32=] operation requires a correctly rounded result.
+* Otherwise, the error of the corresponding [=f32=] operation is an absolute error, a relative error, an error inherited
+    from a potential implementation, or a combination of these.
+    In this case the error of the [=AbstractFloat=] is unbounded.
+    * However, the error of the [=AbstractFloat=] operation *should* be at most
+        the error of the corresponding operation in [=f32=], in absolute terms.
+    * This recommendation is meant to avoid surprises: the accuracy of
+        an expression should not be *reduced* when changing its type from f32 to AbstractFloat.
+    * The operation may be evaluated in a WebAssembly [[WASM-CORE-2]] or an ECMAScript [[ECMASCRIPT]]
+        environment, and those specifications do not specify error bounds on many
+        of the corresponding numeric computations.
+        For example, ECMAScript specifies many floating point operations as being
+        [[ECMASCRIPT#sec-terms-and-definitions-implementation-approximated|implementation-approximated]].
+        Implementations are encouraged to strive to approximate the ideal, but
+        no strict requirement is specified.
+
+<div class=note algorithm="ulp translation">
+<span class=marker>Note:</span>A given absolute error bound, when quantified as ULP,
+depends critically on the underlying floating point type.
+
+The [=ULP=] for an [=AbstractFloat=] value assumes
+AbstractFloat is identical to the [[!IEEE-754|IEEE-754]] binary64 type.
+
+One [=ULP=] for an f32 value is 2<sup>29</sup> times larger than 1 ULP for an IEEE 754 binary64 value,
+since the significand in the binary64 format is 29 bits longer than the significand in the f32 type.
+
+For example, suppose the true result value of an operation is |x|, but it is computed as <var>x'</var>.
+If its error |x|-<var>x'</var> is 3 ULP in f32, then the same absolute error, |x|-<var>x'</var>,
+is 3&middot;2<sup>29</sup> ULP in AbstractFloat.
+</div>
+
+### Reassociation and Fusion ### {#reassociation-and-fusion}
 
 <dfn noexport>Reassociation</dfn> is the reordering of operations in an
 expression such that the answer is the same if computed exactly. For example:
@@ -13238,7 +13280,13 @@ Note: The result is not mathematically meaningful when `abs(e)` &ge; 1.
     * `atan(y/x)` + &pi; when (`x` &lt; 0) and (`y` &gt; 0)
     * `atan(y/x)` - &pi; when (`x` &lt; 0) and (`y` &lt; 0)
 
-    Note: atan2 is ill-defined when `y/x` is ill-defined, at the origin (`x`,`y`) = (0,0), and when `y` is non-normal or infinite.
+    <div class=note>
+    <span class=marker>Note:</span> The error in the result is unbounded:
+    * When `abs(x)` is very small, e.g. subnormal for its type,
+    * At the origin (`x`,`y`) = (0,0), and
+    * When `y` is subnormal or infinite.
+
+    </div>
 
     [=Component-wise=] when `T` is a vector.
 </table>
@@ -13747,7 +13795,7 @@ For example, if `e` is a very small negative number, then `fract(e)` may be 1.0.
     * When `e` is zero, the fraction is zero.
     * When `e` is non-zero and normal, `e` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
-    * Otherwise, `e` is NaN or infinite. The result fraction and exponent are [=indeterminate values=].
+    * Otherwise, `e` is denormalized, NaN, or infinite. The result fraction and exponent are [=indeterminate values=].
 
     Returns the `__frexp_result_f32` built-in structure, defined as follows:
     ```wgsl
@@ -13795,7 +13843,7 @@ but a value may infer the type.
     * When `e` is zero, the fraction is zero.
     * When `e` is non-zero and normal, `e` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
-    * Otherwise, `e` is NaN or infinite. The result fraction and exponent are [=indeterminate values=].
+    * Otherwise, `e` is denormalized, NaN, or infinite. The result fraction and exponent are [=indeterminate values=].
 
     Returns the `__frexp_result_f16` built-in structure, defined as if as follows:
     ```wgsl
@@ -13832,6 +13880,7 @@ but a value may infer the type.
     * When `e` is zero, the fraction is zero.
     * When `e` is non-zero and normal, `e` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
+    * When `e` is denormalized, the fraction and exponent are [=indeterminate values=].
 
     Note: AbstractFloat expressions resulting in infinity or NaN cause a [=shader-creation error=].
 
