@@ -39,6 +39,11 @@ import unittest
 import Grammar
 import sys
 
+def first_str(g,name):
+    return str(Grammar.LookaheadSet(g.find(name).first()))
+def follow_str(g,name):
+    return str(Grammar.LookaheadSet(g.find(name).follow))
+
 # Like Aho, Sethi, Ullman Example 4.17, but with E changed
 DRAGON_BOOK_EXAMPLE_4_17 = """
 {
@@ -522,7 +527,7 @@ def _choice(*args):
       "members": [
         {}
       ]
-    }}""".format(",".join(*args))
+    }}""".format(",".join([*args]))
 def _rep1(content):
     return """
     {{
@@ -530,6 +535,20 @@ def _rep1(content):
       "content":
         {}
     }}""".format(content)
+
+def _rep(content):
+    return """
+    {{
+      "type": "REPEAT",
+      "content":
+        {}
+    }}""".format(content)
+
+def _optional(content):
+    return _choice(content,_empty())
+
+def _star(content): # Kleene star
+    return _rep(content)
 
 def _g(*args):
     pre = """
@@ -576,23 +595,23 @@ class DragonBook(unittest.TestCase):
     # Check First sets
     def test_E_first(self):
         r = self.g.find("E")
-        self.assertEqual(strset(r.first), "'(' 'id'")
+        self.assertEqual(strset(r.first()), "'(' 'id'")
 
     def test_T_first(self):
         r = self.g.find("T")
-        self.assertEqual(strset(r.first), "'(' 'id'")
+        self.assertEqual(strset(r.first()), "'(' 'id'")
 
     def test_F_first(self):
         r = self.g.find("F")
-        self.assertEqual(strset(r.first), "'(' 'id'")
+        self.assertEqual(strset(r.first()), "'(' 'id'")
 
     def test_Eprime_first(self):
         r = self.g.find("Eprime")
-        self.assertEqual(strset(r.first), "'+' {}".format(EPSILON))
+        self.assertEqual(strset(r.first()), "'+' {}".format(EPSILON))
 
     def test_Tprime_first(self):
         r = self.g.find("Tprime")
-        self.assertEqual(strset(r.first), "'*' {}".format(EPSILON))
+        self.assertEqual(strset(r.first()), "'*' {}".format(EPSILON))
 
     # Check Follow sets
     def test_E_follow(self):
@@ -623,47 +642,47 @@ class SimpleWgsl_First(unittest.TestCase):
 
     def test_token_string(self):
         r = self.g.find('at')
-        self.assertEqual(1,len(r.first))
-        self.assertEqual("'@'",strset(r.first))
+        self.assertEqual(1,len(r.first()))
+        self.assertEqual("'@'",strset(r.first()))
         self.assertFalse(r.derives_empty())
 
     def test_token_pattern(self):
         r = self.g.find('ident')
-        self.assertEqual("/[a-z]+/",strset(r.first))
+        self.assertEqual("/[a-z]+/",strset(r.first()))
         self.assertFalse(r.derives_empty())
 
     def test_empty(self):
         r = self.g.empty
-        self.assertEqual(EPSILON,strset(r.first))
+        self.assertEqual(EPSILON,strset(r.first()))
         self.assertTrue(r.derives_empty())
 
     def test_end_of_text(self):
         r = self.g.end_of_text
-        self.assertEqual("EndOfText",strset(r.first))
+        self.assertEqual("EndOfText",strset(r.first()))
         self.assertFalse(r.derives_empty())
 
     def test_function_header(self):
         # A Sequence rule with definite first symbol
         r = self.g.find('function_header')
-        self.assertEqual("'fn'",strset(r.first))
+        self.assertEqual("'fn'",strset(r.first()))
         self.assertFalse(r.derives_empty())
 
     def test_function_decl(self):
         # A sequence with an optional first symbol
         r = self.g.find('function_decl')
-        self.assertEqual("'@' 'fn'",strset(r.first))
+        self.assertEqual("'@' 'fn'",strset(r.first()))
         self.assertFalse(r.derives_empty())
 
     def test_translation_unit_0_0(self):
         # Can be empty.
         r = self.g.find('translation_unit/0.0')
-        self.assertEqual("';' '@' 'fn' 'type' {}".format(EPSILON),strset(r.first))
+        self.assertEqual("';' '@' 'fn' 'type' {}".format(EPSILON),strset(r.first()))
         self.assertTrue(r.derives_empty())
 
     def test_translation_unit(self):
         # Can be empty.
         r = self.g.find('translation_unit')
-        self.assertEqual("';' '@' 'fn' 'type' {}".format(EPSILON),strset(r.first))
+        self.assertEqual("';' '@' 'fn' 'type' {}".format(EPSILON),strset(r.first()))
         self.assertTrue(r.derives_empty())
 
 
@@ -695,14 +714,14 @@ class SimpleWgsl_Follow(unittest.TestCase):
 
     def test_function_decl(self):
         r = self.g.find('function_decl')
-        self.assertEqual("",strset(r.follow))
+        self.assertEqual("';' '@' 'fn' 'type' EndOfText",strset(r.follow))
 
     def test_global_decl(self):
         # A global decl can be followed by another global decl.
         # So the non-Empty symbols from global-decl's First set
         # is what is in its Follow set.
         r = self.g.find('global_decl')
-        self.assertEqual("';' '@' 'fn' 'type'",strset(r.follow))
+        self.assertEqual("';' '@' 'fn' 'type' EndOfText",strset(r.follow))
 
     def test_translation_unit(self):
         # Can be empty.
@@ -1559,5 +1578,277 @@ class Grammar_registers_objects(unittest.TestCase):
         self.assertEqual(at.reg_info.obj, at)
         self.assertEqual(at.reg_info.index, 2)
 
+# Example 4.21
+class DragonBook_4_21(unittest.TestCase):
+    def toy_grammar(self):
+        # Grammar 4.21 in Example 4.42 with table shown example 4.43
+        """
+        language = S
+        S = C C
+        C = 'c' C | 'd'
+        """
+        # Tokens
+        c = _fixed("c")
+        d = _fixed("d")
+
+        S = _sym("S")
+        C = _sym("C")
+
+        SDef = _def("S", _seq(C,C))
+        CDef = _def("C", _choice(_seq(c,C),d))
+        g = _gl("S", SDef, CDef)
+        return g
+
+    def test_first(self):
+        g = self.toy_grammar()
+        Sfirst = Grammar.LookaheadSet(g.find("S").first())
+        self.assertEqual(str(Sfirst),"{'c' 'd'}")
+        Cfirst = Grammar.LookaheadSet(g.find("C").first())
+        self.assertEqual(str(Cfirst),"{'c' 'd'}")
+
+    def test_follow(self):
+        g = self.toy_grammar()
+        Sfollow = Grammar.LookaheadSet(g.find("S").follow)
+        self.assertEqual(str(Sfollow),"{EndOfText}")
+        Cfollow = Grammar.LookaheadSet(g.find("C").follow)
+        self.assertEqual(str(Cfollow),"{'c' 'd' EndOfText}")
+
+# Example 4.34
+class DragonBook_4_34(unittest.TestCase):
+    def toy_grammar(self):
+        # Grammar 4.19 in example 4.34
+        # Canonical LR(0) collections are in Fig 4.35
+        """
+        language = E
+        E = E '+' T | T
+        T = T '*' F | F
+        F = '(' E ')' | 'id'
+        """
+
+        # Tokens
+
+        Id = _fixed("id")
+        E = _sym("E")
+        T = _sym("T")
+        F = _sym("F")
+        LParen = _sym("LParen")
+        RParen = _sym("RParen")
+        Plus = _sym("Plus")
+        Times = _sym("Times")
+
+        LParenDef = _def("LParen",_fixed("("))
+        RParenDef = _def("RParen",_fixed(")"))
+        PlusDef = _def("Plus",_fixed("+"))
+        TimesDef = _def("Times",_fixed("*"))
+        EDef = _def("E", _choice(_seq(E,Plus,T),T))
+        TDef = _def("T", _choice(_seq(T,Times,F),F))
+        FDef = _def("F", _choice(_seq(LParen,E,RParen),Id))
+        g = _gl("E", EDef,TDef,FDef,LParenDef,RParenDef,PlusDef,TimesDef)
+        return g
+
+    def toy_grammar_inline_fixed(self):
+        # Like toy_grammar, but fixed tokens are inlined.
+        """
+        language = E
+        E = E '+' T | T
+        T = T '*' F | F
+        F = '(' E ')' | 'id'
+        """
+
+        # Tokens
+
+        Id = _fixed("id")
+        E = _sym("E")
+        T = _sym("T")
+        F = _sym("F")
+
+        LParen = _fixed("(")
+        RParen = _fixed(")")
+        Plus = _fixed("+")
+        Times = _fixed("*")
+        EDef = _def("E", _choice(_seq(E,Plus,T),T))
+        TDef = _def("T", _choice(_seq(T,Times,F),F))
+        FDef = _def("F", _choice(_seq(LParen,E,RParen),Id))
+        g = _gl("E", EDef,TDef,FDef)
+        return g
+
+    def dont_test_dump(self):
+        g = self.toy_grammar()
+        g.dump()
+        g = self.toy_grammar_inline_fixed()
+        g.dump()
+        print(file=sys.stdout,flush=True)
+
+    def test_first(self):
+        g = self.toy_grammar()
+
+        self.assertEqual(first_str(g,"E"),"{'(' 'id'}")
+        self.assertEqual(first_str(g,"T"),"{'(' 'id'}")
+        self.assertEqual(first_str(g,"F"),"{'(' 'id'}")
+
+    def test_follow(self):
+        g = self.toy_grammar()
+
+        self.assertEqual(follow_str(g,"E"),"{')' '+' EndOfText}")
+        self.assertEqual(follow_str(g,"T"),"{')' '*' '+' EndOfText}")
+        self.assertEqual(follow_str(g,"F"),"{')' '*' '+' EndOfText}")
+
+    def test_flat_first(self):
+        g = self.toy_grammar_inline_fixed()
+
+        self.assertEqual(first_str(g,"E"),"{'(' 'id'}")
+        self.assertEqual(first_str(g,"T"),"{'(' 'id'}")
+        self.assertEqual(first_str(g,"F"),"{'(' 'id'}")
+
+    def test_flat_follow(self):
+        g = self.toy_grammar_inline_fixed()
+
+        self.assertEqual(follow_str(g,"E"),"{')' '+' EndOfText}")
+        self.assertEqual(follow_str(g,"T"),"{')' '*' '+' EndOfText}")
+        self.assertEqual(follow_str(g,"F"),"{')' '*' '+' EndOfText}")
+
+class RhsIsJustSymbol(unittest.TestCase):
+    # Check first and follow set computation when there is a rule like:
+    #    A -> B
+    # where B is a nonterminal.
+    # For example, the Follow set for A propagates into B.
+    def toy_grammar(self,E_as_seq):
+        # A simplified switch-case grammar
+        """
+        language = S
+        S = '{' Case '}'
+        Case = E ':'
+        E = R
+        R = Id '<' Id
+        """
+
+        # Tokens
+
+        Id = _fixed("id")
+        Less = _fixed("<")
+        Colon = _fixed(":")
+        LBrace = _fixed("{")
+        RBrace = _fixed("}")
+
+        S = _sym("S")
+        Case = _sym("Case")
+        E = _sym("E")
+        R = _sym("R")
+
+        SDef = _def("S",_seq(LBrace,Case,RBrace))
+        CaseDef = _def("Case",_seq(E,Colon))
+        if E_as_seq:
+            EDef = _def("E",_seq(R))
+        else:
+            EDef = _def("E",R)
+        RDef = _def("R",_seq(Id,Less,Id))
+        g = _gl("S", SDef,CaseDef,EDef,RDef)
+        return g
+
+    def xtest_dump(self):
+        g = self.toy_grammar(True)
+        g.dump()
+        g = self.toy_grammar(False)
+        g.dump()
+        print(file=sys.stdout,flush=True)
+
+    def test_first(self):
+        g = self.toy_grammar(True)
+        self.assertEqual(first_str(g,"S"),"{'{'}")
+        self.assertEqual(first_str(g,"Case"),"{'id'}")
+        self.assertEqual(first_str(g,"E"),"{'id'}")
+        self.assertEqual(first_str(g,"R"),"{'id'}")
+        g = self.toy_grammar(False)
+        self.assertEqual(first_str(g,"S"),"{'{'}")
+        self.assertEqual(first_str(g,"Case"),"{'id'}")
+        self.assertEqual(first_str(g,"E"),"{'id'}")
+        self.assertEqual(first_str(g,"R"),"{'id'}")
+
+    def test_follow(self):
+        g = self.toy_grammar(True)
+        self.assertEqual(follow_str(g,"S"),"{EndOfText}")
+        self.assertEqual(follow_str(g,"Case"),"{'}'}")
+        self.assertEqual(follow_str(g,"E"),"{':'}")
+        self.assertEqual(follow_str(g,"R"),"{':'}")
+        g = self.toy_grammar(False)
+        self.assertEqual(follow_str(g,"S"),"{EndOfText}")
+        self.assertEqual(follow_str(g,"Case"),"{'}'}")
+        self.assertEqual(follow_str(g,"E"),"{':'}")
+        self.assertEqual(follow_str(g,"R"),"{':'}")
+
+class RhsIsChoiceWithASymbolAlternative(unittest.TestCase):
+    # Check first and follow set computation when there is a rule like:
+    #    A -> B | 'finite'
+    # where B is a nonterminal.
+    # For example, the Follow set for A propagates into B.
+    def toy_grammar(self,choice_over_sequence):
+        """
+        language = S
+        S = '{' Case '}'
+        Case = CaseSelector ':'
+        CaseSelector = E | 'default'
+        E = R
+        R = Id '<' Id
+        """
+
+        # Tokens
+
+        Id = _fixed("id")
+        Default = _fixed("default")
+        Less = _fixed("<")
+        Colon = _fixed(":")
+        LBrace = _fixed("{")
+        RBrace = _fixed("}")
+
+        S = _sym("S")
+        Case = _sym("Case")
+        CaseSelector = _sym("CaseSelector")
+        E = _sym("E")
+        R = _sym("R")
+
+        SDef = _def("S",_seq(LBrace,Case,RBrace))
+        CaseDef = _def("Case",_seq(CaseSelector,Colon))
+        if choice_over_sequence:
+            CaseSelectorDef = _def("CaseSelector",_choice(_seq(E),_seq(Default)))
+        else:
+            CaseSelectorDef = _def("CaseSelector",_choice(E,Default))
+        EDef = _def("E",_seq(R))
+        RDef = _def("R",_seq(Id,Less,Id))
+        g = _gl("S", SDef,CaseDef,CaseSelectorDef,EDef,RDef)
+        return g
+
+    def xtest_dump(self):
+        g = self.toy_grammar(False)
+        g.dump()
+        g = self.toy_grammar(True)
+        g.dump()
+        print(file=sys.stdout,flush=True)
+
+    def test_first(self):
+        g = self.toy_grammar(False)
+        self.assertEqual(first_str(g,"S"),"{'{'}")
+        self.assertEqual(first_str(g,"Case"),"{'default' 'id'}")
+        self.assertEqual(first_str(g,"CaseSelector"),"{'default' 'id'}")
+        self.assertEqual(first_str(g,"E"),"{'id'}")
+        self.assertEqual(first_str(g,"R"),"{'id'}")
+        g = self.toy_grammar(True)
+        self.assertEqual(first_str(g,"S"),"{'{'}")
+        self.assertEqual(first_str(g,"Case"),"{'default' 'id'}")
+        self.assertEqual(first_str(g,"CaseSelector"),"{'default' 'id'}")
+        self.assertEqual(first_str(g,"E"),"{'id'}")
+        self.assertEqual(first_str(g,"R"),"{'id'}")
+
+    def test_follow(self):
+        g = self.toy_grammar(False)
+        self.assertEqual(follow_str(g,"S"),"{EndOfText}")
+        self.assertEqual(follow_str(g,"Case"),"{'}'}")
+        self.assertEqual(follow_str(g,"E"),"{':'}")
+        self.assertEqual(follow_str(g,"R"),"{':'}")
+        g = self.toy_grammar(True)
+        self.assertEqual(follow_str(g,"S"),"{EndOfText}")
+        self.assertEqual(follow_str(g,"Case"),"{'}'}")
+        self.assertEqual(follow_str(g,"E"),"{':'}")
+        self.assertEqual(follow_str(g,"R"),"{':'}")
+
 if __name__ == '__main__':
-	unittest.main()
+    unittest.main()

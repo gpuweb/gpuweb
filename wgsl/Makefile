@@ -1,19 +1,22 @@
-.PHONY: all clean validate lalr validate-examples
+SHELL := /bin/bash
 
-all: index.html validate test diagrams
-validate: lalr validate-examples
-validate-examples: grammar/grammar.js
+.PHONY: all clean nfkc validate lalr validate-examples
+
+all: index.html nfkc validate test diagrams
+validate: lalr tspath_tests unit_tests validate-examples
 
 clean:
-	rm -f index.html index.pre.html grammar/grammar.js wgsl.lalr.txt
+	rm -f index.html index.bs.pre index.pre.html wgsl.recursive.bs.include.pre grammar/grammar.js wgsl.lalr.txt
+	rm -rf grammar/build
+
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs $(wildcard wgsl.*.bs.include)
+WGSL_SOURCES:=index.bs scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include)
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
 GHC=https://github.com/gpuweb/gpuweb/blob
-index.html: index.pre.html
+index.html: index.pre.html nfkc
 	@echo 'Inserting source permalink: index.pre.html -> index.html'
 	@sed -e "s,gpuweb/wgsl/</a>,gpuweb/wgsl/</a><br><a href=\"$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs\">$(GHC)/$(shell git rev-parse HEAD)/wgsl/index.bs</a>," <index.pre.html >index.html
 
@@ -21,17 +24,38 @@ index.html: index.pre.html
 MERMAID_OUTPUTS := $(patsubst diagrams/%.mmd,img/%.mmd.svg,$(wildcard diagrams/*.mmd))
 diagrams: $(MERMAID_OUTPUTS)
 img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
-	sh ../tools/invoke-mermaid.sh -i $< -o $@
+	bash ../tools/invoke-mermaid.sh -i $< -o $@
 
-# Extract WGSL grammar from the spec, validate it with Treesitter,
-# and use Treesitter to parse many code examples in the spec.
-grammar/grammar.js: index.bs extract-grammar.py
-	python3 ./extract-grammar.py index.bs grammar/grammar.js
+TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
+TREESITTER_PARSER := grammar/build/wgsl.so
+
+# Extract WGSL grammar from the spec, validate it by building a Treesitter parser from it.
+$(TREESITTER_GRAMMAR_INPUT) $(TREESITTER_PARSER): index.bs scanner.cc extract-grammar.py
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
+
+.PHONY: validate-examples
+# Use Treesitter to parse many code examples in the spec.
+validate-examples: $(TREESITTER_PARSER)
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --flow e
+
+.PHONY: tspath_tests
+tspath_tests: TSPath.py
+	python3 TSPath.py
+
+.PHONY: unit_tests
+# Use Treesitter to parse code samples
+unit_tests: $(TREESITTER_PARSER) wgsl_unit_tests.py
+	python3 wgsl_unit_tests.py --parser $(TREESITTER_PARSER)
 
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json
-$(WGSL_GRAMMAR) : grammar/grammar.js
+$(WGSL_GRAMMAR) : $(TREESITTER_GRAMMAR_INPUT)
 
+wgsl_unit_tests: 
+
+.PHONY: nfkc
+nfkc:
+	python3 ../tools/check-nfkc.py
 
 #### Grammar analyzer materials below here.
 #### You probably only want 'make validate'
@@ -69,7 +93,7 @@ recursive_bs : $(ANALYZER) $(WGSL_GRAMMAR)
 
 wgsl.recursive.bs.include : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json >$@.pre
-	sh ../tools/copy-if-different.sh $@.pre $@
+	bash ../tools/copy-if-different.sh $@.pre $@
 
 # Print a simple (uncanonicalized form) of the grammar and check LL(1)
 .PHONY: recursive_ll

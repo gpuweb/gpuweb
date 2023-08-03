@@ -1,4 +1,5 @@
 # This should be invoked with make -j for full parallelism.
+SHELL := /bin/bash
 
 targets := spec wgsl explainer correspondence
 

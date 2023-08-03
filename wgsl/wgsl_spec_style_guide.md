@@ -93,12 +93,12 @@ and end with a line which only contains `` </div> ``. There must be only one
 syntactic rule between these lines.
 * Each syntactic rule must define itself for Bikeshed. Each syntactic rule definition must start with two spaces
 and then place the rule name between `` <dfn for=syntax> `` and `` </dfn> : `` on the same line.
-* Each syntactic rule item must start with four spaces and then list members after `` | `` followed by a space.
+* Each syntactic rule item must start with four spaces and then list members after `` | `` followed by a space.
     * Syntactic rule items can be split to multiple lines. For this, start the next line with six spaces.
 * Each syntactic rule item must be surrounded by only a space before and after,
 trailing space at the end of the line being redundant.
 * Members of syntactic rules items can be references to existing rules. These must be placed between
-`` [=syntax/ `` and `` =] ``.
+`` [=syntax/ `` and `` =] ``.
 * Members of syntactic rules can contain groups which should contain the group members between `` ( `` and `` ) ``.
 * Members of syntactic rule items which denote a string should start with `` `' ``
 and end with `` '` `` and not contain any space character or line break between these two.
@@ -107,6 +107,11 @@ and end with `` /` `` and not contain any space character or line break between 
 * If a member is optional, then it must be followed by a `` ? `` member token.
 * If a member can repeat and must appear at least once, then it must be followed by a `` + `` member token.
 * If a member can repeat and does not have to appear, then it must be followed by a `` * `` member token.
+
+WGSL specification normalizes its normative and informative sources to
+promote interoperability between developers using different input mechanisms.
+A developer intending to contribute can automatically normalize sources by
+passing `--fix` to `check-nfkc.py` in the tools directory.
 
 ## Tagging conventions
 
