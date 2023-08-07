@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eo pipefail
 
 if [ $# -lt 1 ] ; then
     echo "Usage: $0 output.html SOURCE_FILES..."

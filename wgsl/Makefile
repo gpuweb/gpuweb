@@ -1,14 +1,17 @@
+SHELL := /bin/bash
+
 .PHONY: all clean nfkc validate lalr validate-examples
 
 all: index.html nfkc validate test diagrams
-validate: lalr unit_tests validate-examples
+validate: lalr tspath_tests unit_tests validate-examples
 
 clean:
-	rm -f index.html index.pre.html index.bs.pre grammar/grammar.js grammar/build wgsl.lalr.txt
+	rm -f index.html index.bs.pre index.pre.html wgsl.recursive.bs.include.pre grammar/grammar.js wgsl.lalr.txt
+	rm -rf grammar/build
 
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include
+WGSL_SOURCES:=index.bs scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include)
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
@@ -21,19 +24,23 @@ index.html: index.pre.html nfkc
 MERMAID_OUTPUTS := $(patsubst diagrams/%.mmd,img/%.mmd.svg,$(wildcard diagrams/*.mmd))
 diagrams: $(MERMAID_OUTPUTS)
 img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
-	sh ../tools/invoke-mermaid.sh -i $< -o $@
+	bash ../tools/invoke-mermaid.sh -i $< -o $@
 
 TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
 TREESITTER_PARSER := grammar/build/wgsl.so
 
 # Extract WGSL grammar from the spec, validate it by building a Treesitter parser from it.
 $(TREESITTER_GRAMMAR_INPUT) $(TREESITTER_PARSER): index.bs scanner.cc extract-grammar.py
-	python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
 
 .PHONY: validate-examples
 # Use Treesitter to parse many code examples in the spec.
 validate-examples: $(TREESITTER_PARSER)
-	python3 ./extract-grammar.py --flow e
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --flow e
+
+.PHONY: tspath_tests
+tspath_tests: TSPath.py
+	python3 TSPath.py
 
 .PHONY: unit_tests
 # Use Treesitter to parse code samples
@@ -86,7 +93,7 @@ recursive_bs : $(ANALYZER) $(WGSL_GRAMMAR)
 
 wgsl.recursive.bs.include : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json >$@.pre
-	sh ../tools/copy-if-different.sh $@.pre $@
+	bash ../tools/copy-if-different.sh $@.pre $@
 
 # Print a simple (uncanonicalized form) of the grammar and check LL(1)
 .PHONY: recursive_ll

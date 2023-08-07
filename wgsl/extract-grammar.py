@@ -4,10 +4,12 @@ from datetime import date
 from string import Template
 
 import argparse
+import difflib
 import os
 import re
 import subprocess
 import sys
+import string
 import shutil
 import wgsl_unit_tests
 
@@ -15,14 +17,25 @@ from distutils.ccompiler import new_compiler
 from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
 
+# TODO: Source from spec
+derivative_patterns = {
+    "_comment": "/\\/\\/.*/",
+    "_blankspace": "/[\\u0020\\u0009\\u000a\\u000b\\u000c\\u000d\\u0085\\u200e\\u200f\\u2028\\u2029]/u"
+}
+
 class Options():
-    def __init__(self,bs_filename, tree_sitter_dir, scanner_cc_filename):
+    """
+    A class to store various options including file paths and verbosity.
+    """
+    def __init__(self,bs_filename, tree_sitter_dir, scanner_cc_filename, syntax_filename, syntax_dir):
         self.script = 'extract-grammar.py'
         self.bs_filename = bs_filename
         self.grammar_dir = tree_sitter_dir
         self.scanner_cc_filename = scanner_cc_filename
         self.wgsl_shared_lib = os.path.join(self.grammar_dir,"build","wgsl.so")
         self.grammar_filename = os.path.join(self.grammar_dir,"grammar.js")
+        self.syntax_filename = syntax_filename
+        self.syntax_dir = syntax_dir
         self.verbose = False
 
     def __str__(self):
@@ -33,9 +46,11 @@ class Options():
         parts.append("grammar_filename = {}".format(self.grammar_filename))
         parts.append("scanner_cc_filename = {}".format(self.scanner_cc_filename))
         parts.append("wgsl_shared_lib = {}".format(self.wgsl_shared_lib))
+        parts.append("syntax_filename = {}".format(self.syntax_filename))
+        parts.append("syntax_dir = {}".format(self.syntax_dir))
         return "Options({})".format(",".join(parts))
 
-def newer_than(first,second):
+def newer_than(first,second,second_ext=""):
     """
     Returns true if file 'first' is newer than 'second',
     or if 'second' does not exist
@@ -46,12 +61,32 @@ def newer_than(first,second):
         return True
     first_time = os.path.getmtime(first)
     second_time = os.path.getmtime(second)
+    # Find the most recent file if second is a directory
+    if os.path.isdir(second):
+        for root, dirs, files in os.walk(second):
+            for name in files:
+                if not name.endswith(second_ext):
+                    continue
+                p = os.path.join(root, name)
+                second_time = max(second_time, os.path.getmtime(p))
     return first_time >= second_time
 
+def remove_files(dir, ext=""):
+    """
+    Removes all files in the given directory,
+    optionally with the given extension.
+    """
+    for root, dirs, files in os.walk(dir):
+        for name in files:
+            if name.endswith(ext):
+                p = os.path.join(root, name)
+                os.remove(p)
 
 def read_lines_from_file(filename, exclusions):
-    """Returns the text lines from the given file.
-    Processes bikeshed path includes, except for files named the exclusion list.
+    """
+    Returns the text lines from the given file.
+    Processes bikeshed path includes, except for files named in the exclusion list,
+    or files with ".syntax.bs.include" in their name.
     Skips empty lines.
     """
     file = open(filename, "r")
@@ -59,7 +94,7 @@ def read_lines_from_file(filename, exclusions):
     parts = [j for i in [i.split("\n") for i in file.readlines()]
              for j in i if len(j) > 0]
     result = []
-    include_re = re.compile('path:\s+(\S+)')
+    include_re = re.compile('(?!.*\.syntax\.bs\.include)path:\s+(\S+)')
     for line in parts:
         m = include_re.match(line)
         if m:
@@ -242,6 +277,59 @@ class scanner_example(Scanner):
         return (None, line, 0)
 
 
+class scanner_token(Scanner):
+    """
+    A scanner that reads WGSL syntax tokens from bikeshed source text.
+    """
+    @staticmethod
+    def name():
+        return "token"
+
+    """
+     Returns true if this scanner should be used starting at the i'th line
+    """
+    @staticmethod
+    def begin(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        result = "* <dfn for=syntax_sym lt='" in line
+        key = None
+        if result:
+            # From a line like:  "* <dfn for=syntax_sym lt='and' noexport>`'&'`..."
+            # set key to "'&'"
+            key = line.split(" noexport>`")[1].split("`")[0]
+        return (result, key, 0)
+
+    @staticmethod
+    def end(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        return (True, 0) # Token definitions always start and end at the same line
+
+    @staticmethod
+    def record(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        return (True, 0)
+
+    @staticmethod
+    def skip(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        return (False, 0)
+
+    @staticmethod
+    def valid(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        return True
+
+    @staticmethod
+    def parse(lines, i):
+        line = lines[i].split("//")[0].rstrip()
+        result = "* <dfn for=syntax_sym lt='" in line
+        value = None
+        if result:
+            # From a line like:  "* <dfn for=syntax_sym lt='and' noexport>`'&'`..."
+            # set key to "and"
+            value = line.split("* <dfn for=syntax_sym lt='")[1].split("'")[0]
+        return (None, value, 0)
+
 # These fixed tokens must be parsed by the custom scanner.
 # This is needed to support template disambiguation.
 custom_simple_tokens = {
@@ -255,118 +343,290 @@ custom_simple_tokens = {
     '>>=': '_shift_right_assign'
 }
 
-def grammar_from_rule_item(rule_item):
-    """
-    Returns a string for the JavaScript expression for this rule.
-    """
-    global custom_simple_tokens
-    result = ""
-    item_choice = False
-    items = []
-    i = 0
-    while i < len(rule_item):
-        i_optional = False
-        i_repeatone = False
-        i_skip = 0
-        i_item = ""
-        if rule_item[i].startswith("[=syntax/"):
-            # From '[=syntax/foobar=]' pick out 'foobar'
-            i_item = rule_item[i].split("[=syntax/")[1].split("=]")[0]
-            i_item = f"$.{i_item}"
-        elif rule_item[i].startswith("`/"):
-            # From "`/pattern/`" pick out '/pattern/'
-            i_item = f"token({rule_item[i][1:-1]})"
-        elif rule_item[i].startswith("`'"):
-            # From "`'&&'`" pick out '&&'
-            content = rule_item[i][2:-2]
-            # If the name maps to a custom token, then use that, otherwise,
-            # use the content name itself.
-            if content in custom_simple_tokens:
-                i_item = custom_simple_tokens[content]
-            else:
-                i_item = f"token('{content}')"
-        elif rule_item[i].startswith("<span"):
-            # From ['<span', 'class=hidden>_disambiguate_template</span>']
-            # pick out '_disambiguate_template'
-            match = re.fullmatch("[^>]*>(.*)</span>",rule_item[i+1])
-            token = match.group(1)
-            i_item = f"$.{token}"
-            i += 1
-        elif rule_item[i].startswith("<a"):
-            # From  ['<a', 'for=syntax_kw', "lt=true>`'true'`</a>"]
-            # pick out "true"
-            match = re.fullmatch("[^>]*>`'(.*)'`</a>",rule_item[i+2])
-            if match:
-                token = match.group(1)
-            else:
-                # Now try it without `' '` surrounding the element content text.
-                # From  ['<a', 'for=syntax_sym', "lt=_disam>_disam</a>"]
-                # pick out "_disam"
-                match = re.fullmatch("[^>]*>(.*)</a>",rule_item[i+2])
-                token = match.group(1)
-            if token in custom_simple_tokens:
-                token = custom_simple_tokens[token]
-                i_item = f"$.{token}"
-            elif token.startswith("_") and token != "_":
-                i_item = f"$.{token}"
-            else:
-                i_item = f"""token('{token}')"""
-            i += 2
-        elif rule_item[i] == "(":
-            # Extract a parenthesized rule
-            j = i + 1
-            j_span = 0
-            rule_subitem = []
-            while j < len(rule_item):
-                if rule_item[j] == "(":
-                    j_span += 1
-                elif rule_item[j] == ")":
-                    j_span -= 1
-                rule_subitem.append(rule_item[j])
-                j += 1
-                if rule_item[j] == ")" and j_span == 0:
-                    break
-            i_item = grammar_from_rule_item(rule_subitem)
-            i = j
-        if len(rule_item) - i > 1:
-            if rule_item[i + 1] == "+":
-                i_repeatone = True
-                i_skip += 1
-            elif rule_item[i + 1] == "?":
-                i_optional = True
-                i_skip += 1
-            elif rule_item[i + 1] == "*":
-                i_repeatone = True
-                i_optional = True
-                i_skip += 1
-            elif rule_item[i + 1] == "|":
-                item_choice = True
-                i_skip += 1
-        if i_repeatone:
-            i_item = f"repeat1({i_item})"
-        if i_optional:
-            i_item = f"optional({i_item})"
-        items.append(i_item)
-        i += 1 + i_skip
-    if item_choice == True:
-        result = f"choice({', '.join(items)})"
-    else:
-        if len(items) == 1:
-            result = items[0]
-        else:
-            result = f"seq({', '.join(items)})"
-    return result
+def reproduce_bnfdialect_source(syntax_dict):
+    bnfdialect_source = """// This file is not directly compatible with existing BNF parsers. Instead, it
+// uses a dialect for a concise reading experience, such as pattern literals
+// for tokens and generalizing RegEx operations that reduce the need for empty
+// alternatives. For details on interpreting this dialect, see 1.2. Syntax
+// Notation in WebGPU Shading Language (WGSL) Specification.\n"""
 
+    def reproduce_rule_source(production, rule_name=""):
+        if production["type"] in ["symbol", "token", "pattern"]:
+            return production["value"]
+        elif production["type"] == "sequence":
+            if len(rule_name) == 0:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["value"]
+                        ]
+                    )
+                    + " )"
+                )
+            else:
+                return " ".join(
+                    [reproduce_rule_source(member) for member in production["value"]]
+                )
+        elif production["type"] == "choice":
+            return (
+                "( "
+                + " | ".join(
+                    [reproduce_rule_source(member) for member in production["value"]]
+                )
+                + " )"
+            )
+        elif production["type"] == "match_0_1":
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " ?"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["value"]
+                        ]
+                    )
+                    + " ) ?"
+                )
+        elif production["type"] == "match_1_n":
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " +"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["value"]
+                        ]
+                    )
+                    + " ) +"
+                )
+        elif production["type"] == "match_0_n":
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " *"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["value"]
+                        ]
+                    )
+                    + " ) *"
+                )
+        else:
+            raise RuntimeError(f"Unknown production type: {production['type']}")
+
+    for rule_name in syntax_dict.keys():
+        if syntax_dict[rule_name]["type"] in ["symbol", "token", "pattern"]:
+            bnfdialect_source += f"\n{rule_name} :\n  {syntax_dict[rule_name]['value']}\n;\n"
+        elif syntax_dict[rule_name]["type"] == "sequence":
+            subsource = " ".join(
+                [
+                    reproduce_rule_source(member, rule_name)
+                    for member in syntax_dict[rule_name]["value"]
+                ]
+            )
+            bnfdialect_source += f"\n{rule_name} :\n  {subsource}\n;\n"
+        elif syntax_dict[rule_name]["type"] == "choice":
+            subsource = "\n| ".join(
+                [
+                    reproduce_rule_source(member, rule_name)
+                    for member in syntax_dict[rule_name]["value"]
+                ]
+            )
+            bnfdialect_source += f"\n{rule_name} :\n  {subsource}\n;\n"
+    return bnfdialect_source.strip()
 
 def grammar_from_rule(key, value):
-    result = f"        {key}: $ =>"
-    if len(value) == 1:
-        result += f" {grammar_from_rule_item(value[0])}"
-    else:
-        result += " choice(\n            {}\n        )".format(
-            ',\n            '.join([grammar_from_rule_item(i) for i in value]))
-    return result
+    def reproduce_rule_source(production, rule_name=""):
+        if production["type"] in ["token", "pattern"]:
+            return production["value"]
+        elif production["type"] == "symbol":
+            return f"$.{production['value']}"
+        elif production["type"] == "sequence":
+            return (
+                "seq("
+                + ", ".join(
+                    [
+                        reproduce_rule_source(member)
+                        for member in production["value"]
+                    ]
+                )
+                + ")"
+            )
+        elif production["type"] == "choice":
+            return (
+                "choice("
+                + ", ".join(
+                    [reproduce_rule_source(member) for member in production["value"]]
+                )
+                + ")"
+            )
+        elif production["type"] == "match_0_1":
+            return (
+                "optional(" + ("seq(" if len(production["value"]) > 1 else "")
+                + ", ".join(
+                    [
+                        reproduce_rule_source(member)
+                        for member in production["value"]
+                    ]
+                )
+                + ")" + (")" if len(production["value"]) > 1 else "")
+            )
+        elif production["type"] == "match_1_n":
+            return (
+                "repeat1(" + ("seq(" if len(production["value"]) > 1 else "")
+                + ", ".join(
+                    [
+                        reproduce_rule_source(member)
+                        for member in production["value"]
+                    ]
+                )
+                + ")" + (")" if len(production["value"]) > 1 else "")
+            )
+        elif production["type"] == "match_0_n":
+            return (
+                "repeat(" + ("seq(" if len(production["value"]) > 1 else "")
+                + ", ".join(
+                    [
+                        reproduce_rule_source(member)
+                        for member in production["value"]
+                    ]
+                )
+                + ")" + (")" if len(production["value"]) > 1 else "")
+            )
+        else:
+            raise RuntimeError(f"Unknown production type: {production['type']}")
 
+    return f"\n        {key}: $ => {reproduce_rule_source(value)}"
+
+def bs_fragment_from_rule(key, value, result):
+    """
+    Returns a valid Bikeshed fragment from a given rule
+    """
+
+    def reproduce_rule_source(production, rule_name=""):
+        if production["type"] in ["symbol", "token", "pattern"]:
+            subsource = ""
+            if production["type"] == "symbol":
+                affix = ""
+                if production["value"].startswith("_"):
+                    affix = "_sym"
+                subsource = f"[=syntax{affix}/{production['value']}=]"
+            elif production["type"] == "token":
+                if production["value"] in result[scanner_token.name()]:
+                    subsource = f"<a for=syntax_sym lt={result[scanner_token.name()][production['value']]}>`{production['value']}`</a>"
+                else:
+                    subsource = f"`{production['value']}`"
+            elif production["type"] == "pattern":
+                subsource = f"`{production['value']}`"
+            return subsource
+        elif production["type"] == "sequence":
+            if len(rule_name) == 0:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["value"]
+                        ]
+                    )
+                    + " )"
+                )
+            else:
+                return " ".join(
+                    [reproduce_rule_source(member) for member in production["value"]]
+                )
+        elif production["type"] == "choice":
+            return (
+                "( "
+                + " | ".join(
+                    [reproduce_rule_source(member) for member in production["value"]]
+                )
+                + " )"
+            )
+        elif production["type"] == "match_0_1":
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " ?"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["value"]
+                        ]
+                    )
+                    + " ) ?"
+                )
+        elif production["type"] == "match_1_n":
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " +"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["value"]
+                        ]
+                    )
+                    + " ) +"
+                )
+        elif production["type"] == "match_0_n":
+            if len(production["value"]) == 1:
+                return reproduce_rule_source(production["value"][0]) + " *"
+            else:
+                return (
+                    "( "
+                    + " ".join(
+                        [
+                            reproduce_rule_source(member)
+                            for member in production["value"]
+                        ]
+                    )
+                    + " ) *"
+                )
+        else:
+            raise RuntimeError(f"Unknown production type: {production['type']}")
+
+    if value["type"] in ["symbol", "token", "pattern"]:
+        subsource = ""
+        if value["type"] == "symbol":
+            affix = ""
+            if value["value"].startswith("_"):
+                affix = "_sym"
+            subsource = f"[=syntax{affix}/{value['value']}=]"
+        elif value["type"] == "token":
+            if value["value"] in result[scanner_token.name()]:
+                subsource = f"<a for=syntax_sym lt={result[scanner_token.name()][value['value']]}>`{value['value']}`</a>"
+            else:
+                subsource = f"`{value['value']}`"
+        elif value["type"] == "pattern":
+            subsource = f"`{value['value']}`"
+        return f"<div class='syntax' noexport='true'>\n  <dfn for=syntax>{key}</dfn> :\n\n    <span class=\"choice\"></span> {subsource}\n</div>\n"
+    elif value["type"] == "sequence":
+        subsource = " ".join(
+            [
+                reproduce_rule_source(member, key)
+                for member in value["value"]
+            ]
+        )
+        return f"<div class='syntax' noexport='true'>\n  <dfn for=syntax>{key}</dfn> :\n\n    <span class=\"choice\"></span> {subsource}\n</div>\n"
+    elif value["type"] == "choice":
+        subsource = "\n\n    <span class=\"choice\">|</span> ".join(
+            [
+                reproduce_rule_source(member, key)
+                for member in value["value"]
+            ]
+        )
+        return f"<div class='syntax' noexport='true'>\n  <dfn for=syntax>{key}</dfn> :\n\n    <span class=\"choice\"></span> {subsource}\n</div>\n"
 
 class ScanResult(dict):
     """
@@ -383,8 +643,9 @@ class ScanResult(dict):
          The name is taken from the "heading" attriute of the <div> element.
     """
     def __init__(self):
-        self['rule'] = dict()
-        self['example'] = dict()
+        self[scanner_rule.name()] = dict()
+        self[scanner_example.name()] = dict()
+        self[scanner_token.name()] = dict()
         self['raw'] = []
 
 
@@ -400,7 +661,7 @@ def read_spec(options):
     # Make a *copy* of the text input because we'll filter it later.
     result['raw'] = [x for x in scanner_lines]
 
-
+    # TODO: Check if spec includes all rules
     # Skip lines like:
     #  <pre class=include>
     #  </pre>
@@ -415,9 +676,8 @@ def read_spec(options):
     # Global variable holding the current line text.
     line = ""
 
-
-    scanner_spans = [scanner_rule,
-                     scanner_example]
+    # First scan spec for examples (and in future, inclusion of rules and properties that should derive from spec)
+    scanner_spans = [scanner_example, scanner_token]
 
     scanner_i = 0  # line number of the current line
     scanner_span = None
@@ -439,16 +699,6 @@ def read_spec(options):
                 if scanner_begin[1] != None:
                     last_key = scanner_begin[1]
                 scanner_i += scanner_begin[-1]
-            if scanner_span == j:
-                # Check if we should stop using this scanner.
-                scanner_end = j.end(scanner_lines, scanner_i)
-                if scanner_end[0]:
-                    # Yes, stop using this scanner.
-                    scanner_span = None
-                    scanner_record = False
-                    last_key = None
-                    last_value = None
-                    scanner_i += scanner_end[-1]
         if scanner_span != None:
             # We're are in the middle of scanning a span of lines.
             if scanner_record:
@@ -502,17 +752,202 @@ def read_spec(options):
                             last_value = None
                             result[scanner_span.name()][last_key] = []
                     else:
-                        # It's example text
+                        # A token or example
                         if scanner_parse[1] != None:
                             last_value = scanner_parse[1]
-                            result[scanner_span.name()][last_key].append(
-                                last_value)
-                    scanner_i += scanner_parse[-1]  # Advance line index
+                            if scanner_span.name() == scanner_example.name():
+                                result[scanner_span.name()][last_key].append(
+                                    last_value)
+                            if scanner_span.name() == scanner_token.name():
+                                result[scanner_span.name()][last_key] = last_value
+                    scanner_i += scanner_parse[-1]  # Advance line index 
+        for j in scanner_spans:
+            if scanner_span == j:
+                # Check if we should stop using this scanner.
+                scanner_end = j.end(scanner_lines, scanner_i)
+                if scanner_end[0]:
+                    # Yes, stop using this scanner.
+                    scanner_span = None
+                    scanner_record = False
+                    last_key = None
+                    last_value = None
+                    scanner_i += scanner_end[-1]
         scanner_i += 1
 
-    result[scanner_rule.name()]["_comment"] = [["`/\\/\\/.*/`"]]
+    bnfdialect_data = ""
+
+    # Read the contents of the bnfdialect file
+    with open(options.syntax_filename, "r") as file:
+        bnfdialect_data = file.read()
+
+    syntax_dict = {}
+    current_rule = None
+    for line in bnfdialect_data.splitlines():
+        comment = ""
+        if "//" in line:
+            line, comment = line.split("//", 1)
+        line = line.strip() # Either blankspace is insignificant
+        comment = comment.rstrip() # Right blankspace is insignificant
+        if len(line) == 0:
+            continue
+        if current_rule is None:
+            if line.endswith(":"):
+                current_rule = line[:-1].strip()
+                syntax_dict[current_rule] = {
+                    "type": "sequence",
+                    "value": []
+                }
+            continue
+        if line.startswith(";"):
+            current_rule = None
+            continue
+        if line.startswith("|"):
+            syntax_dict[current_rule]["type"] = "choice"
+            line = line[1:].strip()
+        tokens = [i for i in line.split(" ") if len(i) > 0] # Strip blankspace
+        def build_production(token_j):
+            """
+            Takes token index and returns token steps and a (sub)production
+            """
+            token = tokens[token_j]
+            if token.startswith("/"):
+                return (1, {
+                    "type": "pattern",
+                    "value": token
+                })
+            if token.startswith("'"):
+                return (1, {
+                    "type": "token",
+                    "value": token
+                })
+            if token == "?":
+                value = build_production(token_j - 1)
+                return (1 + value[0], {
+                    "type": "match_0_1",
+                    "value": [value[1]]
+                })
+            if token == "+":
+                value = build_production(token_j - 1)
+                return (1 + value[0], {
+                    "type": "match_1_n",
+                    "value": [value[1]]
+                })
+            if token == "*":
+                value = build_production(token_j - 1)
+                return (1 + value[0], {
+                    "type": "match_0_n",
+                    "value": [value[1]]
+                })
+            if token == "|":
+                return (1, {
+                    "type": "__MAKE_CHOICE",
+                    "value": ""
+                })
+            if token == ")":
+                offset = 1
+                production = {
+                    "type": "sequence",
+                    "value": []
+                }
+                while tokens[token_j - offset] != "(":
+                    value = build_production(token_j - offset)
+                    if value[1]["type"].startswith("__MAKE_CHOICE"):
+                        production["type"] = "choice"
+                    else:
+                        production["value"].insert(0, value[1])
+                    offset += value[0]
+                offset += 1
+                return (offset, production)
+            else:
+                return (1, {
+                    "type": "symbol",
+                    "value": token
+                })
+        production = {
+            "type": "sequence",
+            "value": []
+        }
+        token_i = len(tokens) - 1
+        while token_i >= 0:
+            value = build_production(token_i)
+            production["value"].insert(0, value[1])
+            token_i -= value[0]
+        syntax_dict[current_rule]["value"].append(production)
+
+    def reproduce_rule(production):
+        if production["type"] in ["sequence", "choice", ""]:
+            if len(production["value"]) == 1:
+                if production["value"][0]["type"] in ["token", "symbol", "pattern"]:
+                    return production["value"][0]
+                else:
+                    return reproduce_rule(production["value"][0])
+            else:
+                return {
+                    "type": production["type"],
+                    "value": [
+                        reproduce_rule(member) for member in production["value"]
+                    ],
+                }
+        elif production["type"].startswith("match_"):
+            if len(production["value"]) == 1:
+                if production["value"][0]["type"] == "sequence":
+                    return {
+                        "type": production["type"],
+                        "value": [
+                            reproduce_rule(member)
+                            for member in production["value"][0]["value"]
+                        ],
+                    }
+                else:
+                    return {
+                        "type": production["type"],
+                        "value": [
+                            reproduce_rule(member) for member in production["value"]
+                        ],
+                    }
+            else:
+                return {
+                    "type": production["type"],
+                    "value": [
+                        reproduce_rule(member) for member in production["value"]
+                    ],
+                }
+        else:
+            return production
+
+    # Simplify the syntax dictionary
+    for rule_name in syntax_dict.keys():
+        syntax_dict[rule_name] = reproduce_rule(syntax_dict[rule_name])
+
+    syntax_source = "\n".join([i.strip() for i in bnfdialect_data.strip().splitlines()])
+    syntax_target = "\n".join([i.strip() for i in reproduce_bnfdialect_source(syntax_dict).strip().splitlines()])
+    if syntax_source != syntax_target:
+        print("ERROR: Syntax source should match reproduction for styling and language")
+        print("\n".join(difflib.unified_diff(syntax_source.splitlines(), syntax_target.splitlines())))
+        sys.exit(1)
+    
+    result[scanner_rule.name()] = syntax_dict
     return result
 
+def extract_rules_to_bs(options, scan_result):
+    """
+    Produce .syntax.bs.include files
+    """
+
+    # Extract syntax to bikeshed fragments
+    remove_files(options.syntax_dir, "*.syntax.bs.include")
+
+    for rule_name in scan_result[scanner_rule.name()].keys():
+        syntax_bs = bs_fragment_from_rule(rule_name, scan_result[scanner_rule.name()][rule_name], scan_result)
+        with open(
+            os.path.join(options.syntax_dir, rule_name + ".syntax.bs.include"), "w"
+        ) as syntax_file:
+            syntax_file.write(syntax_bs)
+
+def value_from_dotenv(key):
+    if key not in os.environ:
+        raise Exception(f"Missing {key} in environment! The key is present in ./tools/custom-action/dependency-versions.sh, please source before execution.")
+    return os.environ[key]
 
 def flow_extract(options, scan_result):
     """
@@ -542,45 +977,42 @@ def flow_extract(options, scan_result):
 
         grammar_source = ""
 
-        grammar_source += r"""
-        module.exports = grammar({
-            name: 'wgsl',
+        grammar_source += """module.exports = grammar({
+    name: 'wgsl',
 
-            externals: $ => [
-                $._block_comment,
-                $._disambiguate_template,
-                $._template_args_start,
-                $._template_args_end,
-                $._less_than,
-                $._less_than_equal,
-                $._shift_left,
-                $._shift_left_assign,
-                $._greater_than,
-                $._greater_than_equal,
-                $._shift_right,
-                $._shift_right_assign,
-                $._error_sentinel,
-            ],
+    externals: $ => [
+        $._block_comment,
+        $._disambiguate_template,
+        $._template_args_start,
+        $._template_args_end,
+        $._less_than,
+        $._less_than_equal,
+        $._shift_left,
+        $._shift_left_assign,
+        $._greater_than,
+        $._greater_than_equal,
+        $._shift_right,
+        $._shift_right_assign,
+        $._error_sentinel,
+    ],
 
-            extras: $ => [
-                $._comment,
-                $._block_comment,
-                $._blankspace,
-            ],
+    extras: $ => [
+        $._comment,
+        $._block_comment,
+        $._blankspace,
+    ],
 
-            inline: $ => [
-                $.global_decl,
-                $._reserved,
-            ],
+    inline: $ => [
+        $.global_decl,
+        $._reserved,
+    ],
 
-            // WGSL has no parsing conflicts.
-            conflicts: $ => [],
+    // WGSL has no parsing conflicts.
+    conflicts: $ => [],
 
-            word: $ => $.ident_pattern_token,
+    word: $ => $.ident_pattern_token,
 
-            rules: {
-        """[1:-1]
-        grammar_source += "\n"
+    rules: {"""
 
         # Following sections are to allow out-of-order per syntactic grammar appearance of rules
 
@@ -647,7 +1079,8 @@ def flow_extract(options, scan_result):
 
 
         grammar_source += grammar_from_rule(
-            "_comment", rules["_comment"]) + ",\n"
+            "_comment", {'type': 'pattern',
+                               'value': derivative_patterns["_comment"]}) + ",\n"
         rule_skip.add("_comment")
 
 
@@ -655,31 +1088,30 @@ def flow_extract(options, scan_result):
 
 
         grammar_source += grammar_from_rule(
-            "_blankspace", rules["_blankspace"])
+            "_blankspace", {'type': 'pattern',
+                               'value': derivative_patterns["_blankspace"]})
         rule_skip.add("_blankspace")
 
 
         grammar_source += "\n"
         grammar_source += r"""
-            },
-        });
-        """[1:-1]
+    }
+});"""[1:-1]
 
-        HEADER = """
-        // Copyright (C) [$YEAR] World Wide Web Consortium,
-        // (Massachusetts Institute of Technology, European Research Consortium for
-        // Informatics and Mathematics, Keio University, Beihang).
-        // All Rights Reserved.
-        //
-        // This work is distributed under the W3C (R) Software License [1] in the hope
-        // that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
-        // warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-        //
-        // [1] http://www.w3.org/Consortium/Legal/copyright-software
+        HEADER = """// Copyright (C) [$YEAR] World Wide Web Consortium,
+// (Massachusetts Institute of Technology, European Research Consortium for
+// Informatics and Mathematics, Keio University, Beihang).
+// All Rights Reserved.
+//
+// This work is distributed under the W3C (R) Software License [1] in the hope
+// that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+// warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//
+// [1] http://www.w3.org/Consortium/Legal/copyright-software
 
-        // **** This file is auto-generated. Do not edit. ****
+// **** This file is auto-generated. Do not edit. ****
 
-        """.lstrip()
+""".lstrip()
 
     if input_bs_is_fresh:
         print("{}: ...Creating tree-sitter parser".format(options.script,options.grammar_filename))
@@ -699,10 +1131,10 @@ def flow_extract(options, scan_result):
         grammar_package.write('{\n')
         grammar_package.write('    "name": "tree-sitter-wgsl",\n')
         grammar_package.write('    "dependencies": {\n')
-        grammar_package.write('        "nan": "^2.15.0"\n')
+        grammar_package.write('        "nan": "' + value_from_dotenv("NPM_NAN_VERSION") + '"\n')
         grammar_package.write('    },\n')
         grammar_package.write('    "devDependencies": {\n')
-        grammar_package.write('        "tree-sitter-cli": "^0.20.7"\n')
+        grammar_package.write('        "tree-sitter-cli": "' + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION") + '"\n')
         grammar_package.write('    },\n')
         grammar_package.write('    "main": "bindings/node"\n')
         grammar_package.write('}\n')
@@ -743,11 +1175,11 @@ def flow_build(options):
         pass
     else:
         subprocess.run(["npm", "install"], cwd=options.grammar_dir, check=True)
-    subprocess.run(["npx", "tree-sitter", "generate"],
+    subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"],
                    cwd=options.grammar_dir, check=True)
     # Following are commented for future reference to expose playground
     # Remove "--docker" if local environment matches with the container
-    # subprocess.run(["npx", "tree-sitter", "build-wasm", "--docker"],
+    # subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "build-wasm", "--docker"],
     #                cwd=options.grammar_dir, check=True)
 
 
@@ -842,7 +1274,8 @@ def flow_examples(options,scan_result):
 FLOW_HELP = """
 A complete flow has the following steps, in order
     'x' (think 'extract'): Generate a tree-sitter grammar definition from the
-          bikeshed source for the WGSL specification.
+          bikeshed source for the WGSL specification and generates
+          bikeshed include fragments for syntax rules.
     'b' (think 'build'): Build the tree-sitter parser
     'e' (think 'example'): Check the examples from the WGSL spec parse correctly.
     't' (think 'test'): Run parser unit tests.
@@ -885,8 +1318,15 @@ def main():
                            default="index.bs")
     argparser.add_argument("--scanner",
                            action='store',
-                           help="source file for the tree-sitter custom scanner",
+                           help="Source file for the tree-sitter custom scanner",
                            default="scanner.cc")
+    argparser.add_argument("--syntax",
+                           action='store',
+                           help="Source file for the WGSL syntax",
+                           default="syntax.bnf")
+    argparser.add_argument("--syntax-dir",
+                           help="Target directory for the WGSL Bikeshed syntax",
+                           default="syntax")
 
     args = argparser.parse_args()
     if args.help:
@@ -894,7 +1334,7 @@ def main():
         print(FLOW_HELP)
         return 0
 
-    options = Options(args.spec,args.tree_sitter_dir,args.scanner)
+    options = Options(args.spec,args.tree_sitter_dir,args.scanner, args.syntax, args.syntax_dir)
     options.verbose = args.verbose
     if args.verbose:
         print(options)
@@ -903,6 +1343,7 @@ def main():
 
     if 'x' in args.flow:
         scan_result = read_spec(options)
+        extract_rules_to_bs(options, scan_result)
         if not flow_extract(options,scan_result):
             return 1
     if 'b' in args.flow:

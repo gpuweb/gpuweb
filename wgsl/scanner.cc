@@ -1,11 +1,9 @@
-
 #include <tree_sitter/parser.h>
 #include <wctype.h>
 #include <algorithm>
 #include <bitset>
 #include <cassert>
 #include <cstring>
-#include <sstream>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -604,10 +602,8 @@ class Lexer {
       return false;
     }
 
-    std::stringstream ss;
     bool is_ascii = true;
     if (CodePoint start = next(); start < 0x80) {
-      ss.put(char(start));
     } else {
       is_ascii = false;
     }
@@ -617,14 +613,13 @@ class Lexer {
         break;
       }
       if (CodePoint code_point = next(); code_point < 0x80) {
-        ss.put(char(code_point));
       } else {
         is_ascii = false;
       }
     }
 
     if (is_ascii) {
-      LOG("ident: '%s'", ss.str().c_str());
+      LOG("ident is ascii");
     } else {
       LOG("ident");
     }
@@ -668,8 +663,8 @@ class Lexer {
 
 struct Scanner {
   struct State {
-    BitQueue<1024> lt_is_tmpl;  // Queue of disambiguated '<'
-    BitQueue<1024> gt_is_tmpl;  // Queue of disambiguated '>'
+    BitQueue<64> lt_is_tmpl;  // Queue of disambiguated '<'
+    BitQueue<64> gt_is_tmpl;  // Queue of disambiguated '>'
     bool empty() const { return lt_is_tmpl.empty() && gt_is_tmpl.empty(); }
   };
   State state;
@@ -694,17 +689,19 @@ struct Scanner {
     // The current expression nesting depth.
     size_t expr_depth = 0;
 
-    // A stack of '<' tokens.
+    // A stack of '<' tokens. Each is a candidate for the start of a template list.
     // Used to pair '<' and '>' tokens at the same expression depth.
     struct StackEntry {
       size_t index;       // Index of the opening '>' in lt_is_tmpl
       size_t expr_depth;  // The value of 'expr_depth' for the opening '<'
     };
+    // The stack of unclosed candidates for template-list starts.
     std::vector<StackEntry> lt_stack;
 
-    LOG("classify_template_args() '<'");
+    LOG("classify_template_args() '<' (initial)");
     lt_stack.push_back(StackEntry{state.lt_is_tmpl.count(), expr_depth});
-    state.lt_is_tmpl.push_back(false);  // Default to less-than
+    // Default to less-than (or less-than-equal, or left-shift, or left-shift-equal)
+    state.lt_is_tmpl.push_back(false);
 
     while (!lt_stack.empty() && !lexer.match(kEOF)) {
       lexer.skip_whitespace();
@@ -714,13 +711,46 @@ struct Scanner {
         continue;
       }
 
+      // A template list can't contain an assignment or a compound assignment.
+      // There is logic below which clears the stack when reaching one of those.
+      // It looks for a '=' code point.  But we still want to allow
+      // comparison operations inside expressions. So we must pre-emptively
+      // allow operators: == >= <= !=
+
+      // Look for a nested template-list.
       if (lexer.match_identifier()) {
         lexer.skip_whitespace(); // TODO: Skip comments
         if (lexer.match('<')) {
-          LOG("classify_template_args() '<'");
-          lt_stack.push_back(StackEntry{state.lt_is_tmpl.count(), expr_depth});
-          state.lt_is_tmpl.push_back(false);  // Default to less-than
+          LOG("classify_template_args() '<' after ident");
+          // Record this '<' in state.lt_is_tmpl, initially treating this as the operator
+          // in an expression (less-than, less-than, equal, left-shift, or left-shift-equal).
+          // If this '<' is recorded in lt_stack, and a corresponding '>' is found, then this
+          // will be transformed into a template-start token.
+          state.lt_is_tmpl.push_back(false);
+
+          if (lexer.match('=')) {
+            // We entered the loop at "ident<=". No template arg can start with '=',
+            // so consider "<=" to be a single token.
+            // Litmus test: "alias z = a<b<=c>;"
+          } else if (lexer.match('<')) {
+            // We entered the loop at "ident<<". No template arg can start with '<',
+            // so consider "<<" to be a single token.
+            // Litmus test: "alias z = a<b<<c>;"
+            state.lt_is_tmpl.push_back(false);
+          } else {
+            lt_stack.push_back(StackEntry{state.lt_is_tmpl.count()-1, expr_depth});
+          }
         }
+        continue;
+      }
+
+      // Each '<' must be recorded in the lt_is_tmpl queue.
+      // Each '>' must be recorded in the gt_is_tmpl queue.
+
+      if (lexer.match('<')) {
+        // Litmus test: "alias z =a<1<<c<d>()>;"
+        LOG("classify_template_args() '<'");
+        state.lt_is_tmpl.push_back(false);
         continue;
       }
 
@@ -734,19 +764,30 @@ struct Scanner {
         } else {
           LOG("   non-template '>'");
           state.gt_is_tmpl.push_back(false);
+          // Pre-emptvely allow >= as a comparison operator:
+          // Skip over '=', if present.
+          lexer.match('=');
         }
         continue;
       }
 
+      // Pre-emptively allow the != operator.
+      // As a side effect, allow unary negation operator !
+      if (lexer.match('!')) {
+        lexer.match('=');
+        continue;
+      }
+
+      CodePoint was = lexer.peek();
       if (lexer.match_anyof({'(', '['})) {
-        LOG("   expr_depth++");
+        LOG("   %c expr_depth++", static_cast<int>(was));
         // Entering a nested expression
         expr_depth++;
         continue;
       }
 
       if (lexer.match_anyof({')', ']'})) {
-        LOG("   expr_depth--");
+        LOG("   %c expr_depth--", static_cast<int>(was));
         // Exiting a nested expression
         // Pop the stack until we return to the current expression
         // expr_depth
@@ -759,10 +800,31 @@ struct Scanner {
         continue;
       }
 
-      if (lexer.match_anyof({';', '{', '=', ':'})) {
-        LOG("   expression terminator");
-        // Expression terminating tokens. No opening template list can
-        // hold these tokens, so clear the stack and expression depth.
+      was = lexer.peek();
+      if (lexer.match('=')) {
+        // A subtle point. The '=' we just matched might be the start of a
+        // syntactic token, or the end of a compound-assignment operator like +=
+        // In either case, it's fine to proceed with the logic below.
+
+        if (lexer.match('=')) {
+          // Pre-emptively allow equality ==
+          continue;
+        }
+        // A template list can't contain an assignment, because an expression
+        // can't contain an assignment.
+        // This might be a regular assignment, or the tail end of a compound
+        // assignment.
+        LOG("   %c expression terminator", was);
+        expr_depth = 0;
+        lt_stack.clear();
+        continue;
+      }
+
+      was = lexer.peek();
+      if (lexer.match_anyof({';', '{', ':'})) {
+        LOG("   %c expression terminator", was);
+        // Expression terminating tokens. No template list can
+        // hold these code points, so clear the stack and expression depth.
         expr_depth = 0;
         lt_stack.clear();
         continue;
@@ -834,6 +896,7 @@ struct Scanner {
 
       // TODO(dneto): should also skip comments, both line comments
       // and block comments.
+      // https://github.com/gpuweb/gpuweb/issues/3876
       lexer.skip_whitespace();
       if (lexer.peek() == '<') {
         if (state.lt_is_tmpl.empty()) {
@@ -868,6 +931,11 @@ struct Scanner {
         return match(Token::LESS_THAN_EQUAL);
       }
       if (lexer.match('<')) {
+        // Consume the '<' in the lt queue.
+        // Litmus test: "alias z = a<1<<c<d>()>;"
+        if (!state.lt_is_tmpl.empty()) {
+          state.lt_is_tmpl.pop_front();
+        }
         if (lexer.match('=')) {
           return match(Token::SHIFT_LEFT_ASSIGN);
         }
@@ -885,6 +953,10 @@ struct Scanner {
         return match(Token::GREATER_THAN_EQUAL);
       }
       if (lexer.match('>')) {
+        // Consume the '>' in the gt queue.
+        if (!state.gt_is_tmpl.empty()) {
+          state.gt_is_tmpl.pop_front();
+        }
         if (lexer.match('=')) {
           return match(Token::SHIFT_RIGHT_ASSIGN);
         }
