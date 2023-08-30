@@ -1,12 +1,14 @@
 # This should be invoked with make -j for full parallelism.
 SHELL := /bin/bash
 
-targets := spec wgsl explainer correspondence
+# TODO: Include wgsl as a target once dependencies respect wgsl.so creation
+# and until then, execute make without -j
+targets := spec explainer correspondence
 
-.PHONY: all out $(targets) clean
+.PHONY: all out $(targets) wgsl clean
 
 # Build everything
-all: $(targets)
+all: $(targets) wgsl
 
 # Build everything, and copy it to out/
 out: all
@@ -14,6 +16,9 @@ out: all
 
 $(targets):
 	make -j -C $@
+
+wgsl:
+	make -C wgsl
 
 # Clean up all (or at least most) generated files
 clean:
