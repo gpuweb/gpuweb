@@ -51,8 +51,6 @@ unit_tests: $(TREESITTER_PARSER) wgsl_unit_tests.py
 WGSL_GRAMMAR=grammar/src/grammar.json
 $(WGSL_GRAMMAR) : $(TREESITTER_GRAMMAR_INPUT)
 
-wgsl_unit_tests: 
-
 .PHONY: nfkc
 nfkc:
 	python3 ../tools/check-nfkc.py
