@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: all clean nfkc validate lalr validate-examples
 
 all: index.html nfkc validate test diagrams
@@ -22,19 +24,19 @@ index.html: index.pre.html nfkc
 MERMAID_OUTPUTS := $(patsubst diagrams/%.mmd,img/%.mmd.svg,$(wildcard diagrams/*.mmd))
 diagrams: $(MERMAID_OUTPUTS)
 img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
-	sh ../tools/invoke-mermaid.sh -i $< -o $@
+	bash ../tools/invoke-mermaid.sh -i $< -o $@
 
 TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
 TREESITTER_PARSER := grammar/build/wgsl.so
 
 # Extract WGSL grammar from the spec, validate it by building a Treesitter parser from it.
 $(TREESITTER_GRAMMAR_INPUT) $(TREESITTER_PARSER): index.bs scanner.cc extract-grammar.py
-	python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
 
 .PHONY: validate-examples
 # Use Treesitter to parse many code examples in the spec.
 validate-examples: $(TREESITTER_PARSER)
-	python3 ./extract-grammar.py --flow e
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --flow e
 
 .PHONY: tspath_tests
 tspath_tests: TSPath.py
@@ -48,8 +50,6 @@ unit_tests: $(TREESITTER_PARSER) wgsl_unit_tests.py
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json
 $(WGSL_GRAMMAR) : $(TREESITTER_GRAMMAR_INPUT)
-
-wgsl_unit_tests: 
 
 .PHONY: nfkc
 nfkc:
@@ -91,7 +91,7 @@ recursive_bs : $(ANALYZER) $(WGSL_GRAMMAR)
 
 wgsl.recursive.bs.include : $(ANALYZER) $(WGSL_GRAMMAR)
 	python3 $(ANALYZE_SCRIPT) -recursive -bs grammar/src/grammar.json >$@.pre
-	sh ../tools/copy-if-different.sh $@.pre $@
+	bash ../tools/copy-if-different.sh $@.pre $@
 
 # Print a simple (uncanonicalized form) of the grammar and check LL(1)
 .PHONY: recursive_ll

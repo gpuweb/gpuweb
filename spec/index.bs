@@ -36,6 +36,8 @@ Assume Explicit For: yes
 </pre>
 
 <pre class=link-defaults>
+spec:webidl; type:exception; text:TypeError
+spec:webidl; type:exception; text:RangeError
 </pre>
 <pre class=ignored-specs>
 spec:resource-hints;
@@ -963,7 +965,7 @@ which is typically done via one of the `create*` methods of {{GPUDevice}}.
 
 <script type=idl>
 dictionary GPUObjectDescriptorBase {
-    USVString label;
+    USVString label = "";
 };
 </script>
 
@@ -1088,10 +1090,17 @@ Note: WebGPU's coordinate systems match DirectX's coordinate systems in a graphi
 
 ### Timelines ### {#programming-model-timelines}
 
-*This section is non-normative.*
+WebGPU's behavior is described in terms of "timelines".
+Each operation (defined as algorithms) occurs on a timeline.
+Timelines clearly define both the order of operations, and which state is
+available to which operations.
 
-A computer system with a user agent at the front-end and GPU at the back-end
-has components working on different timelines in parallel:
+Note:
+This "timeline" model describes the constraints of the multi-process models of
+browser engines (typically with a "content process" and "GPU process"), as well
+as the GPU itself as a separate execution unit in many implementations.
+Implementing WebGPU does not require timelines to execute in parallel, so does
+not require multiple processes, or even multiple threads.
 
 : <dfn dfn>Content timeline</dfn>
 :: Associated with the execution of the Web script.
@@ -1159,9 +1168,9 @@ has components working on different timelines in parallel:
     </div>
 </div>
 
-In this specification, asynchronous operations are used when the result value
+In this specification, asynchronous operations are used when the return value
 depends on work that happens on any timeline other than the [=Content timeline=].
-They are represented by callbacks and promises in JavaScript.
+They are represented by promises and events in API.
 
 <div class=example>
     {{GPUComputePassEncoder/dispatchWorkgroups()|GPUComputePassEncoder.dispatchWorkgroups()}}:
@@ -4852,6 +4861,7 @@ enum GPUTextureFormat {
     "bgra8unorm-srgb",
     // Packed 32-bit formats
     "rgb9e5ufloat",
+    "rgb10a2uint",
     "rgb10a2unorm",
     "rg11b10ufloat",
 
@@ -5206,17 +5216,17 @@ dictionary GPUExternalTextureDescriptor
         const videoElement = document.createElement('video');
         // ... set up videoElement, wait for it to be ready...
 
-        let externalTexture;
-
         function frame() {
             requestAnimationFrame(frame);
 
-            // Re-import only if necessary
-            if (!externalTexture || externalTexture.expired) {
-                externalTexture = gpuDevice.importExternalTexture({
-                    source: videoElement
-                });
-            }
+            // Always re-import the video on every animation frame, because the
+            // import is likely to have expired.
+            // The browser may cache and reuse a past frame, and if it does it
+            // may return the same GPUExternalTexture object again.
+            // In this case, old bind groups are still valid.
+            const externalTexture = gpuDevice.importExternalTexture({
+                source: videoElement
+            });
 
             // ... render using externalTexture...
         }
@@ -5984,6 +5994,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                                 {{GPUShaderStage/VERTEX}}:
                                 - |entry|.{{GPUBindGroupLayoutEntry/buffer}}?.{{GPUBufferBindingLayout/type}}
                                     must not be {{GPUBufferBindingType/"storage"}}.
+                                    Note that {{GPUBufferBindingType/"read-only-storage"}} is allowed.
                                 - |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}?.{{GPUStorageTextureBindingLayout/access}}
                                     must not be {{GPUStorageTextureAccess/"write-only"}}.
 
@@ -6936,8 +6947,8 @@ enum GPUPipelineErrorReason {
                 |options|: Options specific to {{GPUPipelineError}}.
             </pre>
 
-            1. Set [=this=].{{DOMException/name}} to `"GPUPipelineError"`.
-            1. Set [=this=].{{DOMException/message}} to |message|.
+            1. Set [=this=].[=DOMException/name=] to `"GPUPipelineError"`.
+            1. Set [=this=].[=DOMException/message=] to |message|.
             1. Set [=this=].{{GPUPipelineError/reason}} to |options|.{{GPUPipelineErrorInit/reason}}.
         </div>
 </dl>
@@ -12542,13 +12553,13 @@ interface GPUQueue {
     undefined writeBuffer(
         GPUBuffer buffer,
         GPUSize64 bufferOffset,
-        [AllowShared] BufferSource data,
+        AllowSharedBufferSource data,
         optional GPUSize64 dataOffset = 0,
         optional GPUSize64 size);
 
     undefined writeTexture(
         GPUImageCopyTexture destination,
-        [AllowShared] BufferSource data,
+        AllowSharedBufferSource data,
         GPUImageDataLayout dataLayout,
         GPUExtent3D size);
 
@@ -15637,6 +15648,16 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>&checkmark;
         <td colspan=2>16
     <tr><th colspan=9>mixed component width, 32 bits per texel (4-byte [=render target component alignment=])
+    <tr>
+        <td>{{GPUTextureFormat/rgb10a2uint}}
+        <td>{{GPUTextureSampleType/"uint"}}
+        <td>&checkmark;
+        <td>
+        <td>&checkmark;
+        <td>
+        <td>
+        <td>4
+        <td>8
     <tr>
         <td>{{GPUTextureFormat/rgb10a2unorm}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}

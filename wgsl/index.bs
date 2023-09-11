@@ -33,6 +33,7 @@ Abstract: Shading language for WebGPU.
 Markup Shorthands: markdown yes
 Markup Shorthands: biblio yes
 Markup Shorthands: idl yes
+Markup Shorthands: css no
 Assume Explicit For: yes
 </pre>
 
@@ -136,9 +137,9 @@ object[type="image/svg+xml"] {
 {
   "WebGPU": {
     "authors": [
-      "Dzmitry Malyshau",
       "Kai Ninomiya",
-      "Brandon Jones"
+      "Brandon Jones",
+      "Myles C. Maxfield"
     ],
     "href": "https://w3.org/TR/webgpu",
     "title": "WebGPU",
@@ -379,36 +380,49 @@ When executing a shader stage, the implementation:
 * Then it invokes the entry point.
 
 A WGSL program is organized into:
-* Functions, which specify execution behavior.
-* Statements, which are declarations or units of executable behavior.
-* Literals, which are text representations for pure mathematical values.
-* Constants, each providing a name for a value computed at a specific time.
-* Variables, each providing a name for memory holding a value.
-* Expressions, each of which combines a set of values to produce a result value.
-* Types, each of which describes:
+* [[#directives|Directives]], which specify module-level behavior controls.
+* [[#functions|Functions]], which specify execution behavior.
+* [[#statements|Statements]], which are declarations or units of executable behavior.
+* [[#literals|Literals]], which are text representations for pure mathematical values.
+* [[#value-decls|Constants]], each providing a name for a value computed at a specific time.
+* [[#var-decls|Variables]], each providing a name for memory holding a value.
+* [[#expressions|Expressions]], each of which combines a set of values to produce a result value.
+* [[#types|Types]], each of which describes:
     * A set of values.
     * Constraints on supported expressions.
     * The semantics of those expressions.
+* [[#attributes|Attributes]], which modify an object to specify extra information such as:
+    * Specifying the [[#shader-interface|interfaces]] to [[#entry-points|entry points]].
+    * Specifying [[#diagnostic-filtering|diagnostic filters]].
 
 Note: A WGSL program is currently composed of a single [[#wgsl-module|WGSL module]].
 
 WGSL is an imperative language: behavior is specified as a sequence of statements to execute.
 Statements can:
-* Declare constants or variables.
+* Declare [[#value-decls|constants]] or [[#var-decls|variables]].
 * Modify the contents of variables.
 * Modify execution order using structured programming constructs:
-    * Selective execution: `if` (with optional `else if` and `else` clauses), `switch`.
-    * Repetition: `loop`, `while`, `for`.
-    * Escaping a nested execution construct: `continue`, `break`, `break if`.
-    * Refactoring: function call and `return`.
+    * Selective execution: [[#if-statement|if]] (with optional `else if` and `else` clauses), [[#switch-statement|switch]].
+    * Repetition: [[#loop-statement|loop]], [[#while-statement|while]], [[#for-statement|for]].
+    * Escaping a nested execution construct: [[#continue-statement|continue]], [[#break-statement|break]], [[#break-if-statement|break if]].
+    * Refactoring: [[#function-calls|function call]] and [[#return-statement|return]].
 * Evaluate expressions to compute values as part of the above behaviors.
+* Check [[#const-assert-statement|assumptions]] at [=shader module creation|shader creation=] time on [=const-expression|constant expressions=].
 
 WGSL is statically typed: each value computed by a particular expression is in a specific type,
 determined only by examining the program source.
 
-WGSL has types to describe booleans, numbers, vectors, matrices, and aggregations
-of these in the form of arrays and structures.
-Additional types describe memory.
+WGSL has types describing [[#bool-type|booleans]] and numbers
+([[#integer-types|integers]] and [[#floating-point-types|floating point]]).
+These types can be aggregated into [[#composite-types|composites]]
+([[#vector-types|vectors]], [[#matrix-types|matrices]],
+[[#array-types|arrays]], and [[#struct-types|structures]]).
+WGSL has special types (e.g. [[#atomic-types|atomics]]) that provide unique operations.
+WGSL describes the types that can be stored in [[#memory|memory]] as [[#memory-views|memory views]].
+WGSL provides commonly used rendering types in the form of
+[[#texture-sampler-types|textures and samplers]].
+These types have associated [[#texture-builtin-functions|built-in functions]]
+to expose commonly provided GPU hardware for graphics rendering.
 
 WGSL does not have implicit conversions or promotions from [=type/concrete=]
 types, but does provide implicit conversions and promotions from
@@ -419,10 +433,6 @@ another requires an explicit [[#value-constructor-builtin-function|conversion]],
 bits]]; however, WGSL does provide some limited facility to promote [=scalar=]
 types to [=vector=] types.
 This also applies to [=composite=] types.
-
-WGSL has texture and sampler types.
-Together with their associated built-in functions, these support functionality
-commonly used for graphics rendering, and commonly provided by GPUs.
 
 The work of a shader stage is partitioned into one or more <dfn noexport>invocations</dfn>,
 each of which executes the entry point, but under slightly different conditions.
@@ -471,7 +481,7 @@ Following syntax notation describes the conventions of the syntactic grammar of 
 
 <dfn noexport>Angles</dfn>:
 * By convention, angles are measured in radians.
-* The reference ray for measuring angles is the ray from the origin (0,0) toward (0,&infin;).
+* The reference ray for measuring angles is the ray from the origin (0,0) toward (+&infin;,0).
 * Let &theta; be the angle subtended by a comparison ray and the reference ray.
     Then &theta; increases as the comparison ray moves counterclockwise.
 * There are 2 &pi; radians in a complete circle.
@@ -2062,7 +2072,7 @@ a result value, such as the non-result-value effects of its subexpressions.
     }
 
     fn bar() {
-      var a;
+      var a: i32;
       let x = foo(&a); // the call to foo returns a value
                        // and updates the value of a
     }
@@ -2288,7 +2298,7 @@ WGSL defines two <dfn>abstract numeric types</dfn> for these evaluations:
     in the [[!IEEE-754|IEEE-754]] binary64 (double precision) format.
 
 An evaluation of an expression in one of these types [=shader-creation
-error|must not=] overflow or produce infinite, NaN, undefined, or [=indeterminate value|indeterminate=] results.
+error|must not=] overflow or produce an infinite or NaN value.
 
 A type is <dfn dfn-for="type" noexport>abstract</dfn> if it is an abstract
 numeric type or contains an abstract numeric type.
@@ -2488,11 +2498,11 @@ Each has a corresponding negative value.
 <table class='data'>
   <caption>Extreme values for floating point types</caption>
   <thead>
-    <tr><th>Type<th>Smallest positive denormal<th>Smallest positive normal<th>Largest positive finite
+    <tr><th>Type<th>Smallest positive denormal<th>Smallest positive normal<th>Largest positive finite<th>Largest finite power of 2
   </thead>
-    <tr><td rowspan=2>f32<td>1.40129846432481707092e-45f<td>1.17549435082228750797e-38f<td>3.40282346638528859812e+38f
+    <tr><td rowspan=2>f32<td>1.40129846432481707092e-45f<td>1.17549435082228750797e-38f<td>3.40282346638528859812e+38f<td rowspan=2>0x1p+127f
     <tr><td>0x1p-149f<td>0x1p-126f<td>0x1.fffffep+127f
-    <tr><td rowspan=2>f16<td>5.9604644775390625e-8h<td>0.00006103515625h<td>65504.0h
+    <tr><td rowspan=2>f16<td>5.9604644775390625e-8h<td>0.00006103515625h<td>65504.0h<td rowspan=2>0x1p+15h
     <tr><td>0x1p-24h<td>0x1p-14h<td>0x1.ffcp+15h
 </table>
 
@@ -2992,7 +3002,7 @@ module creation|shader creation=] time.
 A type has a <dfn>fixed footprint</dfn> if its size is fully determined
 at [=pipeline creation=] time.
 
-All creation-fixed footprint and fixed footprint types are [=storable=].
+Note: All [=type/concrete=] creation-fixed footprint and fixed footprint types are [=storable=].
 
 Note: Pipeline creation depends on shader creation, so a type with [=creation-fixed footprint=] also has [=fixed footprint=].
 
@@ -4033,11 +4043,11 @@ See [[WebGPU#gpuexternaltexture]].
 
 ### Storage Texture Types ### {#texture-storage}
 
-A <dfn noexport dfn-for='type'>storage texture</dfn> supports [=memory access|accessing=] a
-single texel without the use of a sampler.
+A <dfn noexport dfn-for='type'>storage texture</dfn> supports [=memory access|accessing=]
+individual texel values without the use of a sampler.
 
 * A <dfn noexport dfn-for='type'>write-only storage texture</dfn>
-     supports [=write access|writing=] a single texel, with automatic conversion of the shader value to a
+     supports [=write access|writing=] individual texels, with automatic conversion of the shader value to a
      stored texel value.
 
 A storage texture type [=shader-creation error|must=] be parameterized by one of the
@@ -4216,8 +4226,6 @@ WGSL also predeclares the return types for the [[#frexp-builtin|frexp]],
 functions.
 However, they cannot be spelled in WGSL source.
 
-TODO: Editorial: Make dfn nodes for each predeclared type.
-
 The predeclared [=type-generators=] are listed in the following table:
 <table class=data>
 <caption>
@@ -4296,7 +4304,7 @@ Variable and value declarations have a similar overall syntax:
 <xmp highlight=wgsl>
   // Specific value declarations.
                const    name [: type]  = initializer ;
-  [attribute]  override name [: type] [= initializer];
+  [attribute]* override name [: type] [= initializer];
                let      name [: type]  = initializer ;
 
   // General variable form.
@@ -4370,7 +4378,7 @@ effective-value-type.
 
 <tr><td class="nowrap">
         [=variable|var=]&lt;[=address spaces/storage=], read&gt;<br>
-        [=variable|var=]&lt;[=address spaces/storage=]&gt;<sup>5</sup>
+        [=variable|var=]&lt;[=address spaces/storage=]&gt;
     <td>Immutable
     <td>[=module scope|Module=]
     <td>[=type/concrete|Concrete=] [=host-shareable=]
@@ -4445,7 +4453,8 @@ effective-value-type.
     creation|pipeline-creation time=].
 4. [=Override-declarations=] are part of the shader interface, but are not
     bound resources.
-5. [=Storage buffers=] and [=type/storage textures=] cannot be [=statically accessed=]
+5. [=Storage buffers=] with an access mode other than [=access/read=] and 
+    [=type/storage textures=] cannot be [=statically accessed=]
     in a [=vertex shader stage=].
     See WebGPU {{GPUDevice/createBindGroupLayout()}}.
 6. [=Atomic types=] can only appear in mutable storage buffers or workgroup
@@ -4892,6 +4901,11 @@ A const-expression |E| [=behavioral requirement|will=] be evaluated if and only 
 Note: The evaluation rule implies that short-circuiting operators `&&` and `||` guard evaluation of their right-hand
 side subexpressions.
 
+A const-expression may be evaluated by the CPU implementing the WebGPU API methods.
+Therefore accuracy requirements for operations on [=AbstractFloat=] values are *no more strict* than
+required for common WebGPU runtime environments, such as WebAssembly [[WASM-CORE-2]] and ECMAScript [[ECMASCRIPT]].
+Accuracy requirements for [=type/concrete=] floating point types (such as f32) are specified in [[#concrete-float-accuracy]].
+
 Example:  `(42)` is analyzed as follows:
 * The term `42` is the [=AbstractInt=] value 42.
 * Surrounding that term with parentheses produces a new expression `(42)` that is
@@ -4948,7 +4962,7 @@ An override-expression |E| [=behavioral requirement|will=] be evaluated if and o
     [=behavioral requirement|will=] be evaluated, and evaluation of |OuterE|
     requires |E| to be evaluated.
 
-Note: An override-expression may not be usable as the initializer for an
+Note: Not all override-expressions may be usable as the initializer for an
 [=override-declaration=], because such initializers must [=type rules|resolve=]
 to a [=type/concrete=] [=scalar=] type.
 
@@ -5015,7 +5029,7 @@ the indeterminate value produced at runtime may be a NaN value.
              // the extracted value might not be either of those values.
           }
        }
-       if extracted_value[0] == extracted_values[1] {
+       if extracted_values[0] == extracted_values[1] {
           // This might be executed, but might not be executed.
        }
     }
@@ -6381,7 +6395,7 @@ path: syntax/compound_statement.syntax.bs.include
 
 The [=syntax/continuing_compound_statement=] is a special form of compound
 statement that forms the body of a [[#continuing-statement|continuing]]
-statement, and allows an option [[#break-if-statement|break-if]] statement at
+statement, and allows an optional [[#break-if-statement|break-if]] statement at
 the end.
 
 ## Assignment Statement ## {#assignment}
@@ -6447,9 +6461,9 @@ See [[#forming-references-and-pointers]] for other cases.
             let uv_x_ptr: ptr<function,f32> = &uv.x;
             *uv_x_ptr = 2.5;  // Place 2.5 into the first component of uv.
 
-            var friend: S;
-            // Copy the contents of the 'person' variable into the 'friend' variable.
-            friend = person;
+            var sibling: S;
+            // Copy the contents of the 'person' variable into the 'sibling' variable.
+            sibling = person;
         }
       </xmp>
     </div>
@@ -7663,11 +7677,11 @@ There are two kinds of functions:
 * A [=built-in function=] is provided by the WGSL implementation,
     and is always available to a WGSL module.
     See [[#builtin-functions]].
-* A <dfn noexport>user-defined function</dfn> is declared in a WGSL module.
+* A [=user-defined function=] is declared in a WGSL module.
 
 ## Declaring a User-defined Function ## {#function-declaration-sec}
 
-A <dfn noexport>function declaration</dfn> creates a user-defined function, by specifying:
+A <dfn noexport>function declaration</dfn> creates a <dfn noexport>user-defined function</dfn>, by specifying:
 * An optional set of [=attributes=].
 * The name of the function.
 * The formal parameter list: an ordered sequence of zero
@@ -7681,6 +7695,8 @@ A <dfn noexport>function declaration</dfn> creates a user-defined function, by s
 
 A function declaration [=shader-creation error|must=] only occur at [=module scope=].
 A function name is [=in scope=] for the entire program.
+
+Note: Each [=user-defined function=] only has one [=overload=].
 
 A <dfn noexport>formal parameter</dfn> [=declaration=] specifies an [=identifier=] name and a type for a value that [=shader-creation error|must=] be
 provided when invoking the function.
@@ -8078,7 +8094,7 @@ Unless explicitly permitted below, an attribute [=shader-creation error|must not
     function parameter, entry point return type, or member of a [=structure=].
 
     Specifies that the associated object is a built-in value, as denoted by the specified [=enumerant=].
-    See [[#builtin-values]].
+    See [[#builtin-inputs-outputs]].
 
   <tr><td><dfn noexport dfn-for="attribute">`const`</dfn>
     <td>*None*
@@ -8437,7 +8453,6 @@ The <dfn noexport>IO attributes</dfn> are:
 #### Built-in Inputs and Outputs #### {#builtin-inputs-outputs}
 
 A <dfn noexport>built-in input value</dfn> provides access to system-generated control information.
-The set of built-in inputs are listed in [[#builtin-values]].
 An entry point [=shader-creation error|must=] not contain duplicated built-in inputs.
 
 A built-in input for stage *S* with name *X* and type *T*<sub>*X*</sub> is accessed via a
@@ -8451,7 +8466,6 @@ the corresponding builtin [=shader-creation error|must=] be an input for the ent
 
 A <dfn noexport>built-in output value</dfn> is used by the shader to convey
 control information to later processing steps in the pipeline.
-The set of built-in outputs are listed in [[#builtin-values]].
 An entry point [=shader-creation error|must=] not contain duplicated built-in outputs.
 
 A built-in output for stage *S* with name *Y* and type *T*<sub>*Y*</sub> is set via the [=return value=] for an
@@ -8467,48 +8481,259 @@ Note: The [=built-in values/position=] built-in is both an output of a vertex sh
 
 Collectively, built-in input and built-in output values are known as <dfn noexport>built-in values</dfn>.
 
-##### Built-in Values ##### {#builtin-values}
-
-The following table lists the available [=built-in values=].
+The following table summarizes the available built-in values.
 Each is a [=predeclared=] [=enumerant=].
-
-See [[#builtin-inputs-outputs]] for how to specify that a pipeline input or output is a built-in value.
+Each is described in detail in subsequent sections.
 
 <table class='data'>
   <caption>Built-in input and output values</caption>
   <thead>
-    <tr><th>Predeclared Name<th>Stage<th>Input or Output<th>Type<th>Description
+    <tr><th>Predeclared Name<th>Stage<th>Direction<th>Type
   </thead>
 
-  <tr><td><dfn noexport dfn-for="built-in values">vertex_index</dfn>
+  <tr><td>[=built-in values/vertex_index=]
       <td>vertex
       <td>input
       <td>u32
-      <td style="width:50%">Index of the current vertex within the current API-level draw command,
-         independent of draw instancing.
 
-         For a non-indexed draw, the first vertex has an index equal to the `firstVertex` argument
-         of the draw, whether provided directly or indirectly.
-         The index is incremented by one for each additional vertex in the draw instance.
-
-         For an indexed draw, the index is equal to the index buffer entry for the
-         vertex, plus the `baseVertex` argument of the draw, whether provided directly or indirectly.
-
-  <tr><td><dfn noexport dfn-for="built-in values">instance_index</dfn>
+  <tr><td>[=built-in values/instance_index=]
       <td>vertex
       <td>input
       <td>u32
-      <td style="width:50%">Instance index of the current vertex within the current API-level draw command.
 
-         The first instance has an index equal to the `firstInstance` argument of the draw,
-         whether provided directly or indirectly.
-         The index is incremented by one for each additional instance in the draw.
-
-  <tr><td rowspan=2><dfn noexport dfn-for="built-in values">position</dfn>
+  <tr><td rowspan=2>[=built-in values/position=]
       <td>vertex
       <td>output
       <td>vec4&lt;f32&gt;
-      <td style="width:50%">The [=clip position=] of the current vertex,
+
+  <tr>
+      <td>fragment
+      <td>input
+      <td>vec4&lt;f32&gt;
+
+  <tr><td>[=built-in values/front_facing=]
+      <td>fragment
+      <td>input
+      <td>bool
+
+  <tr><td>[=built-in values/frag_depth=]
+      <td>fragment
+      <td>output
+      <td>f32
+
+  <tr><td>[=built-in values/sample_index=]
+      <td>fragment
+      <td>input
+      <td>u32
+
+  <tr><td rowspan=2>[=built-in values/sample_mask=]
+      <td>fragment
+      <td>input
+      <td>u32
+
+  <tr>
+      <td>fragment
+      <td>output
+      <td>u32
+
+  <tr><td>[=built-in values/local_invocation_id=]
+      <td>compute
+      <td>input
+      <td>vec3&lt;u32&gt;
+
+  <tr><td>[=built-in values/local_invocation_index=]
+      <td>compute
+      <td>input
+      <td>u32
+
+  <tr><td>[=built-in values/global_invocation_id=]
+      <td>compute
+      <td>input
+      <td>vec3&lt;u32&gt;
+
+  <tr><td>[=built-in values/workgroup_id=]
+      <td>compute
+      <td>input
+      <td>vec3&lt;u32&gt;
+
+  <tr><td>[=built-in values/num_workgroups=]
+      <td>compute
+      <td>input
+      <td>vec3&lt;u32&gt;
+</table>
+
+<div class='example wgsl global-scope' heading="Declaring built-in values">
+  <xmp highlight=wgsl>
+    struct VertexOutput {
+      @builtin(position) my_pos: vec4<f32>
+    }
+
+    @vertex
+    fn vs_main(
+      @builtin(vertex_index) my_index: u32,
+      @builtin(instance_index) my_inst_index: u32,
+    ) -> VertexOutput {}
+
+    struct FragmentOutput {
+      @builtin(frag_depth) depth: f32,
+      @builtin(sample_mask) mask_out: u32
+    }
+
+    @fragment
+    fn fs_main(
+      @builtin(front_facing) is_front: bool,
+      @builtin(position) coord: vec4<f32>,
+      @builtin(sample_index) my_sample_index: u32,
+      @builtin(sample_mask) mask_in: u32,
+    ) -> FragmentOutput {}
+
+    @compute @workgroup_size(64)
+    fn cs_main(
+      @builtin(local_invocation_id) local_id: vec3<u32>,
+      @builtin(local_invocation_index) local_index: u32,
+      @builtin(global_invocation_id) global_id: vec3<u32>,
+   ) {}
+  </xmp>
+</div>
+
+##### `frag_depth` ##### {#frag-depth-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">frag_depth</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=fragment shader stage|fragment=]
+  <tr><td style="width:10%">Type
+      <td>f32
+  <tr><td style="width:10%">Direction
+      <td>Output
+  <tr><td style="width:10%">Description
+      <td>
+      Updated depth of the fragment, in the viewport depth range.
+
+      See [[WebGPU#coordinate-systems]].
+</table>
+
+##### `front_facing` ##### {#front-facing-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">front_facing</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=fragment shader stage|fragment=]
+  <tr><td style="width:10%">Type
+      <td>bool
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      True when the current fragment is on a [=front-facing=] primitive.
+      False otherwise.
+</table>
+
+##### `global_invocation_id` ##### {#global-invocation-id-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">global_invocation_id</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=compute shader stage|compute=]
+  <tr><td style="width:10%">Type
+      <td>vec3&lt;u32&gt;
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      The current invocation's [=global invocation ID=], i.e. its position in
+      the [=compute shader grid=].
+</table>
+
+##### `instance_index` ##### {#instance-index-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">instance_index</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=vertex shader stage|vertex=]
+  <tr><td style="width:10%">Type
+      <td>u32
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      Instance index of the current vertex within the current API-level draw command.
+
+      The first instance has an index equal to the `firstInstance` argument of the draw,
+      whether provided directly or indirectly.
+      The index is incremented by one for each additional instance in the draw.
+</table>
+
+##### `local_invocation_id` ##### {#local-invocation-id-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">local_invocation_id</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=compute shader stage|compute=]
+  <tr><td style="width:10%">Type
+      <td>vec3&lt;u32&gt;
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      The current invocation's [=local invocation ID=], i.e. its position in
+      the [=workgroup grid=].
+</table>
+
+##### `local_invocation_index` ##### {#local-invocation-index-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">local_invocation_index</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=compute shader stage|compute=]
+  <tr><td style="width:10%">Type
+      <td>u32
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      The current invocation's [=local invocation index=], a linearized index of
+      the invocation's position within the [=workgroup grid=].
+</table>
+
+##### `num_workgroups` ##### {#num-workgroups-index-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">num_workgroups</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=compute shader stage|compute=]
+  <tr><td style="width:10%">Type
+      <td>vec3&lt;u32&gt;
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      The [=dispatch size=], `vec3<u32>(group_count_x, group_count_y,
+      group_count_z)`, of the compute shader
+      [[WebGPU#compute-pass-encoder-dispatch|dispatched]] by the API.
+</table>
+
+##### `position` ##### {#position-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">position</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=vertex shader stage|vertex=]
+  <tr><td style="width:10%">Type
+      <td>vec4&lt;f32&gt;
+  <tr><td style="width:10%">Direction
+      <td>Output
+  <tr><td style="width:10%">Description
+      <td>
+      The [=clip position=] of the current vertex,
       in [=clip space coordinates=].
 
       An output value (*x*,*y*,*z*,*w*)
@@ -8516,12 +8741,19 @@ See [[#builtin-inputs-outputs]] for how to specify that a pipeline input or outp
       WebGPU [=normalized device coordinates=].
 
       See [[WebGPU#coordinate-systems]] and [[WebGPU#primitive-clipping]].
+</table>
 
-  <tr>
-      <td>fragment
-      <td>input
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td>position
+  <tr><td style="width:10%">Stage
+      <td>[=fragment shader stage|fragment=]
+  <tr><td style="width:10%">Type
       <td>vec4&lt;f32&gt;
-      <td style="width:50%">
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
       <div algorithm="fragment position calculation">
       Input position of the current fragment.
 
@@ -8558,125 +8790,112 @@ See [[#builtin-inputs-outputs]] for how to specify that a pipeline input or outp
 
       See [[WebGPU#coordinate-systems]] and [[WebGPU#rasterization]].
       </div>
-
-  <tr><td><dfn noexport dfn-for="built-in values">front_facing</dfn>
-      <td>fragment
-      <td>input
-      <td>bool
-      <td style="width:50%">True when the current fragment is on a [=front-facing=] primitive.
-         False otherwise.
-
-  <tr><td><dfn noexport dfn-for="built-in values">frag_depth</dfn>
-      <td>fragment
-      <td>output
-      <td>f32
-      <td style="width:50%">Updated depth of the fragment, in the viewport depth range.
-      See [[WebGPU#coordinate-systems]].
-
-  <tr><td><dfn noexport dfn-for="built-in values">local_invocation_id</dfn>
-      <td>compute
-      <td>input
-      <td>vec3&lt;u32&gt;
-      <td style="width:50%">The current invocation's [=local invocation ID=],
-            i.e. its position in the [=workgroup grid=].
-
-  <tr><td><dfn noexport dfn-for="built-in values">local_invocation_index</dfn>
-      <td>compute
-      <td>input
-      <td>u32
-      <td style="width:50%">The current invocation's [=local invocation index=], a linearized index of
-          the invocation's position within the [=workgroup grid=].
-
-  <tr><td><dfn noexport dfn-for="built-in values">global_invocation_id</dfn>
-      <td>compute
-      <td>input
-      <td>vec3&lt;u32&gt;
-      <td style="width:50%">The current invocation's [=global invocation ID=],
-          i.e. its position in the [=compute shader grid=].
-
-  <tr><td><dfn noexport dfn-for="built-in values">workgroup_id</dfn>
-      <td>compute
-      <td>input
-      <td>vec3&lt;u32&gt;
-      <td style="width:50%">The current invocation's [=workgroup ID=],
-          i.e. the position of the workgroup in overall [=compute shader grid=].
-
-          All invocations in the same workgroup have the same workgroup ID.
-
-          Workgroup IDs span from (0,0,0) to ([=group_count_x=] - 1, [=group_count_y=] - 1, [=group_count_z=] - 1).
-
-  <tr><td><dfn noexport dfn-for="built-in values">num_workgroups</dfn>
-      <td>compute
-      <td>input
-      <td>vec3&lt;u32&gt;
-      <td style="width:50%">The [=dispatch size=], `vec3<u32>(group_count_x,
-      group_count_y, group_count_z)`, of the compute shader
-      [[WebGPU#compute-pass-encoder-dispatch|dispatched]] by the API.
-
-  <tr><td><dfn noexport dfn-for="built-in values">sample_index</dfn>
-      <td>fragment
-      <td>input
-      <td>u32
-      <td style="width:50%">Sample index for the current fragment.
-         The value is least 0 and at most `sampleCount`-1, where
-         `sampleCount` is the MSAA sample {{GPUMultisampleState/count}}
-         specified for the GPU render pipeline.
-         <br>See [[WebGPU#gpurenderpipeline]].
-
-  <tr><td rowspan=2><dfn noexport dfn-for="built-in values">sample_mask</dfn>
-      <td>fragment
-      <td>input
-      <td>u32
-      <td style="width:50%">Sample coverage mask for the current fragment.
-         It contains a bitmask indicating which samples in this fragment are covered
-         by the primitive being rendered.
-         <br>See [[WebGPU#sample-masking]].
-
-  <tr>
-      <td>fragment
-      <td>output
-      <td>u32
-      <td style="width:50%">Sample coverage mask control for the current fragment.
-         The last value written to this variable becomes the
-         [=shader-output mask=].
-         Zero bits in the written value will cause corresponding samples in
-         the color attachments to be discarded.
-         <br>See [[WebGPU#sample-masking]].
 </table>
 
-<div class='example wgsl global-scope' heading="Declaring built-in values">
-  <xmp highlight=wgsl>
-    struct VertexOutput {
-      @builtin(position) my_pos: vec4<f32>
-    }
+##### `sample_index` ##### {#sample-index-builtin-value}
 
-    @vertex
-    fn vs_main(
-      @builtin(vertex_index) my_index: u32,
-      @builtin(instance_index) my_inst_index: u32,
-    ) -> VertexOutput {}
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">sample_index</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=fragment shader stage|fragment=]
+  <tr><td style="width:10%">Type
+      <td>u32
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      Sample index for the current fragment.  The value is least 0 and at most
+      `sampleCount`-1, where `sampleCount` is the MSAA sample
+      {{GPUMultisampleState/count}} specified for the GPU render pipeline.
 
-    struct FragmentOutput {
-      @builtin(frag_depth) depth: f32,
-      @builtin(sample_mask) mask_out: u32
-    }
+      See [[WebGPU#gpurenderpipeline]].
+</table>
 
-    @fragment
-    fn fs_main(
-      @builtin(front_facing) is_front: bool,
-      @builtin(position) coord: vec4<f32>,
-      @builtin(sample_index) my_sample_index: u32,
-      @builtin(sample_mask) mask_in: u32,
-    ) -> FragmentOutput {}
+##### `sample_mask` ##### {#sample-mask-builtin-value}
 
-    @compute @workgroup_size(64)
-    fn cs_main(
-      @builtin(local_invocation_id) local_id: vec3<u32>,
-      @builtin(local_invocation_index) local_index: u32,
-      @builtin(global_invocation_id) global_id: vec3<u32>,
-   ) {}
-  </xmp>
-</div>
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">sample_mask</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=fragment shader stage|fragment=]
+  <tr><td style="width:10%">Type
+      <td>u32
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      Sample coverage mask for the current fragment.  It contains a bitmask
+      indicating which samples in this fragment are covered by the primitive
+      being rendered.
+
+      See [[WebGPU#sample-masking]].
+</table>
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td>sample_mask
+  <tr><td style="width:10%">Stage
+      <td>[=fragment shader stage|fragment=]
+  <tr><td style="width:10%">Type
+      <td>u32
+  <tr><td style="width:10%">Direction
+      <td>Output
+  <tr><td style="width:10%">Description
+      <td>
+      Sample coverage mask control for the current fragment.  The last value
+      written to this variable becomes the [=shader-output mask=].  Zero bits
+      in the written value will cause corresponding samples in the color
+      attachments to be discarded.
+
+      See [[WebGPU#sample-masking]].
+</table>
+
+##### `vertex_index` ##### {#vertex-index-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">vertex_index</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=vertex shader stage|vertex=]
+  <tr><td style="width:10%">Type
+      <td>u32
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      Index of the current vertex within the current API-level draw command,
+      independent of draw instancing.
+
+      For a non-indexed draw, the first vertex has an index equal to the `firstVertex` argument
+      of the draw, whether provided directly or indirectly.
+      The index is incremented by one for each additional vertex in the draw instance.
+
+      For an indexed draw, the index is equal to the index buffer entry for the
+      vertex, plus the `baseVertex` argument of the draw, whether provided directly or indirectly.
+</table>
+
+##### `workgroup_id` ##### {#workgroup-id-builtin-value}
+
+<table class='data'>
+  <tr><td style="width:10%">Name
+      <td><dfn noexport dfn-for="built-in values">workgroup_id</dfn>
+  <tr><td style="width:10%">Stage
+      <td>[=compute shader stage|compute=]
+  <tr><td style="width:10%">Type
+      <td>vec3&lt;u32&gt;
+  <tr><td style="width:10%">Direction
+      <td>Input
+  <tr><td style="width:10%">Description
+      <td>
+      The current invocation's [=workgroup ID=], i.e. the position of the
+      workgroup in overall [=compute shader grid=].
+
+      All invocations in the same workgroup have the same workgroup ID.
+
+      Workgroup IDs span from (0,0,0) to ([=group_count_x=] - 1,
+      [=group_count_y=] - 1, [=group_count_z=] - 1).
+</table>
 
 #### User-defined Inputs and Outputs #### {#user-defined-inputs-outputs}
 
@@ -9153,8 +9372,9 @@ WGSL [=predeclared|predeclares=] an [=enumerant=] for each address space, except
 shader stage=].
 
 [=Variables=] in the [=address spaces/storage=] address space ([=storage
-buffers=]) and variables whose [=store type=] is a
-[=type/storage texture=] cannot be [=statically accessed=] by a [=vertex shader stage=].
+buffers=]) can only be [=statically accessed=] by a [=vertex shader stage=] if the access mode is [=access/read=]. 
+Variables whose [=store type=] is a [=type/storage texture=]
+cannot be [=statically accessed=] by a [=vertex shader stage=].
 See WebGPU {{GPUDevice/createBindGroupLayout()}}.
 
 Note: Each address space may have different performance characteristics.
@@ -10332,6 +10552,7 @@ notations:
       <td>*Vin*(*next*)
       <td>*Vout*(*s1*)
   <tr><td>
+          if *e* *s1* else *s2*<br>
           where *Next* is in the behavior of *s2*, but not *s1*
       <td>*Vin*(*next*)
       <td>*Vout*(*s2*)
@@ -10556,7 +10777,7 @@ The most complex rule is for function calls:
 - If the [=call site tag=] of the function is [=CallSiteRequiredToBeUniform.S=], then:
     - Add an edge from [=RequiredToBeUniform.S=] to the last [=CF_i=].
     - Add the members of the [=potential-trigger-set=] of the [=call site tag=] to the potential-trigger-set associated with [=RequiredToBeUniform.S=].
-- Otherwise add an edge from [=CF_after=] to the last [=CF_i=]
+- Add an edge from [=CF_after=] to the last [=CF_i=]
 - If the [=function tag=] is [=ReturnValueMayBeNonUniform=], then add an edge from [=Result=] to [=MayBeNonUniform=]
 - Add an edge from [=Result=] to [=CF_after=]
 - For each argument *i*:
@@ -10569,8 +10790,6 @@ The most complex rule is for function calls:
         - If the [=parameter tag=] is [=ParameterContentsRequiredToBeUniform.S=], add an edge from [=RequiredToBeUniform.S=] to *Vout*(*call*)
 
 Note: Refer to [[#func-var-value-analysis]] for the definition of *Vout*(*call*).
-
-A [=value constructor=] expression is analyzed as if it were a function call with the same arguments.
 
 Most built-in functions have tags of:
 - A [=call site tag=] of [=CallSiteNoRestriction=].
@@ -10716,7 +10935,7 @@ The following built-in input variables are considered uniform:
 - [=built-in values/workgroup_id=]
 - [=built-in values/num_workgroups=]
 
-All other ones (see [[#builtin-values]]) are considered non-uniform.
+All other ones (see [=built-in values=]) are considered non-uniform.
 
 Note: An author should avoid grouping the uniform built-in values together with
 other non-uniform inputs because the analysis does not analyze the [=components=]
@@ -11187,23 +11406,45 @@ If one of these functions is called in non-uniform control flow, then the result
 ## Floating Point Evaluation ## {#floating-point-evaluation}
 
 WGSL follows the [[!IEEE-754|IEEE-754]] standard for floating point computation with
-the following exceptions:
+the following differences:
+* No rounding mode is specified. An implementation may round a value up or down.
 * No floating point exceptions are generated.
+    * A floating point operation in WGSL [=behavioral requirement|will=] produce an intermediate result
+        according to IEEE-754 rules, but exceptions mandated by IEEE-754 will map to different
+        behaviors depending on whether the expression is
+        a [=const-expression=], an [=override-expression=], or a [=runtime expression=].
+    * IEEE-754 defines five kinds of exceptions:
+        * Invalid operation. These operations yield a NaN.  An example of an invalid operation is 0 &times; &infin;.
+        * Division by zero. This occurs when an operation on finite operands is defined as having an exact infinite result.
+            Examples are 1 &divide; 0, and log(0).
+        * Overflow. See [[#floating-point-overflow]].
+        * Underflow. This occurs when the rounded or unrounded result is subnormal.
+        * Inexact. This occurs when the rounded result is different from the intermediate result,
+            or when overflow occurs.
+    * Consider an operation on finite operands.
+        The operation produces overflow, infinity, or a NaN if and only if IEEE-754 would require the
+        operation to signal an invalid operation, division-by-zero, or overflow exception.
 * Signaling NaNs may not be generated.
     Any signaling NaN may be converted to a quiet NaN.
-* Implementations may assume that NaNs and infinities are not present at runtime.
-    * In such an implementation, when an expression evaluation would produce an
-        infinity or a NaN, an [=indeterminate value=] of the target type is produced instead.
-    * It is a [=shader-creation error=] if any [=const-expression=] of
-        floating-point type evaluates to NaN or infinity.
-    * It is a [=pipeline-creation error=] if any [=override-expression=] of
-        floating-point type evaluates to NaN or infinity.
+* Overflow, infinities, and NaNs generated before runtime are errors.
+    * [=Const-expressions=] and [=override-expressions=] over finite values
+        [=behavioral requirement|will=] generate overflow, infinities, and NaNs
+        as intermediate values, following IEEE-754 rules.
+        * Note: This rule requires implementations to reliably detect overflow, infinities, and NaNs
+            to within accuracy limits for these kinds of expressions, so that errors can be generated consistently.
+    * A [=shader-creation error=] results if any [=const-expression=] of
+        floating-point type overflows or evaluates to NaN or infinity.
+    * A [=pipeline-creation error=] results if any [=override-expression=] of
+        floating-point type overflows or evaluates to NaN or infinity.
+* Implementations may assume that overflow, infinities, and NaNs are not present at runtime.
+    * In such an implementation, if the intermediate result of evaluating a [=runtime expression=] overflows,
+        or yields infinity or a NaN, the final result [=behavioral requirement|will=] be
+        an [=indeterminate value=] of the target type.
     * Note: This means some functions (e.g. `min` and `max`)
         may not return the expected result due to optimizations about the presence
         of NaNs and infinities.
 * Implementations may ignore the sign of a zero.
     That is, a zero with a positive sign may behave like a zero a with a negative sign, and vice versa.
-* No rounding mode is specified.
 * To <dfn noexport title="flushed to zero">flush to zero</dfn> is to replace a denormalized value for a floating point type
     with a zero value of that type.
     * Any inputs or outputs of operations listed in [[#floating-point-accuracy]] may be flushed to zero.
@@ -11211,6 +11452,38 @@ the following exceptions:
         [[#pack-builtin-functions]] or [[#unpack-builtin-functions]] may be flushed to zero.
     * Other operations are required to preserve denormalized numbers.
 * The accuracy of operations is given in [[#floating-point-accuracy]].
+
+### Floating Point Overflow ### {#floating-point-overflow}
+
+Overflowing computations can round to infinity or to the
+nearest finite value.
+The outcome depends on the magnitude of the overflowing value and on whether
+evaluation occurs during shader execution.
+
+For a floating point type *T*, define *MAX(T)* as the largest positive finite value of *T*,
+and 2<sup>*EMAX(T)*</sup> as the largest power of 2 representable by *T*.
+In particular, EMAX([=f32=]) = 127, and EMAX([=f16=]) = 15.
+
+Let *X* be an infinite-precision intermediate result from a floating point computation.
+The final value of the expression is determined in two stages, via intermediate values *X'* and *X''* as follows:
+
+From *X*, compute *X'* in *T* by rounding:
+* If *X* is in the finite range of *T* then *X'* is the result of rounding *X* up or down.
+* If *X* is NaN, then *X'* is NaN.
+* If *MAX(T)* &lt; *X* &lt; 2<sup>*EMAX(T)+1*</sup>, then either rounding direction is used: *X'* is *MAX(T)* or &plus;&infin;.
+* If 2<sup>*EMAX(T)+1*</sup> &le; *X*, then *X'* = &plus;&infin;.
+    * Note: This matches the [[!IEEE-754|IEEE-754]] rule.
+* If &minus;*MAX(T)* &gt; *X* &gt; &minus;2<sup>*EMAX(T)+1*</sup>, then either rounding direction is used: *X'* is &minus;*MAX(T)* or &minus;&infin;.
+* If &minus;2<sup>*EMAX(T)+1*</sup> &ge; *X*, then *X'* = &minus;&infin;.
+    * Note: This matches the IEEE-754 rule.
+
+From *X'*, compute the final value of the expression, *X''*, or detect a program error:
+* If *X'* is infinity or NaN, then:
+    * If the expression is a [=const-expression=], generate a [=shader-creation error=].
+    * If the expression is a [=override-expression=], generate a [=pipeline-creation error=].
+    * Otherwise the expression is a [=runtime expression=] and *X''* is an [=indeterminate value=].
+* Otherwise *X''* = *X'*.
+
 
 ### Floating Point Accuracy ### {#floating-point-accuracy}
 
@@ -11239,25 +11512,28 @@ number `x` is defined as follows [[!Muller2005]]:
 * Otherwise, ULP(x) is `|b - a|` where `b` and `a` are the largest and second-largest
     representable finite floating point values.
 
-In the following tables, the accuracy of an operation is provided among five
+The accuracy of an operation is provided among five
 possibilities:
-* Correct result (for non-floating point return values).
+* Correct result (for non-floating point result values).
 * [=Correctly rounded=].
-* A relative error bound expressed as [=ULP=].
-* A function that the accuracy is <dfn noexport>inherited from</dfn>.
-    That is, the accuracy is equal to implementing the operation in terms of the derived function.
 * An absolute error bound.
+* A relative error bound expressed as [=ULP=].
+* An expression that the accuracy is <dfn noexport>inherited from</dfn>.
+    That is, the accuracy of the operation is defined as the accuracy of evaluating the given WGSL expression.
+    The given expression is only one valid implementation of the function.
+    A WebGPU implementation may implement the operation differently, with better accuracy
+    or with greater tolerance for extreme inputs.
 
-For any accuracy values specified over a range, the accuracy is undefined for
-results outside that range.
+When the accuracy for an operation is specified over an input range,
+the accuracy is undefined for input values outside that range.
 
-If an allowable return value for any operation is greater in magnitude than the
-largest representable finite floating-point value, then that operation may additionally
-return either the infinity with the same sign or the largest finite
-value with the same sign.
+If an allowed result is outside the finite range of the result type, then
+the rules in [[#floating-point-overflow]] apply.
+
+#### Accuracy of Concrete Floating Point Expressions #### {#concrete-float-accuracy}
 
 <table class='data'>
-  <caption>Accuracy of expressions</caption>
+  <caption>Accuracy of concrete floating point operations</caption>
   <thead>
     <tr><th>Expression<th>Accuracy for f32<th>Accuracy for f16
   </thead>
@@ -11278,7 +11554,7 @@ value with the same sign.
 </table>
 
 <table class='data'>
-  <caption>Accuracy of built-in functions</caption>
+  <caption>Accuracy of concrete floating point built-in functions</caption>
   <thead>
     <tr><th>Built-in Function<th>Accuracy for f32<th>Accuracy for f16
   </thead>
@@ -11397,13 +11673,50 @@ value with the same sign.
   <tr><td>`transpose(x)`<td colspan=2 style="text-align:left;">Correctly rounded
   <tr><td>`trunc(x)`<td colspan=2 style="text-align:left;">Correctly rounded
 
-  <tr><td>`unpack4x8snorm(x)`<td>Correctly rounded<td>N/A
-  <tr><td>`unpack4x8unorm(x)`<td>Correctly rounded<td>N/A
+  <tr><td>`unpack4x8snorm(x)`<td>3 ULP<td>N/A
+  <tr><td>`unpack4x8unorm(x)`<td>3 ULP<td>N/A
   <tr><td>`unpack2x16snorm(x)`<td>3 ULP<td>N/A
-  <tr><td>`unpack2x16unorm(x)`<td>Correctly rounded<td>N/A
+  <tr><td>`unpack2x16unorm(x)`<td>3 ULP<td>N/A
   <tr><td>`unpack2x16float(x)`<td>Correctly rounded<td>N/A
 
 </table>
+
+#### Accuracy of AbstractFloat Expressions #### {#abstract-float-accuracy}
+
+The accuracy of an [=AbstractFloat=] operation is as follows:
+* A correct result is required when the corresponding [=f32=] operation requires a correct result.
+* A [=correctly rounded=] result is required when the corresponding [=f32=] operation requires a correctly rounded result.
+* Otherwise, the error of the corresponding [=f32=] operation is an absolute error, a relative error, an error inherited
+    from a potential implementation, or a combination of these.
+    In this case the error of the [=AbstractFloat=] is unbounded.
+    * However, the error of the [=AbstractFloat=] operation *should* be at most
+        the error of the corresponding operation in [=f32=], in absolute terms.
+    * This recommendation is meant to avoid surprises: the accuracy of
+        an expression should not be *reduced* when changing its type from f32 to AbstractFloat.
+    * The operation may be evaluated in a WebAssembly [[WASM-CORE-2]] or an ECMAScript [[ECMASCRIPT]]
+        environment, and those specifications do not specify error bounds on many
+        of the corresponding numeric computations.
+        For example, ECMAScript specifies many floating point operations as being
+        [[ECMASCRIPT#sec-terms-and-definitions-implementation-approximated|implementation-approximated]].
+        Implementations are encouraged to strive to approximate the ideal, but
+        no strict requirement is specified.
+
+<div class=note algorithm="ulp translation">
+<span class=marker>Note:</span>A given absolute error bound, when quantified as ULP,
+depends critically on the underlying floating point type.
+
+The [=ULP=] for an [=AbstractFloat=] value assumes
+AbstractFloat is identical to the [[!IEEE-754|IEEE-754]] binary64 type.
+
+One [=ULP=] for an f32 value is 2<sup>29</sup> times larger than 1 ULP for an IEEE 754 binary64 value,
+since the significand in the binary64 format is 29 bits longer than the significand in the f32 type.
+
+For example, suppose the true result value of an operation is |x|, but it is computed as <var>x'</var>.
+If its error |x|-<var>x'</var> is 3 ULP in f32, then the same absolute error, |x|-<var>x'</var>,
+is 3&middot;2<sup>29</sup> ULP in AbstractFloat.
+</div>
+
+### Reassociation and Fusion ### {#reassociation-and-fusion}
 
 <dfn noexport>Reassociation</dfn> is the reordering of operations in an
 expression such that the answer is the same if computed exactly. For example:
@@ -12979,7 +13292,13 @@ Note: The result is not mathematically meaningful when `abs(e)` &ge; 1.
     * `atan(y/x)` + &pi; when (`x` &lt; 0) and (`y` &gt; 0)
     * `atan(y/x)` - &pi; when (`x` &lt; 0) and (`y` &lt; 0)
 
-    Note: atan2 is ill-defined when `y/x` is ill-defined, at the origin (`x`,`y`) = (0,0), and when `y` is non-normal or infinite.
+    <div class=note>
+    <span class=marker>Note:</span> The error in the result is unbounded:
+    * When `abs(x)` is very small, e.g. subnormal for its type,
+    * At the origin (`x`,`y`) = (0,0), or
+    * When `y` is subnormal or infinite.
+
+    </div>
 
     [=Component-wise=] when `T` is a vector.
 </table>
@@ -13518,7 +13837,7 @@ For example, if `e` is a very small negative number, then `fract(e)` may be 1.0.
     * When `e` is zero, the fraction is zero.
     * When `e` is non-zero and normal, `e` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
-    * Otherwise, `e` is NaN or infinite. The result fraction and exponent are [=indeterminate values=].
+    * Otherwise, `e` is denormalized, NaN, or infinite. The result fraction and exponent are [=indeterminate values=].
 
     Returns the `__frexp_result_f32` built-in structure, defined as follows:
     ```wgsl
@@ -13566,7 +13885,7 @@ but a value may infer the type.
     * When `e` is zero, the fraction is zero.
     * When `e` is non-zero and normal, `e` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
-    * Otherwise, `e` is NaN or infinite. The result fraction and exponent are [=indeterminate values=].
+    * Otherwise, `e` is denormalized, NaN, or infinite. The result fraction and exponent are [=indeterminate values=].
 
     Returns the `__frexp_result_f16` built-in structure, defined as if as follows:
     ```wgsl
@@ -13603,6 +13922,8 @@ but a value may infer the type.
     * When `e` is zero, the fraction is zero.
     * When `e` is non-zero and normal, `e` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
+    * When `e` is denormalized, the fraction and exponent are have unbounded error.
+        The fraction may be any AbstractFloat value, and the exponent may be any AbstractInt value.
 
     Note: AbstractFloat expressions resulting in infinity or NaN cause a [=shader-creation error=].
 
@@ -13726,6 +14047,8 @@ but a value may infer the type.
     * When `ei` is zero, the fraction is zero.
     * When `ei` is non-zero and normal, `ei` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
+    * When `ei` is denormalized, the fraction and exponent are have unbounded error.
+        The fraction may be any AbstractFloat value, and the exponent may be any AbstractInt value.
 
     Note: AbstractFloat expressions resulting in infinity or NaN cause a [=shader-creation error=].
 
@@ -14780,7 +15103,7 @@ Returns the dimensions of a texture, or texture's mip level in texels.
         <var ignore>A</var> is an [=access mode=]<br><br>
         |T| is `texture_1d<ST>` or `texture_storage_1d<F,A>`
     <td>
-      <xmp highlight=wgsl>fn textureDimensions(t: T) -> u32</xmp>
+      <xmp highlight=wgsl>@must_use fn textureDimensions(t: T) -> u32</xmp>
 
   <tr algorithm="textureDimensions 1d level">
     <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
@@ -14804,7 +15127,7 @@ Returns the dimensions of a texture, or texture's mip level in texels.
                `texture_storage_2d<F,A>`, `texture_storage_2d_array<F,A>`,
                or `texture_external`
     <td>
-      <xmp highlight=wgsl>fn textureDimensions(t: T) -> vec2<u32></xmp>
+      <xmp highlight=wgsl>@must_use fn textureDimensions(t: T) -> vec2<u32></xmp>
 
   <tr algorithm="textureDimensions 2d level">
     <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
@@ -14825,7 +15148,7 @@ Returns the dimensions of a texture, or texture's mip level in texels.
         <var ignore>A</var> is an [=access mode=]<br><br>
         |T| is `texture_3d<ST>` or `texture_storage_3d<F,A>`
     <td>
-      <xmp highlight=wgsl>fn textureDimensions(t: T) -> vec3<u32></xmp>
+      <xmp highlight=wgsl>@must_use fn textureDimensions(t: T) -> vec3<u32></xmp>
 
   <tr algorithm="textureDimensions 3d level">
     <td><var ignore>ST</var> is [=i32=], [=u32=], or [=f32=]<br><br>
