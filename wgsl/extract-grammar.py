@@ -1227,6 +1227,13 @@ def flow_build(options):
                 output_path,
                 target_lang="c++" if cpp else "c",
             )
+            
+    if newer_than(scanner_cc_staging, options.wgsl_shared_lib) or newer_than(options.grammar_filename,options.wgsl_shared_lib):
+        print("{}: ...Building custom scanner: {}".format(options.script,options.wgsl_shared_lib))
+        build_library(options.wgsl_shared_lib,
+                      [scanner_cc_staging,
+                       os.path.join(options.grammar_dir,"src","parser.c")])
+    return True
 
 def flow_examples(options,scan_result):
     """
