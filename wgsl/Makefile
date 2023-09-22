@@ -28,10 +28,19 @@ img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
 
 TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
 TREESITTER_PARSER := grammar/build/wgsl.so
+# Extract WGSL grammar from the spec
+$(TREESITTER_GRAMMAR_INPUT): index.bs scanner.cc extract-grammar.py
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow x; \
 
-# Extract WGSL grammar from the spec, validate it by building a Treesitter parser from it.
-$(TREESITTER_GRAMMAR_INPUT) $(TREESITTER_PARSER): index.bs scanner.cc extract-grammar.py
-	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow xb
+# Build a Treesitter parser to validate grammar extract and later examples in spec
+$(TREESITTER_PARSER): $(TREESITTER_GRAMMAR_INPUT)
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow b; \
+	if ! nm -gD grammar/build/wgsl.so | grep -q tree_sitter_wgsl; then \
+		echo "Error: tree_sitter_wgsl symbol does not exist" >&2; \
+		exit 1; \
+	else \
+		echo "Symbol tree_sitter_wgsl exists"; \
+	fi;
 
 .PHONY: validate-examples
 # Use Treesitter to parse many code examples in the spec.
@@ -49,7 +58,7 @@ unit_tests: $(TREESITTER_PARSER) wgsl_unit_tests.py
 
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json
-$(WGSL_GRAMMAR) : $(TREESITTER_GRAMMAR_INPUT)
+$(WGSL_GRAMMAR) : $(TREESITTER_PARSER)
 
 .PHONY: nfkc
 nfkc:
