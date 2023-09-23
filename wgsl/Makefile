@@ -35,7 +35,7 @@ $(TREESITTER_GRAMMAR_INPUT): index.bs scanner.cc extract-grammar.py
 # Build a Treesitter parser to validate grammar extract and later examples in spec
 $(TREESITTER_PARSER): $(TREESITTER_GRAMMAR_INPUT)
 	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow b; \
-	if ! nm -gD grammar/build/wgsl.so | grep -q tree_sitter_wgsl; then \
+	if ! nm --extern-only --dynamic grammar/build/wgsl.so | grep --quiet tree_sitter_wgsl; then \
 		echo "Error: tree_sitter_wgsl symbol does not exist" >&2; \
 		exit 1; \
 	else \
