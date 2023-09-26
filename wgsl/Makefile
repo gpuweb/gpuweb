@@ -30,11 +30,11 @@ TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
 TREESITTER_PARSER := grammar/build/wgsl.so
 # Extract WGSL grammar from the spec
 $(TREESITTER_GRAMMAR_INPUT): index.bs scanner.cc extract-grammar.py
-	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow x; \
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow x
 
 # Build a Treesitter parser to validate grammar extract and later examples in spec
 $(TREESITTER_PARSER): $(TREESITTER_GRAMMAR_INPUT)
-	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow b; \
+	source ../tools/custom-action/dependency-versions.sh && python3 ./extract-grammar.py --spec index.bs --scanner scanner.cc --tree-sitter-dir grammar --flow b
 	if ! nm --extern-only --dynamic grammar/build/wgsl.so | grep --quiet tree_sitter_wgsl; then \
 		echo "Error: tree_sitter_wgsl symbol does not exist" >&2; \
 		exit 1; \
