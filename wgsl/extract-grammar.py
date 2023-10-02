@@ -2,6 +2,7 @@
 
 from datetime import date
 from string import Template
+from tempfile import TemporaryDirectory
 
 import argparse
 import difflib
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import string
 import shutil
+
 import wgsl_unit_tests
 
 from distutils.ccompiler import new_compiler
@@ -1182,37 +1184,50 @@ def flow_build(options):
     # subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "build-wasm", "--docker"],
     #                cwd=options.grammar_dir, check=True)
 
+    def build_library(output_path, input_files):
+        # The py-tree-sitter build_library method with C++17 flags
+        """
+        Build a dynamic library at the given path, based on the parser
+        repositories at the given paths.
 
-    def build_library(output_file, input_files):
-        # The py-tree-sitter build_library method wasn't compiling with C++17 flags,
-        # so invoke the compile ourselves.
+        Returns `True` if the dynamic library was compiled and `False` if
+        the library already existed and was modified more recently than
+        any of the source files.
+        """
+
+        cpp = False
+        source_paths = []
+        for input_file in input_files:
+            source_paths.append(input_file)
+            if input_file.endswith(".cc"):
+                cpp = True
+
         compiler = new_compiler()
-        clang_like = isinstance(compiler, UnixCCompiler)
+        if isinstance(compiler, UnixCCompiler):
+            compiler.set_executables(compiler_cxx="c++")
 
-        # Compile .c and .cc files down to object files.
-        object_files = []
-        includes = [os.path.dirname(input_files[0])]
-        for src in input_files:
-            flags = []
-            if src.endswith(".cc"):
-                if clang_like:
-                    flags.extend(["-fPIC", "-std=c++17"])
+        with TemporaryDirectory(suffix="tree_sitter_language") as out_dir:
+            object_paths = []
+            for source_path in source_paths:
+                flags = ["-fPIC"]
+                if source_path.endswith(".c"):
+                    flags.append("-std=c99")
                 else:
-                    flags.extend(["/std:c++17"])
-            objects = compiler.compile([src],
-                                       extra_preargs=flags,
-                                       include_dirs=includes)
-            object_files.extend(objects)
-
-        # Link object files to a single shared library.
-        if clang_like:
-            link_flags = ["-lstdc++"]
-        compiler.link_shared_object(
-                object_files,
-                output_file,
-                target_lang="c++",
-                extra_postargs=link_flags)
-
+                    flags.append("-std=c++17")
+                object_paths.append(
+                    compiler.compile(
+                        [source_path],
+                        output_dir=out_dir,
+                        include_dirs=[os.path.dirname(source_path)],
+                        extra_preargs=flags,
+                    )[0]
+                )
+            compiler.link_shared_object(
+                object_paths,
+                output_path,
+                target_lang="c++" if cpp else "c",
+            )
+            
     if newer_than(scanner_cc_staging, options.wgsl_shared_lib) or newer_than(options.grammar_filename,options.wgsl_shared_lib):
         print("{}: ...Building custom scanner: {}".format(options.script,options.wgsl_shared_lib))
         build_library(options.wgsl_shared_lib,
