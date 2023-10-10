@@ -1,6 +1,12 @@
+**Roadmap:** This proposal is **not under active consideration**, but may be considered later.
+WebGPU implementations **must not** expose this functionality; doing so is a spec violation.
+Note however, an implementation might provide an option (e.g. command line flag) to enable a draft
+implementation, for developers who want to test this proposal or use its functionality for locally
+profiling their application performance.
+
 # Overview of this proposal
 
-This proposal represents the Compatibility Mode issues for which the GPU for the Web Community Group has achieved tenative consensus. New items will be added to this doc as consensus on further issues is achieved.
+This proposal represents the Compatibility Mode issues for which the GPU for the Web Community Group has achieved tentative consensus. New items will be added to this doc as consensus on further issues is achieved.
 
 # Problem
 
@@ -12,7 +18,7 @@ The primary goal of WebGPU Compatibility mode is to increase the reach of WebGPU
 
 Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility mode applications are also valid WebGPU applications. Consequently, Compatibility mode applications will also run on user agents which do not support Compatibility mode. Such user agents will simply ignore the option requesting a Compatibility mode Adapter and return a Core WebGPU Adapter instead.
 
-# Proposed IDL changes
+## WebGPU Spec Changes
 
 ```webidl
 partial dictionary GPURequestAdapterOptions {
