@@ -1,18 +1,14 @@
-**Roadmap:** This proposal is **not under active consideration**, but may be considered later.
-WebGPU implementations **must not** expose this functionality; doing so is a spec violation.
-Note however, an implementation might provide an option (e.g. command line flag) to enable a draft
-implementation, for developers who want to test this proposal or use its functionality for locally
-profiling their application performance.
+# WebGPU Compatibility Mode
 
-# Overview of this proposal
+This proposal is **under active development, but has not been standardized for inclusion in the WebGPU specification**. WebGPU implementations **must not** expose this functionality; doing so is a spec violation. Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
 
-This proposal represents the Compatibility Mode issues for which the GPU for the Web Community Group has achieved tentative consensus. New items will be added to this doc as consensus on further issues is achieved.
+The changes merged into this document are those for which the GPU for the Web Community Group has achieved **tentative** consensus prior to official standardization of the whole propsal. New items will be added to this doc as tentative consensus on further issues is achieved.
 
-# Problem
+## Problem
 
 WebGPU is a good match for modern explicit graphics APIs such as Vulkan, Metal and D3D12. However, there are a large number of devices which do not yet support those APIs. In particular, on Chrome on Windows, 31% of Chrome users do not have D3D11.1 or higher. On Android, [23% of Android users do not have Vulkan 1.1 (15% do not have Vulkan at all)](https://developer.android.com/about/dashboards). On ChromeOS, Vulkan penetration is still quite low, while OpenGL ES 3.1 is ubiquitous.
 
-# Goals
+## Goals
 
 The primary goal of WebGPU Compatibility mode is to increase the reach of WebGPU by providing an opt-in, slightly restricted subset of WebGPU which will run on older APIs such as D3D11 and OpenGL ES. This will increase adoption of WebGPU applications via a wider userbase.
 
@@ -47,7 +43,7 @@ partial dictionary GPUTextureDescriptor {
 
 See "Texture view dimension may be specified", below.
 
-# Compatibility mode restrictions
+## Compatibility mode restrictions
 
 ### 1. Texture view dimension may be specified 
 
