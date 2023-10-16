@@ -62,8 +62,8 @@ if desc.dimension is "3d":
 
 **Justification**: OpenGL ES 3.1 does not support texture views.
 
-### 2. Color state `alphaBlend`, `colorBlend` and `writeMask` may not differ between color attachments in a single draw.
+### 2. Color blending state may not differ between color attachments in a `GPUFragmentState`.
 
-Color state descriptors used in a single draw must have the same alphaBlend, colorBlend and writeMask, or else an encode-time validation error will occur.
+Each `GPUColorTargetState` in a `GPUFragmentState` must have the same `blend.alpha`, `blend.color` and `writeMask`, or else a validation error will occur on render pipeline creation.
 
 **Justification**: OpenGL ES 3.1 does not support indexed draw buffer state.
