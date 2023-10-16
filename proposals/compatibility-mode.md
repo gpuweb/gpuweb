@@ -47,7 +47,7 @@ See "Texture view dimension may be specified", below.
 
 ### 1. Texture view dimension may be specified 
 
-When specifying a texture, a `viewDimension` property determines the views which can be bound from that texture for sampling (see "Proposed IDL changes", above). Binding a view of a different dimension for sampling than specified at texture creation time will cause a validation error. If `viewDimension` is unspecified, use the following algorithm:
+When specifying a texture, a `viewDimension` property determines the views which can be bound from that texture for sampling (see "Proposed IDL changes", above). Binding a view of a different dimension for sampling than specified at texture creation time will cause a validation error. If `viewDimension` is unspecified, use [the same algorithm as `createView()`](https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureviewdescriptor-defaults):
 ```
 if desc.dimension is "1d":
     set viewDimension to "1d"
