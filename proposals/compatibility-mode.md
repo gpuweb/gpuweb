@@ -37,7 +37,7 @@ As a convenience to the developer, the Adapter returned will have the `isCompati
 
 ```webidl
 partial dictionary GPUTextureDescriptor {
-    GPUTextureViewDimension viewDimension;
+    GPUTextureViewDimension textureBindingViewDimension;
 }
 ```
 
@@ -47,17 +47,17 @@ See "Texture view dimension may be specified", below.
 
 ### 1. Texture view dimension may be specified 
 
-When specifying a texture, a `viewDimension` property determines the views which can be bound from that texture for sampling (see "Proposed IDL changes", above). Binding a view of a different dimension for sampling than specified at texture creation time will cause a validation error. If `viewDimension` is unspecified, use [the same algorithm as `createView()`](https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureviewdescriptor-defaults):
+When specifying a texture, a `textureBindingViewDimension` property determines the views which can be bound from that texture for sampling (see "Proposed IDL changes", above). Binding a view of a different dimension for sampling than specified at texture creation time will cause a validation error. If `textureBindingViewDimension` is unspecified, use [the same algorithm as `createView()`](https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureviewdescriptor-defaults):
 ```
 if desc.dimension is "1d":
-    set viewDimension to "1d"
+    set textureBindingViewDimension to "1d"
 if desc.dimension is "2d":
   if desc.size.depthOrArrayLayers is 1:
-    set viewDimension to "2d"
+    set textureBindingViewDimension to "2d"
   else:
-    set viewDimension to "2d-array"
+    set textureBindingViewDimension to "2d-array"
 if desc.dimension is "3d":
-  set viewDimension to "3d"
+  set textureBindingViewDimension to "3d"
 ```
 
 **Justification**: OpenGL ES 3.1 does not support texture views.
