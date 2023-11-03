@@ -71,11 +71,23 @@ Each `GPUColorTargetState` in a `GPUFragmentState` must have the same `blend.alp
 ### 3. Disallow `CommandEncoder.copyTextureToBuffer()` and `CommandEncoder.copyTextureToTexture()` for compressed texture formats
 `CommandEncoder.copyTextureToBuffer()` and `CommandEncoder.copyTextureToTexture()` of a compressed texture are disallowed, and will result in a validation error.
 
-Justification: Compressed texture formats are non-renderable in OpenGL ES, and `glReadPixels()` requires a framebuffer-complete FBO, preventing `copyTextureToBuffer()`. Additionally, because ES 3.1 does not support `glCopyImageSubData()`, texture-to-texture copies must be worked around with `glBlitFramebuffer()`. Since compressed textures are not renderable, they cannot use the `glBlitFramebuffer()` workaround, preventing implementation of `copyTextureToTexture()`.
+**Justification**: Compressed texture formats are non-renderable in OpenGL ES, and `glReadPixels()` requires a framebuffer-complete FBO, preventing `copyTextureToBuffer()`. Additionally, because ES 3.1 does not support `glCopyImageSubData()`, texture-to-texture copies must be worked around with `glBlitFramebuffer()`. Since compressed textures are not renderable, they cannot use the `glBlitFramebuffer()` workaround, preventing implementation of `copyTextureToTexture()`.
 
 ### 4. Disallow `GPUTextureViewDimension` `"CubeArray"` via validation
 
 **Justification**: OpenGL ES does not support Cube Array textures.
+
+### 5. Views of the same texture used in a single draw may not differ in mip levels.
+
+A draw call may not bind two views of the same texture differing in `baseMipLevel` or `mipLevelCount`. Only a single mip level range range per texture is supported. This is enforced via validation at encode time.
+
+**Justification**: OpenGL ES does not support texture views, but one mip level subset may be specified per texture using `glTexParameter*()` via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
+
+### 6. Array texture views used in draw calls must consist of the entire array. That is, `baseArrayLayer` must be zero, and `arrayLayerCount` must be equal to the size of the texture array.
+
+A draw call may not reference a subset of array layers. Only views of the entire array are supported for sampling. This is enforced via validation at encode time.
+
+**Justification**: OpenGL ES does not support texture views.
 
 ## Issues
 
