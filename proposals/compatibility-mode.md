@@ -83,9 +83,9 @@ A draw call may not bind two views of the same texture differing in `baseMipLeve
 
 **Justification**: OpenGL ES does not support texture views, but one mip level subset may be specified per texture using `glTexParameter*()` via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
 
-### 6. Array texture views used in draw calls must consist of the entire array. That is, `baseArrayLayer` must be zero, and `arrayLayerCount` must be equal to the size of the texture array.
+### 6. Array texture views used in bind groups must consist of the entire array. That is, `baseArrayLayer` must be zero, and `arrayLayerCount` must be equal to the size of the texture array.
 
-A draw call may not reference a subset of array layers. Only views of the entire array are supported for sampling. This is enforced via validation at encode time.
+A bind group may not reference a subset of array layers. Only views of the entire array are supported for sampling or storage bindings. This is enforced via validation at bind group creation time.
 
 **Justification**: OpenGL ES does not support texture views.
 
