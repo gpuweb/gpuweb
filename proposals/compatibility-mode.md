@@ -79,7 +79,7 @@ Each `GPUColorTargetState` in a `GPUFragmentState` must have the same `blend.alp
 
 ### 5. Views of the same texture used in a single draw may not differ in mip levels.
 
-A draw call may not bind two views of the same texture differing in `baseMipLevel` or `mipLevelCount`. Only a single mip level range range per texture is supported. This is enforced via validation at encode time.
+A draw call may not bind two views of the same texture differing in `baseMipLevel` or `mipLevelCount`. Only a single mip level range range per texture is supported. This is enforced via validation at draw time.
 
 **Justification**: OpenGL ES does not support texture views, but one mip level subset may be specified per texture using `glTexParameter*()` via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
 
