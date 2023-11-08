@@ -83,7 +83,7 @@ Using f16 as a parameter in any of these functions requires `subgroups-f16` to b
 | `fn subgroupBroadcastFirst(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Broadcasts `e` from the active invocation with the lowest subgroup_invocation_id in the subgroup  to all other active invocations |
 | `fn subgroupBallot(pred : bool) -> vec4<u32>` | | Returns a set of bitfields where the bit corresponding to subgroup_invocation_id is 1 if `pred` is true for that active invocation and 0 otherwise. |
 | `fn subgroupShuffle(v : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Returns `v` from the active invocation whose subgroup_invocation_id matches `id` |
-| `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask` |
+| `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask`.<br>`mask` must be dynamically uniform. |
 | `fn subgroupShuffleUp(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id - delta` |
 | `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta` |
 | `fn subgroupSum(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Adds `e` among all active invocations and returns that result |
@@ -91,7 +91,7 @@ Using f16 as a parameter in any of these functions requires `subgroups-f16` to b
 | `fn subgroupProduct(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Multiplies `e` among all active invocations and returns that result |
 | `fn subgroupExclusiveProduct(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than this invocation |
 | `fn subgroupAnd(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise and of `e` among all active invocations and returns that result |
-| `fn subgroupOr(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise or of `e` among all active invocations and returns that result.<br>`mask` must be dynamically uniform. |
+| `fn subgroupOr(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise or of `e` among all active invocations and returns that result |
 | `fn subgroupXor(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise xor of `e` among all active invocations and returns that result |
 | `fn subgroupMin(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a min of `e` among all active invocations and returns that result |
 | `fn subgroupMax(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a max of `e` among all active invocations and returns that result |
