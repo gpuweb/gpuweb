@@ -58,7 +58,7 @@ iPhone11, iPhone SE, and iPad (9th gen).
 Some possibilities:
 * MSL and HLSL (SM6.8) support `any` and `all` operations at quad scope
 * SPIR-V and HLSL (SM6.5) could support more exclusive/inclusive, clustered, and partitioned operations
-* Exclusive sum and product could be done with multi-prefix SM6.5 operations in HLSL
+* Inclusive sum and product could be done with multi-prefix SM6.5 operations in HLSL or through emulation
 
 ## Built-in Values
 
@@ -87,9 +87,9 @@ Using f16 as a parameter in any of these functions requires `subgroups-f16` to b
 | `fn subgroupShuffleUp(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id - delta` |
 | `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta` |
 | `fn subgroupSum(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Adds `e` among all active invocations and returns that result |
-| `fn subgroupInclusiveSum(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Inclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than or equal to this invocation |
+| `fn subgroupExclusiveSum(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than this invocation |
 | `fn subgroupProduct(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Multiplies `e` among all active invocations and returns that result |
-| `fn subgroupInclusiveProduct(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Inclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than or equal to this invocation |
+| `fn subgroupExclusiveProduct(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than this invocation |
 | `fn subgroupAnd(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise and of `e` among all active invocations and returns that result |
 | `fn subgroupOr(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise or of `e` among all active invocations and returns that result |
 | `fn subgroupXor(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise xor of `e` among all active invocations and returns that result |
@@ -209,9 +209,9 @@ D3D12 would have to be proven empricially.
 | `subgroupSuffleUp` | OpGroupNonUniformShuffleUp | simd_shuffle_up | WaveReadLaneAt with index equal `subgroup_invocation_id - delta` |
 | `subgroupSuffleDown` | OpGroupNonUniformShuffleDown | simd_shuffle_down | WaveReadLaneAt with index equal `subgroup_invocation_id + delta` |
 | `subgroupSum` | OpGroupNonUniform[IF]Add with Reduce operation | simd_sum | WaveActiveSum |
-| `subgroupInclusiveSum` | OpGroupNonUniform[IF]Add with InclusiveScan operation | simd_prefix_inclusive_sum | WavePrefixSum |
+| `subgroupExclusiveSum` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_sum | WavePrefixSum |
 | `subgroupProduct` | OpGroupNonUniform[IF]Mul with Reduce operation | simd_product | WaveActiveProduct |
-| `subgroupInclusiveProduct` | OpGroupNonUniform[IF]Add with InclusiveScan operation | simd_prefix_inclusive_product | WavePrefixProduct |
+| `subgroupExclusiveProduct` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_product | WavePrefixProduct |
 | `subgroupAnd` | OpGroupNonUniformBitwiseAnd with Reduce operation | simd_and | WaveActiveBitAnd |
 | `subgroupOr` | OpGroupNonUniformBitwiseOr with Reduce operation | simd_or | WaveActiveBitOr |
 | `subgroupXor` | OpGroupNonUniformBitwiseXor with Reduce operation | simd_xor | WaveActiveBitXor |
