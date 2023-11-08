@@ -80,7 +80,7 @@ Using f16 as a parameter in any of these functions requires `subgroups-f16` to b
 | `fn subgroupAll(e : bool) -> bool` | | Returns true if `e` is true for all active invocations in the subgroup |
 | `fn subgroupAny(e : bool) -> bool` | | Returns true if `e` is true for any active invocation in the subgroup |
 | `fn subgroupBroadcast(e : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be i32 or u32 | Broadcasts `e` from subgroup_invocation_id `id` to all active invocations. `id` must be dynamically uniform<sup>1</sup> |
-| `fn subgroupBroadcastFirst(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Broadcasts `e` from the Broadcasts `e` from the active invocation with the lowest subgroup_invocation_id in the subgroup  to all other active invocations |
+| `fn subgroupBroadcastFirst(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Broadcasts `e` from the active invocation with the lowest subgroup_invocation_id in the subgroup  to all other active invocations |
 | `fn subgroupBallot(pred : bool) -> vec4<u32>` | | Returns a set of bitfields where the bit corresponding to subgroup_invocation_id is 1 if `pred` is true for that active invocation and 0 otherwise. |
 | `fn subgroupShuffle(v : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Returns `v` from the active invocation whose subgroup_invocation_id matches `id` |
 | `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask` |
