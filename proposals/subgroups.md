@@ -91,7 +91,7 @@ Using f16 as a parameter in any of these functions requires `subgroups-f16` to b
 | `fn subgroupProduct(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Multiplies `e` among all active invocations and returns that result |
 | `fn subgroupExclusiveProduct(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than this invocation |
 | `fn subgroupAnd(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise and of `e` among all active invocations and returns that result |
-| `fn subgroupOr(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise or of `e` among all active invocations and returns that result |
+| `fn subgroupOr(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise or of `e` among all active invocations and returns that result.<br>`mask` must be dynamically uniform. |
 | `fn subgroupXor(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise xor of `e` among all active invocations and returns that result |
 | `fn subgroupMin(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a min of `e` among all active invocations and returns that result |
 | `fn subgroupMax(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a max of `e` among all active invocations and returns that result |
