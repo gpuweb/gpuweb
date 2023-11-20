@@ -89,6 +89,12 @@ A bind group may not reference a subset of array layers. Only views of the entir
 
 **Justification**: OpenGL ES does not support texture views.
 
+### 7. Disallow `sample_mask` builtin in WGSL.
+
+Use of the `sample_mask` builtin would cause a validation error at pipeline creation time.
+
+**Justification**: OpenGL ES 3.1 does not support `gl_SampleMask` or `gl_SampleMaskIn`.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
