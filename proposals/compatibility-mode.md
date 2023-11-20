@@ -91,6 +91,8 @@ A bind group may not reference a subset of array layers. Only views of the entir
 
 ### 7. Disallow `sample_mask` builtin in WGSL.
 
+Use of the `sample_mask` builtin would cause a validation error at pipeline creation time.
+
 **Justification**: OpenGL ES 3.1 does not support `gl_SampleMask` or `gl_SampleMaskIn`.
 
 ## Issues
