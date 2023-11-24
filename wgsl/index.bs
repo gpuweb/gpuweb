@@ -1692,7 +1692,19 @@ Extension names are not [=identifiers=]: they do not [=resolves|resolve=] to [=d
       * NOTE: This means no [=vector=], [=matrix=], [=array=], or [=struct=] access expressions
           can be applied to produce a [=memory view=] into the [=root identifier=] when
           traced from the argument back through all the [=let-declarations=].
+  <tr><td>pointer_composite_access
+      <td>
+      Supports [[#composite-value-decomposition-expr|composite-value
+      decomposition expressions]] where the root expression is a pointer,
+      yielding a reference.
 
+      For example, if `p` is a pointer to a structure with member `m`, then
+      `p.m` is a reference to the memory locations for `m` inside the structure
+      `p` points to.
+
+      Similarly, if `pa` is a pointer to an array, then `pa[i]` is a reference
+      to the memory locations for the `i`'th element of the array `pa` points
+      to.
 </table>
 
 Note: The intent is that, over time, WGSL will define language extensions embodying all functionality in language extensions commonly supported at that time.
@@ -3297,13 +3309,13 @@ References are formed as described in detail in [[#forming-references-and-pointe
 Generally, a <dfn noexport>valid reference</dfn> is formed by:
 * naming a variable, or
 * applying the [=indirection=] (unary `*`) operation to a [=valid pointer=], or
-* a [=named component expression=] where the [=decomposition/base=] is a valid reference, or
-* an [=indexing expression=] where the [=decomposition/base=] is a valid reference, and using an [=in-bounds index=].
+* a [=named component expression=] where the [=decomposition/base=] is a valid [=memory view=], or
+* an [=indexing expression=] where the [=decomposition/base=] is a valid [=memory view=], and using an [=in-bounds index=].
 
 Generally, an <dfn noexport>invalid memory reference</dfn> is formed by:
 * applying the indirection operator to an [=invalid pointer=], or
 * a [=named component expression=] where the [=decomposition/base=] is an invalid memory reference, or
-* an [=indexing expression=] where the base is a reference, and either:
+* an [=indexing expression=] where the base is a [=memory view=], and either:
      * the [=decomposition/base=] is an invalid memory reference, or
      * the index is [=out-of-bounds index|out-of-bounds=].
 
@@ -3562,21 +3574,21 @@ A reference value is formed in one of the following ways:
 
 * The [=identifier=] [=resolves|resolving=] to an [=in scope|in-scope=] variable *v* denotes the reference value for *v*'s memory.
 * Use the [=indirection=] (unary `*`) operation on a pointer.
-* Use a [=named component expression=] on a reference to a composite:
-    * Given a reference with a [=vector=] store type, appending a single-letter vector access phrase
+* Use a [=named component expression=] on a [=memory view=] to a composite:
+    * Given a memory view with a [=vector=] store type, appending a single-letter vector access phrase
         results in a reference to the named component of the vector.
-        See [[#component-reference-from-vector-reference]].
-    * Given a reference with a [=structure=] store type, appending a member access phrase
+        See [[#component-reference-from-vector-memory-view]].
+    * Given a memory view with a [=structure=] store type, appending a member access phrase
         results in a reference to the named member of the structure.
         See [[#struct-access-expr]].
-* Use an [=indexing expression=] on a reference to a composite:
-    * Given a reference with a [=vector=] store type, appending an array index access phrase
+* Use an [=indexing expression=] on a [=memory view=] to a composite:
+    * Given a memory view with a [=vector=] store type, appending an array index access phrase
         results in a reference to the indexed component of the vector.
-        See [[#component-reference-from-vector-reference]].
-    * Given a reference with a [=matrix=] store type, appending an array index access phrase
+        See [[#component-reference-from-vector-memory-view]].
+    * Given a memory view with a [=matrix=] store type, appending an array index access phrase
         results in a reference to the indexed column vector of the matrix.
         See [[#matrix-access-expr]].
-    * Given a reference with an [=array=] store type, appending an array index access phrase
+    * Given a memory view with an [=array=] store type, appending an array index access phrase
         results in a reference to the indexed element of the array.
         See [[#array-access-expr]].
 
@@ -3666,6 +3678,94 @@ In all cases, the [=access mode=] of the result is the same as the access mode o
         // the memory locations referenced by 'person.weight' at the time the
         // declaration is executed.
         let person_weight: f32 = person.weight;
+
+        // Alternatively, references can also be formed from pointers using
+        // the same syntax.
+
+        let uv_ptr = &uv;
+        // For the remainder of this function body, 'uv_ptr' denotes a pointer
+        // to the memory underlying 'uv', and will have the type
+        // ptr<function,vec2<f32>,read_write>.
+
+        // Evaluate the left-hand side of the assignment:
+        //   Evaluate '*uv_ptr' to yield a reference:
+        //   1. First evaluate 'uv_ptr', yielding a pointer to the memory for
+        //      the 'uv' variable. The result has type ptr<function,vec2<f32>,read_write>.
+        //   2. Then apply the indirection expression operator, yielding a
+        //      reference to memory for 'uv'.
+        // Evaluating the right-hand side of the assignment yields the vec2<f32> value (1.0, 2.0).
+        // Store the value (1.0, 2.0) into the storage memory locations referenced by uv.
+        *uv_ptr = vec2f(1.0, 2.0);
+
+        // Evaluate the left-hand side of the assignment:
+        //   Evaluate 'uv_ptr.x' to yield a reference:
+        //   1. First evaluate 'uv_ptr', yielding a pointer to the memory for
+        //      the 'uv' variable. The result has type ptr<function,vec2<f32>,read_write>.
+        //   2. Then apply the '.x' vector access phrase, yielding a reference to
+        //      the memory for the first component of the vector pointed at by the
+        //      reference value from the previous step.
+        //      The result has type ref<function,f32,read_write>.
+        // Evaluating the right-hand side of the assignment yields the f32 value 1.0.
+        // Store the f32 value 1.0 into the storage memory locations referenced by uv.x.
+        uv_ptr.x = 1.0;
+
+        // Evaluate the left-hand side of the assignment:
+        //   Evaluate 'uv_ptr[1]' to yield a reference:
+        //   1. First evaluate 'uv_ptr', yielding a pointer to the memory for
+        //      the 'uv' variable. The result has type ptr<function,vec2<f32>,read_write>.
+        //   2. Then apply the '[1]' array index phrase, yielding a reference to
+        //      the memory for second component of the vector referenced from
+        //      the previous step.  The result has type ref<function,f32,read_write>.
+        // Evaluating the right-hand side of the assignment yields the f32 value 2.0.
+        // Store the f32 value 2.0 into the storage memory locations referenced by uv[1].
+        uv_ptr[1] = 2.0;
+
+        let m_ptr = &m;
+        // When evaluating 'm_ptr[2]':
+        // 1. First evaluate 'm_ptr', yielding a pointer to the memory for
+        //    the 'm' variable. The result has type ptr<function,mat3x2<f32>,read_write>.
+        // 2. Then apply the '[2]' array index phrase, yielding a reference to
+        //    the memory for the third column vector pointed at by the reference
+        //    value from the previous step.
+        //    Therefore the 'm[2]' expression has type ref<function,vec2<f32>,read_write>.
+        // The 'let' declaration is for type vec2<f32>, so the declaration
+        // statement requires the initializer to be of type vec2<f32>.
+        // The Load Rule applies (because no other type rule can apply), and
+        // the evaluation of the initializer yields the vec2<f32> value loaded
+        // from the memory locations referenced by 'm[2]' at the time the declaration
+        // is executed.
+        let p_m_col2: vec2<f32> = m_ptr[2];
+
+        let A_Ptr = &A;
+        // When evaluating 'A[4]'
+        // 1. First evaluate 'A', yielding a pointer to the memory for
+        //    the 'A' variable. The result has type ptr<function,array<i32,5>,read_write>.
+        // 2. Then apply the '[4]' array index phrase, yielding a reference to
+        //    the memory for the fifth element of the array referenced by
+        //    the reference value from the previous step.
+        //    The result value has type ref<function,i32,read_write>.
+        // The let-declaration requires the right-hand-side to be of type i32.
+        // The Load Rule applies (because no other type rule can apply), and
+        // the evaluation of the initializer yields the i32 value loaded from
+        // the memory locations referenced by 'A[4]' at the time the declaration
+        // is executed.
+        let A_4_value: i32 = A_ptr[4];
+
+        let person_ptr = &person;
+        // When evaluating 'person.weight'
+        // 1. First evaluate 'person_ptr', yielding a pointer to the memory for
+        //    the 'person' variable declared at module scope.
+        //    The result has type ptr<private,S,read_write>.
+        // 2. Then apply the '.weight' member access phrase, yielding a reference to
+        //    the memory for the second member of the memory referenced by
+        //    the reference value from the previous step.
+        //    The result has type ref<private,f32,read_write>.
+        // The let-declaration requires the right-hand-side to be of type f32.
+        // The Load Rule applies (because no other type rule can apply), and
+        // the evaluation of the initializer yields the f32 value loaded from
+        // the memory locations referenced by 'person.weight' at the time the
+        // declaration is executed.
+        let person_weight: f32 = person_ptr.weight;
     }
   </xmp>
 </div>
@@ -5133,29 +5233,29 @@ the indeterminate value produced at runtime may be a NaN value.
 ## Composite Value Decomposition Expressions ## {#composite-value-decomposition-expr}
 
 This section describes expressions for getting a [=component=] of a [=composite=] value,
-and for getting a [=reference type|reference=] to a [=component=] from a reference to the containing composite value.
-For this discussion, the composite value, or the reference to composite value,
+and for getting a [=reference type|reference=] to a [=component=] from a [=memory view=] to the containing composite value.
+For this discussion, the composite value, or the memory view to the composite value,
 is known as the <dfn dfn-for=decomposition noexport>base</dfn>.
 
 There are two ways of doing so:
 : <dfn noexport>named component expression</dfn>
 :: The expression for the [=decomposition/base=] *B* is followed by a period `'.'` (U+002D), and then the name of the component.
-    * This is supported when *B* is of [=vector=] or [=structure=] type, or a reference to a vector or structure type.
+    * This is supported when *B* is of [=vector=] or [=structure=] type, or a memory view to a vector or structure type.
     * The valid names depend on *B*'s type.
 : <dfn noexport>indexing expression</dfn>
 :: The expression for the base is followed by `'['` (U+005B), then the expression for an index then `']'` (U+005D).
     * The base may be a [=vector=], [=matrix=], or [=fixed-size array=] type, or
-        or a reference to a vector, matrix, fixed-size array, or [=runtime-sized=] array type.
+        or a memory view to a vector, matrix, fixed-size array, or [=runtime-sized=] array type.
     * The index expression [=shader-creation error|must=] be of [=integer scalar=] type.
 
 Syntactically, these two forms are embodied by uses of the [=syntax/component_or_swizzle_specifier=] grammar rule.
 
 <div algorithm="out of bounds index">
 The index value |i| of an [=indexing expression=] is an <dfn noexport>in-bounds index</dfn> if 0 &le; |i| &lt; |N|, where |N| is the number of components (elements) of the composite type:
-    * |N| is the number of components of the [=vector=] type, when the base is a vector or a [=reference type|reference=] to a vector.
-    * |N| is the number of columns of the [=matrix=] type, when the base is a matrix or a reference to a matrix.
-    * |N| is the [=element count=] of the [=fixed-size array=] type, when the base is a fixed-size array or a reference to a fixed-size array.
-    * |N| is [=NRuntime=] for the base, when the base is a reference to a [=runtime-sized=] array.
+    * |N| is the number of components of the [=vector=] type, when the base is a vector or a [=memory view=] to a vector.
+    * |N| is the number of columns of the [=matrix=] type, when the base is a matrix or a memory view to a matrix.
+    * |N| is the [=element count=] of the [=fixed-size array=] type, when the base is a fixed-size array or a memory view to a fixed-size array.
+    * |N| is [=NRuntime=] for the base, when the base is a memory view to a [=runtime-sized=] array.
 
 The index value is an <dfn noexport>out-of-bounds index</dfn> when it is not an [=in-bounds index=].
 An out-of-bounds index is often a programming defect, and will often cause a [[#errors|error]].
@@ -5272,73 +5372,87 @@ The result type depends on the number of letters provided. Assuming a `vec4<f32>
   </thead>
   <tr algorithm="two component vector selection using .x .y">
        <td class="nowrap">
-          |e|: vec|N|&lt;|T|&gt;<br>
+          |e|: vec|N|&lt;|T|&gt; or ptr&lt;|AS|,vec|N|&lt;|T|,|AM|&gt;&gt;<br>
           |I| is the letter `x`, `y`, `z`, or `w`<br>
           |J| is the letter `x`, `y`, `z`, or `w`<br>
+          |AM| is `read` or `read_write`<br>
        <td class="nowrap">
            |e|`.`|I||J|: vec2&lt;|T|&gt;<br>
        <td>Computes the two-component vector with first component |e|.|I|, and second component |e|.|J|.<br>
            Letter `z` is valid only when |N| is 3 or 4.<br>
-           Letter `w` is valid only when |N| is 4.
+           Letter `w` is valid only when |N| is 4.<br><br>
+           If |e| is a pointer, an [=indirection=] is first applied and then the [=load rule=] is invoked.
   <tr algorithm="two component vector selection using .r .g">
        <td class="nowrap">
-          |e|: vec|N|&lt;|T|&gt;<br>
+          |e|: vec|N|&lt;|T|&gt; or ptr&lt;|AS|,vec|N|&lt;|T|,|AM|&gt;&gt;<br>
           |I| is the letter `r`, `g`, `b`, or `a`<br>
           |J| is the letter `r`, `g`, `b`, or `a`<br>
+          |AM| is `read` or `read_write`<br>
        <td class="nowrap">
            |e|`.`|I||J|: vec2&lt;|T|&gt;<br>
        <td>Computes the two-component vector with first component |e|.|I|, and second component |e|.|J|.<br>
            Letter `b` is valid only when |N| is 3 or 4.<br>
-           Letter `a` is valid only when |N| is 4.
+           Letter `a` is valid only when |N| is 4.<br><br>
+           If |e| is a pointer, an [=indirection=] is first applied and then the [=load rule=] is invoked.
   <tr algorithm="three component vector selection using .x .y">
        <td class="nowrap">
-          |e|: vec|N|&lt;|T|&gt;<br>
+          |e|: vec|N|&lt;|T|&gt; or ptr&lt;|AS|,vec|N|&lt;|T|,|AM|&gt;&gt;<br>
           |I| is the letter `x`, `y`, `z`, or `w`<br>
           |J| is the letter `x`, `y`, `z`, or `w`<br>
           |K| is the letter `x`, `y`, `z`, or `w`<br>
+          |AM| is `read` or `read_write`<br>
        <td class="nowrap">
            |e|`.`|I||J||K|: vec3&lt;|T|&gt;<br>
        <td>Computes the three-component vector with first component |e|.|I|, second component |e|.|J|, and third component |e|.|K|.<br>
            Letter `z` is valid only when |N| is 3 or 4.<br>
-           Letter `w` is valid only when |N| is 4.
+           Letter `w` is valid only when |N| is 4.<br><br>
+           If |e| is a pointer, an [=indirection=] is first applied and then the [=load rule=] is invoked.
   <tr algorithm="three component vector selection using .r .g">
        <td class="nowrap">
-          |e|: vec|N|&lt;|T|&gt;<br>
+          |e|: vec|N|&lt;|T|&gt; or ptr&lt;|AS|,vec|N|&lt;|T|,|AM|&gt;&gt;<br>
           |I| is the letter `r`, `g`, `b`, or `a`<br>
           |J| is the letter `r`, `g`, `b`, or `a`<br>
           |K| is the letter `r`, `g`, `b`, or `a`<br>
+          |AM| is `read` or `read_write`<br>
        <td class="nowrap">
            |e|`.`|I||J||K|: vec3&lt;|T|&gt;<br>
        <td>Computes the three-component vector with first component |e|.|I|, second component |e|.|J|, and third component |e|.|K|.<br>
            Letter `b` is only valid when |N| is 3 or 4.<br>
-           Letter `a` is only valid when |N| is 4.
+           Letter `a` is only valid when |N| is 4.<br><br>
+           If |e| is a pointer, an [=indirection=] is first applied and then the [=load rule=] is invoked.
   <tr algorithm="four component vector selection using .x .y">
        <td class="nowrap">
-          |e|: vec|N|&lt;|T|&gt;<br>
+          |e|: vec|N|&lt;|T|&gt; or ptr&lt;|AS|,vec|N|&lt;|T|,|AM|&gt;&gt;<br>
           |I| is the letter `x`, `y`, `z`, or `w`<br>
           |J| is the letter `x`, `y`, `z`, or `w`<br>
           |K| is the letter `x`, `y`, `z`, or `w`<br>
           |L| is the letter `x`, `y`, `z`, or `w`<br>
+          |AM| is `read` or `read_write`<br>
        <td class="nowrap">
            |e|`.`|I||J||K||L|: vec4&lt;|T|&gt;<br>
        <td>Computes the four-component vector with first component |e|.|I|, second component |e|.|J|, third component |e|.|K|, and fourth component |e|.|L|.<br>
            Letter `z` is valid only when |N| is 3 or 4.<br>
-           Letter `w` is valid only when |N| is 4.
+           Letter `w` is valid only when |N| is 4.<br><br>
+           If |e| is a pointer, an [=indirection=] is first applied and then the [=load rule=] is invoked.
   <tr algorithm="four component vector selection using .r .g">
        <td class="nowrap">
-          |e|: vec|N|&lt;|T|&gt;<br>
+          |e|: vec|N|&lt;|T|&gt; or ptr&lt;|AS|,vec|N|&lt;|T|,|AM|&gt;&gt;<br>
           |I| is the letter `r`, `g`, `b`, or `a`<br>
           |J| is the letter `r`, `g`, `b`, or `a`<br>
           |K| is the letter `r`, `g`, `b`, or `a`<br>
           |L| is the letter `r`, `g`, `b`, or `a`<br>
+          |AM| is `read` or `read_write`<br>
        <td class="nowrap">
            |e|`.`|I||J||K||L|: vec4&lt;|T|&gt;<br>
        <td>Computes the four-component vector with first component |e|.|I|, second component |e|.|J|, third component |e|.|K|, and fourth component |e|.|L|.<br>
            Letter `b` is only valid when |N| is 3 or 4.<br>
-           Letter `a` is only valid when |N| is 4.
+           Letter `a` is only valid when |N| is 4.<br><br>
+           If |e| is a pointer, an [=indirection=] is first applied and then the [=load rule=] is invoked.
 </table>
 
-#### Component Reference from Vector Reference #### {#component-reference-from-vector-reference}
+Note: In the table above, [=reference types=] are implicitly handled via the [=load rule=].
+
+#### Component Reference from Vector Memory View #### {#component-reference-from-vector-memory-view}
 
 A [=write access=] to component of a vector **may** access all of the [=memory
 location|memory locations=] associated with that vector.
@@ -5348,50 +5462,55 @@ invocations must be synchronized if at least one access is a [=write access=].
 See [[#sync-builtin-functions]].
 
 <table class='data'>
-  <caption>Getting a reference to a component from a reference to a vector</caption>
+  <caption>Getting a reference to a component from a memory view to a vector</caption>
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
   <tr algorithm="first vector component reference selection">
-       <td>|r|: ref&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt;<br>
+       <td>|r|: ref&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt; or<br>
+           ptr&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt;
        <td class="nowrap">
            |r|`.x`: ref&lt;|AS|,|T|,|AM|&gt;<br>
            |r|`.r`: ref&lt;|AS|,|T|,|AM|&gt;<br>
-       <td>Compute a reference to the first component of the vector referenced by the reference |r|.<br>
+       <td>Compute a reference to the first component of the vector referenced by the [=memory view=] |r|.<br>
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.
   <tr algorithm="second vector component reference selection">
-       <td>|r|: ref&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt;<br>
+       <td>|r|: ref&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt; or<br>
+           ptr&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt;
        <td class="nowrap">
            |r|`.y`: ref&lt;|AS|,|T|,|AM|&gt;<br>
            |r|`.g`: ref&lt;|AS|,|T|,|AM|&gt;<br>
-       <td>Compute a reference to the second component of the vector referenced by the reference |r|.<br>
+       <td>Compute a reference to the second component of the vector referenced by the [=memory view=] |r|.<br>
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.
   <tr algorithm="third vector component reference selection">
-       <td>|r|: ref&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt;<br>
+       <td>|r|: ref&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt; or<br>
+           ptr&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt;<br>
            |N| is 3 or 4
        <td class="nowrap">
            |r|`.z`: ref&lt;|AS|,|T|,|AM|&gt;<br>
            |r|`.b`: ref&lt;|AS|,|T|,|AM|&gt;<br>
-       <td>Compute a reference to the third component of the vector referenced by the reference |r|.<br>
+       <td>Compute a reference to the third component of the vector referenced by the [=memory view=] |r|.<br>
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.
   <tr algorithm="fourth vector component reference selection">
-       <td>|r|: ref&lt;|AS|,vec4&lt;|T|&gt;,|AM|&gt;<br>
+       <td>|r|: ref&lt;|AS|,vec4&lt;|T|&gt;,|AM|&gt; or<br>
+           ptr&lt;|AS|,vec4&lt;|T|&gt;,|AM|&gt;
        <td class="nowrap">
            |r|`.w`: ref&lt;|AS|,|T|,|AM|&gt;<br>
            |r|`.a`: ref&lt;|AS|,|T|,|AM|&gt;<br>
-       <td>Compute a reference to the fourth component of the vector referenced by the reference |r|.<br>
+       <td>Compute a reference to the fourth component of the vector referenced by the [=memory view=] |r|.<br>
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.
   <tr algorithm="vector indexed component reference selection">
-       <td>|r|: ref&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt;<br>
+       <td>|r|: ref&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt; or<br>
+           ptr&lt;|AS|,vec|N|&lt;|T|&gt;,|AM|&gt;<br>
           |i|: [INT]
        <td class="nowrap">
-           |r|[|i|] : ref&lt;|AS|,|T|,|AM|&gt;
+           |r|[|i|] : ref&lt;|AS|,|T|,|AM|&gt;<br>
        <td>Compute a reference to the |i|'<sup>th</sup> component of the vector
-           referenced by the reference |r|.
+           referenced by the [=memory view=] |r|.
 
            If |i| is outside the range [0,|N|-1]:<br>
            * It is a [=shader-creation error=] if |i| is a [=const-expression=].
@@ -5441,18 +5560,19 @@ See [[#sync-builtin-functions]].
 </table>
 
 <table class='data'>
-  <caption>Getting a reference to a column vector from a reference to a matrix</caption>
+  <caption>Getting a reference to a column vector from a memory view to a matrix</caption>
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
   <tr algorithm="matrix indexed column vector reference selection">
        <td class="nowrap">
-          |r|: ref&lt;|AS|,mat|C|x|R|&lt;|T|&gt;,|AM|&gt;<br>
+          |r|: ref&lt;|AS|,mat|C|x|R|&lt;|T|&gt;,|AM|&gt; or<br>
+          ptr&lt;|AS|,mat|C|x|R|&lt;|T|&gt;,|AM|&gt;<br>
           |i|: [INT]
        <td class="nowrap">
            |r|[|i|] : ref&lt;|AS|,vec|R|&lt;|T|&gt;,|AM|&gt;
        <td>Compute a reference to the |i|'<sup>th</sup> column vector of the
-           matrix referenced by the reference |r|.
+           matrix referenced by the [=memory view=] |r|.
 
            If |i| is outside the range [0,|C|-1]:<br>
            * It is a [=shader-creation error=] if |i| is a [=const-expression=].
@@ -5501,18 +5621,19 @@ See [[#sync-builtin-functions]].
 </table>
 
 <table class='data'>
-  <caption>Getting a reference to an array element from a reference to an array</caption>
+  <caption>Getting a reference to an array element from a memory view to an array</caption>
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
   <tr algorithm="fixed-size array indexed reference selection">
        <td class="nowrap">
-          |r|: ref&lt;|AS|,array&lt;|T|,|N|&gt;,|AM|&gt;<br>
+          |r|: ref&lt;|AS|,array&lt;|T|,|N|&gt;,|AM|&gt; or<br>
+          ptr&lt;|AS|,array&lt;|T|,|N|&gt;,|AM|&gt;<br>
           |i|: [INT]
        <td class="nowrap">
            |r|[|i|] : ref&lt;|AS|,|T|,|AM|&gt;
        <td>Compute a reference to the |i|'<sup>th</sup> element of the array
-           referenced by the reference |r|.
+           referenced by the [=memory view=] |r|.
 
            If |i| is outside the range [0,|N|-1]:<br>
            * It is a [=shader-creation error=] if |i| is a [=const-expression=].
@@ -5522,12 +5643,13 @@ See [[#sync-builtin-functions]].
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.
   <tr algorithm="array indexed reference selection">
-       <td>|r|: ref&lt;|AS|,array&lt;|T|&gt;,|AM|&gt;<br>
+       <td>|r|: ref&lt;|AS|,array&lt;|T|&gt;,|AM|&gt; or<br>
+          ptr&lt;|AS|,array&lt;|T|&gt;,|AM|&gt;<br>
           |i|: [INT]
        <td class="nowrap">
            |r|[|i|] : ref&lt;|AS|,|T|,|AM|&gt;
        <td>Compute a reference to the |i|'<sup>th</sup> element of the
-           runtime-sized array referenced by the reference |r|.
+           runtime-sized array referenced by the [=memory view=] |r|.
 
            If at runtime the array has |N| elements, and |i| is outside the range
            [0,|N|-1], then the expression evaluates to an [=invalid memory
@@ -5560,7 +5682,7 @@ See [[#sync-builtin-functions]].
 </table>
 
 <table class='data'>
-  <caption>Getting a reference to a structure member from a reference to a structure</caption>
+  <caption>Getting a reference to a structure member from a memory view to a structure</caption>
   <thead>
     <tr><th>Precondition<th>Conclusion<th>Description
   </thead>
@@ -5568,10 +5690,11 @@ See [[#sync-builtin-functions]].
        <td class="nowrap">
           |S| is a structure type<br>
           |M| is the identifier name of a member of |S|, having type |T|<br>
-          |r|: ref&lt;|AS|,|S|,|AM|&gt;<br>
+          |r|: ref&lt;|AS|,|S|,|AM|&gt; or<br>
+          ptr&lt;|AS|,|S|,|AM|&gt;
        <td class="nowrap">
            |r|.|M|: ref&lt;|AS|,|T|,|AM|&gt;
-       <td>Given a reference to a structure, the result is a reference to the structure member with identifier name |M|.<br>
+       <td>Given a memory view to a structure, the result is a reference to the structure member with identifier name |M|.<br>
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.
 </table>
@@ -6076,7 +6199,7 @@ The <dfn noexport>address-of</dfn> operator converts a reference to its correspo
            It is a [=shader-creation error=] if |AS| is the [=address spaces/handle=] address space.
 
            It is a [=shader-creation error=] if |r| is a
-           [[#component-reference-from-vector-reference|reference to a vector component]].
+           [[#component-reference-from-vector-memory-view|reference to a vector component]].
 
 </table>
 
