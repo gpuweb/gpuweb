@@ -109,6 +109,30 @@ During createRenderPipeline(), GPUDepthStencilState.depthBiasClamp must be zero,
 
 **Justification**: GLSL ES 3.1 does not support glPolygonOffsetClamp().
 
+### 8. Lower limits.
+
+The differences in limits between compatibility mode and standard WebGPU
+are as follows
+
+
+| limit                             | compat  | standard  |
+| :-------------------------------- | ------: | --------: |
+| maxColorAttachments               |       4 |         8 |
+| maxComputeInvocationsPerWorkgroup |     128 |       256 |
+| maxComputeWorkgroupSizeX          |     128 |       256 |
+| maxComputeWorkgroupSizeY          |     128 |       256 |
+| maxInterStageShaderVariables      |      15 |        16 |
+| maxStorageBuffersPerShaderStage   |       4 |         8 |
+| maxTextureDimension1D             |    4096 |      8192 |
+| maxTextureDimension2D             |    4096 |      8192 |
+| maxTextureDimension3D             |    1024 |      2048 |
+| maxUniformBufferBindingSize       |   16384 |     65536 |
+| maxVertexAttributes (see below)   |   14-16 |        16 |
+
+In compatibility mode, using `@builtin(vertex_index)`
+and/or `@builtin(instance_index)` each count as an
+attribute.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
