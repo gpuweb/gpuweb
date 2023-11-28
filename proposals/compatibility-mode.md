@@ -115,23 +115,33 @@ The differences in limits between compatibility mode and standard WebGPU
 are as follows
 
 
-| limit                             | compat  | standard  |
-| :-------------------------------- | ------: | --------: |
-| maxColorAttachments               |       4 |         8 |
-| maxComputeInvocationsPerWorkgroup |     128 |       256 |
-| maxComputeWorkgroupSizeX          |     128 |       256 |
-| maxComputeWorkgroupSizeY          |     128 |       256 |
-| maxInterStageShaderVariables      |      15 |        16 |
-| maxStorageBuffersPerShaderStage   |       4 |         8 |
-| maxTextureDimension1D             |    4096 |      8192 |
-| maxTextureDimension2D             |    4096 |      8192 |
-| maxTextureDimension3D             |    1024 |      2048 |
-| maxUniformBufferBindingSize       |   16384 |     65536 |
-| maxVertexAttributes (see below)   |   14-16 |        16 |
+| limit                               | compat  | standard  |
+| :---------------------------------- | ------: | --------: |
+| `maxColorAttachments`               |       4 |         8 |
+| `maxComputeInvocationsPerWorkgroup` |     128 |       256 |
+| `maxComputeWorkgroupSizeX`          |     128 |       256 |
+| `maxComputeWorkgroupSizeY`          |     128 |       256 |
+| `maxInterStageShaderVariables`      |      15 |        16 |
+| `maxStorageBuffersPerShaderStage`   |       4 |         8 |
+| `maxTextureDimension1D`             |    4096 |      8192 |
+| `maxTextureDimension2D`             |    4096 |      8192 |
+| `maxTextureDimension3D`             |    1024 |      2048 |
+| `maxUniformBufferBindingSize`       |   16384 |     65536 |
+| `maxVertexAttributes`    | 16<super>a</super> |        16 |
 
-In compatibility mode, using `@builtin(vertex_index)`
+(a) In compatibility mode, using `@builtin(vertex_index)`
 and/or `@builtin(instance_index)` each count as an
 attribute.
+
+Note: Some of the limits are derived from a survey of OpenGL ES 3.1 devices
+and are higher than the limit specified in the OpenGL ES 3.1 spec.
+
+For example, in OpenGL ES 3.1, GL_MAX_FRAGMENT_IMAGE_UNIFORMS and GL_MAX_VERTEX_IMAGE_UNIFORMS can be
+zero but `maxStorageTexturesPerShaderStage` is 4 above as all 3.1 devices support at
+least 4 of each.
+
+Similar limits include GL_MAX_TEXTURE_SIZE (2048) and GL_MAX_3D_TEXTURE_SIZE (256) but actual
+devices support the values above.
 
 ## Issues
 
