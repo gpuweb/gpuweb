@@ -127,7 +127,7 @@ are as follows
 | `maxTextureDimension2D`             |    4096 |      8192 |
 | `maxTextureDimension3D`             |    1024 |      2048 |
 | `maxUniformBufferBindingSize`       |   16384 |     65536 |
-| `maxVertexAttributes`    | 16<super>a</super> |        16 |
+| `maxVertexAttributes`        | 16<sup>a</sup> |        16 |
 
 (a) In compatibility mode, using `@builtin(vertex_index)`
 and/or `@builtin(instance_index)` each count as an
