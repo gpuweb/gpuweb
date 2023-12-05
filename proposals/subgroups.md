@@ -215,8 +215,8 @@ D3D12 would have to be proven empricially.
 | `subgroupAnd` | OpGroupNonUniformBitwiseAnd with Reduce operation | simd_and | WaveActiveBitAnd |
 | `subgroupOr` | OpGroupNonUniformBitwiseOr with Reduce operation | simd_or | WaveActiveBitOr |
 | `subgroupXor` | OpGroupNonUniformBitwiseXor with Reduce operation | simd_xor | WaveActiveBitXor |
-| `subgroupMin` | OpGroupNonUniform[SUF]Min | simd_min | WaveActiveMin |
-| `subgroupMax` | OpGroupNonUniform[SUF]Max | simd_max | WaveActiveMax |
+| `subgroupMin` | OpGroupNonUniform[SUF]Min with Reduce operation | simd_min | WaveActiveMin |
+| `subgroupMax` | OpGroupNonUniform[SUF]Max with Reduce operation | simd_max | WaveActiveMax |
 | `quadBroadcast` | OpGroupNonUniformQuadBroadcast | quad_broadcast | QuadReadLaneAt |
 | `quadSwapX` | OpGroupNonUniformQuadSwap with Direction=0 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 0x1` | QuadReadAcrossX |
 | `quadSwapY` | OpGroupNonUniformQuadSwap with Direction=1 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 0x10` | QuadReadAcrossY |
