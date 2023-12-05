@@ -56,7 +56,7 @@ iPhone11, iPhone SE, and iPad (9th gen).
 
 **TODO**: Should there be additional enables for extra functionality?
 Some possibilities:
-* MSL and HLSL (SM6.8) support `any` and `all` operations at quad scope
+* MSL and HLSL (SM6.7) support `any` and `all` operations at quad scope
 * SPIR-V and HLSL (SM6.5) could support more exclusive/inclusive, clustered, and partitioned operations
 * Inclusive sum and product could be done with multi-prefix SM6.5 operations in HLSL or through emulation
 
