@@ -150,7 +150,7 @@ New GPU features:
 
 **TODO**: Can we expose a feature to require a specific subgroup size?
 No facility exists in Metal so it would have to be a separate feature.
-In SM6.8 (unreleased) HLSL adds a required wave size attribute for shaders.
+In SM6.6 HLSL adds a required wave size attribute for shaders.
 In Vulkan, pipelines can specify a required size between min and max using
 subgroup size control.
 This is a requested feature (see #3950).
