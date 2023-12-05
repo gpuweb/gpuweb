@@ -206,8 +206,8 @@ D3D12 would have to be proven empricially.
 | `subgroupBallot` | OpGroupNonUniformBallot | simd_ballot | WaveActiveBallot |
 | `subgroupShuffle` | OpGroupNonUniformShuffle | simd_shuffle | WaveReadLaneAt with non-uniform index |
 | `subgroupShuffleXor` | OpGroupNonUniformShuffleXor | simd_shuffle_xor | WaveReadLaneAt with index equal `subgroup_invocation_id ^ mask` |
-| `subgroupSuffleUp` | OpGroupNonUniformShuffleUp | simd_shuffle_up | WaveReadLaneAt with index equal `subgroup_invocation_id - delta` |
-| `subgroupSuffleDown` | OpGroupNonUniformShuffleDown | simd_shuffle_down | WaveReadLaneAt with index equal `subgroup_invocation_id + delta` |
+| `subgroupShuffleUp` | OpGroupNonUniformShuffleUp | simd_shuffle_up | WaveReadLaneAt with index equal `subgroup_invocation_id - delta` |
+| `subgroupShuffleDown` | OpGroupNonUniformShuffleDown | simd_shuffle_down | WaveReadLaneAt with index equal `subgroup_invocation_id + delta` |
 | `subgroupSum` | OpGroupNonUniform[IF]Add with Reduce operation | simd_sum | WaveActiveSum |
 | `subgroupExclusiveSum` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_sum | WavePrefixSum |
 | `subgroupProduct` | OpGroupNonUniform[IF]Mul with Reduce operation | simd_product | WaveActiveProduct |
