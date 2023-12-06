@@ -9,6 +9,7 @@ Issue: #4306
 # Requirements
 
 **Vulkan**:
+* SPIR-V 1.3, and
 * Vulkan 1.1, and
 * subgroupSupportedStages includes compute and fragment bit, and
 * subgroupSupportedOperations includes the following bits: basic, vote, ballot, shuffle, shuffle relative, arithmetic, quad, and
@@ -21,7 +22,8 @@ Dropping quad would only grab another ~1%.
 **Metal**:
 * Quad-scoped permute, and
 * Simd-scoped permute, and
-* Simd-scoped reduction
+* Simd-scoped reduction, and
+* Metal 2.1 for macOS or Metal 2.3 for iOS
 
 According to the Metal
 [feature table](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf), this
@@ -47,6 +49,11 @@ VK_KHR_shader_subgroup_extended_types
 ([~61%](https://vulkan.gpuinfo.org/listdevicescoverage.php?extension=VK_KHR_shader_subgroup_extended_types&platform=all)
 of devices), and D3D12 requires SM6.2.
 
+**TODO**: Can we drop **subgroups-f16**?
+According to this [analysis](https://github.com/teoxoy/gpuinfo-vulkan-query/blob/8681e0074ece1b251177865203d18b018e05d67a/subgroups.txt#L1006-L1030)
+Only 4% of devices that support both f16 and subgroups could not support
+subgroup extended types.
+
 **TODO**: Should this feature be broken down further?
 According to [gpuinfo.org](https://vulkan.gpuinfo.org/displaycoreproperty.php?core=1.1&name=subgroupSupportedOperations&platform=all),
 this feature set captures ~84% of devices.
@@ -68,6 +75,8 @@ Some possibilities:
 | `subgroup_invocation_id` | u32 | Input | The index of the invocation in the current subgroup |
 
 Note: HLSL does not expose a subgroup_id or num_subgroups equivalent.
+
+**TODO**: Can subgroup_id and/or num_subgroups be emulated efficiently and portably?
 
 ## Built-in Functions
 
@@ -108,6 +117,10 @@ factors like helper invocations and multiple draws being packed into a
 subgroup.
 SM6.7 adds an attribute to require helpers be active.
 
+**TODO**: Can we spec the builtins to improve portability without hurting performance?
+E.g. shuffle up or down when delta is clearly out of range.
+Need to consider the affect or active vs inactive invocations.
+
 ## Portability and Uniformity
 
 Unfortunately,
@@ -133,10 +146,18 @@ in fragment shaders more palatable.
 Normally, there would be extra portability hazards in fragment shaders (e.g.
 due to helper invocations).
 
-**TODO**: Is it worth adding a diagnostic control to require subgroup
-operations in uniform control flow?
-While this wouldn't solve all the portability problems, as an opt in, it may be
-useful to shader authors.
+## Diagnostics
+
+Add new diagnostic controls:
+
+| Filterable Triggering Rule | Default Severity | Triggering Location | Description |
+| --- | --- | --- | --- |
+| **subgroup_uniformity** | Error | Call site of a subgroup builtin function | A call to a subgroup builtin that the uniformity analysis cannot prove occurs in uniform control flow (or with uniform parameter values in some cases) |
+| **subgroup_branching** | Error | Call site of a subgroup builtin function | A call to a subgroup builtin that uniformity analysis cannot prove is preceeded only by uniform branches |
+
+**TODO**: Are these defaults appropriate?
+They attempt to default to the most portable behavior, but that means it would
+be an error to have a subgroup operation preceeded by divergent control flow.
 
 # API
 
