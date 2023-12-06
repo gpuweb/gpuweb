@@ -50,7 +50,7 @@ VK_KHR_shader_subgroup_extended_types
 of devices), and D3D12 requires SM6.2.
 
 **TODO**: Can we drop **subgroups-f16**?
-According to this [analysis](https://github.com/teoxoy/gpuinfo-vulkan-query/blob/8681e0074ece1b251177865203d18b018e05d67a/subgroups.txt#L1006-L1030)
+According to this [analysis](https://github.com/teoxoy/gpuinfo-vulkan-query/blob/8681e0074ece1b251177865203d18b018e05d67a/subgroups.txt#L1071-L1466)
 Only 4% of devices that support both f16 and subgroups could not support
 subgroup extended types.
 
