@@ -11,7 +11,7 @@ clean:
 
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include)
+WGSL_SOURCES:=index.bs scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include) $(wildcard img/*.svg)
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
