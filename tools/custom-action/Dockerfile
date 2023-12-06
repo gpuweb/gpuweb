@@ -1,4 +1,4 @@
-FROM ubuntu:23.04
+FROM ubuntu:23.10
 
 ENV LANG=en_US.UTF-8
 
@@ -15,7 +15,6 @@ RUN \
     sudo \
     libgtk-3-dev \
     libnotify-dev \
-    libgconf-2-4 \
     libnss3 \
     libxss1 \
     libasound2 \
