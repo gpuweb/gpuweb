@@ -34,6 +34,7 @@ RUN \
     tree_sitter==$PIP_TREE_SITTER_VERSION && \
   npm install -g @mermaid-js/mermaid-cli@$NPM_MERMAID_CLI_VERSION && \
   npm install -g tree-sitter-cli@$NPM_TREE_SITTER_CLI_VERSION && \
+  node "/usr/local/lib/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer/install.js" && \
   mkdir /grammar && \
   echo "{" > /grammar/package.json && \
   echo "  \"name\": \"tree-sitter-wgsl\"," >> /grammar/package.json && \
