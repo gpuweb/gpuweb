@@ -125,7 +125,7 @@ are as follows
 | `maxStorageBuffersPerShaderStage`   |       4 |         8 |
 | `maxTextureDimension1D`             |    4096 |      8192 |
 | `maxTextureDimension2D`             |    4096 |      8192 |
-| `maxTextureDimension3D`             |    1024 |      2048 |
+| `maxTextureDimension3D`             |    2048 |      2048 |
 | `maxUniformBufferBindingSize`       |   16384 |     65536 |
 | `maxVertexAttributes`        | 16<sup>a</sup> |        16 |
 
