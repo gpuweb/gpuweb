@@ -122,7 +122,7 @@ are as follows
 | `maxComputeWorkgroupSizeX`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
 | `maxComputeWorkgroupSizeY`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
 | `maxInterStageShaderVariables`      |      15 |        16 | MAX_VARYING_VECTORS                          |
-| `maxStorageBuffersPerShaderStage`   |       4 |         8 | MAX_SHADER_STORAGE_BUFFER_BINDINGS           |
+| `maxStorageBuffersPerShaderStage`   |       4 |         8 | min(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS, GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS) |
 | `maxTextureDimension1D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
 | `maxTextureDimension2D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
 | `maxUniformBufferBindingSize`       |   16384 |     65536 | MAX_UNIFORM_BLOCK_SIZE                       |
