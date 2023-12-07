@@ -115,19 +115,18 @@ The differences in limits between compatibility mode and standard WebGPU
 are as follows
 
 
-| limit                               | compat  | standard  |
-| :---------------------------------- | ------: | --------: |
-| `maxColorAttachments`               |       4 |         8 |
-| `maxComputeInvocationsPerWorkgroup` |     128 |       256 |
-| `maxComputeWorkgroupSizeX`          |     128 |       256 |
-| `maxComputeWorkgroupSizeY`          |     128 |       256 |
-| `maxInterStageShaderVariables`      |      15 |        16 |
-| `maxStorageBuffersPerShaderStage`   |       4 |         8 |
-| `maxTextureDimension1D`             |    4096 |      8192 |
-| `maxTextureDimension2D`             |    4096 |      8192 |
-| `maxTextureDimension3D`             |    2048 |      2048 |
-| `maxUniformBufferBindingSize`       |   16384 |     65536 |
-| `maxVertexAttributes`        | 16<sup>a</sup> |        16 |
+| limit                               | compat  | standard  | gl limit                                     |
+| :---------------------------------- | ------: | --------: | :------------------------------------------- |
+| `maxColorAttachments`               |       4 |         8 | min(MAX_COLOR_ATTACHMENTS, MAX_DRAW_BUFFERS) |
+| `maxComputeInvocationsPerWorkgroup` |     128 |       256 | MAX_COMPUTE_WORK_GROUP_INVOCATIONS           |
+| `maxComputeWorkgroupSizeX`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
+| `maxComputeWorkgroupSizeY`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
+| `maxInterStageShaderVariables`      |      15 |        16 | MAX_VARYING_VECTORS                          |
+| `maxStorageBuffersPerShaderStage`   |       4 |         8 | MAX_SHADER_STORAGE_BUFFER_BINDINGS           |
+| `maxTextureDimension1D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
+| `maxTextureDimension2D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
+| `maxUniformBufferBindingSize`       |   16384 |     65536 | MAX_UNIFORM_BLOCK_SIZE                       |
+| `maxVertexAttributes`        | 16<sup>a</sup> |        16 | MAX_VERTEX_ATTRIBS                           |
 
 (a) In compatibility mode, using `@builtin(vertex_index)`
 and/or `@builtin(instance_index)` each count as an
