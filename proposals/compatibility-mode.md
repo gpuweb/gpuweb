@@ -142,6 +142,17 @@ least 4 of each.
 Similar limits include GL_MAX_TEXTURE_SIZE (2048) and GL_MAX_3D_TEXTURE_SIZE (256) but actual
 devices support the values above.
 
+### 11. Disallow `linear` and `sample` interpolation options.
+
+In WGSL, an inter-stage variable can be marked with one of three interpolation types: `'perspective'`,
+`'linear'`, `'flat'`, and one of three interpolation sampling modes: `'center'`, `'centroid'`, `'sample'`
+
+In compatibility mode, `'linear'` type and sampling mode `'sample'` are disallowed.
+If used via an entry point in a shader module passed to `createRenderPipeline`, `createRenderPipelineAsync`,
+`createComputePipeline`, or `createComputePipelineAsync` a validation error is generated.
+
+**Justification**: OpenGL ES 3.1 does not support `linear` interpolation nor `sample` sampling.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
