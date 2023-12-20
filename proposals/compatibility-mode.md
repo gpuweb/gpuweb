@@ -95,6 +95,20 @@ Use of the `sample_mask` builtin would cause a validation error at pipeline crea
 
 **Justification**: OpenGL ES 3.1 does not support `gl_SampleMask` or `gl_SampleMaskIn`.
 
+### 8. Disallow `rg32float`, `rg32sint`, `rg32uint` as storage textures
+
+In compatibility mode, these formats will be marked as not supporting storage textures.
+As such, `createTexture` will generate a validation error if the `STORAGE_BINDING` usage
+is requested for one of these formats. `createBindGroupLayout` will fail if a storage texture
+binding with one of these formats is requested. `createRenderPipeline`, `createRenderPipelineAsync`,
+`createComputePipeline`, and `createComputePipelineAsync` will all generate validation errors
+if their layout is set to `'auto'` and their shader modules reference a storage texture with one
+of these formats. This happens indirectly because these functions use the `createBindGroupLayout`
+validation step when creating auto layouts.
+
+**Justification: OpenGL ES 3.1 does not support `rg32float`, `rg32sint`, `rg32uint` as storage
+textures.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
