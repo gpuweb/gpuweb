@@ -95,6 +95,12 @@ Use of the `sample_mask` or `sample_index` builtins would cause a validation err
 
 **Justification**: OpenGL ES 3.1 does not support `gl_SampleMask`, `gl_SampleMaskIn`, or `gl_SampleID`.
 
+### 8. Disallow two-component (RG) texture formats in storage texture bindings.
+
+Use of the `rg32uint`, `rg32sint`, or `rg32float` texture formats with `STORAGE_BINDING` in a `createTexture()` or `createBindGroupLayout()` call should cause a validation error. Calls to pipeline creation functions with pipeline `layout` set to `auto` and a storage texture binding of those format types in the WGSL shader should cause a validation error.
+
+**Justification**: GLSL ES 3.1 (section 4.4.7, "Format Layout Qualifiers") does not permit any two-component (RG) texture formats in a format layout qualifier.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
