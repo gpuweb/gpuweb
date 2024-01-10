@@ -103,6 +103,12 @@ Calls to `createTexture()` or `createBindGroupLayout()` with this combination ca
 
 **Justification**: GLSL ES 3.1 (section 4.4.7, "Format Layout Qualifiers") does not permit any two-component (RG) texture formats in a format layout qualifier.
 
+### 9. Depth bias clamp must be zero.
+
+During createRenderPipeline(), GPUDepthStencilState.depthBiasClamp must be zero, or a validation error occurs.
+
+**Justification**: GLSL ES 3.1 does not support glPolygonOffsetClamp().
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
