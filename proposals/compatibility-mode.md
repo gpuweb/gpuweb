@@ -109,7 +109,7 @@ During createRenderPipeline(), GPUDepthStencilState.depthBiasClamp must be zero,
 
 **Justification**: GLSL ES 3.1 does not support glPolygonOffsetClamp().
 
-### 8. Lower limits.
+### 10. Lower limits.
 
 The differences in limits between compatibility mode and standard WebGPU
 are as follows
