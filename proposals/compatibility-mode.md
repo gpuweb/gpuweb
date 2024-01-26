@@ -89,11 +89,58 @@ A bind group may not reference a subset of array layers. Only views of the entir
 
 **Justification**: OpenGL ES does not support texture views.
 
-### 7. Disallow `sample_mask` builtin in WGSL.
+### 7. Disallow `sample_mask` and `sample_index` builtins in WGSL.
 
-Use of the `sample_mask` builtin would cause a validation error at pipeline creation time.
+Use of the `sample_mask` or `sample_index` builtins would cause a validation error at pipeline creation time.
 
-**Justification**: OpenGL ES 3.1 does not support `gl_SampleMask` or `gl_SampleMaskIn`.
+**Justification**: OpenGL ES 3.1 does not support `gl_SampleMask`, `gl_SampleMaskIn`, or `gl_SampleID`.
+
+### 8. Disallow two-component (RG) texture formats in storage texture bindings.
+
+The `rg32uint`, `rg32sint`, and `rg32float` texture formats no longer support the `"write-only" or "read-only" STORAGE_BINDING` capability by default.
+
+Calls to `createTexture()` or `createBindGroupLayout()` with this combination cause a validation error. Calls to pipeline creation functions with pipeline `layout` set to `"auto"` and a storage texture binding of those format types cause a validation error (in the internal call to `createBindGroupLayout()`).
+
+**Justification**: GLSL ES 3.1 (section 4.4.7, "Format Layout Qualifiers") does not permit any two-component (RG) texture formats in a format layout qualifier.
+
+### 9. Depth bias clamp must be zero.
+
+During createRenderPipeline(), GPUDepthStencilState.depthBiasClamp must be zero, or a validation error occurs.
+
+**Justification**: GLSL ES 3.1 does not support glPolygonOffsetClamp().
+
+### 10. Lower limits.
+
+The differences in limits between compatibility mode and standard WebGPU
+are as follows
+
+
+| limit                               | compat  | standard  | gl limit                                     |
+| :---------------------------------- | ------: | --------: | :------------------------------------------- |
+| `maxColorAttachments`               |       4 |         8 | min(MAX_COLOR_ATTACHMENTS, MAX_DRAW_BUFFERS) |
+| `maxComputeInvocationsPerWorkgroup` |     128 |       256 | MAX_COMPUTE_WORK_GROUP_INVOCATIONS           |
+| `maxComputeWorkgroupSizeX`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
+| `maxComputeWorkgroupSizeY`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
+| `maxInterStageShaderVariables`      |      15 |        16 | MAX_VARYING_VECTORS                          |
+| `maxStorageBuffersPerShaderStage`   |       4 |         8 | min(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS, GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS) |
+| `maxTextureDimension1D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
+| `maxTextureDimension2D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
+| `maxUniformBufferBindingSize`       |   16384 |     65536 | MAX_UNIFORM_BLOCK_SIZE                       |
+| `maxVertexAttributes`        | 16<sup>a</sup> |        16 | MAX_VERTEX_ATTRIBS                           |
+
+(a) In compatibility mode, using `@builtin(vertex_index)`
+and/or `@builtin(instance_index)` each count as an
+attribute.
+
+Note: Some of the limits are derived from a survey of OpenGL ES 3.1 devices
+and are higher than the limit specified in the OpenGL ES 3.1 spec.
+
+For example, in OpenGL ES 3.1, GL_MAX_FRAGMENT_IMAGE_UNIFORMS and GL_MAX_VERTEX_IMAGE_UNIFORMS can be
+zero but `maxStorageTexturesPerShaderStage` is 4 above as all 3.1 devices support at
+least 4 of each.
+
+Similar limits include GL_MAX_TEXTURE_SIZE (2048) and GL_MAX_3D_TEXTURE_SIZE (256) but actual
+devices support the values above.
 
 ## Issues
 
