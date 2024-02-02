@@ -7106,9 +7106,12 @@ run the following steps:
 
     1. For each {{GPUProgrammableStage}} |stageDesc| in the descriptor used to create |pipeline|:
 
-        1. Let |shaderStage| be the {{GPUShaderStageFlags}} for |stageDesc|.{{GPUProgrammableStage/entryPoint}}
-            in |stageDesc|.{{GPUProgrammableStage/module}}.
-        1. For each resource |resource| [=statically used=] by |stageDesc|:
+        1. Let |shaderStage| be the {{GPUShaderStageFlags}} for the shader stage
+            at which |stageDesc| is used in |pipeline|.
+
+        1. Let |entryPoint| be [$get the entry point$](|shaderStage|, |stageDesc|). [=Assert=] |entryPoint| is not `null`.
+
+        1. For each resource |resource| [=statically used=] by |entryPoint|:
 
             1. Let |group| be |resource|'s "group" decoration.
             1. Let |binding| be |resource|'s "binding" decoration.
@@ -7269,6 +7272,11 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
         The name of the function in {{GPUProgrammableStage/module}} that this stage will use to
         perform its work.
 
+        NOTE: Since the {{GPUProgrammableStage/entryPoint}} dictionary member is
+        not required, the consumer of a {{GPUProgrammableStage}} must use the
+        "[$get the entry point$]" algorithm to determine which entry point
+        it refers to.
+
     : <dfn>constants</dfn>
     ::
         Specifies the values of [=pipeline-overridable=] constants in the shader module
@@ -7342,15 +7350,21 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     To <dfn abstract-op>get the entry point</dfn>({{GPUShaderStage}} |stage|,
     {{GPUProgrammableStage}} |descriptor|)
 
-    - If |descriptor|.{{GPUProgrammableStage/entryPoint}} is [=map/exists|provided=]:
+    -   If |descriptor|.{{GPUProgrammableStage/entryPoint}} is [=map/exists|provided=]:
 
-        - Return the single entry point in |descriptor|.{{GPUProgrammableStage/module}}
-            with a name equalling |descriptor|.{{GPUProgrammableStage/entryPoint}}.
+        -   If |descriptor|.{{GPUProgrammableStage/module}} contains an entry point
+            whose name equals |descriptor|.{{GPUProgrammableStage/entryPoint}},
+            and whose shader stage equals |stage|,
+            return that entry point.
 
-        Otherwise:
+        -   Otherwise, return `null`.
 
-        - Return the single entry point in |descriptor|.{{GPUProgrammableStage/module}}
-            with a shader stage equalling |stage|.
+    -   Otherwise:
+
+        -   If there is exactly one entry point in |descriptor|.{{GPUProgrammableStage/module}}
+            whose shader stage equals |stage|, return that entry point.
+
+        -   Otherwise, return `null`.
 
 </div>
 
@@ -7363,22 +7377,14 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
     - {{GPUProgrammableStage}} |descriptor|
     - {{GPUPipelineLayout}} |layout|
 
-    Return `true` if all of the following conditions are met, and `false` otherwise:
+    Return `true` if all requirements in the following steps are satisfied, and `false` otherwise:
 
     - |descriptor|.{{GPUProgrammableStage/module}} must be a [=valid=] {{GPUShaderModule}}.
-    - If |descriptor|.{{GPUProgrammableStage/entryPoint}} is [=map/exists|provided=]:
-
-        - |descriptor|.{{GPUProgrammableStage/module}} must contain exactly one
-            entry point with a name equalling |descriptor|.{{GPUProgrammableStage/entryPoint}},
-            and its shader stage must equal |stage|.
-
-        Otherwise:
-
-        - |descriptor|.{{GPUProgrammableStage/module}} must contain exactly one
-            entry point for shader stage |stage|.
-    - For each |binding| that is [=statically used=] by |descriptor|:
+    - Let |entryPoint| be [$get the entry point$](|stage|, |descriptor|).
+    - |entryPoint| must not be `null`.
+    - For each |binding| that is [=statically used=] by |entryPoint|:
         - [$validating shader binding$](|binding|, |layout|) must return `true`.
-    - For each texture and sampler [=statically used=] together in texture sampling call in |descriptor|:
+    - For each texture and sampler [=statically used=] together by |entryPoint| in texture sampling calls:
         1. Let |texture| be the {{GPUBindGroupLayoutEntry}} corresponding to the sampled texture in the call.
         1. Let |sampler| be the {{GPUBindGroupLayoutEntry}} corresponding to the used sampler in the call.
         1. If |sampler|.{{GPUSamplerBindingLayout/type}} is {{GPUSamplerBindingType/"filtering"}},
@@ -7395,7 +7401,7 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
             Let the type of that constant be |T|.
         1. Converting the IDL value |value| [$to WGSL type$] |T| must not throw a {{TypeError}}.
     - For each [=pipeline-overridable constant identifier string=] |key| which is
-        [=statically used=] by |descriptor|:
+        [=statically used=] by |entryPoint|:
         - If the pipeline-overridable constant identified by |key|
             [=pipeline-overridable constant default value|does not have a default value=],
             |descriptor|.{{GPUProgrammableStage/constants}} must [=map/contain=] |key|.
@@ -7568,9 +7574,8 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
 <div algorithm>
     A resource binding, [=pipeline-overridable=] constant, shader stage input, or shader stage output
     is considered to be <dfn dfn lt="statically used|static use">statically used</dfn>
-    by a {{GPUProgrammableStage}} if it is present in the
-    [=interface of a shader stage|interface of the shader stage=] of the specified
-    {{GPUProgrammableStage/entryPoint}}, in the specified shader {{GPUProgrammableStage/module}}.
+    by an entry point if it is present in the [=interface of a shader
+    stage|interface of the shader stage=] for that entry point.
 </div>
 
 <h3 id=gpucomputepipeline data-dfn-type=interface>`GPUComputePipeline`
@@ -7649,23 +7654,24 @@ dictionary GPUComputePipelineDescriptor
                     |descriptor|.{{GPUPipelineDescriptorBase/layout}} is {{GPUAutoLayoutMode/"auto"}},
                     and |descriptor|.{{GPUPipelineDescriptorBase/layout}} otherwise.
 
-                1. If any of the following conditions are unsatisfied
+                1. If any of the requirements in the following steps are unsatisfied,
                     [$generate a validation error$], make |pipeline| [=invalid=], and stop.
 
                     <div class=validusage>
                         - |layout| must be [$valid to use with$] |this|.
                         - [$validating GPUProgrammableStage$]({{GPUShaderStage/COMPUTE}},
                             |descriptor|.{{GPUComputePipelineDescriptor/compute}}, |layout|) must succeed.
+                        - Let |entryPoint| be [$get the entry point$]({{GPUShaderStage/COMPUTE}}, |descriptor|.{{GPUComputePipelineDescriptor/compute}}). [=Assert=] |entryPoint| is not `null`.
                         - Let |workgroupStorageUsed| be the sum of [=roundUp=](16, [$SizeOf$](|T|)) over each
                             type |T| of all variables with address space "[=address spaces/workgroup=]"
-                            [=statically used=] by |descriptor|.{{GPUComputePipelineDescriptor/compute}}.
+                            [=statically used=] by |entryPoint|.
 
                             |workgroupStorageUsed| must be &le;
                             |device|.limits.{{supported limits/maxComputeWorkgroupStorageSize}}.
-                        - |descriptor|.{{GPUComputePipelineDescriptor/compute}} must use &le;
+                        - |entryPoint| must use &le;
                             |device|.limits.{{supported limits/maxComputeInvocationsPerWorkgroup}} per
                             workgroup.
-                        - Each component of |descriptor|.{{GPUComputePipelineDescriptor/compute}}'s
+                        - Each component of |entryPoint|'s
                             `workgroup_size` attribute must be &le; the corresponding component in
                             [|device|.limits.{{supported limits/maxComputeWorkgroupSizeX}},
                             |device|.limits.{{supported limits/maxComputeWorkgroupSizeY}},
@@ -9303,7 +9309,8 @@ dictionary GPUVertexAttribute {
             sizeof(|attrib|.{{GPUVertexAttribute/format}}).
         - |attrib|.{{GPUVertexAttribute/shaderLocation}} is &lt;
             |device|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexAttributes}}.
-    - For every vertex attribute |var| [=statically used=] by |vertexStage|,
+    - Let |entryPoint| be [$get the entry point$]({{GPUShaderStage/VERTEX}}, |vertexStage|). [=Assert=] it is not `null`.
+        For every vertex attribute |var| [=statically used=] by |entryPoint|,
         there is a corresponding |attrib| element of |descriptor|.{{GPUVertexBufferLayout/attributes}} for which
         all of the following are true:
         - The type |T| of |var| is compatible with |attrib|.{{GPUVertexAttribute/format}}'s [=vertex data type=]:
