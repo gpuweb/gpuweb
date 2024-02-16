@@ -153,6 +153,12 @@ If used via an entry point in a shader module passed to `createRenderPipeline`, 
 
 **Justification**: OpenGL ES 3.1 does not support `linear` interpolation nor `sample` sampling.
 
+### 12. Disallow copying multisample textures.
+
+`copyTextureToTexture` will generate a validation error if the sampleCount of the textures is not 1.
+
+**Justification**: OpenGL ES 3.1 does not support copying of multisample textures.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
