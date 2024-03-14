@@ -165,6 +165,17 @@ When calling `createTexture`, the `viewFormats`, if specified, must be the same 
 
 **Justification**: OpenGL ES 3.1 does not support texture format reinterpretation.
 
+### 14. Require `depthOrArrayLayers` to be compatible with `textureBindingViewDimension` in `createTexture`.
+
+When creating a texture you can pass in a `textureBindingViewDimension`.
+
+* If `textureBindingViewDimension` is `"2d"` and `depthOrArrayLayers` is not 1, a validation error is generated.
+
+* If `textureBindingViewDimension` is `"cube"` and `depthOrArrayLayers` is not 6, a validation error is generated.
+
+**Justification**: OpenGL ES 3.1 cannot create 2d textures with more than 1 layer nor can it
+create cube maps that are not exactly 6 layers.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
