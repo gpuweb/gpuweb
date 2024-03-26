@@ -176,6 +176,10 @@ When creating a texture you can pass in a `textureBindingViewDimension`.
 **Justification**: OpenGL ES 3.1 cannot create 2d textures with more than 1 layer nor can it
 create cube maps that are not exactly 6 layers.
 
+## 15. Disallow bgra8unorm-srgb textures
+
+**Justification**: OpenGL ES 3.1 does not support bgra8unorm-srgb textures.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
