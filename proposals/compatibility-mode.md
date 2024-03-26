@@ -2,7 +2,7 @@
 
 This proposal is **under active development, but has not been standardized for inclusion in the WebGPU specification**. WebGPU implementations **must not** expose this functionality; doing so is a spec violation. Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
 
-The changes merged into this document are those for which the GPU for the Web Community Group has achieved **tentative** consensus prior to official standardization of the whole propsal. New items will be added to this doc as tentative consensus on further issues is achieved.
+The changes merged into this document are those for which the GPU for the Web Community Group has achieved **tentative** consensus prior to official standardization of the whole proposal. New items will be added to this doc as tentative consensus on further issues is achieved.
 
 ## Problem
 
@@ -10,7 +10,7 @@ WebGPU is a good match for modern explicit graphics APIs such as Vulkan, Metal a
 
 ## Goals
 
-The primary goal of WebGPU Compatibility mode is to increase the reach of WebGPU by providing an opt-in, slightly restricted subset of WebGPU which will run on older APIs such as D3D11 and OpenGL ES. The set of restrictions in Compatibility mode should be kept to a minimum in order to make it easy to port exsting WebGPU applications. This will increase adoption of WebGPU applications via a wider userbase.
+The primary goal of WebGPU Compatibility mode is to increase the reach of WebGPU by providing an opt-in, slightly restricted subset of WebGPU which will run on older APIs such as D3D11 and OpenGL ES. The set of restrictions in Compatibility mode should be kept to a minimum in order to make it easy to port existing WebGPU applications. This will increase adoption of WebGPU applications via a wider userbase.
 
 Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility mode applications are also valid WebGPU applications. Consequently, Compatibility mode applications will also run on user agents which do not support Compatibility mode. Such user agents will simply ignore the option requesting a Compatibility mode Adapter and return a Core WebGPU Adapter instead.
 
@@ -79,7 +79,7 @@ Each `GPUColorTargetState` in a `GPUFragmentState` must have the same `blend.alp
 
 ### 5. Views of the same texture used in a single draw may not differ in mip levels.
 
-A draw call may not bind two views of the same texture differing in `baseMipLevel` or `mipLevelCount`. Only a single mip level range range per texture is supported. This is enforced via validation at draw time.
+A draw call may not bind two views of the same texture differing in `baseMipLevel` or `mipLevelCount`. Only a single mip level range per texture is supported. This is enforced via validation at draw time.
 
 **Justification**: OpenGL ES does not support texture views, but one mip level subset may be specified per texture using `glTexParameter*()` via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
 
@@ -105,9 +105,9 @@ Calls to `createTexture()` or `createBindGroupLayout()` with this combination ca
 
 ### 9. Depth bias clamp must be zero.
 
-During createRenderPipeline(), GPUDepthStencilState.depthBiasClamp must be zero, or a validation error occurs.
+During `createRenderPipeline()` and `createRenderPipelineAsync()`, `GPUDepthStencilState.depthBiasClamp` must be zero, or a validation error occurs.
 
-**Justification**: GLSL ES 3.1 does not support glPolygonOffsetClamp().
+**Justification**: GLSL ES 3.1 does not support `glPolygonOffsetClamp()`.
 
 ### 10. Lower limits.
 
@@ -180,4 +180,4 @@ create cube maps that are not exactly 6 layers.
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
 
-A: Unclear. In SPIR-V, Fine variants must include the value of P for the local fragment, while Coarse variants do not. WGSL is less constraining, and simply says that Coarse "may result in fewer unique positions that dpdxFine(e)."
+A: Unclear. In SPIR-V, Fine variants must include the value of P for the local fragment, while Coarse variants do not. WGSL is less constraining, and simply says that Coarse "may result in fewer unique positions than `dpdxFine(e)`."
