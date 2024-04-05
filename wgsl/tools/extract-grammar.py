@@ -1354,6 +1354,10 @@ def main():
     if args.verbose:
         print(options)
 
+    if not os.path.exists(options.syntax_dir):
+        print("ERROR: Syntax directory does not exist: {}".format(options.syntax_dir))
+        return 1
+
     scan_result = None
 
     if 'x' in args.flow:
