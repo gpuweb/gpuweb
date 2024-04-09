@@ -45,7 +45,7 @@ See "Texture view dimension may be specified", below.
 
 ## Compatibility mode restrictions
 
-### 1. Texture view dimension may be specified 
+### 1. Texture view dimension may be specified
 
 When specifying a texture, a `textureBindingViewDimension` property determines the views which can be bound from that texture for sampling (see "Proposed IDL changes", above). Binding a view of a different dimension for sampling than specified at texture creation time will cause a validation error. If `textureBindingViewDimension` is unspecified, use [the same algorithm as `createView()`](https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureviewdescriptor-defaults):
 ```
@@ -176,9 +176,17 @@ When creating a texture you can pass in a `textureBindingViewDimension`.
 **Justification**: OpenGL ES 3.1 cannot create 2d textures with more than 1 layer nor can it
 create cube maps that are not exactly 6 layers.
 
-## 15. Disallow bgra8unorm-srgb textures
+### 15. Disallow bgra8unorm-srgb textures
 
 **Justification**: OpenGL ES 3.1 does not support bgra8unorm-srgb textures.
+
+### 16. Support for ASTC compressed texture formats is not required.
+
+The spec requirement that `texture-compression-bc or (texture_compression_etc2 and texture-compression-astc)` must be supported should be relaxed for compat to `texture-compression-bc or texture_compression_etc2` must be supported.
+
+`texture-compression-astc` should still available in Compat as an optional feature.
+
+**Justification**: ETC2 texture formats are a part of core OpenGL ES 3.1, but ASTC formats do not become core until ES 3.2.
 
 ## Issues
 
