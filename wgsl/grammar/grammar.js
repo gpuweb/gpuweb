@@ -85,11 +85,17 @@ module.exports = grammar({
 
         template_arg_expression: $ => $.expression,
 
-        attribute: $ => choice(seq('@', 'align', '(', $.expression, $.attrib_end), seq('@', 'binding', '(', $.expression, $.attrib_end), seq('@', 'builtin', '(', $.expression, $.attrib_end), seq('@', 'const'), seq('@', 'diagnostic', $.diagnostic_control), seq('@', 'group', '(', $.expression, $.attrib_end), seq('@', 'id', '(', $.expression, $.attrib_end), seq('@', 'interpolate', '(', $.expression, $.attrib_end), seq('@', 'interpolate', '(', $.expression, ',', $.expression, $.attrib_end), seq('@', 'invariant'), seq('@', 'location', '(', $.expression, $.attrib_end), seq('@', 'must_use'), seq('@', 'size', '(', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, ',', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, ',', $.expression, ',', $.expression, $.attrib_end), seq('@', 'vertex'), seq('@', 'fragment'), seq('@', 'compute')),
+        attribute: $ => choice(seq('@', 'align', '(', $.expression, $.attrib_end), seq('@', 'binding', '(', $.expression, $.attrib_end), seq('@', 'builtin', '(', $.builtin_value_name, $.attrib_end), seq('@', 'const'), seq('@', 'diagnostic', $.diagnostic_control), seq('@', 'group', '(', $.expression, $.attrib_end), seq('@', 'id', '(', $.expression, $.attrib_end), seq('@', 'interpolate', '(', $.interpolate_type_name, $.attrib_end), seq('@', 'interpolate', '(', $.interpolate_type_name, ',', $.interpolate_sampling_name, $.attrib_end), seq('@', 'invariant'), seq('@', 'location', '(', $.expression, $.attrib_end), seq('@', 'must_use'), seq('@', 'size', '(', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, ',', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, ',', $.expression, ',', $.expression, $.attrib_end), seq('@', 'vertex'), seq('@', 'fragment'), seq('@', 'compute')),
 
         attrib_end: $ => seq(optional(','), ')'),
 
+        builtin_value_name: $ => $.ident_pattern_token,
+
         diagnostic_control: $ => seq('(', $.severity_control_name, ',', $.diagnostic_rule_name, $.attrib_end),
+
+        interpolate_type_name: $ => $.ident_pattern_token,
+
+        interpolate_sampling_name: $ => $.ident_pattern_token,
 
         struct_decl: $ => seq('struct', $.ident, $.struct_body_decl),
 
