@@ -180,6 +180,16 @@ create cube maps that are not exactly 6 layers.
 
 **Justification**: OpenGL ES 3.1 does not support bgra8unorm-srgb textures.
 
+## 16. Disallow `textureLoad` with `texture_depth?` textures
+
+If a `texture_depth`, `texture_depth_2d_array`, or `texture_depth_cube` are used via an entry point
+in a shader module passed to `createRenderPipeline`, `createRenderPipelineAsync`,
+`createComputePipeline`, or `createComputePipelineAsync` a validation error is generated.
+
+**Justification**: OpenGL ES 3.1 does not support `texelFetch` for depth textures.
+
+Note: this does not affect textures made with depth formats bound to `texture_2d<f32>`.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
