@@ -2152,21 +2152,88 @@ premultiplication) in which the WebGPU numeric values are to be interpreted.
 WebGPU allows all of the color spaces in the {{PredefinedColorSpace}} enum.
 Note, each color space is defined over an extended range, as defined by the referenced CSS definitions,
 to represent color values outside of its space (in both chrominance and luminance).
+Any numeric value in any color space is a well-defined "color" according to its extended color
+space definition, regardless of whether the point represents a real or imaginary color
+(WebGPU makes no distinction between real and imaginary colors).
+That "color" can be represented in other color spaces as well, where it may be in-gamut.
 
-An <dfn dfn>out-of-gamut premultiplied RGBA value</dfn> is one where any of the R/G/B channel values
-exceeds the alpha channel value. For example, the premultiplied sRGB RGBA value [1.0, 0, 0, 0.5]
-represents the (unpremultiplied) color [2, 0, 0] with 50% alpha, written `rgb(srgb 2 0 0 / 50%)` in CSS.
-Just like any color value outside the sRGB color gamut, this is a well defined point in the extended color space
-(except when alpha is 0, in which case there is no color).
-However, when such values are output to a visible canvas, the result is undefined
-(see {{GPUCanvasAlphaMode}} {{GPUCanvasAlphaMode/"premultiplied"}}).
+<h4 data-dfn-type=dfn>Out-of-Range Premultiplied RGBA Values
+<span id=out-of-gamut-premultiplied-rgba-value><!-- historical permalink --></span>
+</h4>
+
+An [=out-of-range premultiplied RGBA value=] is one for which the unpremultiplied representation
+of the same color would be outside of the range of the format.
+
+<div class=example>
+    For example, on a display with a color space of exactly Display P3,
+    the unpremultiplied sRGB RGBA value `[1.04, 0, 0, 0.5]` and the
+    premultiplied sRGB RGBA value `[0.52, 0, 0, 0.5]` both represent the
+    CSS color <code><a funcdef>color</a>(srgb 1.04 0 0 / 0.5)</code>, which is equivalent to the
+    in-gamut Display P3 color <code><a funcdef>color</a>(display-p3 0.95 0.21 0.15 / 0.5)</code>.
+
+    When represented in a {{PredefinedColorSpace/"srgb"}} {{GPUTextureFormat/"rgba8unorm"}} canvas,
+    both values are out-of-range for the purposes of this definition,
+    even though the premultiplied value is representable.
+
+    (The colors in this example are in the gamut of the display to avoid any gamut mapping.)
+</div>
+
+When a canvas containing such a value is
+[$get a copy of the image contents of a context|used as an image source$],
+the returned image must represent the original color values without clamping,
+regardless of the canvas's {{GPUCanvasConfiguration/format}}.
+
+However, when a ({{GPUCanvasAlphaMode/"premultiplied"}}) canvas containing such a value is
+displayed *on screen*, the visible result for the entire canvas is undefined.
+
+<div class=example>
+    For example, on a display with a color space of exactly Display P3,
+    an on-screen, solid-color {{PredefinedColorSpace/"srgb"}} canvas displays as follows:
+
+    <table class=data>
+        <thead>
+            <tr><th>{{GPUCanvasConfiguration/alphaMode}},<br>{{GPUCanvasConfiguration/format}}<th>Pixel Value<th>Result
+        <tbody>
+            <tr><td>{{GPUCanvasAlphaMode/"opaque"}},<br>{{GPUTextureFormat/"rgba16float"}}
+                <td rowspan=2>`[1.04, 0, 0, 1.0]`
+                <td rowspan=2><code><a funcdef>color</a>(display-p3 0.95 0.21 0.15 / 1.0)</code>.
+            <tr><td>{{GPUCanvasAlphaMode/"premultiplied"}},<br>{{GPUTextureFormat/"rgba16float"}}
+            <tr><td>{{GPUCanvasAlphaMode/"premultiplied"}},<br>{{GPUTextureFormat/"rgba16float"}}
+                <td>`[0.52, 0, 0, 0.5]`
+                <td><code><a funcdef>color</a>(display-p3 0.95 0.21 0.15 / 0.5)</code>.
+            <tr><td>{{GPUCanvasAlphaMode/"premultiplied"}},<br>{{GPUTextureFormat/"rgba8unorm"}}
+                <td>`[0.50, 0, 0, 0.5]`
+                <td><code><a funcdef>color</a>(display-p3 0.92 0.20 0.14 / 0.5)</code>.
+            <tr><td>{{GPUCanvasAlphaMode/"premultiplied"}},<br>{{GPUTextureFormat/"rgba8unorm"}}
+                <td>`[0.52, 0, 0, 0.5]`
+                <td>(undefined result),
+                    <br>because the unpremultiplied color cannot be represented in this format.
+            <!-- POSTV1(#4108): add example for XR formats, which *probably* handle this -->
+    </table>
+
+    Visible results may be undefined because the value could be lost at different steps of display:
+
+    - Value blended directly to the display buffer as
+        <code><a funcdef>color</a>(display-p3 0.95 0.21 0.15 / 0.5)</code>.
+    - Value blended through an intermediate sRGB buffer as `[0.5, 0, 0, 0.5]`,
+        then sent to the display buffer resulting in the appearance of
+        <code><a funcdef>color</a>(display-p3 0.92 0.2 0.14 / 0.5)</code>.
+    - Value displayed by some other process.
+
+    (The colors in this example are in the gamut of the display to avoid any gamut mapping.)
+</div>
+
+Note:
+Implementations may defer compositing steps to operating system compositors,
+which often have undefined behavior in these cases. Implementations may not be able to avoid
+these undefined behaviors without significant power usage penalties.
 
 ### Color Space Conversions ### {#color-space-conversions}
 
 A color is converted between spaces by translating its representation in one space to a
 representation in another according to the definitions above.
 
-If the source value has fewer than 4 RGBA channels, the missing green/blue/alpha channels are set to
+If the source value has fewer than 4 RGBA channels, any missing green/blue/alpha channels are set to
 `0, 0, 1`, respectively, before converting for color space/encoding and alpha premultiplication.
 After conversion, if the destination needs fewer than 4 channels, the additional channels
 are ignored.
@@ -2178,11 +2245,12 @@ Colors are not lossily clamped during conversion: converting from one color spac
 will result in values outside the range [0, 1] if the source color values were outside the range
 of the destination color space's gamut. For an sRGB destination, for example, this can occur if the
 source is rgba16float, in a wider color space like Display-P3, or is premultiplied and contains
-[=out-of-gamut premultiplied RGBA value|out-of-gamut values=].
+[=out-of-range premultiplied RGBA values=].
 
-Similarly, if the source value has a high bit depth (e.g. PNG with 16 bits per component) or
-extended range (e.g. canvas with `float16` storage), these colors are preserved through color space
-conversion, with intermediate computations having at least the precision of the source.
+Similarly, precision must be preserved through color space conversion, with intermediate
+computations being at least as precise as the less-precise of the source and destination
+(for example copying a PNG with 16 bits per component, or a canvas with `float16` storage, into a
+{{GPUTextureFormat/rgba16float}} texture).
 
 ### Color Space Conversion Elision ### {#color-space-conversion-elision}
 
@@ -13753,19 +13821,14 @@ is being composited into (e.g. an HTML page rendering, or a 2D canvas).
     : <dfn>"premultiplied"</dfn>
     ::
         Read RGBA as premultiplied: color values are premultiplied by their alpha value.
-        100% red at 50% alpha is `[0.5, 0, 0, 0.5]`.
+        For example, 100% red at 50% alpha is `[0.5, 0, 0, 0.5]`.
 
-        If [=out-of-gamut premultiplied RGBA values=] are output to the canvas, and the canvas is:
+        When alpha is 0, no color is represented, regardless of the RGB values.
+        (Attempting to compute the color results in division by zero.)
 
-        <dl class=switch>
-            : [$get a copy of the image contents of a context|used as an image source$]
-            :: Values are preserved, as described in [[#color-space-conversions|color space conversion]].
-
-            : displayed to the screen
-            :: Compositing results are undefined.
-                This is true even if color space conversion would produce in-gamut values before
-                compositing, because the intermediate format for compositing is not specified.
-        </dl>
+        In this mode, with some texture formats, the canvas texture can hold
+        [=out-of-range premultiplied RGBA values=], which have undefined display results.
+        Refer to that section for details.
 </dl>
 
 # Errors &amp; Debugging # {#errors-and-debugging}
