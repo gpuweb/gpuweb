@@ -1,6 +1,6 @@
 ---
-name: WebGPU Shading Language Issue.
-about: 'WebGPU Shading Language Issues'
+name: WGSL spec issue
+about: 'WebGPU Shading Language standardization/specification issue'
 title: ''
 labels: 'wgsl'
 assignees: ''
