@@ -1,6 +1,6 @@
 ---
 name: Browser/implementation bug
-about: 'Bug? Please file against relevant browser/implementation instead'
+about: 'For bugs in a WebGPU implementation, please file against relevant browser/implementation instead'
 title: ''
 labels: 'invalid'
 assignees: ''
