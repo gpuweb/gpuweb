@@ -1,23 +1,28 @@
 ---
-name: Bug
-about: 'Bug - please file against relevant browser instead'
+name: Browser/implementation bug
+about: 'For bugs in a WebGPU implementation, please file against relevant browser/implementation instead'
 title: ''
-labels: ''
+labels: 'invalid'
 assignees: ''
 
 ---
 
-**Please do not file bugs on this GitHub repository.**
+**Please do not file browser/implementation bugs on this GitHub repository.**
 Instead, file a bug against the relevant browser.
 
-Chrome:
-  Known issues: https://bugs.chromium.org/p/chromium/issues/list?q=component:Blink%3EWebGPU
-  To file a new issue: https://bugs.chromium.org/p/chromium/issues/entry?components=Blink%3EWebGPU
+Chrome (or Dawn/Tint):
+  Known issues:
+    https://issues.chromium.org/savedsearches/6760928
+    https://crbug.com/dawn
+    https://crbug.com/tint
+  To file a new issue:
+    https://issues.chromium.org/issues/new?component=1456980
 
 WebKit:
-https://bugs.webkit.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&component=WebGPU
+  https://bugs.webkit.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&component=WebGPU
 
 Firefox:
-https://bugzilla.mozilla.org/buglist.cgi?product=Core&component=Graphics%3A%20WebGPU
+  https://bugzilla.mozilla.org/buglist.cgi?product=Core&component=Graphics%3A%20WebGPU
 
-See also: [implementation status](https://github.com/gpuweb/gpuweb/wiki/Implementation-Status).
+See also:
+  [Implementation Status](https://github.com/gpuweb/gpuweb/wiki/Implementation-Status) wiki page

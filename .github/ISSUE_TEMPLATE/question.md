@@ -1,11 +1,11 @@
 ---
-name: WebGPU question.
-about: 'Browser-non-specific WebGPU question'
+name: Question about WebGPU
+about: 'Question? Please open a GitHub "Discussion" instead'
 title: ''
-labels: 'question'
+labels: 'invalid'
 assignees: ''
 
 ---
 
-
-If you have a Q&A style question about using WebGPU, consider using a GitHub "Discussion".
+If you have a Q&A style question about using WebGPU, please use a GitHub "Discussion":
+https://github.com/gpuweb/gpuweb/discussions
