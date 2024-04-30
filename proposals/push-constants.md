@@ -50,7 +50,13 @@ dictionary GPUPipelineLayoutDescriptor
     uint32_t pushConstantsSize = 0;
 };
 ```
-two pipeline layouts are defined to be “compatible for push constants” if they were created with identical push constant size. It means push constants values can share between pipeline layouts that are compatible for push constants.
+`pushConstantSize`: Size of push constants used in pipeline, type is bytes.
+
+NOTE: `pushConstantSize` = sizeof(variables) + sizeof(paddings). Follow [ Aligment rules ](https://www.w3.org/TR/WGSL/#alignment-and-size) in wgsl spec.
+
+NOTE: two pipeline layouts are defined to be “compatible for push constants” if they were created with identical push constant size. It means push constants values can share between pipeline layouts that are compatible for push constants.
+
+NOTE: Push constants range follow [out-of-bounds access](https://www.w3.org/TR/WGSL/#out-of-bounds-access) rules in wgsl spec.
 
 ## GPUCommandEncoder
 
@@ -61,6 +67,7 @@ interface GPUCommandEncoder {
         void setPushConstantU32(uint32_t offset, uint32_t value);
         void setPushConstantI32(uint32_t offset, int32_t value);
         void setPushConstantF32(uin32_t offset, float32_t value);
-        void setPushConstants(uint32_t offset, uint32_t count, ArrayBuffer data);
+        void setPushConstants(uint32_t offset, uint32_t count, AllowSharedBufferSource data);
 }
 ```
+NOTE: offset: Offset in bytes into push constant range to begin writing at. Requires multiple of 4 bytes.
