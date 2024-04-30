@@ -85,17 +85,47 @@ module.exports = grammar({
 
         template_arg_expression: $ => $.expression,
 
-        attribute: $ => choice(seq('@', 'align', '(', $.expression, $.attrib_end), seq('@', 'binding', '(', $.expression, $.attrib_end), seq('@', 'builtin', '(', $.builtin_value_name, $.attrib_end), seq('@', 'const'), seq('@', 'diagnostic', $.diagnostic_control), seq('@', 'group', '(', $.expression, $.attrib_end), seq('@', 'id', '(', $.expression, $.attrib_end), seq('@', 'interpolate', '(', $.interpolate_type_name, $.attrib_end), seq('@', 'interpolate', '(', $.interpolate_type_name, ',', $.interpolate_sampling_name, $.attrib_end), seq('@', 'invariant'), seq('@', 'location', '(', $.expression, $.attrib_end), seq('@', 'must_use'), seq('@', 'size', '(', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, ',', $.expression, $.attrib_end), seq('@', 'workgroup_size', '(', $.expression, ',', $.expression, ',', $.expression, $.attrib_end), seq('@', 'vertex'), seq('@', 'fragment'), seq('@', 'compute')),
+        align_attr: $ => seq('@', 'align', '(', $.expression, optional(','), ')'),
 
-        attrib_end: $ => seq(optional(','), ')'),
+        binding_attr: $ => seq('@', 'binding', '(', $.expression, optional(','), ')'),
+
+        builtin_attr: $ => seq('@', 'builtin', '(', $.builtin_value_name, optional(','), ')'),
 
         builtin_value_name: $ => $.ident_pattern_token,
 
-        diagnostic_control: $ => seq('(', $.severity_control_name, ',', $.diagnostic_rule_name, $.attrib_end),
+        const_attr: $ => seq('@', 'const'),
+
+        diagnostic_attr: $ => seq('@', 'diagnostic', $.diagnostic_control),
+
+        group_attr: $ => seq('@', 'group', '(', $.expression, optional(','), ')'),
+
+        id_attr: $ => seq('@', 'id', '(', $.expression, optional(','), ')'),
+
+        interpolate_attr: $ => choice(seq('@', 'interpolate', '(', $.interpolate_type_name, optional(','), ')'), seq('@', 'interpolate', '(', $.interpolate_type_name, ',', $.interpolate_sampling_name, optional(','), ')')),
 
         interpolate_type_name: $ => $.ident_pattern_token,
 
         interpolate_sampling_name: $ => $.ident_pattern_token,
+
+        invariant_attr: $ => seq('@', 'invariant'),
+
+        location_attr: $ => seq('@', 'location', '(', $.expression, optional(','), ')'),
+
+        must_use_attr: $ => seq('@', 'must_use'),
+
+        size_attr: $ => seq('@', 'size', '(', $.expression, optional(','), ')'),
+
+        workgroup_size_attr: $ => choice(seq('@', 'workgroup_size', '(', $.expression, optional(','), ')'), seq('@', 'workgroup_size', '(', $.expression, ',', $.expression, optional(','), ')'), seq('@', 'workgroup_size', '(', $.expression, ',', $.expression, ',', $.expression, optional(','), ')')),
+
+        vertex_attr: $ => seq('@', 'vertex'),
+
+        fragment_attr: $ => seq('@', 'fragment'),
+
+        compute_attr: $ => seq('@', 'compute'),
+
+        attribute: $ => choice(seq('@', $.ident_pattern_token, optional($.argument_expression_list)), $.align_attr, $.binding_attr, $.builtin_attr, $.const_attr, $.diagnostic_attr, $.group_attr, $.id_attr, $.interpolate_attr, $.invariant_attr, $.location_attr, $.must_use_attr, $.size_attr, $.workgroup_size_attr, $.vertex_attr, $.fragment_attr, $.compute_attr),
+
+        diagnostic_control: $ => seq('(', $.severity_control_name, ',', $.diagnostic_rule_name, optional(','), ')'),
 
         struct_decl: $ => seq('struct', $.ident, $.struct_body_decl),
 
@@ -253,7 +283,7 @@ module.exports = grammar({
 
         ident_pattern_token: $ => /([_\p{XID_Start}][\p{XID_Continue}]+)|([\p{XID_Start}])/u,
 
-        severity_control_name: $ => choice('error', 'warning', 'info', 'off'),
+        severity_control_name: $ => $.ident_pattern_token,
 
         swizzle_name: $ => choice(/[rgba]/, /[rgba][rgba]/, /[rgba][rgba][rgba]/, /[rgba][rgba][rgba][rgba]/, /[xyzw]/, /[xyzw][xyzw]/, /[xyzw][xyzw][xyzw]/, /[xyzw][xyzw][xyzw][xyzw]/),
 
