@@ -842,14 +842,26 @@ In this specification, the following syntactic shorthands are used:
     A WebIDL attribute which is backed by an internal slot of the same name.
     It may or may not be mutable.
 
-### WebGPU Interfaces ### {#webgpu-interfaces}
+<h4 id=webgpu-objects>WebGPU Objects
+<span id=webgpu-internal-objects></span>
+</h4>
 
-A <dfn dfn>WebGPU interface</dfn> defines a WebGPU object. It can be used:
+A <dfn dfn>WebGPU object</dfn> consists of a [=WebGPU Interface=] and an [=internal object=].
 
-- On the [=content timeline=] where it was created, where it is a JavaScript-exposed WebIDL interface.
-- On all other timelines, where only [=immutable properties=] can be accessed.
+The <dfn dfn>WebGPU interface</dfn> defines the public interface and state of the [=WebGPU object=].
+It can be used on the [=content timeline=] where it was created, where it is a JavaScript-exposed
+WebIDL interface.
 
-The following special property types can be defined on [=WebGPU interfaces=]:
+Any interface which includes <dfn interface>GPUObjectBase</dfn> is a [=WebGPU interface=].
+
+The <dfn dfn>internal object</dfn> tracks the state of the [=WebGPU object=] on the [=device timeline=].
+All reads/writes to the mutable state of an [=internal object=] occur from steps executing on a
+single well-ordered [=device timeline=]. These steps may have been issued from a [=content timeline=]
+algorithm on any of multiple [=agents=].
+
+Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
+
+The following special property types can be defined on [=WebGPU objects=]:
 
 : <dfn dfn data-timeline=const>immutable property</dfn>
 ::
@@ -858,18 +870,23 @@ The following special property types can be defined on [=WebGPU interfaces=]:
     Note: Since the slot is immutable, implementations may have a copy on multiple timelines, as needed.
     [=Immutable properties=] are defined in this way to avoid describing multiple copies in this spec.
 
-    If named `[[with brackets]]`, it is an internal slot.
-    If named `withoutBrackets`, it is a `readonly` [=slot-backed attribute=].
+    If named `[[with brackets]]`, it is an internal slot.<br/>
+    If named `withoutBrackets`, it is a `readonly` [=slot-backed attribute=] of the [=WebGPU interface=].
 
 : <dfn dfn data-timeline=content>content timeline property</dfn>
 ::
     A property which is only accessible from the [=content timeline=]
     where the object was created.
 
-    If named `[[with brackets]]`, it is an internal slot.
-    If named `withoutBrackets`, it is a [=slot-backed attribute=].
+    If named `[[with brackets]]`, it is an internal slot.<br/>
+    If named `withoutBrackets`, it is a [=slot-backed attribute=] of the [=WebGPU interface=].
 
-Any interface which includes <dfn interface>GPUObjectBase</dfn> is a [=WebGPU interface=].
+: <dfn dfn data-timeline=device>device timeline property</dfn>
+::
+    A property which tracks state of the [=internal object=] and is only accessible from the
+    [=device timeline=] where the object was created. [=device timeline properties=] may be mutable.
+
+    [=Device timeline properties=] are named `[[with brackets]]`, and are internal slots.
 
 <script type=idl>
 interface mixin GPUObjectBase {
@@ -891,34 +908,9 @@ interface mixin GPUObjectBase {
     </div>
 </div>
 
-<div algorithm>
-    <div data-timeline=content>
-        To <dfn abstract-op>create a new WebGPU object with internals</dfn>({{GPUObjectBase}} |parent|,
-        interface |T|, {{GPUObjectDescriptorBase}} |descriptor|)
-        (where |T| extends {{GPUObjectBase}}):
-
-        1. Let |object| be [=!=] [$create a new WebGPU object$](|parent|, |T|, |descriptor|)
-        1. Let |internals| be a new (uninitialized) instance of the type of
-            |T|.`[[internals]]` (which may override {{GPUObjectBase}}.{{GPUObjectBase/[[internals]]}})
-            that is accessible only from the [=device timeline=] of |parent|.{{GPUObjectBase/[[device]]}}.
-        1. Set |object|.{{GPUObjectBase/[[internals]]}} to |internals|.
-        1. Return [|object|, |internals|].
-    </div>
-</div>
-
 {{GPUObjectBase}} has the following [=immutable properties=]:
 
 <dl dfn-type=attribute dfn-for=GPUObjectBase data-timeline=const>
-    : <dfn>\[[internals]]</dfn>, of type [=internal object=], readonly, overridable
-    ::
-        The [=internal object=].
-
-        Operations on the contents of this object [=assert=] they are running on the
-        [=device timeline=], and that the device is [=valid=].
-
-        For each interface that subtypes {{GPUObjectBase}}, this may be overridden with a subtype
-        of [=internal object=]. This slot is initially set to an uninitialized object of that type.
-
     : <dfn>\[[device]]</dfn>, of type [=device=], readonly
     ::
         The [=device=] that owns the [=internal object=].
@@ -986,21 +978,6 @@ interface mixin GPUObjectBase {
     needed.
 </div>
 
-### Internal Objects ### {#webgpu-internal-objects}
-
-An <dfn dfn>internal object</dfn> tracks state of WebGPU objects that may only be used on
-the [=device timeline=], in [=device timeline slots=], which may be mutable.
-
-: <dfn dfn data-timeline=device>device timeline slot</dfn>
-::
-    An internal slot which is only accessible from the [=device timeline=].
-
-All reads/writes to the mutable state of an [=internal object=] occur from steps executing on a
-single well-ordered [=device timeline=]. These steps may have been issued from a
-[=content timeline=] algorithm on any of multiple [=agents=].
-
-Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
-
 ### Object Descriptors ### {#object-descriptors}
 
 An <dfn dfn>object descriptor</dfn> holds the information needed to create an object,
@@ -1044,7 +1021,7 @@ this case is referred to as <dfn dfn noexport>contagious invalidity</dfn>.
 [=Internal objects=] of *most* types cannot become [=invalid=] after they are created, but still
 may become unusable, e.g. if the owning device is [=lose the device|lost=] or
 {{GPUDevice/destroy()|destroyed}}, or the object has a special internal state,
-like buffer state "[=buffer internals/state/destroyed=]".
+like buffer state "[=GPUBuffer/[[internal state]]/destroyed=]".
 
 [=Internal objects=] of some types *can* become [=invalid=] after they are created; specifically,
 [=devices=], [=adapters=], {{GPUCommandBuffer}}s, and command/pass/bundle encoders.
@@ -3149,9 +3126,6 @@ enum GPUBufferMapState {
     : <dfn>usage</dfn>
     ::
         The allowed usages for this {{GPUBuffer}}.
-
-    : <dfn>\[[internals]]</dfn>, of type [=buffer internals=], readonly, {{GPUObjectBase/[[internals]]|override}}
-    ::
 </dl>
 
 {{GPUBuffer}} has the following [=content timeline properties=]:
@@ -3251,29 +3225,6 @@ enum GPUBufferMapState {
         </div>
 </dl>
 
-{{GPUBuffer}}'s [=internal object=] is <dfn dfn>buffer internals</dfn>, which
-extends [=internal object=] with the following [=device timeline slots=]:
-
-<dl dfn-type=dfn dfn-for="buffer internals" data-timeline=device>
-    : <dfn>state</dfn>
-    ::
-        The current internal state of the buffer:
-
-        <dl dfn-type=dfn dfn-for="buffer internals/state">
-            : "<dfn>available</dfn>"
-            ::
-                The buffer may be used in queue operations (unless it is [=invalid=]).
-
-            : "<dfn>unavailable</dfn>"
-            ::
-                The buffer may not be used in queue operations due to being mapped.
-
-            : "<dfn>destroyed</dfn>"
-            ::
-                The buffer may not be used in any operations due to being {{GPUBuffer/destroy()}}ed.
-        </dl>
-</dl>
-
 <div class=example>
     <figure>
         <figcaption>Mapping and unmapping a buffer.</figcaption>
@@ -3287,6 +3238,28 @@ extends [=internal object=] with the following [=device timeline slots=]:
         <object type="image/svg+xml" data="img/buffer-map-failure.mmd.svg"></object>
     </figure>
 </div>
+
+{{GPUBuffer}} has the following [=device timeline properties=]:
+
+<dl dfn-type=attribute dfn-for=GPUBuffer data-timeline=device>
+    : <dfn>[[internal state]]</dfn>, of type Foo
+    ::
+        The current internal state of the buffer:
+
+        <dl dfn-type=dfn dfn-for="GPUBuffer/[[internal state]]">
+            : "<dfn>available</dfn>"
+            ::
+                The buffer may be used in queue operations (unless it is [=invalid=]).
+
+            : "<dfn>unavailable</dfn>"
+            ::
+                The buffer may not be used in queue operations due to being mapped.
+
+            : "<dfn>destroyed</dfn>"
+            ::
+                The buffer may not be used in any operations due to being {{GPUBuffer/destroy()}}ed.
+        </dl>
+</dl>
 
 <h4 id=gpubufferdescriptor data-dfn-type=dictionary>`GPUBufferDescriptor`
 <span id=GPUBufferDescriptor></span>
@@ -3431,7 +3404,7 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
 
                 [=Content timeline=] steps:
 
-                1. Let [|b|, |bi|] be [=!=] [$create a new WebGPU object with internals$](|this|, {{GPUBuffer}}, |descriptor|).
+                1. Let |b| be [=!=] [$create a new WebGPU object$](|this|, {{GPUBuffer}}, |descriptor|).
                 1. Set |b|.{{GPUBuffer/size}} to |descriptor|.{{GPUBufferDescriptor/size}}.
                 1. Set |b|.{{GPUBuffer/usage}} to |descriptor|.{{GPUBufferDescriptor/usage}}.
                 1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
@@ -3445,7 +3418,7 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 [=Device timeline=] |initialization steps|:
 
                 1. If any of the following requirements are unmet,
-                    [$generate a validation error$], make |bi| [=invalid=], and stop.
+                    [$generate a validation error$], make |b| [=invalid=], and stop.
 
                     <div class=validusage>
                         - |device| must be [=valid=].
@@ -3469,17 +3442,17 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 and may be discarded or recycled.
 
                 1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
-                    1. Set |bi|.[=buffer internals/state=] to "[=buffer internals/state/unavailable=]".
+                    1. Set |b|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/unavailable=]".
 
                     Else:
 
-                    1. Set |bi|.[=buffer internals/state=] to "[=buffer internals/state/available=]".
+                    1. Set |b|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/available=]".
 
-                1. Create a device allocation for |bi| where each byte is zero.
+                1. Create a device allocation for |b| where each byte is zero.
 
                     If the allocation fails without side-effects,
                     [$generate an out-of-memory error$],
-                    make |bi| [=invalid=], and return.
+                    make |b| [=invalid=], and return.
             </div>
         </div>
 </dl>
@@ -3534,8 +3507,8 @@ once all previously submitted operations using it are complete.
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to
-                    "[=buffer internals/state/destroyed=]".
+                1. Set |this|.{{GPUBuffer/[[internal state]]}} to
+                    "[=GPUBuffer/[[internal state]]/destroyed=]".
             </div>
         </div>
 
@@ -3658,7 +3631,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     <div class=validusage>
                         - |this| is a [=valid=] {{GPUBuffer}}.
-                        - |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] is "[=buffer internals/state/available=]".
+                        - |this|.{{GPUBuffer/[[internal state]]}} is "[=GPUBuffer/[[internal state]]/available=]".
                         - |offset| is a multiple of 8.
                         - |rangeSize| is a multiple of 4.
                         - |offset| + |rangeSize| &le; |this|.{{GPUBuffer/size}}
@@ -3675,7 +3648,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     1. [$Generate a validation error$].
                     1. Return.
 
-                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/unavailable=]".
+                1. Set |this|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/unavailable=]".
 
                     Note: Since the buffer is mapped, its contents cannot change between this completion and {{GPUBuffer/unmap()}}.
                 1. If |this|.{{GPUObjectBase/[[device]]}} is lost, or when it [=lose the device|becomes lost=]:
@@ -3694,9 +3667,9 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     run the following steps:
 
-                    1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=].
+                    1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internal state]]}}.
 
-                        Note: If, and only if, at this point the buffer has become "[=buffer internals/state/available=]"
+                        Note: If, and only if, at this point the buffer has become "[=GPUBuffer/[[internal state]]/available=]"
                         again due to an {{GPUBuffer/unmap()}} call, then {{GPUBuffer/[[pending_map]]}} != |p| below,
                         so mapping will not succeed in the steps below.
                     1. Let |dataForMappedRegion| be the contents of |this| starting at offset |offset|, for |rangeSize| bytes.
@@ -3715,7 +3688,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     1. [=Assert=] |p| is rejected.
                     1. Return.
                 1. [=Assert=] |p| is pending.
-                1. [=Assert=] |internalStateAtCompletion| is "[=buffer internals/state/unavailable=]".
+                1. [=Assert=] |internalStateAtCompletion| is "[=GPUBuffer/[[internal state]]/unavailable=]".
                 1. Let |mapping| be [$initialize an active buffer mapping$]
                     with mode |mode| and range <code>[|offset|, |offset| + |rangeSize|]</code>.
 
@@ -3863,7 +3836,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                             1. Update the contents of |this| at offset |bufferUpdate|.`offset`
                                 with the data |bufferUpdate|.`data`.
                         </div>
-                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/available=]".
+                1. Set |this|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/available=]".
             </div>
         </div>
 </dl>
@@ -12762,7 +12735,7 @@ GPUQueue includes GPUObjectBase;
 
                     <div class=validusage>
                         - |buffer| is [$valid to use with$] |this|.
-                        - |buffer|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] is "[=buffer internals/state/available=]".
+                        - |buffer|.{{GPUBuffer/[[internal state]]}} is "[=GPUBuffer/[[internal state]]/available=]".
                         - |buffer|.{{GPUBuffer/usage}} includes {{GPUBufferUsage/COPY_DST}}.
                         - |bufferOffset|, converted to bytes, is a multiple of 4 bytes.
                         - |bufferOffset| + |contentsSize|, converted to bytes, &le; |buffer|.{{GPUBuffer/size}} bytes.
@@ -12986,8 +12959,8 @@ GPUQueue includes GPUObjectBase;
 
                             <dl class=switch>
                                 : {{GPUBuffer}} |b|
-                                :: |b|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] must
-                                    be "[=buffer internals/state/available=]".
+                                :: |b|.{{GPUBuffer/[[internal state]]}} must
+                                    be "[=GPUBuffer/[[internal state]]/available=]".
                                 : {{GPUTexture}} |t|
                                 :: |t|.{{GPUTexture/[[destroyed]]}} must be `false`.
                                 : {{GPUExternalTexture}} |et|
