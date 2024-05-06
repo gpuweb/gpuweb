@@ -1,4 +1,4 @@
-# Subgroups
+# PushConstants
 
 Status: **Draft**
 
@@ -47,7 +47,7 @@ One new member in `GPUPipelineLayoutDescriptor`.
 dictionary GPUPipelineLayoutDescriptor
          : GPUObjectDescriptorBase {
     required sequence<GPUBindGroupLayout> bindGroupLayouts;
-    uint32_t pushConstantsSize = 0;
+    uint32_t pushConstantsByte = 0;
 };
 ```
 `pushConstantSize`: Size of push constants used in pipeline, type is bytes.
