@@ -6,11 +6,12 @@ Some new features add associated limits. This document records a design policy f
 
 - `{ newLimit: undefined }` is allowed even if `newLimit` is unknown. (It has no effect.)
 - Limits entries associated with features have these Adapter Capability Guarantees:
-  - They are `>= default` if the feature is available on the adapter.
+  - If the feature is available, its limits are `better` than or equal to the default.
+  - If not, its limits are `undefined`.
   - They are `undefined` if the feature is unavailable on the adapter.
 - It is allowed to request a limit that's available on the adapter (that is,
   not `undefined` in `adapter.limits`), even without also requesting the corresponding feature.
-  (It won't have any effect.)
+  It won't have any effect, but the limit request will still be validated against the adapter.
 - It is allowed to request a feature that's available on the adapter, even without also
   requesting the corresponding limit(s). (They will get their default values.)
 
