@@ -136,7 +136,16 @@ spec: Strings on the Web; urlPrefix: https://w3c.github.io/string-meta/#
         text: best practices for language and direction information; url: bp_and-reco
 </pre>
 
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="96x96" href="img/favicon-96x96.png">
+
 <style>
+/* Displays the WebGPU logo next to the W3C logo */
+.head h1:after {
+    content: url(img/logo.png);
+    float: right;
+}
+
 /* Make <dl> blocks more distinct from their surroundings. */
 main dl:not(.switch) {
     border-left: thin solid #f3e48c;
@@ -470,333 +479,9 @@ a {{GPURenderPipeline}} or a {{GPUComputePipeline}} object. The state not includ
 in these [=pipeline=] objects is set during encoding with commands,
 such as {{GPUCommandEncoder/beginRenderPass()}} or {{GPURenderPassEncoder/setBlendConstant()}}.
 
-
-# Malicious use considerations # {#malicious-use}
-
-*This section is non-normative.* It describes the risks associated with exposing this API on the Web.
-
-## Security Considerations ## {#security-considerations}
-
-The security requirements for WebGPU are the same as ever for the web, and are likewise non-negotiable.
-The general approach is strictly validating all the commands before they reach GPU,
-ensuring that a page can only work with its own data.
-
-### CPU-based undefined behavior ### {#security-cpu-ub}
-
-A WebGPU implementation translates the workloads issued by the user into API commands specific
-to the target platform. Native APIs specify the valid usage for the commands
-(for example, see [vkCreateDescriptorSetLayout](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/vkCreateDescriptorSetLayout.html))
-and generally don't guarantee any outcome if the valid usage rules are not followed.
-This is called "undefined behavior", and it can be exploited by an attacker to access memory
-they don't own, or force the driver to execute arbitrary code.
-
-In order to disallow insecure usage, the range of allowed WebGPU behaviors is defined for any input.
-An implementation has to validate all the input from the user and only reach the driver
-with the valid workloads. This document specifies all the error conditions and handling semantics.
-For example, specifying the same buffer with intersecting ranges in both "source" and "destination"
-of {{GPUCommandEncoder/copyBufferToBuffer()}} results in {{GPUCommandEncoder}}
-generating an error, and no other operation occurring.
-
-See [[#errors-and-debugging]] for more information about error handling.
-
-### GPU-based undefined behavior ### {#security-gpu-ub}
-
-WebGPU [=shader=]s are executed by the compute units inside GPU hardware. In native APIs,
-some of the shader instructions may result in undefined behavior on the GPU.
-In order to address that, the shader instruction set and its defined behaviors are
-strictly defined by WebGPU. When a shader is provided to {{GPUDevice/createShaderModule()}},
-the WebGPU implementation has to validate it
-before doing any translation (to platform-specific shaders) or transformation passes.
-
-### Uninitialized data ### {#security-uninitialized}
-
-Generally, allocating new memory may expose the leftover data of other applications running on the system.
-In order to address that, WebGPU conceptually initializes all the resources to zero, although in practice
-an implementation may skip this step if it sees the developer initializing the contents manually.
-This includes variables and shared workgroup memory inside shaders.
-
-The precise mechanism of clearing the workgroup memory can differ between platforms.
-If the native API does not provide facilities to clear it, the WebGPU implementation transforms the compute
-shader to first do a clear across all invocations, synchronize them, and continue executing developer's code.
-
-<div class=note heading>
-    The initialization status of a resource used in a queue operation can only be known when the
-    operation is enqueued (not when it is encoded into a command buffer, for example). Therefore,
-    some implementations will require an unoptimized late-clear at enqueue time (e.g. clearing a
-    texture, rather than changing {{GPULoadOp}} {{GPULoadOp/"load"}} to {{GPULoadOp/"clear"}}).
-
-    As a result, all implementations **should** issue a developer console warning about this
-    potential performance penalty, even if there is no penalty in that implementation.
-</div>
-
-### Out-of-bounds access in shaders ### {#security-shader}
-
-[=Shader=]s can access [=physical resource=]s either directly
-(for example, as a {{GPUBufferBindingType/"uniform"}} {{GPUBufferBinding}}), or via <dfn dfn>texture unit</dfn>s,
-which are fixed-function hardware blocks that handle texture coordinate conversions.
-Validation in the WebGPU API can only guarantee that all the inputs to the shader are provided and
-they have the correct usage and types.
-The WebGPU API can not guarantee that the data is accessed within bounds
-if the [=texture unit=]s are not involved.
-
-In order to prevent the shaders from accessing GPU memory an application doesn't own,
-the WebGPU implementation may enable a special mode (called "robust buffer access") in the driver
-that guarantees that the access is limited to buffer bounds.
-
-Alternatively, an implementation may transform the shader code by inserting manual bounds checks.
-When this path is taken, the out-of-bound checks only apply to array indexing. They aren't needed
-for plain field access of shader structures due to the {{GPUBufferBindingLayout/minBindingSize}}
-validation on the host side.
-
-If the shader attempts to load data outside of [=physical resource=] bounds,
-the implementation is allowed to:
-
-1. return a value at a different location within the resource bounds
-1. return a value vector of "(0, 0, 0, X)" with any "X"
-1. partially discard the draw or dispatch call
-
-If the shader attempts to write data outside of [=physical resource=] bounds,
-the implementation is allowed to:
-
-1. write the value to a different location within the resource bounds
-1. discard the write operation
-1. partially discard the draw or dispatch call
-
-### Invalid data ### {#security-invalid-data}
-
-When uploading [floating-point](https://en.wikipedia.org/wiki/IEEE_754) data from CPU to GPU,
-or generating it on the GPU, we may end up with a binary representation that doesn't correspond
-to a valid number, such as infinity or NaN (not-a-number). The GPU behavior in this case is
-subject to the accuracy of the GPU hardware implementation of the IEEE-754 standard.
-WebGPU guarantees that introducing invalid floating-point numbers would only affect the results
-of arithmetic computations and will not have other side effects.
-
-### Driver bugs ### {#security-driver-bugs}
-
-GPU drivers are subject to bugs like any other software. If a bug occurs, an attacker
-could possibly exploit the incorrect behavior of the driver to get access to unprivileged data.
-In order to reduce the risk, the WebGPU working group will coordinate with GPU vendors
-to integrate the WebGPU Conformance Test Suite (CTS) as part of their driver testing process,
-like it was done for WebGL.
-WebGPU implementations are expected to have workarounds for some of the discovered bugs,
-and disable WebGPU on drivers with known bugs that can't be worked around.
-
-### Timing attacks ### {#security-timing}
-
-#### Content-timeline timing #### {#security-timing-content}
-
-WebGPU is designed to later support multi-threaded use via Web Workers. As such, it is designed not to open
-the users to modern high-precision timing attacks. Some of the objects,
-like {{GPUBuffer}} or {{GPUQueue}}, have shared state which can be simultaneously accessed.
-This allows race conditions to occur, similar to those of accessing a `SharedArrayBuffer`
-from multiple Web Workers, which makes the thread scheduling observable.
-
-WebGPU addresses this by limiting the ability to deserialize (or share) objects only to
-the [=agents=] inside the [=agent cluster=], and only if
-the [cross-origin isolated](https://web.dev/coop-coep/) policies are in place.
-This restriction matches the [mitigations](https://hacks.mozilla.org/2020/07/safely-reviving-shared-memory/)
-against the malicious `SharedArrayBuffer` use. Similarly, the user agent may also
-serialize the [=agents=] sharing any handles to prevent any concurrency entirely.
-
-In the end, the attack surface for races on shared state in WebGPU will be
-a small subset of the `SharedArrayBuffer` attacks.
-
-#### Device/queue-timeline timing #### {#security-timing-device}
-
-Writable storage buffers and other cross-invocation communication may be usable to construct
-high-precision timers on the [=queue timeline=].
-
-The optional {{GPUFeatureName/"timestamp-query"}} feature also provides high precision
-timing of GPU operations. To mitigate security and privacy concerns, the timing query
-values are aligned to a lower precision: see [$current queue timestamp$]. Note in particular:
-
-- The [=device timeline=] typically runs in a process that is shared by multiple
-    origins, so cross-origin isolation (provided by COOP/COEP) does not provide
-    isolation of device/queue-timeline timers.
-- [=Queue timeline=] work is issued from the device timeline, and may execute on GPU hardware that
-    does not provide the isolation expected of CPU processes (such as Meltdown mitigations).
-- GPU hardware is not typically susceptible to Spectre-style attacks, **but** WebGPU may be
-    implemented in software, and software implementations may run in a shared process, preventing
-    isolation-based mitigations.
-
-### Row hammer attacks ### {#security-rowhammer}
-
-[Row hammer](https://en.wikipedia.org/wiki/Row_hammer) is a class of attacks that exploit the
-leaking of states in DRAM cells. It could be used [on GPU](https://www.vusec.net/projects/glitch/).
-WebGPU does not have any specific mitigations in place, and relies on platform-level solutions,
-such as reduced memory refresh intervals.
-
-### Denial of service ### {#security-dos}
-
-WebGPU applications have access to GPU memory and compute units. A WebGPU implementation may limit
-the available GPU memory to an application, in order to keep other applications responsive.
-For GPU processing time, a WebGPU implementation may set up "watchdog" timer that makes sure an
-application doesn't cause GPU unresponsiveness for more than a few seconds.
-These measures are similar to those used in WebGL.
-
-### Workload identification ### {#security-workload-identification}
-
-WebGPU provides access to constrained global resources shared between different programs
-(and web pages) running on the same machine. An application can try to indirectly probe
-how constrained these global resources are, in order to reason about workloads performed
-by other open web pages, based on the patterns of usage of these shared resources.
-These issues are generally analogous to issues with Javascript,
-such as system memory and CPU execution throughput. WebGPU does not provide any additional
-mitigations for this.
-
-### Memory resources ### {#security-memory-resources}
-
-WebGPU exposes fallible allocations from machine-global memory heaps, such as VRAM.
-This allows for probing the size of the system's remaining available memory
-(for a given heap type) by attempting to allocate and watching for allocation failures.
-
-GPUs internally have one or more (typically only two) heaps of memory
-shared by all running applications. When a heap is depleted, WebGPU would fail to create a resource.
-This is observable, which may allow a malicious application to guess what heaps
-are used by other applications, and how much they allocate from them.
-
-### Computation resources ### {#security-computation-resources}
-
-If one site uses WebGPU at the same time as another, it may observe the increase
-in time it takes to process some work. For example, if a site constantly submits
-compute workloads and tracks completion of work on the queue,
-it may observe that something else also started using the GPU.
-
-A GPU has many parts that can be tested independently, such as the arithmetic units,
-texture sampling units, atomic units, etc. A malicious application may sense when
-some of these units are stressed, and attempt to guess the workload of another
-application by analyzing the stress patterns. This is analogous to the realities
-of CPU execution of Javascript.
-
-### Abuse of capabilities ### {#security-abuse-of-capabilities}
-
-Malicious sites could abuse the capabilities exposed by WebGPU to run
-computations that don't benefit the user or their experience and instead only
-benefit the site. Examples would be hidden crypto-mining, password cracking
-or rainbow tables computations.
-
-It is not possible to guard against these types of uses of the API because the
-browser is not able to distinguish between valid workloads and abusive
-workloads. This is a general problem with all general-purpose computation
-capabilities on the Web: JavaScript, WebAssembly or WebGL. WebGPU only makes
-some workloads easier to implement, or slightly more efficient to run than
-using WebGL.
-
-To mitigate this form of abuse, browsers can throttle operations on background
-tabs, could warn that a tab is using a lot of resource, and restrict which
-contexts are allowed to use WebGPU.
-
-User agents can heuristically issue warnings to users about high power use,
-especially due to potentially malicious usage.
-If a user agent implements such a warning, it should include WebGPU usage in
-its heuristics, in addition to JavaScript, WebAssembly, WebGL, and so on.
-
-
-## Privacy Considerations ## {#privacy-considerations}
-
-<p tracking-vector>
-The privacy considerations for WebGPU are similar to those of WebGL. GPU APIs are complex and must
-expose various aspects of a device's capabilities out of necessity in order to enable developers to
-take advantage of those capabilities effectively. The general mitigation approach involves
-normalizing or binning potentially identifying information and enforcing uniform behavior where
-possible.
-
-A user agent must not reveal more than 32 distinguishable configurations or buckets.
-
-### Machine-specific features and limits ### {#privacy-machine-limits}
-
-WebGPU can expose a lot of detail on the underlying GPU architecture and the device geometry.
-This includes available physical adapters, many limits on the GPU and CPU resources
-that could be used (such as the maximum texture size), and any optional hardware-specific
-capabilities that are available.
-
-User agents are not obligated to expose the real hardware limits, they are in full control of
-how much the machine specifics are exposed. One strategy to reduce fingerprinting is binning
-all the target platforms into a few number of bins. In general, the privacy impact of exposing
-the hardware limits matches the one of WebGL.
-
-The [=limit/default=] limits are also deliberately high enough
-to allow most applications to work without requesting higher limits.
-All the usage of the API is validated according to the requested limits,
-so the actual hardware capabilities are not exposed to the users by accident.
-
-### Machine-specific artifacts ### {#privacy-machine-artifacts}
-
-There are some machine-specific rasterization/precision artifacts and performance differences
-that can be observed roughly in the same way as in WebGL. This applies to rasterization coverage
-and patterns, interpolation precision of the varyings between shader stages, compute unit scheduling,
-and more aspects of execution.
-
-Generally, rasterization and precision fingerprints are identical across most or all
-of the devices of each vendor. Performance differences are relatively intractable,
-but also relatively low-signal (as with JS execution performance).
-
-Privacy-critical applications and user agents should utilize software implementations to eliminate
-such artifacts.
-
-### Machine-specific performance ### {#privacy-machine-performance}
-
-Another factor for differentiating users is measuring the performance of specific
-operations on the GPU. Even with low precision timing, repeated execution of an operation
-can show if the user's machine is fast at specific workloads.
-This is a fairly common vector (present in both WebGL and Javascript),
-but it's also low-signal and relatively intractable to truly normalize.
-
-WebGPU compute pipelines expose access to GPU unobstructed by the fixed-function hardware.
-This poses an additional risk for unique device fingerprinting. User agents can take steps
-to dissociate logical GPU invocations with actual compute units to reduce this risk.
-
-### User Agent State ### {#privacy-user-agent-state}
-
-This specification doesn't define any additional user-agent state for an origin.
-However it is expected that user agents will have compilation caches for the result of expensive
-compilation like {{GPUShaderModule}}, {{GPURenderPipeline}} and {{GPUComputePipeline}}.
-These caches are important to improve the loading time of WebGPU applications after the first
-visit.
-
-For the specification, these caches are indifferentiable from incredibly fast compilation, but
-for applications it would be easy to measure how long {{GPUDevice/createComputePipelineAsync()}}
-takes to resolve. This can leak information across origins (like "did the user access a site with
-this specific shader") so user agents should follow the best practices in
-[storage partitioning](https://github.com/privacycg/storage-partitioning).
-
-The system's GPU driver may also have its own cache of compiled shaders and pipelines. User agents
-may want to disable these when at all possible, or add per-partition data to shaders in ways that
-will make the GPU driver consider them different.
-
-### Driver bugs ### {#privacy-driver-bugs}
-
-In addition to the concerns outlined in [[#security-driver-bugs|Security Considerations]], driver
-bugs may introduce differences in behavior that can be observed as a method of differentiating
-users. The mitigations mentioned in Security Considerations apply here as well, including
-coordinating with GPU vendors and implementing workarounds for known issues in the user agent.
-
-### Adapter Identifiers ### {#privacy-adapter-identifiers}
-
-Past experience with WebGL has demonstrated that developers have a legitimate need to be able to
-identify the GPU their code is running on in order to create and maintain robust GPU-based content.
-For example, to identify adapters with known driver bugs in order to work around them or to avoid
-features that perform more poorly than expected on a given class of hardware.
-
-But exposing adapter identifiers also naturally expands the amount of fingerprinting information
-available, so there's a desire to limit the precision with which we identify the adapter.
-
-There are several mitigations that can be applied to strike a balance between enabling robust
-content and preserving privacy. First is that user agents can reduce the burden on developers by
-identifying and working around known driver issues, as they have since browsers began making use of
-GPUs.
-
-When adapter identifiers are exposed by default they should be as broad as possible while still
-being useful. Possibly identifying, for example, the adapter's vendor and general architecture
-without identifying the specific adapter in use. Similarly, in some cases identifiers for an adapter
-that is considered a reasonable proxy for the actual adapter may be reported.
-
-In cases where full and detailed information about the adapter is useful (for example: when filing
-bug reports) the user can be asked for consent to reveal additional information about their hardware
-to the page.
-
-Finally, the user agent will always have the discretion to not report adapter identifiers at all if
-it considers it appropriate, such as in enhanced privacy modes.
+<pre class=include>
+path: sections/privacy-and-security.bs
+</pre>
 
 # Fundamentals # {#fundamentals}
 
@@ -835,14 +520,26 @@ In this specification, the following syntactic shorthands are used:
     A WebIDL attribute which is backed by an internal slot of the same name.
     It may or may not be mutable.
 
-### WebGPU Interfaces ### {#webgpu-interfaces}
+<h4 id=webgpu-objects>WebGPU Objects
+<span id=webgpu-internal-objects></span>
+</h4>
 
-A <dfn dfn>WebGPU interface</dfn> defines a WebGPU object. It can be used:
+A <dfn dfn>WebGPU object</dfn> consists of a [=WebGPU Interface=] and an [=internal object=].
 
-- On the [=content timeline=] where it was created, where it is a JavaScript-exposed WebIDL interface.
-- On all other timelines, where only [=immutable properties=] can be accessed.
+The <dfn dfn>WebGPU interface</dfn> defines the public interface and state of the [=WebGPU object=].
+It can be used on the [=content timeline=] where it was created, where it is a JavaScript-exposed
+WebIDL interface.
 
-The following special property types can be defined on [=WebGPU interfaces=]:
+Any interface which includes <dfn interface>GPUObjectBase</dfn> is a [=WebGPU interface=].
+
+The <dfn dfn>internal object</dfn> tracks the state of the [=WebGPU object=] on the [=device timeline=].
+All reads/writes to the mutable state of an [=internal object=] occur from steps executing on a
+single well-ordered [=device timeline=]. These steps may have been issued from a [=content timeline=]
+algorithm on any of multiple [=agents=].
+
+Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
+
+The following special property types can be defined on [=WebGPU objects=]:
 
 : <dfn dfn data-timeline=const>immutable property</dfn>
 ::
@@ -851,18 +548,23 @@ The following special property types can be defined on [=WebGPU interfaces=]:
     Note: Since the slot is immutable, implementations may have a copy on multiple timelines, as needed.
     [=Immutable properties=] are defined in this way to avoid describing multiple copies in this spec.
 
-    If named `[[with brackets]]`, it is an internal slot.
-    If named `withoutBrackets`, it is a `readonly` [=slot-backed attribute=].
+    If named `[[with brackets]]`, it is an internal slot.<br/>
+    If named `withoutBrackets`, it is a `readonly` [=slot-backed attribute=] of the [=WebGPU interface=].
 
 : <dfn dfn data-timeline=content>content timeline property</dfn>
 ::
     A property which is only accessible from the [=content timeline=]
     where the object was created.
 
-    If named `[[with brackets]]`, it is an internal slot.
-    If named `withoutBrackets`, it is a [=slot-backed attribute=].
+    If named `[[with brackets]]`, it is an internal slot.<br/>
+    If named `withoutBrackets`, it is a [=slot-backed attribute=] of the [=WebGPU interface=].
 
-Any interface which includes <dfn interface>GPUObjectBase</dfn> is a [=WebGPU interface=].
+: <dfn dfn data-timeline=device>device timeline property</dfn>
+::
+    A property which tracks state of the [=internal object=] and is only accessible from the
+    [=device timeline=] where the object was created. [=device timeline properties=] may be mutable.
+
+    [=Device timeline properties=] are named `[[with brackets]]`, and are internal slots.
 
 <script type=idl>
 interface mixin GPUObjectBase {
@@ -878,29 +580,15 @@ interface mixin GPUObjectBase {
 
         1. Let |device| be |parent|.{{GPUObjectBase/[[device]]}}.
         1. Let |object| be a new instance of |T|.
-        1. Let |internals| be a new (uninitialized) instance of the type of
-            |T|.`\[[internals]]` (which may override {{GPUObjectBase}}.{{GPUObjectBase/[[internals]]}})
-            that is accessible only from the [=device timeline=] of |device|.
         1. Set |object|.{{GPUObjectBase/[[device]]}} to |device|.
-        1. Set |object|.{{GPUObjectBase/[[internals]]}} to |internals|.
         1. Set |object|.{{GPUObjectBase/label}} to |descriptor|.{{GPUObjectDescriptorBase/label}}.
-        1. Return [|object|, |internals|].
+        1. Return |object|.
     </div>
 </div>
 
 {{GPUObjectBase}} has the following [=immutable properties=]:
 
 <dl dfn-type=attribute dfn-for=GPUObjectBase data-timeline=const>
-    : <dfn>\[[internals]]</dfn>, of type [=internal object=], readonly, overridable
-    ::
-        The [=internal object=].
-
-        Operations on the contents of this object [=assert=] they are running on the
-        [=device timeline=], and that the device is [=valid=].
-
-        For each interface that subtypes {{GPUObjectBase}}, this may be overridden with a subtype
-        of [=internal object=]. This slot is initially set to an uninitialized object of that type.
-
     : <dfn>\[[device]]</dfn>, of type [=device=], readonly
     ::
         The [=device=] that owns the [=internal object=].
@@ -968,21 +656,6 @@ interface mixin GPUObjectBase {
     needed.
 </div>
 
-### Internal Objects ### {#webgpu-internal-objects}
-
-An <dfn dfn>internal object</dfn> tracks state of WebGPU objects that may only be used on
-the [=device timeline=], in [=device timeline slots=], which may be mutable.
-
-: <dfn dfn data-timeline=device>device timeline slot</dfn>
-::
-    An internal slot which is only accessible from the [=device timeline=].
-
-All reads/writes to the mutable state of an [=internal object=] occur from steps executing on a
-single well-ordered [=device timeline=]. These steps may have been issued from a
-[=content timeline=] algorithm on any of multiple [=agents=].
-
-Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
-
 ### Object Descriptors ### {#object-descriptors}
 
 An <dfn dfn>object descriptor</dfn> holds the information needed to create an object,
@@ -1026,7 +699,7 @@ this case is referred to as <dfn dfn noexport>contagious invalidity</dfn>.
 [=Internal objects=] of *most* types cannot become [=invalid=] after they are created, but still
 may become unusable, e.g. if the owning device is [=lose the device|lost=] or
 {{GPUDevice/destroy()|destroyed}}, or the object has a special internal state,
-like buffer state "[=buffer internals/state/destroyed=]".
+like buffer state "[=GPUBuffer/[[internal state]]/destroyed=]".
 
 [=Internal objects=] of some types *can* become [=invalid=] after they are created; specifically,
 [=devices=], [=adapters=], {{GPUCommandBuffer}}s, and command/pass/bundle encoders.
@@ -3140,9 +2813,6 @@ enum GPUBufferMapState {
     : <dfn>usage</dfn>
     ::
         The allowed usages for this {{GPUBuffer}}.
-
-    : <dfn>\[[internals]]</dfn>, of type [=buffer internals=], readonly, {{GPUObjectBase/[[internals]]|override}}
-    ::
 </dl>
 
 {{GPUBuffer}} has the following [=content timeline properties=]:
@@ -3242,29 +2912,6 @@ enum GPUBufferMapState {
         </div>
 </dl>
 
-{{GPUBuffer}}'s [=internal object=] is <dfn dfn>buffer internals</dfn>, which
-extends [=internal object=] with the following [=device timeline slots=]:
-
-<dl dfn-type=dfn dfn-for="buffer internals" data-timeline=device>
-    : <dfn>state</dfn>
-    ::
-        The current internal state of the buffer:
-
-        <dl dfn-type=dfn dfn-for="buffer internals/state">
-            : "<dfn>available</dfn>"
-            ::
-                The buffer may be used in queue operations (unless it is [=invalid=]).
-
-            : "<dfn>unavailable</dfn>"
-            ::
-                The buffer may not be used in queue operations due to being mapped.
-
-            : "<dfn>destroyed</dfn>"
-            ::
-                The buffer may not be used in any operations due to being {{GPUBuffer/destroy()}}ed.
-        </dl>
-</dl>
-
 <div class=example>
     <figure>
         <figcaption>Mapping and unmapping a buffer.</figcaption>
@@ -3278,6 +2925,28 @@ extends [=internal object=] with the following [=device timeline slots=]:
         <object type="image/svg+xml" data="img/buffer-map-failure.mmd.svg"></object>
     </figure>
 </div>
+
+{{GPUBuffer}} has the following [=device timeline properties=]:
+
+<dl dfn-type=attribute dfn-for=GPUBuffer data-timeline=device>
+    : <dfn>[[internal state]]</dfn>, of type Foo
+    ::
+        The current internal state of the buffer:
+
+        <dl dfn-type=dfn dfn-for="GPUBuffer/[[internal state]]">
+            : "<dfn>available</dfn>"
+            ::
+                The buffer may be used in queue operations (unless it is [=invalid=]).
+
+            : "<dfn>unavailable</dfn>"
+            ::
+                The buffer may not be used in queue operations due to being mapped.
+
+            : "<dfn>destroyed</dfn>"
+            ::
+                The buffer may not be used in any operations due to being {{GPUBuffer/destroy()}}ed.
+        </dl>
+</dl>
 
 <h4 id=gpubufferdescriptor data-dfn-type=dictionary>`GPUBufferDescriptor`
 <span id=GPUBufferDescriptor></span>
@@ -3422,7 +3091,7 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
 
                 [=Content timeline=] steps:
 
-                1. Let [|b|, |bi|] be [=!=] [$create a new WebGPU object$](|this|, {{GPUBuffer}}, |descriptor|).
+                1. Let |b| be [=!=] [$create a new WebGPU object$](|this|, {{GPUBuffer}}, |descriptor|).
                 1. Set |b|.{{GPUBuffer/size}} to |descriptor|.{{GPUBufferDescriptor/size}}.
                 1. Set |b|.{{GPUBuffer/usage}} to |descriptor|.{{GPUBufferDescriptor/usage}}.
                 1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
@@ -3436,7 +3105,7 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 [=Device timeline=] |initialization steps|:
 
                 1. If any of the following requirements are unmet,
-                    [$generate a validation error$], make |bi| [=invalid=], and stop.
+                    [$generate a validation error$], make |b| [=invalid=], and stop.
 
                     <div class=validusage>
                         - |device| must be [=valid=].
@@ -3460,17 +3129,17 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 and may be discarded or recycled.
 
                 1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
-                    1. Set |bi|.[=buffer internals/state=] to "[=buffer internals/state/unavailable=]".
+                    1. Set |b|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/unavailable=]".
 
                     Else:
 
-                    1. Set |bi|.[=buffer internals/state=] to "[=buffer internals/state/available=]".
+                    1. Set |b|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/available=]".
 
-                1. Create a device allocation for |bi| where each byte is zero.
+                1. Create a device allocation for |b| where each byte is zero.
 
                     If the allocation fails without side-effects,
                     [$generate an out-of-memory error$],
-                    make |bi| [=invalid=], and return.
+                    make |b| [=invalid=], and return.
             </div>
         </div>
 </dl>
@@ -3525,8 +3194,8 @@ once all previously submitted operations using it are complete.
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to
-                    "[=buffer internals/state/destroyed=]".
+                1. Set |this|.{{GPUBuffer/[[internal state]]}} to
+                    "[=GPUBuffer/[[internal state]]/destroyed=]".
             </div>
         </div>
 
@@ -3649,7 +3318,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     <div class=validusage>
                         - |this| is a [=valid=] {{GPUBuffer}}.
-                        - |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] is "[=buffer internals/state/available=]".
+                        - |this|.{{GPUBuffer/[[internal state]]}} is "[=GPUBuffer/[[internal state]]/available=]".
                         - |offset| is a multiple of 8.
                         - |rangeSize| is a multiple of 4.
                         - |offset| + |rangeSize| &le; |this|.{{GPUBuffer/size}}
@@ -3666,7 +3335,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     1. [$Generate a validation error$].
                     1. Return.
 
-                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/unavailable=]".
+                1. Set |this|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/unavailable=]".
 
                     Note: Since the buffer is mapped, its contents cannot change between this completion and {{GPUBuffer/unmap()}}.
                 1. If |this|.{{GPUObjectBase/[[device]]}} is lost, or when it [=lose the device|becomes lost=]:
@@ -3685,9 +3354,9 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     run the following steps:
 
-                    1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=].
+                    1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internal state]]}}.
 
-                        Note: If, and only if, at this point the buffer has become "[=buffer internals/state/available=]"
+                        Note: If, and only if, at this point the buffer has become "[=GPUBuffer/[[internal state]]/available=]"
                         again due to an {{GPUBuffer/unmap()}} call, then {{GPUBuffer/[[pending_map]]}} != |p| below,
                         so mapping will not succeed in the steps below.
                     1. Let |dataForMappedRegion| be the contents of |this| starting at offset |offset|, for |rangeSize| bytes.
@@ -3706,7 +3375,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     1. [=Assert=] |p| is rejected.
                     1. Return.
                 1. [=Assert=] |p| is pending.
-                1. [=Assert=] |internalStateAtCompletion| is "[=buffer internals/state/unavailable=]".
+                1. [=Assert=] |internalStateAtCompletion| is "[=GPUBuffer/[[internal state]]/unavailable=]".
                 1. Let |mapping| be [$initialize an active buffer mapping$]
                     with mode |mode| and range <code>[|offset|, |offset| + |rangeSize|]</code>.
 
@@ -3854,7 +3523,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                             1. Update the contents of |this| at offset |bufferUpdate|.`offset`
                                 with the data |bufferUpdate|.`data`.
                         </div>
-                1. Set |this|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] to "[=buffer internals/state/available=]".
+                1. Set |this|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/available=]".
             </div>
         </div>
 </dl>
@@ -4153,17 +3822,20 @@ enum GPUTextureDimension {
 <dl dfn-type=enum-value dfn-for=GPUTextureDimension>
     : <dfn>"1d"</dfn>
     ::
-        Specifies a texture that has one dimension, width.
+        Specifies a texture that has one dimension, width. {{GPUTextureDimension/"1d"}} textures
+        cannot have mipmaps, be multisampled, use compressed or depth/stencil formats, or be used as
+        a render target.
 
     : <dfn>"2d"</dfn>
     ::
-        Specifies a texture that has a width and height, and may have layers. Only
-        {{GPUTextureDimension/"2d"}} textures may have mipmaps, be multisampled, use a compressed or
-        depth/stencil format, and be used as a render attachment.
+        Specifies a texture that has a width and height, and may have layers.
 
     : <dfn>"3d"</dfn>
     ::
-        Specifies a texture that has a width, height, and depth.
+        Specifies a texture that has a width, height, and depth. {{GPUTextureDimension/"3d"}}
+        textures cannot be multisampled or use compressed or depth/stencil formats.
+
+        <!-- TODO(#3183): Update this when we add 3D compressed textures -->
 </dl>
 
 ### Texture Usages ### {#texture-usage}
@@ -4263,7 +3935,7 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
                     |descriptor|.{{GPUTextureDescriptor/format}} with |this|.{{GPUObjectBase/[[device]]}}.
                 1. [=?=] [$Validate texture format required features$] of each element of
                     |descriptor|.{{GPUTextureDescriptor/viewFormats}} with |this|.{{GPUObjectBase/[[device]]}}.
-                1. Let |t| be a new {{GPUTexture}} object.
+                1. Let |t| be [=!=] [$create a new WebGPU object$](|this|, {{GPUTexture}}, |descriptor|).
                 1. Set |t|.{{GPUTexture/width}} to |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=].
                 1. Set |t|.{{GPUTexture/height}} to |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=].
                 1. Set |t|.{{GPUTexture/depthOrArrayLayers}} to |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=].
@@ -4646,7 +4318,7 @@ enum GPUTextureAspect {
 
                 1. [=?=] [$Validate texture format required features$] of
                     |descriptor|.{{GPUTextureViewDescriptor/format}} with |this|.{{GPUObjectBase/[[device]]}}.
-                1. Let |view| be a new {{GPUTextureView}} object.
+                1. Let |view| be [=!=] [$create a new WebGPU object$](|this|, {{GPUTextureView}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |view|.
             </div>
@@ -5129,6 +4801,19 @@ dictionary GPUExternalTextureDescriptor
 };
 </script>
 
+{{GPUExternalTextureDescriptor}} dictionaries have the following members:
+
+<dl dfn-type=dict-member dfn-for=GPUExternalTextureDescriptor>
+    : <dfn>source</dfn>
+    ::
+        The video source to import the external texture from.
+
+    : <dfn>colorSpace</dfn>
+    ::
+        The color space the image contents of {{GPUExternalTextureDescriptor/source}} will be
+        converted into when reading.
+</dl>
+
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>importExternalTexture(descriptor)</dfn>
     ::
@@ -5370,16 +5055,23 @@ dictionary GPUSamplerDescriptor
 
     : <dfn>maxAnisotropy</dfn>
     ::
-        Specifies the maximum anisotropy value clamp used by the sampler.
+        Specifies the maximum anisotropy value clamp used by the sampler. Anisotropic filtering is
+        enabled when {{GPUSamplerDescriptor/maxAnisotropy}} is &gt; 1 and the implementation supports it.
 
-        Note: Most implementations support {{GPUSamplerDescriptor/maxAnisotropy}} values in range
-        between 1 and 16, inclusive. The used value of {{GPUSamplerDescriptor/maxAnisotropy}} will
-        be clamped to the maximum value that the platform supports.
+        Anisotropic filtering improves the image quality of textures sampled at oblique viewing
+        angles. Higher {{GPUSamplerDescriptor/maxAnisotropy}} values indicate the maximum ratio of
+        anisotropy supported when filtering.
+
+        <div class=note heading>
+            Most implementations support {{GPUSamplerDescriptor/maxAnisotropy}} values in range
+            between 1 and 16, inclusive. The used value of {{GPUSamplerDescriptor/maxAnisotropy}}
+            will be clamped to the maximum value that the platform supports.
+
+            The precise filtering behavior is implementation-dependent.
+        </div>
 </dl>
 
 Issue: explain how LOD is calculated and if there are differences here between platforms.
-
-Issue: explain what anisotropic sampling is
 
 {{GPUAddressMode}} describes the behavior of the sampler if the sample footprint extends beyond
 the bounds of the sampled texture.
@@ -5508,7 +5200,7 @@ enum GPUCompareFunction {
 
                 [=Content timeline=] steps:
 
-                1. Let |s| be a new {{GPUSampler}} object.
+                1. Let |s| be [=!=] [$create a new WebGPU object$](|this|, {{GPUSampler}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |s|.
             </div>
@@ -5592,6 +5284,14 @@ dictionary GPUBindGroupLayoutDescriptor
     required sequence<GPUBindGroupLayoutEntry> entries;
 };
 </script>
+
+{{GPUBindGroupLayoutDescriptor}} dictionaries have the following members:
+
+<dl dfn-type=dict-member dfn-for=GPUBindGroupLayoutDescriptor>
+    : <dfn>entries</dfn>
+    ::
+        A list of entries describing the shader resource bindings for a bind group.
+</dl>
 
 A {{GPUBindGroupLayoutEntry}} describes a single shader resource binding to be included in a {{GPUBindGroupLayout}}.
 
@@ -5973,7 +5673,7 @@ A {{GPUBindGroupLayout}} object has the following internal slots:
                         1. [=?=] [$Validate texture format required features$] for
                             |entry|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/format}}
                             with |this|.{{GPUObjectBase/[[device]]}}.
-                1. Let |layout| be a new {{GPUBindGroupLayout}} object.
+                1. Let |layout| be [=!=] [$create a new WebGPU object$](|this|, {{GPUBindGroupLayout}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |layout|.
             </div>
@@ -6199,7 +5899,7 @@ following members:
 
                 [=Content timeline=] steps:
 
-                1. Let |bindGroup| be a new {{GPUBindGroup}} object.
+                1. Let |bindGroup| be [=!=] [$create a new WebGPU object$](|this|, {{GPUBindGroup}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |bindGroup|.
             </div>
@@ -6435,7 +6135,7 @@ pipeline, and have the following members:
 
                 [=Content timeline=] steps:
 
-                1. Let |pl| be a new {{GPUPipelineLayout}} object.
+                1. Let |pl| be [=!=] [$create a new WebGPU object$](|this|, {{GPUPipelineLayout}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |pl|.
             </div>
@@ -6606,7 +6306,7 @@ dictionary GPUShaderModuleDescriptor
 
                 [=Content timeline=] steps:
 
-                1. Let |sm| be a new {{GPUShaderModule}} object.
+                1. Let |sm| be [=!=] [$create a new WebGPU object$](|this|, {{GPUShaderModule}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |sm|.
             </div>
@@ -7657,7 +7357,7 @@ dictionary GPUComputePipelineDescriptor
 
                 [=Content timeline=] steps:
 
-                1. Let |pipeline| be a new {{GPUComputePipeline}} object.
+                1. Let |pipeline| be [=!=] [$create a new WebGPU object$](|this|, {{GPUComputePipeline}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |pipeline|.
             </div>
@@ -7903,7 +7603,7 @@ dictionary GPURenderPipelineDescriptor
                     1. [=?=] [$Validate texture format required features$] of
                         |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/format}}
                         with |this|.{{GPUObjectBase/[[device]]}}.
-                1. Let |pipeline| be a new {{GPURenderPipeline}} object.
+                1. Let |pipeline| be [=!=] [$create a new WebGPU object$](|this|, {{GPURenderPipeline}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |pipeline|.
             </div>
@@ -7935,7 +7635,8 @@ dictionary GPURenderPipelineDescriptor
                 1. Set |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} to false.
                 1. Let |depthStencil| be |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.
                 1. If |depthStencil| is not null:
-                    1. Set |pipeline|.{{GPURenderPipeline/[[writesDepth]]}} to |depthStencil|.{{GPUDepthStencilState/depthWriteEnabled}}.
+                    1. If |depthStencil|.{{GPUDepthStencilState/depthWriteEnabled}} is [=map/exist|provided=]:
+                        1. Set |pipeline|.{{GPURenderPipeline/[[writesDepth]]}} to |depthStencil|.{{GPUDepthStencilState/depthWriteEnabled}}.
                     1. If |depthStencil|.{{GPUDepthStencilState/stencilWriteMask}} is not 0:
                         1. Let |stencilFront| be |depthStencil|.{{GPUDepthStencilState/stencilFront}}.
                         1. Let |stencilBack| be |depthStencil|.{{GPUDepthStencilState/stencilBack}}.
@@ -9573,14 +9274,14 @@ dictionary GPUCommandEncoderDescriptor
                 **Arguments:**
 
                 <pre class=argumentdef for="GPUDevice/createCommandEncoder(descriptor)">
-                    descriptor: Description of the {{GPUCommandEncoder}} to create.
+                    |descriptor|: Description of the {{GPUCommandEncoder}} to create.
                 </pre>
 
                 **Returns:** {{GPUCommandEncoder}}
 
                 [=Content timeline=] steps:
 
-                1. Let |e| be a new {{GPUCommandEncoder}} object.
+                1. Let |e| be [=!=] [$create a new WebGPU object$](|this|, {{GPUCommandEncoder}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |e|.
             </div>
@@ -9646,19 +9347,23 @@ dictionary GPUCommandEncoderDescriptor
                 1. [$Validate the encoder state$] of |this|.
                     If it returns false, make |pass| [=invalid=] and return.
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/locked=]".
+                1. Let |attachmentRegions| be a [=list=] of [[=texture subresource=], {{GPURenderPassColorAttachment/depthSlice}}?]
+                    pairs, initially empty. Each pair describes the region of the texture to be rendered to, which
+                    includes a single depth slice for {{GPUTextureViewDimension/"3d"}} textures only.
+                1. For each non-`null` |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
+                    1. Add [|colorAttachment|.{{GPURenderPassColorAttachment/view}},
+                        |colorAttachment|.{{GPURenderPassColorAttachment/depthSlice}}] to |attachmentRegions|.
+                    1. If |colorAttachment|.{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
+                        1. Add [|colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}},
+                            `undefined`] to |attachmentRegions|.
                 1. If any of the following requirements are unmet, make |pass| [=invalid=] and return.
                     <div class=validusage>
                         - |descriptor| must meet the [$GPURenderPassDescriptor/Valid Usage$] rules
                             given device |this|.{{GPUObjectBase/[[device]]}}.
-                        - The set of attachments in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}
-                            must be pairwise disjoint.
-                            That is, no two attachments may refer to the same region, as defined by
-                            the {{GPURenderPassColorAttachment/view}}'s [=texture subresource=]
-                            range and (for {{GPUTextureViewDimension/"3d"}} attachments)
-                            the attachment's {{GPURenderPassColorAttachment/depthSlice}}.
+                        - The set of texture regions in |attachmentRegions| must be pairwise disjoint.
+                            That is, no two texture regions may overlap.
                     </div>
-                1. Consider each [=texture subresource=] viewed by a non-`null` element of
-                    |descriptor|.{{GPURenderPassDescriptor/colorAttachments}} to be used as
+                1. Consider each [=texture subresource=] in |attachmentRegions| to be used as
                     an [=internal usage/attachment=] for the duration of the render pass.
 
                     If a subresource is seen more than once, consider it used only once.
@@ -11197,8 +10902,8 @@ dictionary GPURenderPassColorAttachment {
         - |renderTexture|.{{GPUTexture/sampleCount}} must be &gt; 1.
         - |resolveTexture|.{{GPUTexture/sampleCount}} must be 1.
         - |this|.{{GPURenderPassColorAttachment/resolveTarget}} must be a [$renderable texture view$].
-        - The sizes of the [=subresource=]s seen by |this|.{{GPURenderPassColorAttachment/resolveTarget}}
-            and |this|.{{GPURenderPassColorAttachment/view}} must match.
+        - |this|.{{GPURenderPassColorAttachment/resolveTarget}}.{{GPUTextureView/[[renderExtent]]}} and
+            |this|.{{GPURenderPassColorAttachment/view}}.{{GPUTextureView/[[renderExtent]]}} must match.
         - |resolveViewDescriptor|.{{GPUTextureViewDescriptor/format}} must equal
             |renderViewDescriptor|.{{GPUTextureViewDescriptor/format}}.
         - |resolveTexture|.{{GPUTextureDescriptor/format}} must equal
@@ -11388,7 +11093,7 @@ enum GPUStoreOp {
     : <dfn>"discard"</dfn>
     ::
         Discards the resulting value of the render pass for this attachment.
-        
+
         Note: Discarded attachments
         behave as if they are cleared to zero, but implementations are not required to perform a
         clear at the end of the render pass. Implementations which do not explicitly clear discarded
@@ -12515,7 +12220,7 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
                     |descriptor|.{{GPURenderPassLayout/colorFormats}} with |this|.{{GPUObjectBase/[[device]]}}.
                 1. [=?=] [$Validate texture format required features$] of
                     |descriptor|.{{GPURenderPassLayout/depthStencilFormat}} with |this|.{{GPUObjectBase/[[device]]}}.
-                1. Let |e| be a new {{GPURenderBundleEncoder}} object.
+                1. Let |e| be [=!=] [$create a new WebGPU object$](|this|, {{GPURenderBundleEncoder}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |e|.
             </div>
@@ -12728,11 +12433,16 @@ GPUQueue includes GPUObjectBase;
 
                     <div class=validusage>
                         - |buffer| is [$valid to use with$] |this|.
-                        - |buffer|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] is "[=buffer internals/state/available=]".
+                        - |buffer|.{{GPUBuffer/[[internal state]]}} is "[=GPUBuffer/[[internal state]]/available=]".
                         - |buffer|.{{GPUBuffer/usage}} includes {{GPUBufferUsage/COPY_DST}}.
                         - |bufferOffset|, converted to bytes, is a multiple of 4 bytes.
                         - |bufferOffset| + |contentsSize|, converted to bytes, &le; |buffer|.{{GPUBuffer/size}} bytes.
                     </div>
+                1. Issue the subsequent steps on the [=Queue timeline=] of |this|.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
                 1. Write |contents| into |buffer| starting at |bufferOffset|.
             </div>
         </div>
@@ -12866,11 +12576,11 @@ GPUQueue includes GPUObjectBase;
                 1. If any of the following requirements are unmet, throw an {{OperationError}} and stop.
 
                     <div class=validusage>
-                        - |source|.|origin|.[=GPUOrigin3D/x=] + |copySize|.[=GPUExtent3D/width=]
+                        - |source|.|origin|.[=GPUOrigin2D/x=] + |copySize|.[=GPUExtent3D/width=]
                             must be &le; the width of |sourceImage|.
-                        - |source|.|origin|.[=GPUOrigin3D/y=] + |copySize|.[=GPUExtent3D/height=]
+                        - |source|.|origin|.[=GPUOrigin2D/y=] + |copySize|.[=GPUExtent3D/height=]
                             must be &le; the height of |sourceImage|.
-                        - |source|.|origin|.[=GPUOrigin3D/z=] + |copySize|.[=GPUExtent3D/depthOrArrayLayers=]
+                        - |copySize|.[=GPUExtent3D/depthOrArrayLayers=]
                             must be &le; 1.
                     </div>
                 1. Let |usability| be [=?=] [=check the usability of the image argument=](|source|).
@@ -12884,7 +12594,8 @@ GPUQueue includes GPUObjectBase;
 
                     <div class=validusage>
                         - |usability| must be `good`.
-                        - |destination|.{{GPUImageCopyTexture/texture}} must be [$valid to use with$] |this|.
+                        - |texture|.{{GPUTexture/[[destroyed]]}} must be `false`.
+                        - |texture| must be [$valid to use with$] |this|.
                         - [$validating GPUImageCopyTexture$](destination, copySize) must return `true`.
                         - [=validating texture copy range=](destination, copySize) must return `true`.
                         - |texture|.{{GPUTexture/usage}} must include both
@@ -12946,8 +12657,8 @@ GPUQueue includes GPUObjectBase;
 
                             <dl class=switch>
                                 : {{GPUBuffer}} |b|
-                                :: |b|.{{GPUBuffer/[[internals]]}}.[=buffer internals/state=] must
-                                    be "[=buffer internals/state/available=]".
+                                :: |b|.{{GPUBuffer/[[internal state]]}} must
+                                    be "[=GPUBuffer/[[internal state]]/available=]".
                                 : {{GPUTexture}} |t|
                                 :: |t|.{{GPUTexture/[[destroyed]]}} must be `false`.
                                 : {{GPUExternalTexture}} |et|
@@ -13103,7 +12814,7 @@ dictionary GPUQuerySetDescriptor
                 1. If |descriptor|.{{GPUQuerySetDescriptor/type}} is {{GPUQueryType/"timestamp"}},
                     but {{GPUFeatureName/"timestamp-query"}} is not [=enabled for=] |this|:
                     1. Throw a {{TypeError}}.
-                1. Let |q| be a new {{GPUQuerySet}} object.
+                1. Let |q| be [=!=] [$create a new WebGPU object$](|this|, {{GPUQuerySet}}, |descriptor|).
                 1. Set |q|.{{GPUQuerySet/type}} to |descriptor|.{{GPUQuerySetDescriptor/type}}.
                 1. Set |q|.{{GPUQuerySet/count}} to |descriptor|.{{GPUQuerySetDescriptor/count}}.
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
