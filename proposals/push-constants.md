@@ -63,7 +63,7 @@ NOTE: Push constants range follow [out-of-bounds access](https://www.w3.org/TR/W
 Four new functions in `GPUCommandEncoder`.
 
 ```javascript
-interface GPUCommandEncoder {
+interface mixin GPUBindingCommandsMixin {
         void setPushConstantU32(uint32_t offset, uint32_t value);
         void setPushConstantI32(uint32_t offset, int32_t value);
         void setPushConstantF32(uin32_t offset, float32_t value);
