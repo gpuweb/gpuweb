@@ -73,7 +73,7 @@ We'll ignore the `requiredLimits: adapter.limits` case, as it should be equivale
   - *Unimplemented*: error, limit key not available
 - `adapter.requestDevice({ requiredFeatures: [],               requiredLimits: { newLimit:                       7 } })`
   - *Available (7)*: OK, device limit is `undefined` (request has no effect)
-  - *Available (5)*: error, limit value not available
+  - *Available (5)*: error, limit value not available (even though request would have no effect)
   - *Unavailable*:   error, limit key not available
   - *Unimplemented*: error, limit key not available
 - `adapter.requestDevice({ requiredFeatures: ["new-feature"],  requiredLimits: { newLimit:               undefined } })`
@@ -116,9 +116,3 @@ We'll ignore the `requiredLimits: adapter.limits` case, as it should be equivale
   - *Available (5)*: error, limit value not available
   - *Unavailable*:   error, limit key not available
   - *Unimplemented*: error, limit key not available
-
-TODO: Open questions:
-- Should the device be "reified" such that when the feature is not enabled, the limit will be shown as `undefined`?
-    - We already have to reify such that when the feature is enabled, the limit will be shown as `5`.
-- Or should the device request be "reified" such that when the limit is requested, the feature is implicitly requested?
-    - (I can't figure out if I ever opened an issue about it but I have a proposal bouncing around in my head that we should do some reification of device requests so if you ask for a higher limit, we'll also raise other limits such that it will actually be possible to use it. This would be like that.)
