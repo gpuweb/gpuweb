@@ -1490,20 +1490,16 @@ A [=device=] has the following internal slots:
 </dl>
 
 <div algorithm>
-    When <dfn dfn>a new device</dfn> |device| is created from [=adapter=] |adapter|
+    To create <dfn dfn>a new device</dfn> |device| from [=adapter=] |adapter|
     with {{GPUDeviceDescriptor}} |descriptor|:
 
     1. Let |features| be the [=set=] of values in
         |descriptor|.{{GPUDeviceDescriptor/requiredFeatures}}.
-    1. Let |limits| be a [=supported limits=] object with the default values for all members.
-    1. For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}},
-        if |value| is not `undefined`:
-
-        1. Set the member corresponding to |key| in |limits| to the
-            [=limit/better=] value of |value| or the default value in [=supported limits=].
-    1. For each |key| in |limits|, if it is not [=limit/available=] on |adapter|:
-
-        1. Set the member corresponding to |key| in |limits| to `undefined`.
+    1. Let |limits| be a [=supported limits=] object with all values set to `undefined`.
+    1. For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}:
+        1. If |value| is not `undefined`:
+            1. Set |limits|[|key|] to |value|.
+    1. [$supported limits/Normalize$] |limits|.
     1. Set |device|.{{device/[[adapter]]}} to |adapter|.
     1. Set |device|.{{device/[[features]]}} to |features|.
     1. Set |device|.{{device/[[limits]]}} to |limits|.
@@ -1599,15 +1595,11 @@ See the [[#feature-index|Feature Index]] for a description of the functionality 
 
 Each <dfn dfn>limit</dfn> is a numeric limit on the usage of WebGPU on a device.
 
-Each limit has a <dfn dfn for=limit>default</dfn> value.
-For a given [=adapter=], for each limit which is [=limit/available=]:
+Each limit has a <dfn dfn for=limit>default</dfn> value, which is guaranteed in
+[[#adapter-capability-guarantees]] and applied in {{GPUAdapter/requestDevice()}}.
 
-- The adapter is guaranteed to support the default value or [=limit/better=].
-- The default is used if {{GPUDeviceDescriptor/requiredLimits}} is missing the limit
-    (`undefined` or not [=map/exist|provided=]).
-
-On both adapters and devices, limits which are not [=limit/available=]
-(part of unavailable features) are reported as `undefined`, even on a device
+On both adapters and devices, any limit which is not [=limit/available=]
+(because it's part of an unavailable feature) is reported as `undefined`, even on a device
 where the limit was requested in {{GPUDeviceDescriptor/requiredLimits}}.
 
 For a given limit, one value may be <dfn dfn for=limit>better</dfn> than another.
@@ -1644,11 +1636,34 @@ Because of this, and to improve portability across devices and implementations,
 applications should generally request the "worst" limits that work for their content
 (ideally, the default values).
 
-A limit is <dfn dfn for=limit>available</dfn> on an [=adapter=] or [=device=] if it is core
-(not part of any feature) *or* part of a feature that is available on that adapter/device
-according to the table below.
+A <dfn dfn>supported limits</dfn> object has an entry for every limit defined by WebGPU.
 
-A <dfn dfn>supported limits</dfn> object has a value for every limit defined by WebGPU:
+<div algorithm="limit available" data-timeline=device>
+    A limit is <dfn dfn for=limit>available</dfn>, given a {{GPUSupportedFeatures}} |features|,
+    if its feature requirements (according to the table) are supported in |features|.
+</div>
+
+<div algorithm="normalize supported limits" data-timeline=device>
+    To <dfn abstract-op for="supported limits" lt="normalize|Normalize">normalize</dfn>
+    a [=supported limits=] object |limits| for given {{GPUSupportedFeatures}} object |features|:
+
+    1. For each [|key|, |value|] in |limits|:
+
+        <dl class=switch>
+            : If |key| is [=limit/available=] given |features| and |limits|[|key|] is not `undefined`:
+            :: Set |limits|[|key|] to the [=limit/better=] value of |value| and
+                |key|'s [=limit/default=] value.
+            : If |key| is [=limit/available=] given |features| and |limits|[|key|] is `undefined`:
+            :: Set |limits|[|key|] to |key|'s [=limit/default=] value.
+            : Otherwise:
+            :: Set |limits|[|key|] to `undefined`.
+        </dl>
+
+    A [=supported limits=] object is <dfn dfn for="supported limits">normalized</dfn>
+    if it is equal to its normalized form.
+</div>
+
+The members of [=supported limits=] are:
 
 <table class="data no-colspan-center" dfn-type=attribute dfn-for="supported limits">
     <thead>
@@ -2476,10 +2491,7 @@ Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}} must provide the followi
     - {{GPUFeatureName/"texture-compression-bc"}} is supported.
     - Both {{GPUFeatureName/"texture-compression-etc2"}} and
         {{GPUFeatureName/"texture-compression-astc"}} are supported.
-- For each limit which is [=limit/available=]:
-    - It must be either the [=limit/default=] value or [=limit/better=].
-- For each limit which is not [=limit/available=]:
-    - It must be `undefined`.
+- Its limits must be [=supported limits/normalized=] given the adapter's {{GPUSupportedFeatures}}.
 - All [=limit class/alignment|alignment-class=] limits must be powers of 2.
 - {{supported limits/maxBindingsPerBindGroup}} must be must be &ge;
     ([=max bindings per shader stage=] &times; [=max shader stages per pipeline=]), where:
@@ -2830,9 +2842,11 @@ dictionary GPUDeviceDescriptor
         Specifies the [=limits=] that are required by the device request.
         The request will fail if the adapter cannot provide these limits.
 
-        Each key with a non-`undefined` value must be the name of a member of [=supported limits=].
-        Exactly the specified limits, and no [=limit/better=] or worse,
-        will be allowed in validation of API calls on the resulting device.
+        Each key with a non-`undefined` value must be the name of a limit which is
+        [=limit/available=] on the adapter.
+
+        Exactly the specified limits (after [$supported limits/normalize|normalization$]) -- no
+        [=limit/better=] or worse -- will be used in validation of API calls on the resulting device.
 
         <!-- If we ever need limit types other than GPUSize32/GPUSize64, we can change the value
         type to `double` or `any` in the future and write out the type conversion explicitly (by
