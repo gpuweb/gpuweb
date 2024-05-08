@@ -27,92 +27,92 @@ Some new features add associated limits. This document records a design policy f
 
 ## Example
 
-The new feature is `"new-feature"`.
-The new limit is `newLimit`, and it has a default value of `5`.
+The new feature is `"foo"`.
+The new limit is `maxFoo`, and it has a default value of `5`.
 
 ### Case Studies
 
-For each case study we'll look at how a piece of code behaves in several cases:
+For each case study we'll look at how a piece of code behaves in several cases given an adapter `a`:
 
-- *Available (5)*: a browser which implements `"new-feature"`, on a device with support with `newLimit: 5`.
-  - `adapter.features.has("new-feature")` is `true`
-  - `'newLimit' in adapter.requiredLimits` is `true`
-  - `adapter.requiredLimits.newLimit` is `7`
-- *Available (7)*: a browser which implements `"new-feature"`, on a device with support with `newLimit: 7`.
-  - `adapter.features.has("new-feature")` is `true`
-  - `'newLimit' in adapter.requiredLimits` is `true`
-  - `adapter.requiredLimits.newLimit` is `7`
-- *Unavailable*: a browser which implements `"new-feature"`, on a device without support.
-  - `adapter.features.has("new-feature")` is `false`
-  - `'newLimit' in adapter.requiredLimits` is `true`
-  - `adapter.requiredLimits.newLimit` is `undefined`
-- *Unimplemented*: a browser which hasn't implemented `"new-feature"` **but does implement the new rules allowing unknown limits set to `undefined`**
-  - `adapter.features.has("new-feature")` is `false`
-  - `'newLimit' in adapter.requiredLimits` is `false`
-  - `adapter.requiredLimits.newLimit` is `undefined`
+- *Available (5)*: a browser which implements `"foo"`, on a device with support with `maxFoo: 5`.
+  - `a.features.has("foo")` is `true`
+  - `'maxFoo' in a.requiredLimits` is `true`
+  - `a.requiredLimits.maxFoo` is `7`
+- *Available (7)*: a browser which implements `"foo"`, on a device with support with `maxFoo: 7`.
+  - `a.features.has("foo")` is `true`
+  - `'maxFoo' in a.requiredLimits` is `true`
+  - `a.requiredLimits.maxFoo` is `7`
+- *Unavailable*: a browser which implements `"foo"`, on a device without support.
+  - `a.features.has("foo")` is `false`
+  - `'maxFoo' in a.requiredLimits` is `true`
+  - `a.requiredLimits.maxFoo` is `undefined`
+- *Unimplemented*: a browser which hasn't implemented `"foo"` **but does implement the new rules allowing unknown limits set to `undefined`**
+  - `a.features.has("foo")` is `false`
+  - `'maxFoo' in a.requiredLimits` is `false`
+  - `a.requiredLimits.maxFoo` is `undefined`
 
 In all cases `requiredFeatures: []` is the same as not specifying it,
 `requiredLimits: {}` is the same as not specifying it, and
-`newLimit: undefined` is the same as not specifying it.
-We'll ignore the `requiredLimits: adapter.limits` case, as it should be equivalent to one of the other cases
+`maxFoo: undefined` is the same as not specifying it.
+We'll ignore the `requiredLimits: a.limits` case, as it should be equivalent to one of the other cases
 (which one depends on the resolution of [#4277](https://github.com/gpuweb/gpuweb/issues/4277)).
 
-- `adapter.requestDevice({ requiredFeatures: [],               requiredLimits: { newLimit:               undefined } })`
+- `a.requestDevice({ requiredFeatures:         [], requiredLimits: { maxFoo:       undefined } })`
   - *Available (7)*: OK, request ignored, device limit is `undefined`
   - *Available (5)*: OK, request ignored, device limit is `undefined`
   - *Unavailable*:   OK, request ignored, device limit is `undefined`
   - *Unimplemented*: OK, request ignored, device limit is `undefined`
-- `adapter.requestDevice({ requiredFeatures: [],               requiredLimits: { newLimit: adapter.limits.newLimit } })`
+- `a.requestDevice({ requiredFeatures:         [], requiredLimits: { maxFoo: a.limits.maxFoo } })`
   - *Available (7)*: OK, device limit is `undefined` (request has no effect)
   - *Available (5)*: OK, device limit is `undefined` (request has no effect)
   - *Unavailable*:   OK (limit request ignored because undefined)
   - *Unimplemented*: OK (limit request ignored because undefined)
-- `adapter.requestDevice({ requiredFeatures: [],               requiredLimits: { newLimit:                       5 } })`
+- `a.requestDevice({ requiredFeatures:         [], requiredLimits: { maxFoo:               5 } })`
   - *Available (7)*: OK, device limit is `undefined` (request has no effect)
   - *Available (5)*: OK, device limit is `undefined` (request has no effect)
   - *Unavailable*:   error, limit key not available
   - *Unimplemented*: error, limit key not available
-- `adapter.requestDevice({ requiredFeatures: [],               requiredLimits: { newLimit:                       7 } })`
+- `a.requestDevice({ requiredFeatures:         [], requiredLimits: { maxFoo:               7 } })`
   - *Available (7)*: OK, device limit is `undefined` (request has no effect)
   - *Available (5)*: error, limit value not available (even though request would have no effect)
   - *Unavailable*:   error, limit key not available
   - *Unimplemented*: error, limit key not available
-- `adapter.requestDevice({ requiredFeatures: ["new-feature"],  requiredLimits: { newLimit:               undefined } })`
+- `a.requestDevice({ requiredFeatures:    ["foo"], requiredLimits: { maxFoo:       undefined } })`
   - *Available (7)*: OK, enabled with limit set to default (5)
   - *Available (5)*: OK, enabled with limit set to default (5)
   - *Unavailable*:   error, feature not available
   - *Unimplemented*: error, feature not available
-- `adapter.requestDevice({ requiredFeatures: ["new-feature"],  requiredLimits: { newLimit: adapter.limits.newLimit } })`
+- `a.requestDevice({ requiredFeatures:    ["foo"], requiredLimits: { maxFoo: a.limits.maxFoo } })`
   - *Available (7)*: OK, enabled with limit set to 7
   - *Available (5)*: OK, enabled with limit set to 5
   - *Unavailable*:   error, feature not available
   - *Unimplemented*: error, feature not available
-- `adapter.requestDevice({ requiredFeatures: ["new-feature"],  requiredLimits: { newLimit:                       5 } })`
+- `a.requestDevice({ requiredFeatures:    ["foo"], requiredLimits: { maxFoo:               5 } })`
   - *Available (7)*: OK, enabled with limit set to 5
   - *Available (5)*: OK, enabled with limit set to 5
   - *Unavailable*:   error, feature not available, limit key not available
   - *Unimplemented*: error, feature not available, limit key not available
-- `adapter.requestDevice({ requiredFeatures: ["new-feature"],  requiredLimits: { newLimit:                       7 } })`
+- `a.requestDevice({ requiredFeatures:    ["foo"], requiredLimits: { maxFoo:               7 } })`
   - *Available (7)*: OK, enabled with limit set to 7
   - *Available (5)*: error, limit value not available
   - *Unavailable*:   error, feature not available, limit key not available
   - *Unimplemented*: error, feature not available, limit key not available
-- `adapter.requestDevice({ requiredFeatures: adapter.features, requiredLimits: { newLimit:               undefined } })`
+- `a.requestDevice({ requiredFeatures: a.features, requiredLimits: { maxFoo:       undefined } })`
   - *Available (7)*: OK, enabled with limit set to default (5)
   - *Available (5)*: OK, enabled with limit set to default (5)
   - *Unavailable*:   OK, neither limit nor feature is requested
   - *Unimplemented*: OK, neither limit nor feature is requested
-- `adapter.requestDevice({ requiredFeatures: adapter.features, requiredLimits: { newLimit: adapter.limits.newLimit } })`
+- `a.requestDevice({ requiredFeatures: a.features, requiredLimits: { maxFoo: a.limits.maxFoo } })`
   - *Available (7)*: OK, enabled with limit set to 7
   - *Available (5)*: OK, enabled with limit set to 5
   - *Unavailable*:   OK, neither limit nor feature is requested
   - *Unimplemented*: OK, neither limit nor feature is requested
-- `adapter.requestDevice({ requiredFeatures: adapter.features, requiredLimits: { newLimit:                       5 } })`
+- `a.requestDevice({ requiredFeatures: a.features, requiredLimits: { maxFoo:               5 } })`
   - *Available (7)*: OK, enabled with limit set to 5
   - *Available (5)*: OK, enabled with limit set to 5
   - *Unavailable*:   error, limit key not available
   - *Unimplemented*: error, limit key not available
-- `adapter.requestDevice({ requiredFeatures: adapter.features, requiredLimits: { newLimit:                       7 } })`
+- `a.requestDevice({ requiredFeatures: a.features, requiredLimits: { maxFoo:               7 } })`
   - *Available (7)*: OK, enabled with limit set to 7
   - *Available (5)*: error, limit value not available
   - *Unavailable*:   error, limit key not available
