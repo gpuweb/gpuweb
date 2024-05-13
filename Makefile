@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 # TODO: Include wgsl as a target once dependencies respect wgsl.so creation
 # and until then, execute make without -j
-targets := spec explainer correspondence
+targets := spec explainer correspondence operations
 
 .PHONY: all out $(targets) wgsl clean
 

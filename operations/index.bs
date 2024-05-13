@@ -1,0 +1,808 @@
+<pre class='metadata'>
+Title: WebGPU Detailed Operations
+Shortname: webgpu-operations
+Level: None
+Status: LD
+Group: webgpu
+URL: https://gpuweb.github.io/gpuweb/correspondence/
+!Participate: <a href="https://github.com/gpuweb/gpuweb/issues/new">File an issue</a> (<a href="https://github.com/gpuweb/gpuweb/issues">open issues</a>)
+Editor: Kai Ninomiya, Google https://www.google.com, kainino@google.com, w3cid 99487
+Editor: Brandon Jones, Google https://www.google.com, bajones@google.com, w3cid 87824
+No Abstract: true
+Markup Shorthands: markdown yes
+Markup Shorthands: dfn yes
+Markup Shorthands: idl yes
+Markup Shorthands: css no
+Assume Explicit For: yes
+Boilerplate: repository-issue-tracking yes
+</pre>
+
+<pre class=anchors>
+spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
+    type: dfn
+        text: device; url: device
+        text: lose the device; url: lose-the-device
+        text: RenderState; url: renderstate
+        text: pipeline; url: pipeline
+        text: invalid memory reference; url: invalid-memory-reference
+        text: channel format; url: channel-format
+        text: coordinate systems; url: coordinate-systems
+        text: clip space coordinates; url: clip-space-coordinates
+        text: framebuffer coordinates; url: framebuffer-coordinates
+        text: viewport coordinates; url: viewport-coordinates
+        text: NDC; url: ndc
+spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
+    type: dfn
+        text: shader execution end; url: shader-execution-end
+        text: builtin; url: built-in-values
+        text: position builtin; url: built-in-values-position
+        text: shader stage input; url: shader-stage-input
+        text: shader stage output; url: shader-stage-output
+        text: location; url: input-output-locations
+</pre>
+
+# Detailed Operations # {#detailed-operations}
+
+This document describes the details of various GPU operations performed by WebGPU. It is a supplemental
+document to the [WebGPU specification](../), which describes the interfaces used to communicate with the GPU.
+
+Issue: This document is incomplete.
+
+## Transfer ## {#transfer-operations}
+
+<p class="note editorial"><span class=marker>Editorial note:</span> describe the transfers at the high level
+
+## Computing ## {#computing-operations}
+
+Computing operations provide direct access to GPU's programmable hardware.
+Compute shaders do not have shader stage inputs or outputs, their results are
+side effects from writing data into storage bindings bound as
+{{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} and {{GPUStorageTextureBindingLayout}}.
+These operations are encoded within {{GPUComputePassEncoder}} as:
+
+- {{GPUComputePassEncoder/dispatchWorkgroups()}}
+- {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}
+
+<p class="note editorial"><span class=marker>Editorial note:</span> describe the computing algorithm
+
+The [=device=] may become [=lose the device|lost=] if
+[=shader execution end|shader execution does not end=]
+in a reasonable amount of time, as determined by the user agent.
+
+## Rendering ## {#rendering-operations}
+
+Rendering is done by a set of GPU operations that are executed within {{GPURenderPassEncoder}},
+and result in modifications of the texture data, viewed by the render pass attachments.
+These operations are encoded with:
+
+- {{GPURenderCommandsMixin/draw()}}
+- {{GPURenderCommandsMixin/drawIndexed()}},
+- {{GPURenderCommandsMixin/drawIndirect()}}
+- {{GPURenderCommandsMixin/drawIndexedIndirect()}}.
+
+Note: rendering is the traditional use of GPUs, and is supported by multiple fixed-function
+blocks in hardware.
+
+The main rendering algorithm:
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>render</dfn>(descriptor, drawCall, state)
+
+        **Arguments:**
+
+        - |descriptor|: Description of the current {{GPURenderPipeline}}.
+        - |drawCall|: The draw call parameters.
+        - |state|: [=RenderState=] of the {{GPURenderCommandsMixin}} where the draw call is issued.
+
+        1. **Resolve indices**. See [[#index-resolution]].
+
+            Let |vertexList| be the result of [$resolve indices$](|drawCall|, |state|).
+
+        1. **Process vertices**. See [[#vertex-processing]].
+
+            Execute [$process vertices$](|vertexList|, |drawCall|, |descriptor|.{{GPURenderPipelineDescriptor/vertex}}, |state|).
+
+        1. **Assemble primitives**. See [[#primitive-assembly]].
+
+            Execute [$assemble primitives$](|vertexList|, |drawCall|, |descriptor|.{{GPURenderPipelineDescriptor/primitive}}).
+
+        1. **Clip primitives**. See [[#primitive-clipping]].
+
+            Let |primitiveList| be the result of this stage.
+
+        1. **Rasterize**. See [[#rasterization]].
+
+            Let |rasterizationList| be the result of [$rasterize$](|primitiveList|, |state|).
+
+        1. **Process fragments**. See [[#fragment-processing]].
+
+            Gather a list of |fragments|, resulting from executing
+            [$process fragment$](|rasterPoint|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}}, |state|)
+            for each |rasterPoint| in |rasterizationList|.
+
+        1. **Process depth/stencil**.
+
+            <p class="note editorial"><span class=marker>Editorial note:</span> fill out the section, using |fragments|
+
+        1. **Write pixels**.
+
+            <p class="note editorial"><span class=marker>Editorial note:</span> fill out the section
+</div>
+
+### Index Resolution ### {#index-resolution}
+
+At the first stage of rendering, the pipeline builds
+a list of vertices to process for each instance.
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>resolve indices</dfn>(drawCall, state)
+
+    **Arguments:**
+
+    - |drawCall|: The draw call parameters.
+    - |state|: The snapshot of the {{GPURenderCommandsMixin}} state at the time of the draw call.
+
+    **Returns:** list of integer indices.
+
+    1. Let |vertexIndexList| be an empty list of indices.
+    1. If |drawCall| is an indexed draw call:
+        1. Initialize the |vertexIndexList| with |drawCall|.indexCount integers.
+        1. For |i| in range 0 .. |drawCall|.indexCount (non-inclusive):
+            1. Let |relativeVertexIndex| be [$fetch index$](|i| + |drawCall|.`firstIndex`,
+                |state|.{{GPURenderCommandsMixin/[[index_buffer]]}}).
+            1. If |relativeVertexIndex| has the special value `"out of bounds"`,
+                stop and return the empty list.
+
+                Note: Implementations may choose to display a warning when this occurs,
+                especially when it is easy to detect (like in non-indirect indexed draw calls).
+            1. Append |drawCall|.`baseVertex` + |relativeVertexIndex| to the |vertexIndexList|.
+    1. Otherwise:
+        1. Initialize the |vertexIndexList| with |drawCall|.vertexCount integers.
+        1. Set each |vertexIndexList| item |i| to the value |drawCall|.firstVertex + |i|.
+    1. Return |vertexIndexList|.
+
+    Note: in case of indirect draw calls, the `indexCount`, `vertexCount`,
+    and other properties of |drawCall| are read from the indirect buffer
+    instead of the draw command itself.
+
+    <p class="note editorial"><span class=marker>Editorial note:</span> specify indirect commands better.
+</div>
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>fetch index</dfn>(i, buffer, offset, format)
+
+    **Arguments:**
+
+    - |i|: Index of a vertex index to fetch.
+    - |state|: The snapshot of the {{GPURenderCommandsMixin}} state at the time of the draw call.
+
+    **Returns:** unsigned integer or `"out of bounds"`
+
+    1. Let |indexSize| be defined by the |state|.{{GPURenderCommandsMixin/[[index_format]]}}:
+
+        <dl class=switch>
+            : {{GPUIndexFormat/"uint16"}}
+            :: 2
+            : {{GPUIndexFormat/"uint32"}}
+            :: 4
+        </dl>
+    1. If |state|.{{GPURenderCommandsMixin/[[index_buffer_offset]]}} +
+        |i + 1| &times; |indexSize| &gt; |state|.{{GPURenderCommandsMixin/[[index_buffer_size]]}},
+        return the special value `"out of bounds"`.
+    1. Interpret the data in |state|.{{GPURenderCommandsMixin/[[index_buffer]]}}, starting at offset
+        |state|.{{GPURenderCommandsMixin/[[index_buffer_offset]]}} + |i| &times; |indexSize|,
+        of size |indexSize| bytes, as an unsigned integer and return it.
+</div>
+
+### Vertex Processing ### {#vertex-processing}
+
+Vertex processing stage is a programmable stage of the render [=pipeline=] that
+processes the vertex attribute data, and produces
+clip space positions for [[#primitive-clipping]], as well as other data for the
+[[#fragment-processing]].
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>process vertices</dfn>(vertexIndexList, drawCall, desc, state)
+
+    **Arguments:**
+
+    - |vertexIndexList|: List of vertex indices to process (mutable, passed by reference).
+    - |drawCall|: The draw call parameters.
+    - |desc|: The descriptor of type {{GPUVertexState}}.
+    - |state|: The snapshot of the {{GPURenderCommandsMixin}} state at the time of the draw call.
+
+    Each vertex |vertexIndex| in the |vertexIndexList|,
+    in each instance of index |rawInstanceIndex|, is processed independently.
+    The |rawInstanceIndex| is in range from 0 to |drawCall|.instanceCount - 1, inclusive.
+    This processing happens in parallel, and any side effects, such as
+    writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
+    may happen in any order.
+
+    1. Let |instanceIndex| be |rawInstanceIndex| + |drawCall|.firstInstance.
+    1. For each non-`null` |vertexBufferLayout| in the list of |desc|.{{GPUVertexState/buffers}}:
+        1. Let |i| be the index of the buffer layout in this list.
+        1. Let |vertexBuffer|, |vertexBufferOffset|, and |vertexBufferBindingSize| be the
+            buffer, offset, and size at slot |i| of |state|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
+        1. Let |vertexElementIndex| be dependent on |vertexBufferLayout|.{{GPUVertexBufferLayout/stepMode}}:
+
+            <dl class=switch>
+                : {{GPUVertexStepMode/"vertex"}}
+                :: |vertexIndex|
+                : {{GPUVertexStepMode/"instance"}}
+                :: |instanceIndex|
+            </dl>
+        1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
+            1. Let |attributeOffset| be |vertexBufferOffset| +
+                |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
+                |attributeDesc|.{{GPUVertexAttribute/offset}}.
+            1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
+                from |vertexBuffer| starting at offset |attributeOffset|.
+                The components are loaded in the order `x`, `y`, `z`, `w` from buffer memory.
+
+                If this results in an out-of-bounds access, the resulting value is determined
+                according to WGSL's [=invalid memory reference=] behavior.
+            1. **Optionally (implementation-defined):**
+                If |attributeOffset| + sizeof(|attributeDesc|.{{GPUVertexAttribute/format}}) &gt;
+                |vertexBufferOffset| + |vertexBufferBindingSize|,
+                [=list/empty=] |vertexIndexList| and stop, cancelling the draw call.
+
+                Note: This allows implementations to detect out-of-bounds values in the index buffer
+                before issuing a draw call, instead of using [=invalid memory reference=] behavior.
+            1. Convert the |data| into a shader-visible format, according to [=channel formats=] rules.
+
+                <div class=example>
+                    An attribute of type {{GPUVertexFormat/"snorm8x2"}} and byte values of `[0x70, 0xD0]`
+                    will be converted to `vec2<f32>(0.88, -0.38)` in WGSL.
+                </div>
+            1. Adjust the |data| size to the shader type:
+                - if both are scalar, or both are vectors of the same dimensionality, no adjustment is needed.
+                - if |data| is vector but the shader type is scalar, then only the first component is extracted.
+                - if both are vectors, and |data| has a higher dimension, the extra components are dropped.
+
+                    <div class=example>
+                        An attribute of type {{GPUVertexFormat/"float32x3"}} and value `vec3<f32>(1.0, 2.0, 3.0)`
+                        will exposed to the shader as `vec2<f32>(1.0, 2.0)` if a 2-component vector is expected.
+                    </div>
+                - if the shader type is a vector of higher dimensionality, or the |data| is a scalar,
+                    then the missing components are filled from `vec4<*>(0, 0, 0, 1)` value.
+
+                    <div class=example>
+                        An attribute of type {{GPUVertexFormat/"sint32"}} and value `5` will be exposed
+                        to the shader as `vec4<i32>(5, 0, 0, 1)` if a 4-component vector is expected.
+                    </div>
+            1. Bind the |data| to vertex shader input
+                location |attributeDesc|.{{GPUVertexAttribute/shaderLocation}}.
+    1. For each {{GPUBindGroup}} group at |index| in |state|.{{GPUBindingCommandsMixin/[[bind_groups]]}}:
+        1. For each resource {{GPUBindingResource}} in the bind group:
+            1. Let |entry| be the corresponding {{GPUBindGroupLayoutEntry}} for this resource.
+            1. If |entry|.{{GPUBindGroupLayoutEntry/visibility}} includes {{GPUShaderStage/VERTEX}}:
+                - Bind the resource to the shader under group |index| and binding {{GPUBindGroupLayoutEntry/binding|GPUBindGroupLayoutEntry.binding}}.
+    1. Set the shader [=builtins=]:
+        - Set the `vertex_index` builtin, if any, to |vertexIndex|.
+        - Set the `instance_index` builtin, if any, to |instanceIndex|.
+    1. Invoke the vertex shader entry point described by |desc|.
+
+        Note: The target platform caches the results of vertex shader invocations.
+        There is no guarantee that any |vertexIndex| that repeats more than once will
+        result in multiple invocations. Similarly, there is no guarantee that a single |vertexIndex|
+        will only be processed once.
+
+        The [=device=] may become [=lose the device|lost=] if
+        [=shader execution end|shader execution does not end=]
+        in a reasonable amount of time, as determined by the user agent.
+</div>
+
+### Primitive Assembly ### {#primitive-assembly}
+
+Primitives are assembled by a fixed-function stage of GPUs.
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>assemble primitives</dfn>(vertexIndexList, drawCall, desc)
+
+    **Arguments:**
+
+    - |vertexIndexList|: List of vertex indices to process.
+    - |drawCall|: The draw call parameters.
+    - |desc|: The descriptor of type {{GPUPrimitiveState}}.
+
+    For each instance, the primitives get assembled from the vertices that have been
+    processed by the shaders, based on the |vertexIndexList|.
+
+    1. First, if the primitive topology is a strip, (which means that
+        |desc|.{{GPUPrimitiveState/stripIndexFormat}} is not undefined)
+        and the |drawCall| is indexed, the |vertexIndexList| is split into
+        sub-lists using the maximum value of |desc|.{{GPUPrimitiveState/stripIndexFormat}}
+        as a separator.
+
+        Example: a |vertexIndexList| with values `[1, 2, 65535, 4, 5, 6]` of type {{GPUIndexFormat/"uint16"}}
+        will be split in sub-lists `[1, 2]` and `[4, 5, 6]`.
+
+    1. For each of the sub-lists |vl|, primitive generation is done according to the
+        |desc|.{{GPUPrimitiveState/topology}}:
+
+        <dl class=switch>
+            : {{GPUPrimitiveTopology/"line-list"}}
+            ::
+                Line primitives are composed from (|vl|.0, |vl|.1),
+                then (|vl|.2, |vl|.3), then (|vl|.4 to |vl|.5), etc.
+                Each subsequent primitive takes 2 vertices.
+
+            : {{GPUPrimitiveTopology/"line-strip"}}
+            ::
+                Line primitives are composed from (|vl|.0, |vl|.1),
+                then (|vl|.1, |vl|.2), then (|vl|.2, |vl|.3), etc.
+                Each subsequent primitive takes 1 vertex.
+
+            : {{GPUPrimitiveTopology/"triangle-list"}}
+            ::
+                Triangle primitives are composed from (|vl|.0, |vl|.1, |vl|.2),
+                then (|vl|.3, |vl|.4, |vl|.5), then (|vl|.6, |vl|.7, |vl|.8), etc.
+                Each subsequent primitive takes 3 vertices.
+
+            : {{GPUPrimitiveTopology/"triangle-strip"}}
+            ::
+                Triangle primitives are composed from (|vl|.0, |vl|.1, |vl|.2),
+                then (|vl|.2, |vl|.1, |vl|.3), then (|vl|.2, |vl|.3, |vl|.4),
+                then (|vl|.4, |vl|.3, |vl|.5), etc.
+                Each subsequent primitive takes 1 vertices.
+        </dl>
+
+        <p class="note editorial"><span class=marker>Editorial note:</span> should this be defined more formally?
+
+        Any incomplete primitives are dropped.
+</div>
+
+### Primitive Clipping ### {#primitive-clipping}
+
+Vertex shaders have to produce a built-in [=position builtin|position=] (of type `vec4<f32>`),
+which denotes the <dfn dfn>clip position</dfn> of a vertex in [=clip space coordinates=].
+
+Primitives are clipped to the <dfn dfn>clip volume</dfn>, which, for any [=clip position=] |p|
+inside a primitive, is defined by the following inequalities:
+
+- &minus;|p|.w &le; |p|.x &le; |p|.w
+- &minus;|p|.w &le; |p|.y &le; |p|.w
+- 0 &le; |p|.z &le; |p|.w (<dfn dfn>depth clipping</dfn>)
+
+When the {{GPUFeatureName/"clip-distances"}} feature is enabled, this [=clip volume=] can
+be further restricted by user-defined half-spaces by declaring [=builtin/clip_distances=] in the
+output of vertex stage. Each value in the [=builtin/clip_distances=] array will be linearly
+interpolated across the primitive, and the portion of the primitive with interpolated distances less
+than 0 will be clipped.
+
+If |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/unclippedDepth}} is `true`,
+[=depth clipping=] is not applied: the [=clip volume=] is not bounded in the z dimension.
+
+A primitive passes through this stage unchanged if every one of its edges
+lie entirely inside the [=clip volume=].
+If the edges of a primitives intersect the boundary of the [=clip volume=],
+the intersecting edges are reconnected by new edges that lie along the boundary of the [=clip volume=].
+For triangular primitives (|descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}} is
+{{GPUPrimitiveTopology/"triangle-list"}} or {{GPUPrimitiveTopology/"triangle-strip"}}), this reconnection
+may result in introduction of new vertices into the polygon, internally.
+
+If a primitive intersects an edge of the [=clip volume=]’s boundary,
+the clipped polygon must include a point on this boundary edge.
+
+If the vertex shader outputs other floating-point values (scalars and vectors), qualified with
+"perspective" interpolation, they also get clipped.
+The output values associated with a vertex that lies within the clip volume are unaffected by clipping.
+If a primitive is clipped, however, the output values assigned to vertices produced by clipping are clipped.
+
+Considering an edge between vertices |a| and |b| that got clipped, resulting in the vertex |c|,
+let's define |t| to be the ratio between the edge vertices:
+|c|.p = |t| &times; |a|.p &plus; (1 &minus; |t|) &times; |b|.p,
+where |x|.p is the output [=clip position=] of a vertex |x|.
+
+For each vertex output value "v" with a corresponding fragment input,
+|a|.v and |b|.v would be the outputs for |a| and |b| vertices respectively.
+The clipped shader output |c|.v is produced based on the interpolation qualifier:
+<dl class=switch>
+    : "flat"
+    ::
+        Flat interpolation is unaffected, and is based on <dfn dfn>provoking vertex</dfn>,
+        which is the first vertex in the primitive. The output value is the same
+        for the whole primitive, and matches the vertex output of the [=provoking vertex=]:
+        |c|.v = [=provoking vertex=].v
+
+    : "linear"
+    ::
+        The interpolation ratio gets adjusted against the perspective coordinates of the
+        [=clip position=]s, so that the result of interpolation is linear in screen space.
+
+        <p class="note editorial"><span class=marker>Editorial note:</span> provide more specifics here, if possible
+
+    : "perspective"
+    ::
+        The value is linearly interpolated in clip space, producing perspective-correct values:
+
+        |c|.v = |t| &times; |a|.v &plus; (1 &minus; |t|) &times; |b|.v
+</dl>
+
+<p class="note editorial"><span class=marker>Editorial note:</span> link to interpolation qualifiers in WGSL
+
+The result of primitive clipping is a new set of primitives, which are contained
+within the [=clip volume=].
+
+### Rasterization ### {#rasterization}
+
+Rasterization is the hardware processing stage that maps the generated primitives
+to the 2-dimensional rendering area of the <dfn dfn>framebuffer</dfn> -
+the set of render attachments in the current {{GPURenderPassEncoder}}.
+This rendering area is split into an even grid of pixels.
+
+The [=framebuffer=] coordinates start from the top-left corner of the render targets.
+Each unit corresponds exactly to one pixel. See [=coordinate systems=] for more information.
+
+Rasterization determines the set of pixels affected by a primitive. In case of multi-sampling,
+each pixel is further split into
+|descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}} samples.
+The <dfn dfn noexport>standard sample patterns</dfn> are as follows,
+with positions in framebuffer coordinates relative to the top-left corner of the pixel,
+such that the pixel ranges from (0, 0) to (1, 1):
+
+<table class=data>
+    <thead>
+        <tr><th>{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}<th>Sample positions
+    <tbody>
+        <tr><td>1<td>
+            Sample 0: (0.5, 0.5)
+        <tr><td>4<td>
+            Sample 0: (0.375, 0.125)<br>
+            Sample 1: (0.875, 0.375)<br>
+            Sample 2: (0.125, 0.625)<br>
+            Sample 3: (0.625, 0.875)
+</table>
+
+Implementations must use the [=standard sample pattern=] for the given
+{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}} when performing rasterization.
+
+Let's define a <dfn dfn>FragmentDestination</dfn> to contain:
+<dl dfn-for=FragmentDestination>
+    : <dfn dfn>position</dfn>
+    :: the 2D pixel position using [=framebuffer coordinates=]
+    : <dfn dfn>sampleIndex</dfn>
+    :: an integer in case [[#sample-frequency-shading]] is active,
+        or `null` otherwise
+</dl>
+
+We'll also use a notion of [=NDC|normalized device coordinates=], or NDC.
+In this coordinate system, the viewport bounds range in X and Y from -1 to 1, and in Z from 0 to 1.
+
+Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each containing the following data:
+<dl dfn-for=RasterizationPoint>
+    : <dfn dfn>destination</dfn>
+    :: refers to [=FragmentDestination=]
+    : <dfn dfn>coverageMask</dfn>
+    :: refers to multisample coverage mask (see [[#sample-masking]])
+    : <dfn dfn>frontFacing</dfn>
+    :: is true if it's a point on the front face of a primitive
+    : <dfn dfn>perspectiveDivisor</dfn>
+    :: refers to interpolated 1.0 &divide; W across the primitive
+    : <dfn dfn>depth</dfn>
+    :: refers to the depth in [=viewport coordinates=],
+        i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
+    : <dfn dfn>primitiveVertices</dfn>
+    :: refers to the list of vertex outputs forming the primitive
+    : <dfn dfn>barycentricCoordinates</dfn>
+    :: refers to [[#barycentric-coordinates]]
+</dl>
+
+<p class="note editorial"><span class=marker>Editorial note:</span> define the depth computation algorithm
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>rasterize</dfn>(primitiveList, state)
+
+    **Arguments:**
+
+    - |primitiveList|: List of primitives to rasterize.
+    - |state|: The active [=RenderState=].
+
+    **Returns:** list of [=RasterizationPoint=].
+
+    Each primitive in |primitiveList| is processed independently.
+    However, the order of primitives affects later stages, such as depth/stencil operations and pixel writes.
+
+    1. First, the clipped vertices are transformed into [=NDC=] - normalized device coordinates.
+        Given the output position |p|, the [=NDC=] position and perspective divisor are:
+
+        ndc(|p|) = vector(|p|.x &divide; |p|.w, |p|.y &divide; |p|.w, |p|.z &divide; |p|.w)
+
+        divisor(|p|) = 1.0 &divide; |p|.w
+
+    1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
+        Map the [=NDC=] position |n| into [=viewport coordinates=]:
+        * Compute [=framebuffer=] coordinates from the render target offset and size:
+
+            framebufferCoords(|n|) = vector(|vp|.`x` &plus; 0.5 &times; (|n|.x &plus; 1) &times; |vp|.`width`, |vp|.`y` &plus; 0.5 &times; (&minus;|n|.y &plus; 1) &times; |vp|.`height`)
+
+        * Compute depth by linearly mapping [0,1] to the viewport depth range:
+
+            depth(|n|) = |vp|.`minDepth` &plus; |n|.`z` &times; ( |vp|.`maxDepth` - |vp|.`minDepth` )
+
+    1. Let |rasterizationPoints| be an empty list.
+
+        <p class="note editorial"><span class=marker>Editorial note:</span> specify that each rasterization point gets assigned an interpolated `divisor(p)`,
+        `framebufferCoords(n)`, `depth(n)`, as well as the other attributes.
+
+    1. Proceed with a specific rasterization algorithm,
+        depending on {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}}:
+
+        <dl class=switch>
+            : {{GPUPrimitiveTopology/"point-list"}}
+            :: The point, if not filtered by [[#primitive-clipping]], goes into [[#point-rasterization]].
+            : {{GPUPrimitiveTopology/"line-list"}} or {{GPUPrimitiveTopology/"line-strip"}}
+            :: The line cut by [[#primitive-clipping]] goes into [[#line-rasterization]].
+            : {{GPUPrimitiveTopology/"triangle-list"}} or {{GPUPrimitiveTopology/"triangle-strip"}}
+            :: The polygon produced in [[#primitive-clipping]] goes into [[#polygon-rasterization]].
+        </dl>
+
+    1. Remove all the points |rp| from |rasterizationPoints| that have
+        |rp|.[=RasterizationPoint/destination=].[=FragmentDestination/position=]
+        outside of |state|.{{RenderState/[[scissorRect]]}}.
+
+    1. Return |rasterizationPoints|.
+</div>
+
+#### Point Rasterization #### {#point-rasterization}
+
+A single [=FragmentDestination=] is selected within the pixel containing the
+[=framebuffer=] coordinates of the point.
+
+The coverage mask depends on multi-sampling mode:
+<dl class=switch>
+    : sample-frequency
+    :: coverageMask = 1 &Lt; `sampleIndex`
+    : pixel-frequency multi-sampling
+    :: coverageMask = 1 &Lt; |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}} &minus; 1
+    : no multi-sampling
+    :: coverageMask = 1
+</dl>
+
+#### Line Rasterization #### {#line-rasterization}
+
+<p class="note editorial"><span class=marker>Editorial note:</span> fill out this section
+
+#### Barycentric coordinates #### {#barycentric-coordinates}
+
+Barycentric coordinates is a list of |n| numbers |b|<sub>|i|</sub>,
+defined for a point |p| inside a convex polygon with |n| vertices |v|<sub>|i|</sub> in [=framebuffer=] space.
+Each |b|<sub>|i|</sub> is in range 0 to 1, inclusive, and represents the proximity to vertex |v|<sub>|i|</sub>.
+Their sum is always constant:
+
+&sum; (|b|<sub>|i|</sub>) = 1
+
+These coordinates uniquely specify any point |p| within the polygon (or on its boundary) as:
+
+|p| = &sum; (|b|<sub>|i|</sub> &times; |p|<sub>|i|</sub>)
+
+For a polygon with 3 vertices - a triangle,
+barycentric coordinates of any point |p| can be computed as follows:
+
+|A|<sub>polygon</sub> = A(|v|<sub>|1|</sub>, |v|<sub>|2|</sub>, |v|<sub>|3|</sub>)
+|b|<sub>|1|</sub> = A(|p|, |b|<sub>|2|</sub>, |b|<sub>|3|</sub>) &divide; |A|<sub>polygon</sub>
+|b|<sub>|2|</sub> = A(|b|<sub>|1|</sub>, |p|, |b|<sub>|3|</sub>) &divide; |A|<sub>polygon</sub>
+|b|<sub>|3|</sub> = A(|b|<sub>|1|</sub>, |b|<sub>|2|</sub>, |p|) &divide; |A|<sub>polygon</sub>
+
+Where A(list of points) is the area of the polygon with the given set of vertices.
+
+For polygons with more than 3 vertices, the exact algorithm is implementation-dependent.
+One of the possible implementations is to triangulate the polygon and compute the barycentrics
+of a point based on the triangle it falls into.
+
+#### Polygon Rasterization #### {#polygon-rasterization}
+
+A polygon is <dfn dfn>front-facing</dfn> if it's oriented towards the projection.
+Otherwise, the polygon is <dfn dfn>back-facing</dfn>.
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>rasterize polygon</dfn>()
+
+    **Arguments:**
+
+    **Returns:** list of [=RasterizationPoint=].
+
+    1. Let |rasterizationPoints| be an empty list.
+    1. Let |v|(|i|) be the [=framebuffer=] coordinates for the clipped vertex number |i| (starting with 1)
+        in a rasterized polygon of |n| vertices.
+
+        Note: this section uses the term "polygon" instead of a "triangle",
+        since [[#primitive-clipping]] stage may have introduced additional vertices.
+        This is non-observable by the application.
+
+    1. Determine if the polygon is front-facing,
+        which depends on the sign of the |area| occupied by the polygon in [=framebuffer=] coordinates:
+
+        |area| = 0.5 &times; ((|v|<sub>1</sub>.x &times; |v|<sub>|n|</sub>.y &minus; |v|<sub>|n|</sub>.x &times; |v|<sub>1</sub>.y) &plus; &sum; (|v|<sub>|i|&plus;1</sub>.x &times; |v|<sub>|i|</sub>.y &minus; |v|<sub>|i|</sub>.x &times; |v|<sub>|i|&plus;1</sub>.y))
+
+        The sign of |area| is interpreted based on the {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/frontFace}}:
+
+        <dl class=switch>
+            : {{GPUFrontFace/"ccw"}}
+            :: |area| &gt; 0 is considered [=front-facing=], otherwise [=back-facing=]
+            : {{GPUFrontFace/"cw"}}
+            :: |area| &lt; 0 is considered [=front-facing=], otherwise [=back-facing=]
+        </dl>
+
+    1. Cull based on {{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/cullMode}}:
+
+        <dl class=switch>
+            : {{GPUCullMode/"none"}}
+            :: All polygons pass this test.
+            : {{GPUCullMode/"front"}}
+            :: The [=front-facing=] polygons are discarded,
+                and do not process in later stages of the render pipeline.
+            : {{GPUCullMode/"back"}}
+            :: The [=back-facing=] polygons are discarded.
+        </dl>
+
+    1. Determine a set of [=fragments=] inside the polygon in [=framebuffer=] space -
+        these are locations scheduled for the per-fragment operations.
+        This operation is known as "point sampling".
+        The logic is based on |descriptor|.{{GPURenderPipelineDescriptor/multisample}}:
+
+        <dl class=switch>
+            : disabled
+            :: [=Fragment=]s are associated with pixel centers. That is, all the points with coordinates |C|, where
+                fract(|C|) = vector2(0.5, 0.5) in the [=framebuffer=] space, enclosed into the polygon, are included.
+                If a pixel center is on the edge of the polygon, whether or not it's included is not defined.
+
+                Note: this becomes a subject of precision for the rasterizer.
+
+            : enabled
+            :: Each pixel is associated with |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}
+                locations, which are implementation-defined.
+                The locations are ordered, and the list is the same for each pixel of the [=framebuffer=].
+                Each location corresponds to one fragment in the multisampled [=framebuffer=].
+
+                The rasterizer builds a mask of locations being hit inside each pixel and provides is as "sample-mask"
+                built-in to the fragment shader.
+        </dl>
+
+    1. For each produced fragment of type [=FragmentDestination=]:
+
+        1. Let |rp| be a new [=RasterizationPoint=] object
+        1. Compute the list |b| as [[#barycentric-coordinates]] of that fragment.
+            Set |rp|.[=RasterizationPoint/barycentricCoordinates=] to |b|.
+
+        1. Let |d|<sub>|i|</sub> be the depth value of |v|<sub>|i|</sub>.
+
+            <p class="note editorial"><span class=marker>Editorial note:</span> define how this value is constructed.
+        1. Set |rp|.[=RasterizationPoint/depth=] to &sum; (|b|<sub>|i|</sub> &times; |d|<sub>|i|</sub>)
+        1. Append |rp| to |rasterizationPoints|.
+
+    1. Return |rasterizationPoints|.
+</div>
+
+### Fragment Processing ### {#fragment-processing}
+
+The fragment processing stage is a programmable stage of the render [=pipeline=] that
+computes the fragment data (often a color) to be written into render targets.
+
+This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
+<div algorithm="Fragment accessors" dfn-for=Fragment>
+    - <dfn dfn>destination</dfn> refers to [=FragmentDestination=].
+    - <dfn dfn>coverageMask</dfn> refers to multisample coverage mask (see [[#sample-masking]]).
+    - <dfn dfn>depth</dfn> refers to the depth in [=viewport coordinates=],
+        i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
+    - <dfn dfn>colors</dfn> refers to the list of color values,
+        one for each target in {{GPURenderPassDescriptor/colorAttachments}}.
+</div>
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>process fragment</dfn>(rp, desc, state)
+
+    **Arguments:**
+
+    - |rp|: The [=RasterizationPoint=], produced by [[#rasterization]].
+    - |desc|: The descriptor of type {{GPUFragmentState}}.
+    - |state|: The active [=RenderState=].
+
+    **Returns:** [=Fragment=] or `null`.
+
+    1. Let |fragment| be a new [=Fragment=] object.
+    1. Set |fragment|.[=Fragment/destination=] to |rp|.[=RasterizationPoint/destination=].
+    1. Set |fragment|.[=Fragment/coverageMask=] to |rp|.[=RasterizationPoint/coverageMask=].
+    1. Set |fragment|.[=Fragment/depth=] to |rp|.[=RasterizationPoint/depth=].
+    1. If |desc| is not `null`:
+        1. Set the shader input [=builtins=]. For each non-composite argument of the entry point,
+            annotated as a [=builtin=], set its value based on the annotation:
+
+            <dl class=switch>
+                : `position`
+                :: `vec4<f32>`(|rp|.[=RasterizationPoint/destination=].[=FragmentDestination/position=], |rp|.[=RasterizationPoint/depth=], |rp|.[=RasterizationPoint/perspectiveDivisor=])
+
+                : `front_facing`
+                :: |rp|.[=RasterizationPoint/frontFacing=]
+
+                : `sample_index`
+                :: |rp|.[=RasterizationPoint/destination=].[=FragmentDestination/sampleIndex=]
+
+                : `sample_mask`
+                :: |rp|.[=RasterizationPoint/coverageMask=]
+            </dl>
+        1. For each user-specified [=shader stage input=] of the fragment stage:
+            1. Let |value| be the interpolated fragment input,
+                based on |rp|.[=RasterizationPoint/barycentricCoordinates=], |rp|.[=RasterizationPoint/primitiveVertices=],
+                and the [=interpolation=] qualifier on the input.
+
+                <p class="note editorial"><span class=marker>Editorial note:</span> describe the exact equations.
+            1. Set the corresponding fragment shader [=location=] input to |value|.
+        1. Invoke the fragment shader entry point described by |desc|.
+
+            The [=device=] may become [=lose the device|lost=] if
+            [=shader execution end|shader execution does not end=]
+            in a reasonable amount of time, as determined by the user agent.
+
+        1. If the fragment issued `discard`, return `null`.
+        1. Set |fragment|.[=Fragment/colors=] to the user-specified [=shader stage output=] values from the shader.
+        1. Take the shader output [=builtins=]:
+            1. If `frag_depth` [=builtin=] is produced by the shader as |value|:
+                1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
+                1. Set |fragment|.[=Fragment/depth=] to clamp(|value|, |vp|.`minDepth`, |vp|.`maxDepth`).
+        1. If `sample_mask` [=builtin=] is produced by the shader as |value|:
+            1. Set |fragment|.[=Fragment/coverageMask=] to |fragment|.[=Fragment/coverageMask=] &and; |value|.
+
+        Otherwise we are in [[#no-color-output]] mode, and |fragment|.[=Fragment/colors=] is empty.
+    1. Return |fragment|.
+</div>
+
+Processing of fragments happens in parallel, while any side effects,
+such as writes into {{GPUBufferBindingType/"storage"|GPUBufferBindingType."storage"}} bindings,
+may happen in any order.
+
+### Output Merging ### {#output-merging}
+
+<p class="note editorial"><span class=marker>Editorial note:</span> fill out this section
+
+The depth input to this stage, if any, is clamped to the current
+{{RenderState/[[viewport]]}} depth range
+(regardless of whether the fragment shader stage writes the `frag_depth` builtin).
+
+### No Color Output ### {#no-color-output}
+
+In no-color-output mode, [=pipeline=] does not produce any color attachment outputs.
+
+The [=pipeline=] still performs rasterization and produces depth values
+based on the vertex position output. The depth testing and stencil operations can still be used.
+
+### Alpha to Coverage ### {#alpha-to-coverage}
+
+In alpha-to-coverage mode, an additional <dfn dfn>alpha-to-coverage mask</dfn>
+of MSAA samples is generated based on the |alpha| component of the
+fragment shader output value at `@location(0)`.
+
+The algorithm of producing the extra mask is platform-dependent and can vary for different pixels.
+It guarantees that:
+
+- if |alpha| &le; 0.0, the result is 0x0
+- if |alpha| &ge; 1.0, the result is 0xFFFFFFFF
+- if |alpha| is greater than some other |alpha1|,
+    then the produced sample mask has at least as many bits set to 1 as the mask for |alpha1|
+
+### Sample frequency shading ### {#sample-frequency-shading}
+
+<p class="note editorial"><span class=marker>Editorial note:</span> fill out the section
+
+### Sample Masking ### {#sample-masking}
+
+The <dfn dfn>final sample mask</dfn> for a pixel is computed as:
+[=rasterization mask=] & {{GPUMultisampleState/mask}} & [=shader-output mask=].
+
+Only the lower {{GPUMultisampleState/count}} bits of the mask are considered.
+
+If the least-significant bit at position |N| of the [=final sample mask=] has value of "0",
+the sample color outputs (corresponding to sample |N|) to all attachments of the fragment shader are discarded.
+Also, no depth test or stencil operations are executed on the relevant samples of the depth-stencil attachment.
+
+Note: the color output for sample |N| is produced by the fragment shader execution
+with SV_SampleIndex == |N| for the current pixel.
+If the fragment shader doesn't use this semantics, it's only executed once per pixel.
+
+The <dfn dfn>rasterization mask</dfn> is produced by the rasterization stage,
+based on the shape of the rasterized polygon. The samples included in the shape get the relevant
+bits 1 in the mask.
+
+The <dfn dfn>shader-output mask</dfn> takes the output value of "sample_mask" [=builtin=] in the fragment shader.
+If the builtin is not output from the fragment shader, and {{GPUMultisampleState/alphaToCoverageEnabled}}
+is enabled, the [=shader-output mask=] becomes the [=alpha-to-coverage mask=]. Otherwise, it defaults to 0xFFFFFFFF.
