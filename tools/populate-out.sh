@@ -3,7 +3,7 @@
 # publish on GitHub Pages and PR previews.
 set -euo pipefail
 
-mkdir -p out/{wgsl,wgsl/grammar,explainer,correspondence}
+mkdir -p out/{wgsl,wgsl/grammar,explainer,correspondence,operations}
 
 cp -r spec/{index.html,webgpu.idl,img} out/
 cp spec/webgpu.idl out/webgpu.idl.txt
@@ -15,6 +15,8 @@ cp explainer/index.html out/explainer/
 cp -r explainer/img/ out/explainer/
 
 cp correspondence/index.html out/correspondence/
+
+cp operations/index.html out/operations/
 
 # Redirect wgsl.html to wgsl/
 echo '<meta http-equiv="refresh" content="0;url=wgsl/" />' > out/wgsl.html
