@@ -77,11 +77,11 @@ Each `GPUColorTargetState` in a `GPUFragmentState` must have the same `blend.alp
 
 **Justification**: OpenGL ES does not support Cube Array textures.
 
-### 5. Views of the same texture used in a single draw may not differ in mip levels.
+### 5. Views of the same texture used in a single draw may not differ in aspect or mip levels.
 
-A draw call may not bind two views of the same texture differing in `baseMipLevel` or `mipLevelCount`. Only a single mip level range per texture is supported. This is enforced via validation at draw time.
+A draw call may not bind two views of the same texture differing in `aspect`, `baseMipLevel`, or `mipLevelCount`. Only a single aspect and mip level range per texture is supported. This is enforced via validation at draw time.
 
-**Justification**: OpenGL ES does not support texture views, but one mip level subset may be specified per texture using `glTexParameter*()` via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
+**Justification**: OpenGL ES does not support texture views, but one set of these parameters per texture is supported via glTexParameteri(). In particular, one depth/stencil aspect may be specified via `GL_DEPTH_STENCIL_TEXTURE_MODE`, and one mip level subset via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
 
 ### 6. Array texture views used in bind groups must consist of the entire array. That is, `baseArrayLayer` must be zero, and `arrayLayerCount` must be equal to the size of the texture array.
 
