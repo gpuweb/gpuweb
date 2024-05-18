@@ -190,6 +190,15 @@ in a shader module passed to `createRenderPipeline`, `createRenderPipelineAsync`
 
 Note: this does not affect textures made with depth formats bound to `texture_2d<f32>`.
 
+## 17. Disallow `@interpolation(flat)` and `@interpolation(flat, first)`
+
+If code is passed to `createShaderModule` that uses `@interpolation(flat)` or `@interpolation(flat, first)`
+generate a validation error.
+
+**Justification**: OpenGL ES 3.1 only supports the last vertex as the provoking vertex where as 
+other APIs only support the first vertex so only `@interpolation(flat, either)` is supported in
+compatibility mode.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
