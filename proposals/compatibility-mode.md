@@ -148,8 +148,7 @@ In WGSL, an inter-stage variable can be marked with one of three interpolation t
 `'linear'`, `'flat'`, and one of three interpolation sampling modes: `'center'`, `'centroid'`, `'sample'`
 
 In compatibility mode, `'linear'` type and sampling mode `'sample'` are disallowed.
-If used via an entry point in a shader module passed to `createRenderPipeline`, `createRenderPipelineAsync`,
-`createComputePipeline`, or `createComputePipelineAsync` a validation error is generated.
+If either are used in the code passed to `createShaderModule` a validation error is generated.
 
 **Justification**: OpenGL ES 3.1 does not support `linear` interpolation nor `sample` sampling.
 
