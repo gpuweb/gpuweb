@@ -77,11 +77,11 @@ Each `GPUColorTargetState` in a `GPUFragmentState` must have the same `blend.alp
 
 **Justification**: OpenGL ES does not support Cube Array textures.
 
-### 5. Views of the same texture used in a single draw may not differ in mip levels.
+### 5. Views of the same texture used in a single draw may not differ in aspect or mip levels.
 
-A draw call may not bind two views of the same texture differing in `baseMipLevel` or `mipLevelCount`. Only a single mip level range per texture is supported. This is enforced via validation at draw time.
+A draw call may not bind two views of the same texture differing in `aspect`, `baseMipLevel`, or `mipLevelCount`. Only a single aspect and mip level range per texture is supported. This is enforced via validation at draw time.
 
-**Justification**: OpenGL ES does not support texture views, but one mip level subset may be specified per texture using `glTexParameter*()` via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
+**Justification**: OpenGL ES does not support texture views, but one set of these parameters per texture is supported via glTexParameteri(). In particular, one depth/stencil aspect may be specified via `GL_DEPTH_STENCIL_TEXTURE_MODE`, and one mip level subset via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
 
 ### 6. Array texture views used in bind groups must consist of the entire array. That is, `baseArrayLayer` must be zero, and `arrayLayerCount` must be equal to the size of the texture array.
 
@@ -91,7 +91,7 @@ A bind group may not reference a subset of array layers. Only views of the entir
 
 ### 7. Disallow `sample_mask` and `sample_index` builtins in WGSL.
 
-Use of the `sample_mask` or `sample_index` builtins would cause a validation error at pipeline creation time.
+Use of the `sample_mask` or `sample_index` builtins would cause a validation error at shader module creation time.
 
 **Justification**: OpenGL ES 3.1 does not support `gl_SampleMask`, `gl_SampleMaskIn`, or `gl_SampleID`.
 
@@ -99,7 +99,7 @@ Use of the `sample_mask` or `sample_index` builtins would cause a validation err
 
 The `rg32uint`, `rg32sint`, and `rg32float` texture formats no longer support the `"write-only" or "read-only" STORAGE_BINDING` capability by default.
 
-Calls to `createTexture()` or `createBindGroupLayout()` with this combination cause a validation error. Calls to pipeline creation functions with pipeline `layout` set to `"auto"` and a storage texture binding of those format types cause a validation error (in the internal call to `createBindGroupLayout()`).
+Calls to `createTexture()` or `createBindGroupLayout()` with this combination cause a validation error. Calls to `createShaderModule()` will fail if these formats are referenced as storage textures.
 
 **Justification**: GLSL ES 3.1 (section 4.4.7, "Format Layout Qualifiers") does not permit any two-component (RG) texture formats in a format layout qualifier.
 
@@ -148,8 +148,7 @@ In WGSL, an inter-stage variable can be marked with one of three interpolation t
 `'linear'`, `'flat'`, and one of three interpolation sampling modes: `'center'`, `'centroid'`, `'sample'`
 
 In compatibility mode, `'linear'` type and sampling mode `'sample'` are disallowed.
-If used via an entry point in a shader module passed to `createRenderPipeline`, `createRenderPipelineAsync`,
-`createComputePipeline`, or `createComputePipelineAsync` a validation error is generated.
+If either are used in the code passed to `createShaderModule` a validation error is generated.
 
 **Justification**: OpenGL ES 3.1 does not support `linear` interpolation nor `sample` sampling.
 
@@ -182,13 +181,21 @@ create cube maps that are not exactly 6 layers.
 
 ## 16. Disallow `textureLoad` with `texture_depth?` textures
 
-If a `texture_depth`, `texture_depth_2d_array`, or `texture_depth_cube` are used in a `textureLoad` call via an entry point
-in a shader module passed to `createRenderPipeline`, `createRenderPipelineAsync`,
-`createComputePipeline`, or `createComputePipelineAsync` a validation error is generated.
+If a `texture_depth`, `texture_depth_2d_array`, or `texture_depth_cube` are used in a `textureLoad` call
+in code passed to `createShaderModule` a validation error is generated.
 
 **Justification**: OpenGL ES 3.1 does not support `texelFetch` for depth textures.
 
 Note: this does not affect textures made with depth formats bound to `texture_2d<f32>`.
+
+## 17. Disallow `@interpolation(flat)` and `@interpolation(flat, first)`
+
+If code is passed to `createShaderModule` that uses `@interpolation(flat)` or `@interpolation(flat, first)`
+generate a validation error.
+
+**Justification**: OpenGL ES 3.1 only supports the last vertex as the provoking vertex where as 
+other APIs only support the first vertex so only `@interpolation(flat, either)` is supported in
+compatibility mode.
 
 ## Issues
 
