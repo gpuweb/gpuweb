@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -euo pipefail
 
 if [ $# -lt 1 ] ; then
     echo "Usage: $0 output.html SOURCE_FILES..."
@@ -19,11 +19,12 @@ output="$1"
 shift
 # now $@ is the list of input files
 
-if type bikeshed >/dev/null && [ -z "$BIKESHED_DISALLOW_LOCAL" ] ; then
+if type bikeshed >/dev/null && [ -z "${BIKESHED_DISALLOW_LOCAL:=}" ] ; then
     # Build using locally-installed bikeshed.
     # Always build using the tarfile build, to ensure that it never breaks.
-    if [ "$DIE_ON" ] ; then
-        opts="--die-on=$DIE_ON"
+    opts=
+    if [ "${DIE_ON:=}" ] ; then
+        opts+="--die-on=$DIE_ON"
     fi
 
     # Use a temporary file because Bikeshed won't check for tarfiles on stdin.
@@ -33,7 +34,7 @@ if type bikeshed >/dev/null && [ -z "$BIKESHED_DISALLOW_LOCAL" ] ; then
     tar cf "$tmp_tar" "$@"
     bikeshed $opts spec "$tmp_tar" "$output"
     exit
-elif [ -z "$BIKESHED_DISALLOW_ONLINE" ] ; then
+elif [ -z "${BIKESHED_DISALLOW_ONLINE:=}" ] ; then
     # Build using Bikeshed API.
     echo 'Local bikeshed not found. Falling back to Bikeshed API.'
 
@@ -41,8 +42,9 @@ elif [ -z "$BIKESHED_DISALLOW_ONLINE" ] ; then
     tmp_headers=$(mktemp) # Contains response headers
     trap 'rm -f -- "$tmp_body" "$tmp_headers"' EXIT
 
-    if [ "$DIE_ON" ] ; then
-        opts="-Fdie-on=$DIE_ON"
+    opts=
+    if [ "${DIE_ON:=}" ] ; then
+        opts+="-Fdie-on=$DIE_ON"
     fi
     tar c "$@" | curl -s https://api.csswg.org/bikeshed/ -Ffile=@- "$opts" -o"$tmp_body" -D"$tmp_headers"
 
