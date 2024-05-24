@@ -22,9 +22,10 @@ shift
 if type bikeshed >/dev/null && [ -z "${BIKESHED_DISALLOW_LOCAL:=}" ] ; then
     # Build using locally-installed bikeshed.
     # Always build using the tarfile build, to ensure that it never breaks.
-    opts=
+
+    opts=()
     if [ "${DIE_ON:=}" ] ; then
-        opts+="--die-on=$DIE_ON"
+        opts+=("--die-on=$DIE_ON")
     fi
 
     # Use a temporary file because Bikeshed won't check for tarfiles on stdin.
@@ -32,7 +33,7 @@ if type bikeshed >/dev/null && [ -z "${BIKESHED_DISALLOW_LOCAL:=}" ] ; then
     trap 'rm -f -- "$tmp_tar"' EXIT
 
     tar cf "$tmp_tar" "$@"
-    bikeshed $opts spec "$tmp_tar" "$output"
+    bikeshed "${opts[@]}" spec "$tmp_tar" "$output"
     exit
 elif [ -z "${BIKESHED_DISALLOW_ONLINE:=}" ] ; then
     # Build using Bikeshed API.
@@ -42,17 +43,18 @@ elif [ -z "${BIKESHED_DISALLOW_ONLINE:=}" ] ; then
     tmp_headers=$(mktemp) # Contains response headers
     trap 'rm -f -- "$tmp_body" "$tmp_headers"' EXIT
 
-    opts=
+    opts=()
     if [ "${DIE_ON:=}" ] ; then
-        opts+="-Fdie-on=$DIE_ON"
+        opts+=("--form" "die-on=$DIE_ON")
     fi
-    tar c "$@" | curl -s https://api.csswg.org/bikeshed/ -Ffile=@- "$opts" -o"$tmp_body" -D"$tmp_headers"
+    tar c "$@" | curl --silent https://api.csswg.org/bikeshed/ --form "file=@-" "${opts[@]}" --output "$tmp_body" --dump-header "$tmp_headers"
 
-    if grep -q '^HTTP/1.1 200' "$tmp_headers" ; then
+    if head --lines=1 "$tmp_headers" | grep --quiet '\<200\>' ; then
         # If successful, write to output file
         cat "$tmp_body" > "$output"
         exit
     else
+        cat "$tmp_headers"
         # If unsuccessful, print the errors on stdout
         cat "$tmp_body" >&2
         exit 1
