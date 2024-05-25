@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -euo pipefail
 source ./tools/custom-action/dependency-versions.sh # Source dependency versions
 
 code=1
