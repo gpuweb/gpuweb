@@ -74,6 +74,8 @@ Some possibilities:
 | `subgroup_size` | u32 | Input | The size of the current subgroup |
 | `subgroup_invocation_id` | u32 | Input | The index of the invocation in the current subgroup |
 
+When used in `compute` shader stage, `subgroup_size` should be considered uniform for uniformity analysis.
+
 Note: HLSL does not expose a subgroup_id or num_subgroups equivalent.
 
 **TODO**: Can subgroup_id and/or num_subgroups be emulated efficiently and portably?
