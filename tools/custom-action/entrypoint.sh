@@ -1,5 +1,5 @@
 #!/bin/bash --login
-set -eo pipefail
+set -euo pipefail
 
 source /prepare.sh # Execute the prepare script
 git init # To ensure subsequent git commands pick the workspace
