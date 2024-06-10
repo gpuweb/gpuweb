@@ -9598,6 +9598,7 @@ dictionary GPUCommandEncoderDescriptor
                         </div>
                 1. Set |pass|.{{GPURenderCommandsMixin/[[drawCount]]}} to 0.
                 1. Set |pass|.{{GPURenderPassEncoder/[[maxDrawCount]]}} to |descriptor|.{{GPURenderPassDescriptor/maxDrawCount}}.
+                1. Set |pass|.{{GPURenderPassEncoder/[[maxDrawCount]]}} to |descriptor|.{{GPURenderPassDescriptor/maxDrawCount}}.
 
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=] when executed.
@@ -9607,10 +9608,61 @@ dictionary GPUCommandEncoderDescriptor
 
                 1. Let the {{GPUCommandBuffer/[[renderState]]}} of the currently executing
                     {{GPUCommandBuffer}} be a new [=RenderState=].
-                1. Issue: Perform attachment loads/clears.
-            </div>
 
-            Issue: specify the behavior of read-only depth/stencil
+                1. Let {{GPUCommandBuffer/[[renderState]]}}.{{RenderState/[[colorAttachments]]}} be
+                    |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}.
+                1. Let {{GPUCommandBuffer/[[renderState]]}}.{{RenderState/[[depthStencilAttachment]]}} be
+                    |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
+
+                1. For each non-`null` |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
+                    1. Let |colorSubresource| be |colorAttachment|.{{GPURenderPassColorAttachment/depthSlice}} of
+                        |colorAttachment|.{{GPURenderPassColorAttachment/view}}.
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/loadOp}} is:
+                        <dl class=switch>
+                            : {{GPULoadOp/"load"}}
+                            ::
+                                Ensure the contents of |colorSubresource| are loaded into the [=framebuffer memory=]
+                                associated with |colorSubresource|.
+
+                            : {{GPULoadOp/"clear"}}
+                            ::
+                                Set every [=texel block|texel=] of the [=framebuffer memory=] associated with
+                                |colorSubresource| to |colorAttachment|.{{GPURenderPassColorAttachment/clearValue}}.
+                        </dl>
+
+                1. If |depthStencilAttachment| is not `null`:
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} is:
+                        <dl class=switch>
+                            : {{GPULoadOp/"load"}}
+                            ::
+                                Ensure the contents of the [=aspect/depth=] [=GPUTextureView/subresource=] of
+                                |depthStencilView| are loaded into the [=framebuffer memory=] associated with
+                                |depthStencilView|.
+
+                            : {{GPULoadOp/"clear"}}
+                            ::
+                                Set every [=texel block|texel=] of the [=framebuffer memory=] associated with the
+                                [=aspect/depth=] [=GPUTextureView/subresource=] of |depthStencilView| to
+                                |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthClearValue}}.
+                        </dl>
+
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} is:
+                        <dl class=switch>
+                            : {{GPULoadOp/"load"}}
+                            ::
+                                Ensure the contents of the [=aspect/stencil=] [=GPUTextureView/subresource=] of
+                                |depthStencilView| are loaded into the [=framebuffer memory=] associated with
+                                |depthStencilView|.
+
+                            : {{GPULoadOp/"clear"}}
+                            ::
+                                Set every [=texel block|texel=] of the [=framebuffer memory=] associated with the
+                                [=aspect/stencil=] [=GPUTextureView/subresource=] |depthStencilView| to
+                                |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilClearValue}}.
+                        </dl>
+
+                Issue: specify the behavior of read-only depth/stencil
+            </div>
         </div>
 
     : <dfn>beginComputePass(descriptor)</dfn>
@@ -10915,7 +10967,19 @@ When executing encoded render pass commands as part of a {{GPUCommandBuffer}}, a
 
     : <dfn>\[[stencilReference]]</dfn>, of type {{GPUStencilValue}}
     ::  Current stencil reference value, initially `0`.
+
+    : <dfn>\[[colorAttachments]]</dfn>, of type [=sequence=]&lt;{{GPURenderPassColorAttachment}}?&gt;
+    ::  The color attachments and state for this render pass.
+
+    : <dfn>\[[depthStencilAttachment]]</dfn>, of type {{GPURenderPassDepthStencilAttachment}}?
+    ::  The depth/stencil attachment and state for this render pass.
 </dl>
+
+Render passes also have <dfn dfn>framebuffer memory</dfn>, which contains the [=texel block|texel=] data associated with
+each attachment that is written into by draw commands and read from for blending and depth/stencil testing.
+
+Note: Depending on the GPU hardware, [=framebuffer memory=] may be the memory allocated by the attachment textures or
+may be a separate area of memory that the texture data is copied to and from, such as with tile-based architectures.
 
 ### Render Pass Encoder Creation ### {#render-pass-encoder-creation}
 
@@ -11481,8 +11545,59 @@ called the render pass encoder can no longer be used.
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
-                1. Issue: Perform the attachment stores/discards.
+                1. For each non-`null` |colorAttachment| in |renderState|.{{RenderState/[[colorAttachments]]}}:
+                    1. Let |colorSubresource| be |colorAttachment|.{{GPURenderPassColorAttachment/depthSlice}} of
+                        |colorAttachment|.{{GPURenderPassColorAttachment/view}}.
+
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
+                        1. Resolve the multiple samples of every [=texel block|texel=] |colorSubresource| to a single
+                            sample and copy to |colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}}.
+
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/loadOp}} is:
+                        <dl class=switch>
+                            : {{GPUStoreOp/"store"}}
+                            ::
+                                Ensure the contents of the [=framebuffer memory=] associated with |colorSubresource|
+                                are stored in |colorSubresource|.
+
+                            : {{GPUStoreOp/"discard"}}
+                            ::
+                                Set every [=texel block|texel=] of |colorSubresource| to zero.
+                        </dl>
+
+                1. Let |depthStencilAttachment| be |renderState|.{{RenderState/[[depthStencilAttachment]]}}.
+                1. If |depthStencilAttachment| is not `null`:
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} is:
+                        <dl class=switch>
+                            : {{GPUStoreOp/"store"}}
+                            ::
+                                Ensure the contents of the [=framebuffer memory=] associated with the [=aspect/depth=]
+                                [=GPUTextureView/subresource=] of |depthStencilView| are stored in |depthStencilView|.
+
+                            : {{GPUStoreOp/"discard"}}
+                            ::
+                                Set every [=texel block|texel=] in the [=aspect/depth=] [=GPUTextureView/subresource=]
+                                of |depthStencilView| to zero.
+                        </dl>
+
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} is:
+                        <dl class=switch>
+                            : {{GPUStoreOp/"store"}}
+                            ::
+                                Ensure the contents of the [=framebuffer memory=] associated with the [=aspect/stencil=]
+                                [=GPUTextureView/subresource=] of |depthStencilView| are stored in |depthStencilView|.
+
+                            : {{GPUStoreOp/"discard"}}
+                            ::
+                                Set every [=texel block|texel=] in the [=aspect/stencil=] [=GPUTextureView/subresource=]
+                                |depthStencilView| to zero.
+                        </dl>
+
                 1. Let |renderState| be `null`.
+
+                Note: Discarded attachments behave as if they are cleared to zero, but implementations are not required
+                to perform a clear at the end of the render pass. See the note on {{GPUStoreOp/"discard"}} for
+                additional details.
             </div>
             </div>
         </div>
