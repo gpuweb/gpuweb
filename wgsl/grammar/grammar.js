@@ -89,6 +89,8 @@ module.exports = grammar({
 
         binding_attr: $ => seq('@', 'binding', '(', $.expression, optional(','), ')'),
 
+        blend_src_attr: $ => seq('@', 'blend_src', '(', $.expression, optional(','), ')'),
+
         builtin_attr: $ => seq('@', 'builtin', '(', $.builtin_value_name, optional(','), ')'),
 
         builtin_value_name: $ => $.ident_pattern_token,
@@ -123,7 +125,7 @@ module.exports = grammar({
 
         compute_attr: $ => seq('@', 'compute'),
 
-        attribute: $ => choice(seq('@', $.ident_pattern_token, optional($.argument_expression_list)), $.align_attr, $.binding_attr, $.builtin_attr, $.const_attr, $.diagnostic_attr, $.group_attr, $.id_attr, $.interpolate_attr, $.invariant_attr, $.location_attr, $.must_use_attr, $.size_attr, $.workgroup_size_attr, $.vertex_attr, $.fragment_attr, $.compute_attr),
+        attribute: $ => choice(seq('@', $.ident_pattern_token, optional($.argument_expression_list)), $.align_attr, $.binding_attr, $.blend_src_attr, $.builtin_attr, $.const_attr, $.diagnostic_attr, $.group_attr, $.id_attr, $.interpolate_attr, $.invariant_attr, $.location_attr, $.must_use_attr, $.size_attr, $.workgroup_size_attr, $.vertex_attr, $.fragment_attr, $.compute_attr),
 
         diagnostic_control: $ => seq('(', $.severity_control_name, ',', $.diagnostic_rule_name, optional(','), ')'),
 
