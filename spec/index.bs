@@ -75,6 +75,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
         text: f16; url: f16
         text: location; url: input-output-locations
+        text: blend_src; url: input-output-locations
         text: interpolation; url: interpolation
         text: pipeline-overridable; url: pipeline-overridable
         text: pipeline constant ID; url: pipeline-constant-id
@@ -114,6 +115,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         for: extension
             text: f16; url: extension-f16
             text: clip_distances; url: extension-clip_distances
+            text: dual_source_blending; url: extension-dual_source_blending
     type: abstract-op
         text: SizeOf; url: sizeof
 spec: Internationalization Glossary; urlPrefix: https://www.w3.org/TR/i18n-glossary/#
@@ -8239,20 +8241,30 @@ dictionary GPUFragmentState
             - [$validating GPUProgrammableStage$]({{GPUShaderStage/FRAGMENT}}, |descriptor|, |layout|) succeeds.
             - |descriptor|.{{GPUFragmentState/targets}}.length must be &le;
                 |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
+            - Let |entryPoint| be [$get the entry point$]({{GPUShaderStage/FRAGMENT}}, |descriptor|).
+            - Let |usesDualSourceBlending| be `false`.
             - [=list/For each=] |index| of the [=list/indices=] of |descriptor|.{{GPUFragmentState/targets}}
                 containing a non-`null` value |colorState|:
                 - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
                     with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
+                - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
                 - If |colorState|.{{GPUColorTargetState/blend}} is [=map/exist|provided=]:
                     - The |colorState|.{{GPUColorTargetState/format}} must be [=blendable=].
                     - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}
                         must be a [=valid GPUBlendComponent=].
                     - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
                         must be a [=valid GPUBlendComponent=].
-                - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
-                - If [$get the entry point$]({{GPUShaderStage/FRAGMENT}}, |descriptor|) has a
-                    [=shader stage output=] value |output| with [=location=] attribute equal to |index|:
+                - If |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.{{GPUBlendComponent/srcFactor}} or
+                    |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.{{GPUBlendComponent/dstFactor}} or
+                    |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}.{{GPUBlendComponent/srcFactor}} or
+                    |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}.{{GPUBlendComponent/dstFactor}}
+                    uses the second input of the corresponding blending unit (is any of
+                        {{GPUBlendFactor/"src1"}}, {{GPUBlendFactor/"one-minus-src1"}},
+                        {{GPUBlendFactor/"src1-alpha"}}, {{GPUBlendFactor/"one-minus-src1-alpha"}}), then:
 
+                    - Set |usesDualSourceBlending| to `true`.
+                - For each [=shader stage output=] value |output| with [=location=] attribute equal to |index|
+                    in |entryPoint|:
                     - For each component in |colorState|.{{GPUColorTargetState/format}}, there must be a
                         corresponding component in |output|.
                         (That is, RGBA requires vec4, RGB requires vec3 or vec4, RG requires vec2 or vec3 or vec4.)
@@ -8271,12 +8283,20 @@ dictionary GPUFragmentState
                         |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.{{GPUBlendComponent/srcFactor}}
                         or .{{GPUBlendComponent/dstFactor}} uses the source alpha
                         (is any of {{GPUBlendFactor/"src-alpha"}}, {{GPUBlendFactor/"one-minus-src-alpha"}},
-                        or {{GPUBlendFactor/"src-alpha-saturated"}}), then:
+                        {{GPUBlendFactor/"src-alpha-saturated"}}, {{GPUBlendFactor/"src1-alpha"}} or
+                        {{GPUBlendFactor/"one-minus-src1-alpha"}}), then:
                         - |output| must have an alpha channel (that is, it must be a vec4).
 
-                    Otherwise, since there is no shader output for the attachment:
-
-                    - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
+                - If |colorState|.{{GPUColorTargetState/writeMask}} is not 0:
+                    - |entryPoint| must have a [=shader stage output=] with [=location=] equal to |index|
+                         and [=blend_src=] omitted or equal to 0.
+            - If |usesDualSourceBlending| is `true`:
+                - All the [=shader stage output=] values of |entryPoint| must have a [=blend_src=] attribute.
+                - |descriptor|.{{GPUFragmentState/targets}}.length must be 1.
+                - Let |colorState| be |descriptor|.{{GPUFragmentState/targets}}[0].
+                - If |colorState|.{{GPUColorTargetState/writeMask}} is not 0:
+                    - |entryPoint| must have a [=shader stage output=] with [=location=] equal to 0
+                        and [=blend_src=] equal to 1.
             - [$Validating GPUFragmentState's color attachment bytes per sample$](|device|, |descriptor|.{{GPUFragmentState/targets}}) succeeds.
         </div>
 </div>
@@ -8408,6 +8428,12 @@ location:
             <td>Color output by the fragment shader for the color attachment.
                 If the shader doesn't return an alpha channel, src-alpha blend factors cannot be used.
         <tr>
+            <td><b><code>RGBA<sub>src1</src></code></b>
+            <td>Color output by the fragment shader for the color attachment with
+                <a href="https://gpuweb.github.io/gpuweb/wgsl/#input-output-locations">"@blend_src" attribute</a>
+                equal to `1`.
+                If the shader doesn't return an alpha channel, src1-alpha blend factors cannot be used.
+        <tr>
             <td><b><code>RGBA<sub>dst</src></code></b>
             <td>Color currently in the color attachment.
                 Missing green/blue/alpha channels default to `0, 0, 1`, respectively.
@@ -8438,6 +8464,10 @@ enum GPUBlendFactor {
     "src-alpha-saturated",
     "constant",
     "one-minus-constant",
+    "src1",
+    "one-minus-src1",
+    "src1-alpha",
+    "one-minus-src1-alpha",
 };
 </script>
 
@@ -8448,12 +8478,14 @@ enum GPUBlendFactor {
         <tr>
             <th>GPUBlendFactor
             <th>Blend factor RGBA components
+            <th>[=Feature=]
         </tr>
     </thead>
     <tbody dfn-type=enum-value dfn-for=GPUBlendFactor>
         <tr>
             <td><dfn>"zero"</dfn>
             <td><code>(0, 0, 0, 0)</code>
+            <td rowspan=13>
         <tr>
             <td><dfn>"one"</dfn>
             <td><code>(1, 1, 1, 1)</code>
@@ -8490,6 +8522,19 @@ enum GPUBlendFactor {
         <tr>
             <td><dfn>"one-minus-constant"</dfn>
             <td><code>(1 - R<sub>const</sub>, 1 - G<sub>const</sub>, 1 - B<sub>const</sub>, 1 - A<sub>const</sub>)</code>
+        <tr>
+            <td><dfn>"src1"</dfn>
+            <td><code>(R<sub>src1</sub>, G<sub>src1</sub>, B<sub>src1</sub>, A<sub>src1</sub>)</code>
+            <td rowspan=4>{{GPUFeatureName/dual-source-blending}}
+        <tr>
+            <td><dfn>"one-minus-src1"</dfn>
+            <td><code>(1 - R<sub>src1</sub>, 1 - G<sub>src1</sub>, 1 - B<sub>src1</sub>, 1 - A<sub>src1</sub>)</code>
+        <tr>
+            <td><dfn>"src1-alpha"</dfn>
+            <td><code>(A<sub>src1</sub>, A<sub>src1</sub>, A<sub>src1</sub>, A<sub>src1</sub>)</code>
+        <tr>
+            <td><dfn>"one-minus-src1-alpha"</dfn>
+            <td><code>(1 - A<sub>src1</sub>, 1 - A<sub>src1</sub>, 1 - A<sub>src1</sub>, 1 - A<sub>src1</sub>)</code>
     </tbody>
 </table>
 
@@ -15619,6 +15664,23 @@ This feature adds the following [=optional API surfaces=]:
 
 - New WGSL extensions:
     - [=extension/clip_distances=]
+
+<h3 id=dom-gpufeaturename-dual-source-blending data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"dual-source-blending"`
+</h3>
+
+Allows the use of [=blend_src=] in WGSL and simultaneously using both pixel shader outputs
+(`@blend_src(0)` and `@blend_src(1)`) as inputs to a blending operation with the single color
+attachment at [=location=] `0`.
+
+This feature adds the following [=optional API surfaces=]:
+- Allows the use of the below {{GPUBlendFactor}}s:
+  - {{GPUBlendFactor/"src1"}}
+  - {{GPUBlendFactor/"one-minus-src1"}}
+  - {{GPUBlendFactor/"src1-alpha"}}
+  - {{GPUBlendFactor/"one-minus-src1-alpha"}}
+
+- New WGSL extensions:
+    - [=extension/dual_source_blending=]
 
 # Appendices # {#appendices}
 
