@@ -324,17 +324,17 @@ class TSPath:
 
         # Indexed
         # These are only valid inside parens.
-        m = re.fullmatch('(\d+)(.*)',path)
+        m = re.fullmatch('(\\d+)(.*)',path)
         if m:
             return IndexedNode(int(m.group(1)),self.parse(m.group(2)))
 
         # IndexedChild
-        m = re.fullmatch('\[(\d+)\](.*)',path)
+        m = re.fullmatch('\\[(\\d+)\\](.*)',path)
         if m:
             return IndexedChildNode(int(m.group(1)),self.parse(m.group(2)))
 
         # Named
-        m = re.fullmatch('(\w+)(.*)',path)
+        m = re.fullmatch('(\\w+)(.*)',path)
         if m:
             return NamedNode(m.group(1),self.parse(m.group(2)))
 
