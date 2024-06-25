@@ -42,14 +42,14 @@ Add two new enable extensions.
 | Enable | Description |
 | --- | --- |
 | **subgroups** | Adds built-in values and functions for subgroups |
-| **subgroups-f16** | Allows f16 to be used in subgroups operations |
+| **subgroups_f16** | Allows f16 to be used in subgroups operations |
 
-Note: Metal can always provide subgroups-f16, Vulkan requires
+Note: Metal can always provide subgroups_f16, Vulkan requires
 VK_KHR_shader_subgroup_extended_types
 ([~61%](https://vulkan.gpuinfo.org/listdevicescoverage.php?extension=VK_KHR_shader_subgroup_extended_types&platform=all)
 of devices), and D3D12 requires SM6.2.
 
-**TODO**: Can we drop **subgroups-f16**?
+**TODO**: Can we drop **subgroups_f16**?
 According to this [analysis](https://github.com/teoxoy/gpuinfo-vulkan-query/blob/8681e0074ece1b251177865203d18b018e05d67a/subgroups.txt#L1071-L1466)
 Only 4% of devices that support both f16 and subgroups could not support
 subgroup extended types.
@@ -83,7 +83,7 @@ Note: HLSL does not expose a subgroup_id or num_subgroups equivalent.
 ## Built-in Functions
 
 All built-in function can only be used in `compute` or `fragment` shader stages.
-Using f16 as a parameter in any of these functions requires `subgroups-f16` to be enabled.
+Using f16 as a parameter in any of these functions requires `subgroups_f16` to be enabled.
 
 | Function | Preconditions | Description |
 | --- | --- | --- |
