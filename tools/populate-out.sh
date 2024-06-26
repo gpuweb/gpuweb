@@ -1,7 +1,7 @@
 #!/bin/bash
 # This is called from the repository root. Populates out/ with everything to
 # publish on GitHub Pages and PR previews.
-set -eo pipefail
+set -euo pipefail
 
 mkdir -p out/{wgsl,wgsl/grammar,explainer,correspondence}
 

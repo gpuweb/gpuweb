@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -euo pipefail
 
 source /dependency-versions.sh # Source dependency versions
 cp -r /grammar ./wgsl/

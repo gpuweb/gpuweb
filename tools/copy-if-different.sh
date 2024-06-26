@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -euo pipefail
 
 usage()
 {
