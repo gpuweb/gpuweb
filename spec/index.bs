@@ -106,12 +106,18 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: @group; url: attribute-group
         text: line break; url: line-break
         text: 64-bit unsigned integer; url: 64-bit-integer
+        text: Synchronization Built-in Functions; url: sync-builtin-functions
         for: address spaces
             text: workgroup; url: address-spaces-workgroup
         for: builtin
             text: sample_mask; url: built-in-values-sample_mask
             text: frag_depth; url: built-in-values-frag_depth
             text: clip_distances; url: built-in-values-clip_distances
+            text: workgroup_id; url: built-in-values-workgroup_id
+            text: local_invocation_id; url: built-in-values-local_invocation_id
+            text: global_invocation_id; url: built-in-values-global_invocation_id
+            text: num_workgroups; url: built-in-values-num_workgroups
+            text: local_invocation_index; url: built-in-values-local_invocation_index
         for: extension
             text: f16; url: extension-f16
             text: clip_distances; url: extension-clip_distances
@@ -14541,7 +14547,63 @@ These operations are encoded within {{GPUComputePassEncoder}} as:
 - {{GPUComputePassEncoder/dispatchWorkgroups()}}
 - {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}
 
-<p class="note editorial"><span class=marker>Editorial note:</span> describe the computing algorithm
+The main compute algorithm:
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>compute</dfn>(descriptor, drawCall, state)
+
+    **Arguments:**
+
+    - |descriptor|: Description of the current {{GPUComputePipeline}}.
+    - |dispatchCall|: The dispatch call parameters. May come from function arguments or an {{GPUBufferUsage/INDIRECT}} buffer.
+
+    1. Let |computeInvocations| be an [=list/empty=] [=list=].
+    1. Let |computeStage| be |descriptor|.{{GPUComputePipelineDescriptor/compute}}.
+    1. Let |workgroupSize| be the `@workgroup_size` declared for |computeStage|.{{GPUProgrammableStage/entryPoint}}
+        of |computeStage|.{{GPUProgrammableStage/module}}
+    1. For |workgroupX| in range <code>[0, |dispatchCall|.`workgroupCountX`]</code>:
+        1. For |workgroupY| in range <code>[0, |dispatchCall|.`workgroupCountY`]</code>:
+            1. For |workgroupZ| in range <code>[0, |dispatchCall|.`workgroupCountZ`]</code>:
+                1. For |localX| in range <code>[0, |workgroupSize|.`x`]</code>:
+                    1. For |localY| in range <code>[0, |workgroupSize|.`y`]</code>:
+                        1. For |localZ| in range <code>[0, |workgroupSize|.`y`]</code>:
+                            1. Let |invocation| be <code>{ |computeStage|, |workgroupX|, |workgroupY|, |workgroupZ|, |localX|, |localY|, |localZ| }</code>
+                            1. [=list/Append=] |invocation| to |computeInvocations|.
+
+    1. For every |invocation| in |computeInvocations|, in any order the [=device=] chooses, including in parallel:
+        1. Set the shader [=builtins=]:
+            - Set the [=builtin/num_workgroups=] builtin, if any, to <code>(<br/>
+                    |dispatchCall|.`workgroupCountX`,<br/>
+                    |dispatchCall|.`workgroupCountY`,<br/>
+                    |dispatchCall|.`workgroupCountZ`<br/>
+                )</code>
+            - Set the [=builtin/workgroup_id=] builtin, if any, to <code>(<br/>
+                    |invocation|.|workgroupX|,<br/>
+                    |invocation|.|workgroupY|,<br/>
+                    |invocation|.|workgroupZ|<br/>
+                )</code>
+            - Set the [=builtin/local_invocation_id=] builtin, if any, to <code>(<br/>
+                    |invocation|.|localX|,<br/>
+                    |invocation|.|localY|,<br/>
+                    |invocation|.|localZ|<br/>
+                )</code>
+            - Set the [=builtin/global_invocation_id=] builtin, if any, to <code>(<br/>
+                    |invocation|.|workgroupX| * |workgroupSize|.`x` + |invocation|.|localX|,<br/>
+                    |invocation|.|workgroupY| * |workgroupSize|.`y` + |invocation|.|localY|,<br/>
+                    |invocation|.|workgroupZ| * |workgroupSize|.`z` + |invocation|.|localZ|<br/>
+                )</code>.
+            - Set the [=builtin/local_invocation_index=] builtin, if any, to <code>
+                |invocation|.|localX| + (|invocation|.|localY| * |workgroupSize|.`x`) +
+                (|invocation|.|localZ| * |workgroupSize|.`x` * |workgroupSize|.`y`)
+                </code>
+        1. Invoke the compute shader entry point described by |invocation|.|computeStage|.
+
+    Note: Shader invocations have no guaranteed order, and will generally run in parallel according to device
+    capabilities. Developers should not assume that any given invocation or workgroup will complete before any
+    other one is started. Some devices may appear to execute in a consistent order, but this behavior should not
+    be relied on as it will not perform identically across all devices. Shaders that require synchronization
+    across invocations must use [=Synchronization Built-in Functions=] to coordinate execution.
+</div>
 
 The [=device=] may become [=lose the device|lost=] if
 [=shader execution end|shader execution does not end=]
