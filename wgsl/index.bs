@@ -597,6 +597,11 @@ The events are:
         is invoked.
         These methods use one or more previously created shader modules, together with other
         configuration information.
+    * Only the code forming the [=shader=] of the specified [=entry point=] of the
+        {{GPUProgrammableStage}} is considered during pipeline creation.
+        That is, code unrelated to the entry point is effectively stripped before compilation.
+    * Note: Each [=shader stage=] is considered to be compiled separately and, thus, might
+        include different portions of the module.
 3. <dfn noexport>Shader execution start</dfn>
     * This occurs when a [=draw command|draw=] or [=dispatch command=] is issued to the GPU,
         begins executing the pipeline,
@@ -638,6 +643,8 @@ A processing error may occur during three phases in the shader lifecycle:
     is an error detectable at [=pipeline creation=] time.
     Detection relies on the WGSL module source text
     and other information available to the particular pipeline creation API method.
+    These errors are only triggered for code present in the [=shader=] of the
+    [=entry point=] being compiled for the {{GPUProgrammableStage}}.
 
 * A <dfn export>dynamic error</dfn> is an error occurring during shader execution.
     These errors may or may not be detectable.
@@ -5238,8 +5245,13 @@ An expression is an override-expression if all its [=identifiers=] [=resolve=] t
 
 Note: All [=const-expressions=] are also override-expressions.
 
-An override-expression |E| [=behavioral requirement|will=] be evaluated if and only if:
-* |E| is [=top-level expression=], or
+Override-expressions are only validated or evaluated after any API-provided
+values are substituted for [=override-declarations=].
+If an [=override-declaration=] has its value substituted via the API, its
+initializer expression, if present, will not be evaluated.
+Otherwise, an override-expression |E| [=behavioral requirement|will=] be
+evaluated if and only if:
+* |E| is [=top-level expression=] (after value substitution), or
 * |E| is a [=subexpression=] of an expression |OuterE|, and |OuterE|
     [=behavioral requirement|will=] be evaluated, and evaluation of |OuterE|
     requires |E| to be evaluated.
@@ -5268,6 +5280,37 @@ Example: `vec3(x,x,x)` is analyzed as follows:
     [=resolve=] to override-declarations.
 * The type of the expression is a [=vector=] of 3 components
     of [=i32=] (`vec3<i32>`).
+
+<div class='example override-expression errors' heading='Shader-creation errors from override-expressions'>
+  <xmp highlight=wgsl>
+  override a : i32 = 0;
+  override b = a / 0; // shader-creation error,
+                      // regardless of attempting to override c
+  </xmp>
+</div>
+
+<div class='example override-expression errors' heading='Pipeline-creation errors from override-expressions'>
+  <xmp highlight=wgsl>
+  override a : i32 = 0;
+  override b = 1 / a;
+
+  // b is a part of the frag1 shader. When compiling frag1 into a pipeline
+  // the following cases may occur:
+  // * if b is overridden, no error occurs.
+  // * if a is overridden to a non-zero value, no error occurs.
+  // * if a is 0 and b is not overridden, a pipeline-creation error occurs.
+  @fragment
+  fn frag1() {
+    _ = b;
+  }
+
+  // b is not part of the frag2 shader. When compiling frag2 into a pipeline
+  // no errors occur even if b is not overridden and the value of a is 0.
+  @fragment
+  fn frag2() {
+  }
+  </xmp>
+</div>
 
 ## Indeterminate values ## {#indeterminate-values}
 
