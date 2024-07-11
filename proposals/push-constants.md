@@ -28,6 +28,50 @@ No special requirements.
 
 NOTE: Each [entry point](https://www.w3.org/TR/WGSL/#entry-point) can statically use at most one immediate data variable.
 
+Sample Code:
+```
+struct Constants {
+    inner: i32;
+}
+
+var<immediate_data> a : Constants;
+var<immediate_data> b : i32;
+var<immediate_data> c : i32; // unused
+
+fn uses_a() {
+  let foo = a.inner;
+}
+
+fn uses_uses_a() {
+  uses_a();
+}
+
+fn uses_b() {
+  let foo = b;
+}
+
+// Each entry point can statically use at most one immediate data variable.
+@compute @workgroup_size(1)
+fn main1() {
+  uses_a();
+}
+
+@compute @workgroup_size(1)
+fn main2() {
+  uses_uses_a();
+}
+
+@compute @workgroup_size(1)
+fn main3() {
+  uses_b();
+}
+
+@compute @workgroup_size(1)
+fn main4() {
+}
+
+```
+
 # API
 
 ## Limits
@@ -64,11 +108,16 @@ Four new functions in `GPUCommandEncoder`.
 
 ```javascript
 interface mixin GPUBindingCommandsMixin {
-        void setImmeidateDataU32(uint32_t offset, uint32_t value);
-        void setImmediateDataI32(uint32_t offset, int32_t value);
-        void setImmediateDataF32(uin32_t offset, float32_t value);
         void setImmediateDataRange(uint32_t rangeOffset, AllowSharedBufferSource data, optional dataOffset, optional size);
 }
 ```
 NOTE: rangeOffset: Offset in bytes into immediate data range to begin writing at. Requires multiple of 4 bytes.
 NOTE: dataOffset: Offset in into data to begin writing from. Given in elements if data is a TypedArray and bytes otherwise.
+
+Open Questions:
+- Should immediates be defined per-stage?
+  - wgpu currently has per-stage immediates (@teoxoy?) and we weren't sure if that is a feasible alternative.
+
+- Should pipelineLayout defines immediate range compatible?
+  - Implementation internal immediate data usage could easily break compatibility. Implementation needs extra
+    effort to ensure such compatibility.
