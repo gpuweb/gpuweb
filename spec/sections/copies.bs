@@ -28,8 +28,8 @@ and "immediate" {{GPUQueue}} operations:
 - {{GPUQueue/writeTexture()}}, for {{ArrayBuffer}}-to-{{GPUTexture}} writes
 - {{GPUQueue/copyExternalImageToTexture()}}, for copies from Web Platform image sources to textures
 
-Some texel values have multiple possible representations of some values,
-e.g. as `r8snorm`, -1.0 can be represented as either -127 or -128.
+Some texel values have <dfn dfn lt='equivalent texel representation'>multiple possible representations</dfn>
+of some values, e.g. as `r8snorm`, -1.0 can be represented as either -127 or -128.
 Copy commands are not guaranteed to preserve the source's bit-representation.
 
 The following definitions are used by these methods:
@@ -46,28 +46,29 @@ dictionary GPUImageDataLayout {
 };
 </script>
 
-An <dfn dfn>image</dfn> is comprised of one or more rows of [=texel blocks=], referred to here as
-<dfn dfn>block row</dfn>s. Each [=block row=] of an [=image=] must contain the same number of
-[=texel blocks=], and all [=texel blocks=] in an [=image=] are of the same {{GPUTextureFormat}}.
+A <dfn dfn>texel image</dfn> is comprised of one or more rows of [=texel blocks=], referred to here
+as <dfn dfn>texel block row</dfn>s. Each [=texel block row=] of a [=texel image=] must contain the
+same number of [=texel blocks=], and all [=texel blocks=] in a [=texel image=] are of the same
+{{GPUTextureFormat}}.
 
-A {{GPUImageDataLayout}} is a layout of [=images=] within some linear memory.
+A {{GPUImageDataLayout}} is a layout of [=texel images=] within some linear memory.
 It's used when copying data between a [=texture=] and a {{GPUBuffer}}, or when scheduling a
 write into a [=texture=] from the {{GPUQueue}}.
 
-- For {{GPUTextureDimension/2d}} textures, data is copied between one or multiple contiguous [=images=] and [=array layers=].
-- For {{GPUTextureDimension/3d}} textures, data is copied between one or multiple contiguous [=images=] and depth [=slices=].
+- For {{GPUTextureDimension/2d}} textures, data is copied between one or multiple contiguous
+    [=texel images=] and [=array layers=].
+- For {{GPUTextureDimension/3d}} textures, data is copied between one or multiple contiguous
+    [=texel images=] and depth [=slices=].
 
 Operations that copy between byte arrays and textures always operate on whole [=texel block=].
 It's not possible to update only a part of a [=texel block=].
 
-[=Texel blocks=] are tightly packed within each [=block row=] in the linear memory layout of an
-image copy, with each subsequent texel block immediately following the previous texel block,
+[=Texel blocks=] are tightly packed within each [=texel block row=] in the linear memory layout of an
+image copy, with each subsequent [=texel block=] immediately following the previous [=texel block=],
 with no padding.
 This includes [[#copying-depth-stencil|copies]] to/from specific aspects of [=depth-or-stencil format=] textures:
 stencil values are tightly packed in an array of bytes;
 depth values are tightly packed in an array of the appropriate type ("depth16unorm" or "depth32float").
-
-Issue: Define the exact copy semantics, by reference to common algorithms shared by the copy methods.
 
 <dl dfn-type=dict-member dfn-for=GPUImageDataLayout>
     : <dfn>offset</dfn>
@@ -78,17 +79,20 @@ Issue: Define the exact copy semantics, by reference to common algorithms shared
 
     : <dfn>bytesPerRow</dfn>
     ::
-        The stride, in bytes, between the beginning of each [=block row=] and the subsequent [=block row=].
+        The stride, in bytes, between the beginning of each [=texel block row=] and the subsequent
+        [=texel block row=].
 
-        Required if there are multiple [=block rows=] (i.e. the copy height or depth is more than one block).
+        Required if there are multiple [=texel block rows=] (i.e. the copy height or depth is more
+        than one block).
 
     : <dfn>rowsPerImage</dfn>
     ::
-        Number of [=block rows=] per single [=image=] of the [=texture=].
+        Number of [=texel block rows=] per single [=texel image=] of the [=texture=].
         {{GPUImageDataLayout/rowsPerImage}} &times;
-        {{GPUImageDataLayout/bytesPerRow}} is the stride, in bytes, between the beginning of each [=image=] of data and the subsequent [=image=].
+        {{GPUImageDataLayout/bytesPerRow}} is the stride, in bytes, between the beginning of each
+        [=texel image=] of data and the subsequent [=texel image=].
 
-        Required if there are multiple [=images=] (i.e. the copy depth is more than one).
+        Required if there are multiple [=texel images=] (i.e. the copy depth is more than one).
 </dl>
 
 <h4 id=gpuimagecopybuffer data-dfn-type=dictionary>`GPUImageCopyBuffer`
@@ -166,6 +170,40 @@ dictionary GPUImageCopyTexture {
     ::
         Defines which aspects of the {{GPUImageCopyTexture/texture}} to copy to/from.
 </dl>
+
+<div algorithm data-timeline=const>
+    The <dfn abstract-op>texture copy sub-region</dfn> for depth slice or array layer |index| of {{GPUImageCopyTexture}}
+    |copyTexture| is determined by running the following steps:
+
+        1. Let |texture| be |copyTexture|.{{GPUImageCopyTexture/texture}}.
+        1. If |texture|.{{GPUTexture/dimension}} is:
+            <dl class=switch>
+                : {{GPUTextureDimension/1d}}
+                ::  1. [=Assert=] |index| is `0`
+                    1. Let |depthSliceOrLayer| be |texture|
+
+                : {{GPUTextureDimension/2d}}
+                :: Let |depthSliceOrLayer| be array layer |index| of |texture|
+
+                : {{GPUTextureDimension/3d}}
+                :: Let |depthSliceOrLayer| be depth slice |index| of |texture|
+            </dl>
+        1. Let |textureMip| be mip level |copyTexture|.{{GPUImageCopyTexture/mipLevel}} of |depthSliceOrLayer|.
+        1. Return aspect |copyTexture|.{{GPUImageCopyTexture/aspect}} of |textureMip|.
+</div>
+
+<div algorithm data-timeline=const>
+    The <dfn abstract-op>texel block byte offset</dfn> of data described by {{GPUImageDataLayout}} |dataLayout|
+    corresponding to [=texel block=] |x|, |y| of depth slice or array layer |z| of a {{GPUTexture}} |texture| is
+    determined by running the following steps:
+
+        1. Let |blockBytes| be the [=texel block copy footprint=] of |texture|.{{GPUTexture/format}}.
+        1. Let |imageOffset| be (|z| &times; |dataLayout|.{{GPUImageDataLayout/rowsPerImage}} &times;
+            |dataLayout|.{{GPUImageDataLayout/bytesPerRow}}) &plus; |dataLayout|.{{GPUImageDataLayout/offset}}.
+        1. Let |rowOffset| be (|y| &times; |dataLayout|.{{GPUImageDataLayout/bytesPerRow}}) &plus; |imageOffset|.
+        1. Let |blockOffset| be (|x| &times; |blockBytes|) &plus; |rowOffset|.
+        1. Return |blockOffset|.
+</div>
 
 <div algorithm data-timeline=device>
     <dfn abstract-op>validating GPUImageCopyTexture</dfn>(|imageCopyTexture|, |copySize|)
@@ -245,8 +283,6 @@ dictionary GPUImageCopyTexture {
                 |copySize|) succeeds.
         </div>
 </div>
-
-Issue(gpuweb/gpuweb#69): Define the copies with {{GPUTextureDimension/1d}} and {{GPUTextureDimension/3d}} textures.
 
 <h4 id=gpuimagecopytexturetagged data-dfn-type=dictionary>`GPUImageCopyTextureTagged`
 <span id=gpu-image-copy-texture-tagged></span>

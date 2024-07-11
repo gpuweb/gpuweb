@@ -42,14 +42,14 @@ Add two new enable extensions.
 | Enable | Description |
 | --- | --- |
 | **subgroups** | Adds built-in values and functions for subgroups |
-| **subgroups-f16** | Allows f16 to be used in subgroups operations |
+| **subgroups_f16** | Allows f16 to be used in subgroups operations |
 
-Note: Metal can always provide subgroups-f16, Vulkan requires
+Note: Metal can always provide subgroups_f16, Vulkan requires
 VK_KHR_shader_subgroup_extended_types
 ([~61%](https://vulkan.gpuinfo.org/listdevicescoverage.php?extension=VK_KHR_shader_subgroup_extended_types&platform=all)
 of devices), and D3D12 requires SM6.2.
 
-**TODO**: Can we drop **subgroups-f16**?
+**TODO**: Can we drop **subgroups_f16**?
 According to this [analysis](https://github.com/teoxoy/gpuinfo-vulkan-query/blob/8681e0074ece1b251177865203d18b018e05d67a/subgroups.txt#L1071-L1466)
 Only 4% of devices that support both f16 and subgroups could not support
 subgroup extended types.
@@ -83,7 +83,7 @@ Note: HLSL does not expose a subgroup_id or num_subgroups equivalent.
 ## Built-in Functions
 
 All built-in function can only be used in `compute` or `fragment` shader stages.
-Using f16 as a parameter in any of these functions requires `subgroups-f16` to be enabled.
+Using f16 as a parameter in any of these functions requires `subgroups_f16` to be enabled.
 
 | Function | Preconditions | Description |
 | --- | --- | --- |
@@ -97,16 +97,16 @@ Using f16 as a parameter in any of these functions requires `subgroups-f16` to b
 | `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask`.<br>`mask` must be dynamically uniform. |
 | `fn subgroupShuffleUp(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id - delta` |
 | `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta` |
-| `fn subgroupSum(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Adds `e` among all active invocations and returns that result |
-| `fn subgroupExclusiveSum(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than this invocation |
-| `fn subgroupProduct(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Multiplies `e` among all active invocations and returns that result |
-| `fn subgroupExclusiveProduct(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than this invocation |
+| `fn subgroupAdd(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Adds `e` among all active invocations and returns that result |
+| `fn subgroupExclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than this invocation |
+| `fn subgroupMul(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Multiplies `e` among all active invocations and returns that result |
+| `fn subgroupExclusiveMul(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than this invocation |
 | `fn subgroupAnd(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise and of `e` among all active invocations and returns that result |
 | `fn subgroupOr(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise or of `e` among all active invocations and returns that result |
 | `fn subgroupXor(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise xor of `e` among all active invocations and returns that result |
 | `fn subgroupMin(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a min of `e` among all active invocations and returns that result |
 | `fn subgroupMax(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a max of `e` among all active invocations and returns that result |
-| `fn quadBroadcast(e : T, id : I)` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Broadcasts `e` from the quad invocation with id equal to `id`<br>`e` must be a constant-expression<sup>2</sup> |
+| `fn quadBroadcast(e : T, id : I)` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Broadcasts `e` from the quad invocation with id equal to `id`<br>`id` must be a constant-expression<sup>2</sup> |
 | `fn quadSwapX(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the X direction |
 | `fn quadSwapY(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the Y direction |
 | `fn quadSwapDiagonal(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad diagnoally |
@@ -231,10 +231,10 @@ D3D12 would have to be proven empricially.
 | `subgroupShuffleXor` | OpGroupNonUniformShuffleXor | simd_shuffle_xor | WaveReadLaneAt with index equal `subgroup_invocation_id ^ mask` |
 | `subgroupShuffleUp` | OpGroupNonUniformShuffleUp | simd_shuffle_up | WaveReadLaneAt with index equal `subgroup_invocation_id - delta` |
 | `subgroupShuffleDown` | OpGroupNonUniformShuffleDown | simd_shuffle_down | WaveReadLaneAt with index equal `subgroup_invocation_id + delta` |
-| `subgroupSum` | OpGroupNonUniform[IF]Add with Reduce operation | simd_sum | WaveActiveSum |
-| `subgroupExclusiveSum` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_sum | WavePrefixSum |
-| `subgroupProduct` | OpGroupNonUniform[IF]Mul with Reduce operation | simd_product | WaveActiveProduct |
-| `subgroupExclusiveProduct` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_product | WavePrefixProduct |
+| `subgroupAdd` | OpGroupNonUniform[IF]Add with Reduce operation | simd_sum | WaveActiveSum |
+| `subgroupExclusiveAdd` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_sum | WavePrefixSum |
+| `subgroupMul` | OpGroupNonUniform[IF]Mul with Reduce operation | simd_product | WaveActiveProduct |
+| `subgroupExclusiveMul` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_product | WavePrefixProduct |
 | `subgroupAnd` | OpGroupNonUniformBitwiseAnd with Reduce operation | simd_and | WaveActiveBitAnd |
 | `subgroupOr` | OpGroupNonUniformBitwiseOr with Reduce operation | simd_or | WaveActiveBitOr |
 | `subgroupXor` | OpGroupNonUniformBitwiseXor with Reduce operation | simd_xor | WaveActiveBitXor |

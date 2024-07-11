@@ -597,6 +597,11 @@ The events are:
         is invoked.
         These methods use one or more previously created shader modules, together with other
         configuration information.
+    * Only the code forming the [=shader=] of the specified [=entry point=] of the
+        {{GPUProgrammableStage}} is considered during pipeline creation.
+        That is, code unrelated to the entry point is effectively stripped before compilation.
+    * Note: Each [=shader stage=] is considered to be compiled separately and, thus, might
+        include different portions of the module.
 3. <dfn noexport>Shader execution start</dfn>
     * This occurs when a [=draw command|draw=] or [=dispatch command=] is issued to the GPU,
         begins executing the pipeline,
@@ -638,6 +643,8 @@ A processing error may occur during three phases in the shader lifecycle:
     is an error detectable at [=pipeline creation=] time.
     Detection relies on the WGSL module source text
     and other information available to the particular pipeline creation API method.
+    These errors are only triggered for code present in the [=shader=] of the
+    [=entry point=] being compiled for the {{GPUProgrammableStage}}.
 
 * A <dfn export>dynamic error</dfn> is an error occurring during shader execution.
     These errors may or may not be detectable.
@@ -1335,6 +1342,7 @@ The [=syntax/attribute=] names are:
 * <a for=attribute lt=interpolate>`'interpolate'`</a>
 * <a for=attribute lt=invariant>`'invariant'`</a>
 * <a for=attribute lt=location>`'location'`</a>
+* <a for=attribute lt=blend_src>`'blend_src'`</a>
 * <a for=attribute lt=must_use>`'must_use'`</a>
 * <a for=attribute lt=size>`'size'`</a>
 * <a for=attribute lt=vertex>`'vertex'`</a>
@@ -1405,6 +1413,8 @@ path: syntax/enable_extension_name.syntax.bs.include
 The [=enable-extension=] names are:
 
 * <a for=extension lt=f16>`'f16'`</a>
+* <a for=extension lt=clip_distances>`'clip_distances'`</a>
+* <a for=extension lt=dual_source_blending>`'dual_source_blending'`</a>
 
 The valid [=language extension=] names are listed in [[#language-extensions-sec]] but in general have the same form as an [=identifier=]:
 
@@ -1751,13 +1761,17 @@ The valid [=enable-extensions=] are listed in the following table.
         <th>Description
   </thead>
   <tr><td><dfn noexport dfn-for="extension">`f16`</dfn>
-      <td>`"shader-f16"`
+      <td>[[WebGPU#shader-f16|"shader-f16"]]
       <td>The [=f16=] type is valid to use in the WGSL module. Otherwise, using [=f16=] (directly or indirectly) will result in a [=shader-creation error=].
   <tr><td><dfn noexport dfn-for="extension">`clip_distances`</dfn>
-      <td>`"clip_distances"`
+      <td>[[WebGPU#dom-gpufeaturename-clip-distances|"clip-distances"]]
       <td>The built-in variable [=built-in values/clip_distances=] is valid to use in the WGSL
           module. Otherwise, using [=built-in values/clip_distances=] will result in a
           [=shader-creation error=].
+  <tr><td><dfn noexport dfn-for="extension">`dual_source_blending`</dfn>
+      <td>[[WebGPU#dom-gpufeaturename-dual-source-blending|"dual-source-blending"]]
+      <td>The attribute [=attribute/blend_src=] is valid to use in the WGSL module. Otherwise, using
+          [=attribute/blend_src=] will result in a [=shader-creation error=].
 </table>
 
 <div class='example wgsl using extensions expect-error' heading="Using hypothetical enable-extensions">
@@ -3106,12 +3120,13 @@ The following attributes can be applied to structure members:
  * [=attribute/align=]
  * [=attribute/builtin=]
  * [=attribute/location=]
+ * [=attribute/blend_src=]
  * [=attribute/interpolate=]
  * [=attribute/invariant=]
  * [=attribute/size=]
 
-Attributes [=attribute/builtin=], [=attribute/location=], [=attribute/interpolate=], and [=attribute/invariant=]
-are [=IO attributes=].
+Attributes [=attribute/builtin=], [=attribute/location=], [=attribute/blend_src=],
+[=attribute/interpolate=], and [=attribute/invariant=] are [=IO attributes=].
 An [=IO attribute=] on a member of a structure *S* has effect only when
 *S* is used as the type of a [=formal parameter=] or [=return type=] of an [=entry point=].
 See [[#stage-inputs-outputs]].
@@ -4725,9 +4740,9 @@ effective-value-type.
     creation|pipeline-creation time=].
 4. [=Override-declarations=] are part of the shader interface, but are not
     bound resources.
-5. [=Storage buffers=] with an access mode other than [=access/read=] and
-    [=type/storage textures=] cannot be [=statically accessed=]
-    in a [=vertex shader stage=].
+5. [=Storage buffers=] and [=type/storage textures=] with an access mode other
+    than [=access/read=] cannot be [=statically accessed=] in a [=vertex shader
+    stage=].
     See WebGPU {{GPUDevice/createBindGroupLayout()}}.
 6. [=Atomic types=] can only appear in mutable storage buffers or workgroup
     variables.
@@ -5230,8 +5245,13 @@ An expression is an override-expression if all its [=identifiers=] [=resolve=] t
 
 Note: All [=const-expressions=] are also override-expressions.
 
-An override-expression |E| [=behavioral requirement|will=] be evaluated if and only if:
-* |E| is [=top-level expression=], or
+Override-expressions are only validated or evaluated after any API-provided
+values are substituted for [=override-declarations=].
+If an [=override-declaration=] has its value substituted via the API, its
+initializer expression, if present, will not be evaluated.
+Otherwise, an override-expression |E| [=behavioral requirement|will=] be
+evaluated if and only if:
+* |E| is [=top-level expression=] (after value substitution), or
 * |E| is a [=subexpression=] of an expression |OuterE|, and |OuterE|
     [=behavioral requirement|will=] be evaluated, and evaluation of |OuterE|
     requires |E| to be evaluated.
@@ -5260,6 +5280,37 @@ Example: `vec3(x,x,x)` is analyzed as follows:
     [=resolve=] to override-declarations.
 * The type of the expression is a [=vector=] of 3 components
     of [=i32=] (`vec3<i32>`).
+
+<div class='example override-expression errors' heading='Shader-creation errors from override-expressions'>
+  <xmp highlight=wgsl>
+  override a : i32 = 0;
+  override b = a / 0; // shader-creation error,
+                      // regardless of attempting to override c
+  </xmp>
+</div>
+
+<div class='example override-expression errors' heading='Pipeline-creation errors from override-expressions'>
+  <xmp highlight=wgsl>
+  override a : i32 = 0;
+  override b = 1 / a;
+
+  // b is a part of the frag1 shader. When compiling frag1 into a pipeline
+  // the following cases may occur:
+  // * if b is overridden, no error occurs.
+  // * if a is overridden to a non-zero value, no error occurs.
+  // * if a is 0 and b is not overridden, a pipeline-creation error occurs.
+  @fragment
+  fn frag1() {
+    _ = b;
+  }
+
+  // b is not part of the frag2 shader. When compiling frag2 into a pipeline
+  // no errors occur even if b is not overridden and the value of a is 0.
+  @fragment
+  fn frag2() {
+  }
+  </xmp>
+</div>
 
 ## Indeterminate values ## {#indeterminate-values}
 
@@ -8020,6 +8071,7 @@ WGSL defines the following attributes that can be applied to function
 parameters and return types:
  * [=attribute/builtin=]
  * [=attribute/location=]
+ * [=attribute/blend_src=]
  * [=attribute/interpolate=]
  * [=attribute/invariant=]
 
@@ -8408,6 +8460,33 @@ path: syntax/binding_attr.syntax.bs.include
     <td>Parameters
     <td>[=shader-creation error|Must=] be a [=const-expression=] that [=type rules|resolves=] to an [=i32=] or [=u32=].<br>
         [=shader-creation error|Must=] be non-negative.
+
+</table>
+
+## `blend_src` ## {#blend-src-attr}
+
+<pre class=include>
+path: syntax/blend_src_attr.syntax.bs.include
+</pre>
+
+<table class='data builtin'>
+  <caption><dfn noexport dfn-for="attribute">`blend_src`</dfn> Attribute</caption>
+  <tr>
+    <td style="width:10%">Description
+    <td>
+    Specifies a part of the [=fragment=] output when the feature [=extension/dual_source_blending=]
+    is enabled.
+    See [[#input-output-locations]].
+
+    [=shader-creation error|Must=] only be applied to a member of a [=structure=] type with a
+    [=attribute/location=] attribute.
+    [=shader-creation error|Must=] only be applied to declarations of objects with [=numeric scalar=]
+    or [=numeric vector=] type.
+    [=shader-creation error|Must=] only be used as an output of the [=fragment=] shader stage.
+
+  <tr>
+    <td>Parameters
+    <td>[=shader-creation error|Must=] be a [=const-expression=] that [=resolves=] to an [=i32=] or [=u32=] with value of `0` or `1`.
 
 </table>
 
@@ -8922,6 +9001,7 @@ or to further describe the properties of an input or output.
 The <dfn noexport>IO attributes</dfn> are:
 * [=attribute/builtin=]
 * [=attribute/location=]
+* [=attribute/blend_src=]
 * [=attribute/interpolate=]
 * [=attribute/invariant=]
 
@@ -9429,11 +9509,21 @@ Each user-defined [=user-defined input datum|input=] and [=user-defined output d
 Each structure member in the entry point IO [=shader-creation error|must=] be one of either a built-in value
 (see [[#builtin-inputs-outputs]]), or assigned a location.
 
-Locations [=shader-creation error|must not=] overlap within each of the following sets:
-* Members within a structure type.
-    This applies to any structure, not just those used in shader stage inputs or outputs.
-* An entry point's shader stage inputs,
-    i.e. locations for its formal parameters, or for the members of its formal parameters of structure type.
+
+<div algorithm="locations in entry point inputs">
+    For each entry point defined in a WGSL module, let |inputs| be its set of shader stage inputs
+    (i.e. locations for its formal parameters, or for the members of its formal parameters of structure type).
+    - |inputs| [=shader-creation error|must not=] contain two entries with the same [=attribute/location=] value.
+</div>
+<div algorithm="locations in structs">
+    For each structure type |S| defined in a WGSL module (not just those used in shader stage inputs or outputs),
+    let |members| be the set of members of |S| that have [=attribute/location=] attributes.
+    - If any entry in |members| specifies a [=attribute/blend_src=] attribute:
+        - |members| [=shader-creation error|must=] contain exactly `2` entries,
+            one with `@location(0) @blend_src(0)` and one with `@location(0) @blend_src(1)`.
+        - All the |members| [=shader-creation error|must=] have same data type.
+    - Otherwise, |members| [=shader-creation error|must not=] contain two entries with the same [=attribute/location=] value.
+</div>
 
 Note: Location numbering is distinct between inputs and outputs:
 Location numbers for an entry point's shader stage inputs do not conflict with location numbers for the entry point's shader stage outputs.
@@ -10248,6 +10338,20 @@ host-shared buffer, then:
 
 Note: Recall that [=i32=] uses twos-complement representation, so the sign bit
 is in bit position 31.
+
+<dfn>64-bit integer</dfn> layout: Some features of the WebGPU API write 64-bit
+unsigned integer values into buffers. When such a value |V| appears at byte
+offset |k| of a host-shared buffer, then:
+   * Byte |k| contains bits 0 through 7 of |V|
+   * Byte |k|+1 contains bits 8 through 15 of |V|
+   * Byte |k|+2 contains bits 16 through 23 of |V|
+   * Byte |k|+3 contains bits 24 through 31 of |V|
+   * Byte |k|+4 contains bits 32 through 39 of |V|
+   * Byte |k|+5 contains bits 40 through 47 of |V|
+   * Byte |k|+6 contains bits 48 through 55 of |V|
+   * Byte |k|+7 contains bits 56 through 63 of |V|
+
+Note: WGSL does not have a [=type/concrete=] [=64-bit integer=] type.
 
 A value |V| of type [=f32=] is represented in [[!IEEE-754|IEEE-754]] binary32 format.
 It has one sign bit, 8 exponent bits, and 23 fraction bits.
@@ -13769,7 +13873,7 @@ Note: The result is not mathematically meaningful when `abs(e)` &gt; 1.
   <tr>
     <td>Description
     <td>Returns the principal value, in radians, of the inverse tangent (tan<sup>-1</sup>) of `e`.<br>
-    That is, approximates `x` with &pi;/2 &le; `x` &le; &pi;/2, such that `tan`(`x`) = `e`.
+    That is, approximates `x` with &minus; &pi;/2 &le; `x` &le; &pi;/2, such that `tan`(`x`) = `e`.
 
     [=Component-wise=] when `T` is a vector.
 </table>
@@ -17331,9 +17435,7 @@ The [=logical texel address=] is invalid if:
     for the corresponding element, or
 * `array_index` is outside the range of `[0, textureNumLayers(t))`
 
-If the logical texel addresss is invalid, the built-in function may do any of the following:
-* not be executed
-* store `value` to some in bounds texel
+If the logical texel addresss is invalid, the built-in function [=behavioral requirement|will=] not be executed.
 
 ## Atomic Built-in Functions ## {#atomic-builtin-functions}
 

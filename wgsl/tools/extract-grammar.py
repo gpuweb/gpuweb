@@ -96,7 +96,7 @@ def read_lines_from_file(filename, exclusions):
     parts = [j for i in [i.split("\n") for i in file.readlines()]
              for j in i if len(j) > 0]
     result = []
-    include_re = re.compile('(?!.*\.syntax\.bs\.include)path:\s+(\S+)')
+    include_re = re.compile('(?!.*\\.syntax\\.bs\\.include)path:\\s+(\\S+)')
     for line in parts:
         m = include_re.match(line)
         if m:

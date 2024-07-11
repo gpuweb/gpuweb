@@ -75,6 +75,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
     type: dfn
         text: f16; url: f16
         text: location; url: input-output-locations
+        text: blend_src; url: input-output-locations
         text: interpolation; url: interpolation
         text: pipeline-overridable; url: pipeline-overridable
         text: pipeline constant ID; url: pipeline-constant-id
@@ -104,15 +105,29 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: @binding; url: attribute-binding
         text: @group; url: attribute-group
         text: line break; url: line-break
+        text: 64-bit unsigned integer; url: 64-bit-integer
+        text: Synchronization Built-in Functions; url: sync-builtin-functions
+        text: interpolation-sampling; url: interpolation-sampling
+        text: textureSampleLevel; url: texturesamplelevel
+        for: interpolation type
+            text: flat; url: interpolation-type-flat
+            text: linear; url: interpolation-type-linear
+            text: perspective; url: interpolation-type-perspective
         for: address spaces
             text: workgroup; url: address-spaces-workgroup
         for: builtin
             text: sample_mask; url: built-in-values-sample_mask
             text: frag_depth; url: built-in-values-frag_depth
             text: clip_distances; url: built-in-values-clip_distances
+            text: workgroup_id; url: built-in-values-workgroup_id
+            text: local_invocation_id; url: built-in-values-local_invocation_id
+            text: global_invocation_id; url: built-in-values-global_invocation_id
+            text: num_workgroups; url: built-in-values-num_workgroups
+            text: local_invocation_index; url: built-in-values-local_invocation_index
         for: extension
             text: f16; url: extension-f16
             text: clip_distances; url: extension-clip_distances
+            text: dual_source_blending; url: extension-dual_source_blending
     type: abstract-op
         text: SizeOf; url: sizeof
 spec: Internationalization Glossary; urlPrefix: https://www.w3.org/TR/i18n-glossary/#
@@ -121,6 +136,22 @@ spec: Internationalization Glossary; urlPrefix: https://www.w3.org/TR/i18n-gloss
 spec: Strings on the Web; urlPrefix: https://w3c.github.io/string-meta/#
     type: dfn
         text: best practices for language and direction information; url: bp_and-reco
+</pre>
+
+<pre class=biblio>
+{
+  "vulkan": {
+    "authors": [
+      "The Khronos Vulkan Working Group"
+    ],
+    "href": "https://registry.khronos.org/vulkan/specs/1.3/html/vkspec.html",
+    "title": "Vulkan 1.3",
+    "publisher": "Khronos",
+    "deliveredBy": [
+      "https://www.khronos.org/"
+    ]
+  }
+}
 </pre>
 
 <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32x32.png">
@@ -1221,6 +1252,14 @@ A [=device=] has the following [=immutable properties=]:
         No [=limit/better=] limits can be used, even if the underlying [=adapter=] can support them.
 </dl>
 
+A [=device=] also has the following [=content timeline property=]:
+
+<dl dfn-type=attribute dfn-for=device data-timeline=content>
+    : <dfn>[[content device]]</dfn>, of type {{GPUDevice}}, readonly
+    ::
+        The [=Content timeline=] {{GPUDevice}} interface which this device is associated with.
+</dl>
+
 <div algorithm data-timeline=device>
     When <dfn dfn>a new device</dfn> |device| is created from [=adapter=] |adapter|
     with {{GPUDeviceDescriptor}} |descriptor|, run the following [=device timeline=] steps:
@@ -1245,7 +1284,7 @@ of objects on the device or potentially corrupt internal implementation/driver s
 the device **should** be lost to prevent these changes from being observable.
 
 Note:
-For all device losses not initiated by the application (via {{GPUDevice/destroy()}},
+For all device losses not initiated by the application (via {{GPUDevice/destroy()}}),
 user agents should consider issuing developer-visible warnings *unconditionally*,
 even if the {{GPUDevice/lost}} promise is handled.
 These scenarios should be rare, and the signal is vital to developers because most of the WebGPU
@@ -1256,10 +1295,7 @@ no validation errors are raised, most promises resolve normally, etc.
     To <dfn dfn>lose the device</dfn>(|device|, |reason|) run the following [=device timeline=] steps:
 
     1. [$Invalidate$] |device|.
-    1. Let |gpuDevice| be the [=content timeline=] {{GPUDevice}} corresponding to |device|.
-
-        Issue: Define this more rigorously.
-    1. Issue the following steps on the [=content timeline=] of |gpuDevice|:
+    1. Issue the following steps on the [=content timeline=] of |device|.{{device/[[content device]]}}:
         <div data-timeline=content>
             1. Resolve |device|.{{GPUDevice/lost}} with a new {{GPUDeviceLostInfo}} with
                 {{GPUDeviceLostInfo/reason}} set to |reason| and
@@ -2505,7 +2541,14 @@ interface GPUAdapter {
             <div data-timeline=content>
                 [=Content timeline=] steps:
 
-                1. [=Resolve=] |promise| with a new {{GPUDevice}} object |device|.
+                <!--This is a variant of [$create a new WebGPU object$] that accounts for the fact
+                    that the device has no parent.-->
+                1. Let |gpuDevice| be a new {{GPUDevice}} instance.
+                1. Set |gpuDevice|.{{GPUObjectBase/[[device]]}} to |device|.
+                1. Set |device|.{{device/[[content device]]}} to |gpuDevice|.
+                1. Set |gpuDevice|.{{GPUObjectBase/label}} to |descriptor|.{{GPUObjectDescriptorBase/label}}.
+
+                1. [=Resolve=] |promise| with |gpuDevice|.
 
                     Note:
                     If the device is already lost because the adapter could not fulfill the request,
@@ -2625,6 +2668,7 @@ enum GPUFeatureName {
     "bgra8unorm-storage",
     "float32-filterable",
     "clip-distances",
+    "dual-source-blending",
 };
 </script>
 
@@ -3581,7 +3625,13 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. If |this| is [$invalid$], return.
+                1. If any of the following conditions are unsatisfied, return.
+
+                    <div class=validusage>
+                        - |this| is [$valid to use with$] |this|.{{GPUObjectBase/[[device]]}}.
+                    </div>
+
+                1. [=Assert=] |this|.{{GPUBuffer/[[internal state]]}} is "[=GPUBuffer/[[internal state]]/unavailable=]".
                 1. If |bufferUpdate| is not `null`:
 
                     1. Issue the following steps on the [=Queue timeline=] of |this|.{{GPUObjectBase/[[device]]}}.{{GPUDevice/queue}}:
@@ -3623,9 +3673,9 @@ Each subresource in a <dfn dfn>mipmap level</dfn> is approximately half the size
 in each spatial dimension, of the corresponding resource in the lesser level
 (see [=logical miplevel-specific texture extent=]).
 The subresource in level 0 has the dimensions of the texture itself.
-These are typically used to represent levels of detail of a texture.
-{{GPUSampler}} and WGSL provide facilities for selecting and interpolating between levels of
-detail, explicitly or automatically.
+Smaller levels are typically used to store lower resolution versions of the same image.
+{{GPUSampler}} and WGSL provide facilities for selecting and interpolating between [=levels of
+detail=], explicitly or automatically.
 
 A {{GPUTextureDimension/"2d"}} texture may be an array of <dfn dfn>array layer</dfn>s.
 Each subresource in a layer is the same size as the corresponding resources in other layers.
@@ -3910,7 +3960,8 @@ enum GPUTextureDimension {
     : <dfn>"3d"</dfn>
     ::
         Specifies a texture that has a width, height, and depth. {{GPUTextureDimension/"3d"}}
-        textures cannot be multisampled or use depth/stencil formats.
+        textures cannot be multisampled, and their format must support 3d textures
+        (all [[#plain-color-formats|plain color formats]] and some [[#packed-formats|packed/compressed formats]]).
 </dl>
 
 ### Texture Usages ### {#texture-usage}
@@ -4089,7 +4140,8 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be &le;
                             |this|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension3D}}.
                         - |descriptor|.{{GPUTextureDescriptor/sampleCount}} must be 1.
-                        - |descriptor|.{{GPUTextureDescriptor/format}} must not be a [=depth-or-stencil format=].
+                        - |descriptor|.{{GPUTextureDescriptor/format}} must support {{GPUTextureDimension/"3d"}}
+                            textures according to [[#texture-format-caps]].
                 </dl>
             - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=] must be multiple of [=texel block width=].
             - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=] must be multiple of [=texel block height=].
@@ -5127,12 +5179,12 @@ dictionary GPUSamplerDescriptor
 
     : <dfn>magFilter</dfn>
     ::
-        Specifies the sampling behavior when the sample footprint is smaller than or equal to one
+        Specifies the sampling behavior when the sampled area is smaller than or equal to one
         texel.
 
     : <dfn>minFilter</dfn>
     ::
-        Specifies the sampling behavior when the sample footprint is larger than one texel.
+        Specifies the sampling behavior when the sampled area is larger than one texel.
 
     : <dfn>mipmapFilter</dfn>
     ::
@@ -5141,7 +5193,7 @@ dictionary GPUSamplerDescriptor
     : <dfn>lodMinClamp</dfn>
     : <dfn>lodMaxClamp</dfn>
     ::
-        Specifies the minimum and maximum levels of detail, respectively, used internally when
+        Specifies the minimum and maximum [=levels of detail=], respectively, used internally when
         sampling a texture.
 
     : <dfn>compare</dfn>
@@ -5170,12 +5222,15 @@ dictionary GPUSamplerDescriptor
         </div>
 </dl>
 
-Issue: explain how LOD is calculated and if there are differences here between platforms.
+<dfn dfn lt="levels of detail|lod">Level of detail</dfn> (LOD) describes which mip level(s) are selected when sampling a
+texture. It may be specified explicitly through shader methods like [=textureSampleLevel=] or implicitly determined from
+the [=texture coordinate=] derivatives.
 
-{{GPUAddressMode}} describes the behavior of the sampler if the sample footprint extends beyond
-the bounds of the sampled texture.
+Note: See [[vulkan#textures-lod-and-scale-factor|Scale Factor Operation, LOD Operation and Image Level Selection]] in
+the [[vulkan inline]] spec for an example of how implicit LODs may be calculated.
 
-Issue: Describe a "sample footprint" in greater detail.
+{{GPUAddressMode}} describes the behavior of the sampler if the sampled texels extend beyond the
+bounds of the sampled texture.
 
 <script type=idl>
 enum GPUAddressMode {
@@ -5200,8 +5255,11 @@ enum GPUAddressMode {
         when the integer part of the coordinate is odd.
 </dl>
 
-{{GPUFilterMode}} and {{GPUMipmapFilterMode}} describe the behavior of the sampler if the sample footprint does not exactly
-match one texel.
+{{GPUFilterMode}} and {{GPUMipmapFilterMode}} describe the behavior of the sampler if the sampled
+area does not cover exactly one texel.
+
+Note: See [[vulkan#textures-texel-filtering|Texel Filtering]] in the [[vulkan inline]] spec for an example of how
+samplers may determine which texels are sampled from for the various filtering modes.
 
 <script type=idl>
 enum GPUFilterMode {
@@ -7786,8 +7844,6 @@ dictionary GPURenderPipelineDescriptor
                             1. Set |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} to true.
                 1. Set |pipeline|.{{GPUPipelineBase/[[layout]]}} to |layout|.
             </div>
-
-            Issue: need description of the render states.
         </div>
 
     : <dfn>createRenderPipelineAsync(descriptor)</dfn>
@@ -8220,20 +8276,30 @@ dictionary GPUFragmentState
             - [$validating GPUProgrammableStage$]({{GPUShaderStage/FRAGMENT}}, |descriptor|, |layout|) succeeds.
             - |descriptor|.{{GPUFragmentState/targets}}.length must be &le;
                 |device|.{{device/[[limits]]}}.{{supported limits/maxColorAttachments}}.
+            - Let |entryPoint| be [$get the entry point$]({{GPUShaderStage/FRAGMENT}}, |descriptor|).
+            - Let |usesDualSourceBlending| be `false`.
             - [=list/For each=] |index| of the [=list/indices=] of |descriptor|.{{GPUFragmentState/targets}}
                 containing a non-`null` value |colorState|:
                 - |colorState|.{{GPUColorTargetState/format}} must be listed in [[#plain-color-formats]]
                     with {{GPUTextureUsage/RENDER_ATTACHMENT}} capability.
+                - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
                 - If |colorState|.{{GPUColorTargetState/blend}} is [=map/exist|provided=]:
                     - The |colorState|.{{GPUColorTargetState/format}} must be [=blendable=].
                     - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}
                         must be a [=valid GPUBlendComponent=].
                     - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
                         must be a [=valid GPUBlendComponent=].
-                - |colorState|.{{GPUColorTargetState/writeMask}} must be &lt; 16.
-                - If [$get the entry point$]({{GPUShaderStage/FRAGMENT}}, |descriptor|) has a
-                    [=shader stage output=] value |output| with [=location=] attribute equal to |index|:
+                - If |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.{{GPUBlendComponent/srcFactor}} or
+                    |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.{{GPUBlendComponent/dstFactor}} or
+                    |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}.{{GPUBlendComponent/srcFactor}} or
+                    |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}.{{GPUBlendComponent/dstFactor}}
+                    uses the second input of the corresponding blending unit (is any of
+                        {{GPUBlendFactor/"src1"}}, {{GPUBlendFactor/"one-minus-src1"}},
+                        {{GPUBlendFactor/"src1-alpha"}}, {{GPUBlendFactor/"one-minus-src1-alpha"}}), then:
 
+                    - Set |usesDualSourceBlending| to `true`.
+                - For each [=shader stage output=] value |output| with [=location=] attribute equal to |index|
+                    in |entryPoint|:
                     - For each component in |colorState|.{{GPUColorTargetState/format}}, there must be a
                         corresponding component in |output|.
                         (That is, RGBA requires vec4, RGB requires vec3 or vec4, RG requires vec2 or vec3 or vec4.)
@@ -8252,12 +8318,20 @@ dictionary GPUFragmentState
                         |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.{{GPUBlendComponent/srcFactor}}
                         or .{{GPUBlendComponent/dstFactor}} uses the source alpha
                         (is any of {{GPUBlendFactor/"src-alpha"}}, {{GPUBlendFactor/"one-minus-src-alpha"}},
-                        or {{GPUBlendFactor/"src-alpha-saturated"}}), then:
+                        {{GPUBlendFactor/"src-alpha-saturated"}}, {{GPUBlendFactor/"src1-alpha"}} or
+                        {{GPUBlendFactor/"one-minus-src1-alpha"}}), then:
                         - |output| must have an alpha channel (that is, it must be a vec4).
 
-                    Otherwise, since there is no shader output for the attachment:
-
-                    - |colorState|.{{GPUColorTargetState/writeMask}} must be 0.
+                - If |colorState|.{{GPUColorTargetState/writeMask}} is not 0:
+                    - |entryPoint| must have a [=shader stage output=] with [=location=] equal to |index|
+                         and [=blend_src=] omitted or equal to 0.
+            - If |usesDualSourceBlending| is `true`:
+                - All the [=shader stage output=] values of |entryPoint| must have a [=blend_src=] attribute.
+                - |descriptor|.{{GPUFragmentState/targets}}.length must be 1.
+                - Let |colorState| be |descriptor|.{{GPUFragmentState/targets}}[0].
+                - If |colorState|.{{GPUColorTargetState/writeMask}} is not 0:
+                    - |entryPoint| must have a [=shader stage output=] with [=location=] equal to 0
+                        and [=blend_src=] equal to 1.
             - [$Validating GPUFragmentState's color attachment bytes per sample$](|device|, |descriptor|.{{GPUFragmentState/targets}}) succeeds.
         </div>
 </div>
@@ -8284,7 +8358,8 @@ The fragment shader may output more values than what the pipeline uses. If that 
 the values are ignored.
 
 <div algorithm data-timeline=device>
-    {{GPUBlendComponent}} |component| is a <dfn>valid GPUBlendComponent</dfn> if it meets<br/>
+    {{GPUBlendComponent}} |component| is a <dfn>valid GPUBlendComponent</dfn> with logical
+    [=device=] |device| if it meets<br/>
     the following requirements:
 
     <div class=validusage>
@@ -8292,6 +8367,11 @@ the values are ignored.
             {{GPUBlendOperation/"min"}} or {{GPUBlendOperation/"max"}}:
             - |component|.{{GPUBlendComponent/srcFactor}} and
                 |component|.{{GPUBlendComponent/dstFactor}} must both be {{GPUBlendFactor/"one"}}.
+        - If |component|.{{GPUBlendComponent/srcFactor}} or
+            |component|.{{GPUBlendComponent/dstFactor}} requires a feature according to the
+            {{GPUBlendFactor}} table and |device|.{{device/[[features]]}} does not [=list/contain=]
+            the feature:
+            - Throw a {{TypeError}}.
     </div>
 </div>
 
@@ -8389,6 +8469,12 @@ location:
             <td>Color output by the fragment shader for the color attachment.
                 If the shader doesn't return an alpha channel, src-alpha blend factors cannot be used.
         <tr>
+            <td><b><code>RGBA<sub>src1</src></code></b>
+            <td>Color output by the fragment shader for the color attachment with
+                <a href="https://gpuweb.github.io/gpuweb/wgsl/#input-output-locations">"@blend_src" attribute</a>
+                equal to `1`.
+                If the shader doesn't return an alpha channel, src1-alpha blend factors cannot be used.
+        <tr>
             <td><b><code>RGBA<sub>dst</src></code></b>
             <td>Color currently in the color attachment.
                 Missing green/blue/alpha channels default to `0, 0, 1`, respectively.
@@ -8419,6 +8505,10 @@ enum GPUBlendFactor {
     "src-alpha-saturated",
     "constant",
     "one-minus-constant",
+    "src1",
+    "one-minus-src1",
+    "src1-alpha",
+    "one-minus-src1-alpha",
 };
 </script>
 
@@ -8429,12 +8519,14 @@ enum GPUBlendFactor {
         <tr>
             <th>GPUBlendFactor
             <th>Blend factor RGBA components
+            <th>[=Feature=]
         </tr>
     </thead>
     <tbody dfn-type=enum-value dfn-for=GPUBlendFactor>
         <tr>
             <td><dfn>"zero"</dfn>
             <td><code>(0, 0, 0, 0)</code>
+            <td rowspan=13>
         <tr>
             <td><dfn>"one"</dfn>
             <td><code>(1, 1, 1, 1)</code>
@@ -8471,6 +8563,19 @@ enum GPUBlendFactor {
         <tr>
             <td><dfn>"one-minus-constant"</dfn>
             <td><code>(1 - R<sub>const</sub>, 1 - G<sub>const</sub>, 1 - B<sub>const</sub>, 1 - A<sub>const</sub>)</code>
+        <tr>
+            <td><dfn>"src1"</dfn>
+            <td><code>(R<sub>src1</sub>, G<sub>src1</sub>, B<sub>src1</sub>, A<sub>src1</sub>)</code>
+            <td rowspan=4>{{GPUFeatureName/dual-source-blending}}
+        <tr>
+            <td><dfn>"one-minus-src1"</dfn>
+            <td><code>(1 - R<sub>src1</sub>, 1 - G<sub>src1</sub>, 1 - B<sub>src1</sub>, 1 - A<sub>src1</sub>)</code>
+        <tr>
+            <td><dfn>"src1-alpha"</dfn>
+            <td><code>(A<sub>src1</sub>, A<sub>src1</sub>, A<sub>src1</sub>, A<sub>src1</sub>)</code>
+        <tr>
+            <td><dfn>"one-minus-src1-alpha"</dfn>
+            <td><code>(1 - A<sub>src1</sub>, 1 - A<sub>src1</sub>, 1 - A<sub>src1</sub>, 1 - A<sub>src1</sub>)</code>
     </tbody>
 </table>
 
@@ -9579,6 +9684,7 @@ dictionary GPUCommandEncoderDescriptor
                         </div>
                 1. Set |pass|.{{GPURenderCommandsMixin/[[drawCount]]}} to 0.
                 1. Set |pass|.{{GPURenderPassEncoder/[[maxDrawCount]]}} to |descriptor|.{{GPURenderPassDescriptor/maxDrawCount}}.
+                1. Set |pass|.{{GPURenderPassEncoder/[[maxDrawCount]]}} to |descriptor|.{{GPURenderPassDescriptor/maxDrawCount}}.
 
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=] when executed.
@@ -9588,10 +9694,88 @@ dictionary GPUCommandEncoderDescriptor
 
                 1. Let the {{GPUCommandBuffer/[[renderState]]}} of the currently executing
                     {{GPUCommandBuffer}} be a new [=RenderState=].
-                1. Issue: Perform attachment loads/clears.
-            </div>
 
-            Issue: specify the behavior of read-only depth/stencil
+                1. Set {{GPUCommandBuffer/[[renderState]]}}.{{RenderState/[[colorAttachments]]}} to
+                    |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}.
+                1. Set {{GPUCommandBuffer/[[renderState]]}}.{{RenderState/[[depthStencilAttachment]]}} to
+                    |descriptor|.{{GPURenderPassDescriptor/depthStencilAttachment}}.
+
+                1. For each non-`null` |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
+                    1. Let |colorView| be |colorAttachment|.{{GPURenderPassColorAttachment/view}}.
+                    1. If |colorView|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/dimension}} is:
+                        <dl class=switch>
+                            : {{GPUTextureViewDimension/"3d"}}
+                            ::
+                                Let |colorSubregion| be |colorAttachment|.{{GPURenderPassColorAttachment/depthSlice}} of
+                                |colorView|.
+
+                            : Otherwise
+                            ::
+                                Let |colorSubregion| be |colorView|.
+                        </dl>
+
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/loadOp}} is:
+                        <dl class=switch>
+                            : {{GPULoadOp/"load"}}
+                            ::
+                                Ensure the contents of |colorSubregion| are loaded into the [=framebuffer memory=]
+                                associated with |colorSubregion|.
+
+                            : {{GPULoadOp/"clear"}}
+                            ::
+                                Set every [=texel block|texel=] of the [=framebuffer memory=] associated with
+                                |colorSubregion| to |colorAttachment|.{{GPURenderPassColorAttachment/clearValue}}.
+                        </dl>
+
+                1. If |depthStencilAttachment| is not `null`:
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} is:
+                        <dl class=switch>
+                            : Not [=map/exist|provided=]
+                            ::
+                                [=Assert=] that |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}}
+                                is `true` and ensure the contents of the [=aspect/depth=] [=GPUTextureView/subresource=]
+                                of |depthStencilView| are loaded into the [=framebuffer memory=] associated with
+                                |depthStencilView|.
+
+                            : {{GPULoadOp/"load"}}
+                            ::
+                                Ensure the contents of the [=aspect/depth=] [=GPUTextureView/subresource=] of
+                                |depthStencilView| are loaded into the [=framebuffer memory=] associated with
+                                |depthStencilView|.
+
+                            : {{GPULoadOp/"clear"}}
+                            ::
+                                Set every [=texel block|texel=] of the [=framebuffer memory=] associated with the
+                                [=aspect/depth=] [=GPUTextureView/subresource=] of |depthStencilView| to
+                                |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthClearValue}}.
+                        </dl>
+
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} is:
+                        <dl class=switch>
+                            : Not [=map/exist|provided=]
+                            ::
+                                [=Assert=] that |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}}
+                                is `true` and ensure the contents of the [=aspect/stencil=] [=GPUTextureView/subresource=]
+                                of |depthStencilView| are loaded into the [=framebuffer memory=] associated with
+                                |depthStencilView|.
+
+                            : {{GPULoadOp/"load"}}
+                            ::
+                                Ensure the contents of the [=aspect/stencil=] [=GPUTextureView/subresource=] of
+                                |depthStencilView| are loaded into the [=framebuffer memory=] associated with
+                                |depthStencilView|.
+
+                            : {{GPULoadOp/"clear"}}
+                            ::
+                                Set every [=texel block|texel=] of the [=framebuffer memory=] associated with the
+                                [=aspect/stencil=] [=GPUTextureView/subresource=] |depthStencilView| to
+                                |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilClearValue}}.
+                        </dl>
+
+                Note: Read-only depth/stencil attachments are implicitly treated as though the {{GPULoadOp/"load"}}
+                operation was used. Validation that requires the load op to not be provided for read-only attachments
+                is done in [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$].
+            </div>
         </div>
 
     : <dfn>beginComputePass(descriptor)</dfn>
@@ -9815,7 +9999,29 @@ dictionary GPUCommandEncoderDescriptor
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
-                Issue: Define copy, including provision for snorm.
+                1. Let |blockWidth| be the [=texel block width=] of |destination|.{{GPUImageCopyTexture/texture}}.
+                1. Let |blockHeight| be the [=texel block height=] of |destination|.{{GPUImageCopyTexture/texture}}.
+
+                1. Let |dstOrigin| be |destination|.{{GPUImageCopyTexture/origin}};
+                1. Let |dstBlockOriginX| be (|dstOrigin|.[=GPUOrigin3D/x=] &div; |blockWidth|).
+                1. Let |dstBlockOriginY| be (|dstOrigin|.[=GPUOrigin3D/y=] &div; |blockHeight|).
+
+                1. Let |blockColumns| be (|copySize|.[=GPUExtent3D/width=] &div; |blockWidth|).
+                1. Let |blockRows| be (|copySize|.[=GPUExtent3D/height=] &div; |blockHeight|).
+
+                1. [=Assert=] that |dstBlockOriginX|, |dstBlockOriginY|, |blockColumns|, and |blockRows| are integers.
+
+                1. For each |z| in the range [0, |copySize|.[=GPUExtent3D/depthOrArrayLayers=] &minus; 1]:
+                    1. Let |dstSubregion| be [$texture copy sub-region$] (|z| &plus; |dstOrigin|.[=GPUOrigin3D/z=]) of |destination|.
+
+                    1. For each |y| in the range [0, |blockRows| &minus; 1]:
+                        1. For each |x| in the range [0, |blockColumns| &minus; 1]:
+                            1. Let |blockOffset| be the [$texel block byte offset$] of |source| for (|x|, |y|, |z|) of
+                                |destination|.{{GPUImageCopyTexture/texture}}.
+
+                            1. Set [=texel block=] (|dstBlockOriginX| &plus; |x|, |dstBlockOriginY| &plus; |y|) of
+                                |dstSubregion| to be an [=equivalent texel representation=] to the [=texel block=]
+                                described by |source|.{{GPUImageCopyBuffer/buffer}} at offset |blockOffset|.
             </div>
 
         </div>
@@ -9866,7 +10072,29 @@ dictionary GPUCommandEncoderDescriptor
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
-                Issue: Define copy, including provision for snorm.
+                1. Let |blockWidth| be the [=texel block width=] of |source|.{{GPUImageCopyTexture/texture}}.
+                1. Let |blockHeight| be the [=texel block height=] of |source|.{{GPUImageCopyTexture/texture}}.
+
+                1. Let |srcOrigin| be |source|.{{GPUImageCopyTexture/origin}};
+                1. Let |srcBlockOriginX| be (|srcOrigin|.[=GPUOrigin3D/x=] &div; |blockWidth|).
+                1. Let |srcBlockOriginY| be (|srcOrigin|.[=GPUOrigin3D/y=] &div; |blockHeight|).
+
+                1. Let |blockColumns| be (|copySize|.[=GPUExtent3D/width=] &div; |blockWidth|).
+                1. Let |blockRows| be (|copySize|.[=GPUExtent3D/height=] &div; |blockHeight|).
+
+                1. [=Assert=] that |srcBlockOriginX|, |srcBlockOriginY|, |blockColumns|, and |blockRows| are integers.
+
+                1. For each |z| in the range [0, |copySize|.[=GPUExtent3D/depthOrArrayLayers=] &minus; 1]:
+                    1. Let |srcSubregion| be [$texture copy sub-region$] (|z| &plus; |srcOrigin|.[=GPUOrigin3D/z=]) of |source|.
+
+                    1. For each |y| in the range [0, |blockRows| &minus; 1]:
+                        1. For each |x| in the range [0, |blockColumns| &minus; 1]:
+                            1. Let |blockOffset| be the [$texel block byte offset$] of |destination| for (|x|, |y|, |z|) of
+                                |source|.{{GPUImageCopyTexture/texture}}.
+
+                            1. Set |destination|.{{GPUImageCopyBuffer/buffer}} at offset |blockOffset| to be an
+                                [=equivalent texel representation=] to [=texel block=]
+                                (|srcBlockOriginX| &plus; |x|, |srcBlockOriginY| &plus; |y|) of |srcSubregion|.
             </div>
 
         </div>
@@ -9928,7 +10156,32 @@ dictionary GPUCommandEncoderDescriptor
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
-                Issue: Define copy, including provision for snorm.
+                1. Let |blockWidth| be the [=texel block width=] of |source|.{{GPUImageCopyTexture/texture}}.
+                1. Let |blockHeight| be the [=texel block height=] of |source|.{{GPUImageCopyTexture/texture}}.
+
+                1. Let |srcOrigin| be |source|.{{GPUImageCopyTexture/origin}};
+                1. Let |srcBlockOriginX| be (|srcOrigin|.[=GPUOrigin3D/x=] &div; |blockWidth|).
+                1. Let |srcBlockOriginY| be (|srcOrigin|.[=GPUOrigin3D/y=] &div; |blockHeight|).
+
+                1. Let |dstOrigin| be |destination|.{{GPUImageCopyTexture/origin}};
+                1. Let |dstBlockOriginX| be (|dstOrigin|.[=GPUOrigin3D/x=] &div; |blockWidth|).
+                1. Let |dstBlockOriginY| be (|dstOrigin|.[=GPUOrigin3D/y=] &div; |blockHeight|).
+
+                1. Let |blockColumns| be (|copySize|.[=GPUExtent3D/width=] &div; |blockWidth|).
+                1. Let |blockRows| be (|copySize|.[=GPUExtent3D/height=] &div; |blockHeight|).
+
+                1. [=Assert=] that |srcBlockOriginX|, |srcBlockOriginY|, |dstBlockOriginX|, |dstBlockOriginY|,
+                    |blockColumns|, and |blockRows| are integers.
+
+                1. For each |z| in the range [0, |copySize|.[=GPUExtent3D/depthOrArrayLayers=] &minus; 1]:
+                    1. Let |srcSubregion| be [$texture copy sub-region$] (|z| &plus; |srcOrigin|.[=GPUOrigin3D/z=]) of |source|.
+                    1. Let |dstSubregion| be [$texture copy sub-region$] (|z| &plus; |dstOrigin|.[=GPUOrigin3D/z=]) of |destination|.
+
+                    1. For each |y| in the range [0, |blockRows| &minus; 1]:
+                        1. For each |x| in the range [0, |blockColumns| &minus; 1]:
+                            1. Set [=texel block=] (|dstBlockOriginX| &plus; |x|, |dstBlockOriginY| &plus; |y|) of
+                                |dstSubregion| to be an [=equivalent texel representation=] to [=texel block=]
+                                (|srcBlockOriginX| &plus; |x|, |srcBlockOriginY| &plus; |y|) of |srcSubregion|.
             </div>
 
         </div>
@@ -10598,7 +10851,7 @@ dictionary GPUComputePassDescriptor
                             |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}}.
                     </div>
 
-                1. Let |passState| be a snapshot of |this|'s current state.
+                1. Let |bindingState| be a snapshot of |this|'s current state.
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=].
             </div>
@@ -10606,8 +10859,8 @@ dictionary GPUComputePassDescriptor
                 [=Queue timeline=] steps:
 
                 1. Execute a grid of workgroups with dimensions [|workgroupCountX|, |workgroupCountY|,
-                    |workgroupCountZ|] with |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
-                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+                    |workgroupCountZ|] with |bindingState|.{{GPUComputePassEncoder/[[pipeline]]}} using
+                    |bindingState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
             </div>
         </div>
 
@@ -10664,7 +10917,7 @@ dictionary GPUComputePassDescriptor
                     </div>
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
 
-                1. Let |passState| be a snapshot of |this|'s current state.
+                1. Let |bindingState| be a snapshot of |this|'s current state.
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=].
             </div>
@@ -10681,8 +10934,8 @@ dictionary GPUComputePassDescriptor
                     |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}},
                     stop.
                 1. Execute a grid of workgroups with dimensions [|workgroupCountX|, |workgroupCountY|,
-                    |workgroupCountZ|] with |passState|.{{GPUComputePassEncoder/[[pipeline]]}} using
-                    |passState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+                    |workgroupCountZ|] with |bindingState|.{{GPUComputePassEncoder/[[pipeline]]}} using
+                    |bindingState|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
             </div>
         </div>
 </dl>
@@ -10827,7 +11080,19 @@ When executing encoded render pass commands as part of a {{GPUCommandBuffer}}, a
 
     : <dfn>\[[stencilReference]]</dfn>, of type {{GPUStencilValue}}
     ::  Current stencil reference value, initially `0`.
+
+    : <dfn>\[[colorAttachments]]</dfn>, of type [=sequence=]&lt;{{GPURenderPassColorAttachment}}?&gt;
+    ::  The color attachments and state for this render pass.
+
+    : <dfn>\[[depthStencilAttachment]]</dfn>, of type {{GPURenderPassDepthStencilAttachment}}?
+    ::  The depth/stencil attachment and state for this render pass.
 </dl>
+
+Render passes also have <dfn dfn>framebuffer memory</dfn>, which contains the [=texel block|texel=] data associated with
+each attachment that is written into by draw commands and read from for blending and depth/stencil testing.
+
+Note: Depending on the GPU hardware, [=framebuffer memory=] may be the memory allocated by the attachment textures or
+may be a separate area of memory that the texture data is copied to and from, such as with tile-based architectures.
 
 ### Render Pass Encoder Creation ### {#render-pass-encoder-creation}
 
@@ -11393,8 +11658,86 @@ called the render pass encoder can no longer be used.
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
-                1. Issue: Perform the attachment stores/discards.
+                1. For each non-`null` |colorAttachment| in |renderState|.{{RenderState/[[colorAttachments]]}}:
+                    1. Let |colorView| be |colorAttachment|.{{GPURenderPassColorAttachment/view}}.
+                    1. If |colorView|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/dimension}} is:
+                        <dl class=switch>
+                            : {{GPUTextureViewDimension/"3d"}}
+                            ::
+                                Let |colorSubregion| be |colorAttachment|.{{GPURenderPassColorAttachment/depthSlice}} of
+                                |colorView|.
+
+                            : Otherwise
+                            ::
+                                Let |colorSubregion| be |colorView|.
+                        </dl>
+
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
+                        1. Resolve the multiple samples of every [=texel block|texel=] of |colorSubregion| to a single
+                            sample and copy to |colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}}.
+
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/loadOp}} is:
+                        <dl class=switch>
+                            : {{GPUStoreOp/"store"}}
+                            ::
+                                Ensure the contents of the [=framebuffer memory=] associated with |colorSubregion|
+                                are stored in |colorSubregion|.
+
+                            : {{GPUStoreOp/"discard"}}
+                            ::
+                                Set every [=texel block|texel=] of |colorSubregion| to zero.
+                        </dl>
+
+                1. Let |depthStencilAttachment| be |renderState|.{{RenderState/[[depthStencilAttachment]]}}.
+                1. If |depthStencilAttachment| is not `null`:
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} is:
+                        <dl class=switch>
+                            : Not [=map/exist|provided=]
+                            ::
+                                [=Assert=] that |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}}
+                                is `true` and leave the [=aspect/depth=] [=GPUTextureView/subresource=] of |depthStencilView|
+                                unchanged.
+
+                            : {{GPUStoreOp/"store"}}
+                            ::
+                                Ensure the contents of the [=framebuffer memory=] associated with the [=aspect/depth=]
+                                [=GPUTextureView/subresource=] of |depthStencilView| are stored in |depthStencilView|.
+
+                            : {{GPUStoreOp/"discard"}}
+                            ::
+                                Set every [=texel block|texel=] in the [=aspect/depth=] [=GPUTextureView/subresource=]
+                                of |depthStencilView| to zero.
+                        </dl>
+
+                    1. If |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} is:
+                        <dl class=switch>
+                            : Not [=map/exist|provided=]
+                            ::
+                                [=Assert=] that |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}}
+                                is `true` and leave the [=aspect/stencil=] [=GPUTextureView/subresource=] of |depthStencilView|
+                                unchanged.
+
+                            : {{GPUStoreOp/"store"}}
+                            ::
+                                Ensure the contents of the [=framebuffer memory=] associated with the [=aspect/stencil=]
+                                [=GPUTextureView/subresource=] of |depthStencilView| are stored in |depthStencilView|.
+
+                            : {{GPUStoreOp/"discard"}}
+                            ::
+                                Set every [=texel block|texel=] in the [=aspect/stencil=] [=GPUTextureView/subresource=]
+                                |depthStencilView| to zero.
+                        </dl>
+
                 1. Let |renderState| be `null`.
+
+                Note: Discarded attachments behave as if they are cleared to zero, but implementations are not required
+                to perform a clear at the end of the render pass. See the note on {{GPUStoreOp/"discard"}} for
+                additional details.
+
+                Note: Read-only depth/stencil attachments can be thought of as implicitly using the {{GPUStoreOp/"store"}}
+                operation, but since their content is unchanged during the render pass implementations don't need to
+                update the attachment. Validation that requires the store op to not be provided for read-only attachments
+                is done in [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$].
             </div>
             </div>
         </div>
@@ -11689,7 +12032,7 @@ It must only be included by interfaces which also include those mixins.
                     </div>
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
-                1. Let |passState| be a snapshot of |this|'s current state.
+                1. Let |bindingState| be a snapshot of |this|'s current state.
                 1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=] with |renderState| when executed.
             </div>
@@ -11698,7 +12041,7 @@ It must only be included by interfaces which also include those mixins.
 
                 1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
                     primitives consisting of |vertexCount| verticies, starting with vertex |firstVertex|,
-                    with the states from |passState| and |renderState|.
+                    with the states from |bindingState| and |renderState|.
             </div>
         </div>
 
@@ -11750,7 +12093,7 @@ It must only be included by interfaces which also include those mixins.
                     </div>
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
-                1. Let |passState| be a snapshot of |this|'s current state.
+                1. Let |bindingState| be a snapshot of |this|'s current state.
                 1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=] with |renderState| when executed.
             </div>
@@ -11760,7 +12103,7 @@ It must only be included by interfaces which also include those mixins.
                 1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
                     primitives consisting of |indexCount| indexed verticies, starting with index
                     |firstIndex| from vertex |baseVertex|,
-                    with the states from |passState| and |renderState|.
+                    with the states from |bindingState| and |renderState|.
             </div>
 
             Note: a valid program should also never use vertex indices with
@@ -11826,7 +12169,7 @@ It must only be included by interfaces which also include those mixins.
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
-                1. Let |passState| be a snapshot of |this|'s current state.
+                1. Let |bindingState| be a snapshot of |this|'s current state.
                 1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=] with |renderState| when executed.
             </div>
@@ -11843,7 +12186,7 @@ It must only be included by interfaces which also include those mixins.
                     (|indirectOffset| + 12) bytes.
                 1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
                     primitives consisting of |vertexCount| verticies, starting with vertex |firstVertex|,
-                    with the states from |passState| and |renderState|.
+                    with the states from |bindingState| and |renderState|.
             </div>
         </div>
 
@@ -11853,15 +12196,19 @@ It must only be included by interfaces which also include those mixins.
         See [[#rendering-operations]] for the detailed specification.
 
         The <dfn dfn for="">indirect drawIndexed parameters</dfn> encoded in the buffer must be a
-        tightly packed block of **five 32-bit unsigned integer values (20 bytes total)**, given in
-        the same order as the arguments for {{GPURenderCommandsMixin/drawIndexed()}}. For example:
+        tightly packed block of **five 32-bit values (20 bytes total)**, given in the same order as
+        the arguments for {{GPURenderCommandsMixin/drawIndexed()}}. The value corresponding to
+        `baseVertex` is a signed 32-bit integer, and all others are unsigned 32-bit integers.
+        For example:
 
         <pre highlight=js>
             let drawIndexedIndirectParameters = new Uint32Array(5);
+            let drawIndexedIndirectParametersSigned = new Int32Array(drawIndexedIndirectParameters.buffer);
             drawIndexedIndirectParameters[0] = indexCount;
             drawIndexedIndirectParameters[1] = instanceCount;
             drawIndexedIndirectParameters[2] = firstIndex;
-            drawIndexedIndirectParameters[3] = baseVertex;
+            // baseVertex is a signed value.
+            drawIndexedIndirectParametersSigned[3] = baseVertex;
             drawIndexedIndirectParameters[4] = firstInstance;
         </pre>
 
@@ -11903,7 +12250,7 @@ It must only be included by interfaces which also include those mixins.
                 1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
-                1. Let |passState| be a snapshot of |this|'s current state.
+                1. Let |bindingState| be a snapshot of |this|'s current state.
                 1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=] with |renderState| when executed.
             </div>
@@ -11916,14 +12263,14 @@ It must only be included by interfaces which also include those mixins.
                     (|indirectOffset| + 4) bytes.
                 1. Let |firstIndex| be an unsigned 32-bit integer read from |indirectBuffer| at
                     (|indirectOffset| + 8) bytes.
-                1. Let |baseVertex| be an unsigned 32-bit integer read from |indirectBuffer| at
+                1. Let |baseVertex| be a signed 32-bit integer read from |indirectBuffer| at
                     (|indirectOffset| + 12) bytes.
                 1. Let |firstInstance| be an unsigned 32-bit integer read from |indirectBuffer| at
                     (|indirectOffset| + 16) bytes.
                 1. Draw |instanceCount| instances, starting with instance |firstInstance|, of
                     primitives consisting of |indexCount| indexed verticies, starting with index
                     |firstIndex| from vertex |baseVertex|,
-                    with the states from |passState| and |renderState|.
+                    with the states from |bindingState| and |renderState|.
             </div>
         </div>
 </dl>
@@ -12018,7 +12365,7 @@ attachments used by this encoder.
                         - |y| + |height| &le; |this|.{{GPURenderPassEncoder/[[attachment_size]]}}.height
                         - 0.0 &le; |minDepth| &le; 1.0
                         - 0.0 &le; |maxDepth| &le; 1.0
-                        - |minDepth| &lt; |maxDepth|
+                        - |minDepth| &le; |maxDepth|
                     </div>
 
                 1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
@@ -12292,29 +12639,33 @@ attachments used by this encoder.
 
                 1. For each |bundle| in |bundles|:
                     1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by |bundle|.{{GPURenderBundle/[[drawCount]]}}.
+                    1. [$Enqueue a render command$] on |this| which issues the following steps on the
+                        [=Queue timeline=] with |renderState| when executed:
 
-                1. [=map/Clear=] |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
-                1. Set |this|.{{GPURenderCommandsMixin/[[pipeline]]}} to `null`.
-                1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer]]}} to `null`.
-                1. [=map/Clear=] |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
+                        <div data-timeline=queue>
+                            [=Queue timeline=] steps:
 
-                1. Let |passState| be a snapshot of |this|'s current state.
-                1. [$Enqueue a render command$] on |this| which issues the subsequent steps on the
-                    [=Queue timeline=] with |renderState| when executed.
+                            1. Execute each command in |bundle|.{{GPURenderBundle/[[command_list]]}}
+                                with |renderState|.
+
+                                Note: |renderState| cannot be changed by executing render bundles. Binding state was
+                                already captured at bundle encoding time, and so isn't used when executing bundles.
+                        </div>
+
+                1. [$Reset the render pass binding state$] of |this|.
             </div>
-            <div data-timeline=queue>
-                [=Queue timeline=] steps:
-
-                1. For each |bundle| in |bundles|:
-                    1. Execute each command in |bundle|.{{GPURenderBundle/[[command_list]]}}
-                        with |passState| and |renderState|.
-
-                        Note: |renderState| cannot be changed by executing render bundles.
-                        Also note, no mutable |passState| state is visible to render bundles.
-            </div>
-
         </div>
 </dl>
+
+<div algorithm data-timeline=device>
+    To <dfn abstract-op>Reset the render pass binding state</dfn> of {{GPURenderPassEncoder}} |encoder| run
+    the following [=device timeline=] steps:
+
+        1. [=map/Clear=] |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+        1. Set |encoder|.{{GPURenderCommandsMixin/[[pipeline]]}} to `null`.
+        1. Set |encoder|.{{GPURenderCommandsMixin/[[index_buffer]]}} to `null`.
+        1. [=map/Clear=] |encoder|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
+</div>
 
 # Bundles # {#bundles}
 
@@ -12431,8 +12782,6 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
                 1. Set |e|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/stencilReadOnly}}.
                 1. Set |e|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/open=]".
                 1. Set |e|.{{GPURenderCommandsMixin/[[drawCount]]}} to 0.
-
-                Issue: Describe the reset of the steps for {{GPUDevice/createRenderBundleEncoder()}}.
             </div>
         </div>
 </dl>
@@ -12651,6 +13000,10 @@ GPUQueue includes GPUObjectBase;
                 1. [=?=] [$validate GPUOrigin3D shape$](|destination|.{{GPUImageCopyTexture/origin}}).
                 1. [=?=] [$validate GPUExtent3D shape$](|size|).
                 1. Let |dataBytes| be [=get a copy of the buffer source|a copy of the bytes held by the buffer source=] |data|.
+
+                    Note: This is described as copying all of |data| to the device timeline,
+                    but in practice |data| could be much larger than necessary.
+                    Implementations should optimize by copying only the necessary bytes.
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.
             </div>
             <div data-timeline=device>
@@ -12671,22 +13024,34 @@ GPUQueue includes GPUObjectBase;
                         |dataLayout|.{{GPUImageDataLayout/bytesPerRow}} or |dataLayout|.{{GPUImageDataLayout/offset}}.
                     </div>
 
-                1. Let |contents| be the contents of the [=images=] seen by
-                    viewing |dataBytes| with |dataLayout| and |size|.
-
-                    Issue: Specify more formally.
-
-                    Note: This is described as copying all of |data| to the device timeline,
-                    but in practice |data| could be much larger than necessary.
-                    Implementations should optimize by copying only the necessary bytes.
                 1. Issue the subsequent steps on the [=Queue timeline=] of |this|.
             </div>
             <div data-timeline=queue>
                 [=Queue timeline=] steps:
 
-                1. Write |contents| into |destination|.
+                1. Let |blockWidth| be the [=texel block width=] of |destination|.{{GPUImageCopyTexture/texture}}.
+                1. Let |blockHeight| be the [=texel block height=] of |destination|.{{GPUImageCopyTexture/texture}}.
 
-                    Issue: Define copy, including provision for snorm.
+                1. Let |dstOrigin| be |destination|.{{GPUImageCopyTexture/origin}};
+                1. Let |dstBlockOriginX| be (|dstOrigin|.[=GPUOrigin3D/x=] &div; |blockWidth|).
+                1. Let |dstBlockOriginY| be (|dstOrigin|.[=GPUOrigin3D/y=] &div; |blockHeight|).
+
+                1. Let |blockColumns| be (|copySize|.[=GPUExtent3D/width=] &div; |blockWidth|).
+                1. Let |blockRows| be (|copySize|.[=GPUExtent3D/height=] &div; |blockHeight|).
+
+                1. [=Assert=] that |dstBlockOriginX|, |dstBlockOriginY|, |blockColumns|, and |blockRows| are integers.
+
+                1. For each |z| in the range [0, |copySize|.[=GPUExtent3D/depthOrArrayLayers=] &minus; 1]:
+                    1. Let |dstSubregion| be [$texture copy sub-region$] (|z| &plus; |dstOrigin|.[=GPUOrigin3D/z=]) of |destination|.
+
+                    1. For each |y| in the range [0, |blockRows| &minus; 1]:
+                        1. For each |x| in the range [0, |blockColumns| &minus; 1]:
+                            1. Let |blockOffset| be the [$texel block byte offset$] of |dataLayout| for (|x|, |y|, |z|) of
+                                |destination|.{{GPUImageCopyTexture/texture}}.
+
+                            1. Set [=texel block=] (|dstBlockOriginX| &plus; |x|, |dstBlockOriginY| &plus; |y|) of
+                                |dstSubregion| to be an [=equivalent texel representation=] to the [=texel block=]
+                                described by |dataBytes| at offset |blockOffset|.
             </div>
         </div>
 
@@ -12786,7 +13151,33 @@ GPUQueue includes GPUObjectBase;
                             - {{GPUTextureFormat/"rgba16float"}}
                             - {{GPUTextureFormat/"rgba32float"}}
                     </div>
-                1. Issue: Do the actual copy.
+
+                1. If |copySize|.[=GPUExtent3D/depthOrArrayLayers=] is &gt; 0, issue the subsequent
+                    steps on the [=Queue timeline=] of |this|.
+            </div>
+            <div data-timeline=queue>
+                [=Queue timeline=] steps:
+
+                1. [=Assert=] that the [=texel block width=] of |destination|.{{GPUImageCopyTexture/texture}} is 1,
+                    the [=texel block height=] of |destination|.{{GPUImageCopyTexture/texture}} is 1, and that
+                    |copySize|.[=GPUExtent3D/depthOrArrayLayers=] is 1.
+
+                1. Let |srcOrigin| be |source|.{{GPUImageCopyExternalImage/origin}}.
+                1. Let |dstOrigin| be |destination|.{{GPUImageCopyTexture/origin}}.
+                1. Let |dstSubregion| be [$texture copy sub-region$] (|dstOrigin|.[=GPUOrigin3D/z=]) of |destination|.
+
+                1. For each |y| in the range [0, |copySize|.[=GPUExtent3D/height=] &minus; 1]:
+                    1. Let |srcY| be |y| if |source|.{{GPUImageCopyExternalImage/flipY}} is `false` and
+                        (|copySize|.[=GPUExtent3D/height=] &minus; 1 &minus; |y|) otherwise.
+                    1. For each |x| in the range [0, |copySize|.[=GPUExtent3D/width=] &minus; 1]:
+                        1. Set [=texel block=]
+                            (|dstOrigin|.[=GPUOrigin3D/x=] &plus; |x|, |dstOrigin|.[=GPUOrigin3D/y=] &plus; |y|) of
+                            |dstSubregion| to be an [=equivalent texel representation=] of the pixel at
+                            (|srcOrigin|.[=GPUOrigin2D/x=] &plus; |x|, |srcOrigin|.[=GPUOrigin2D/y=] &plus; |srcY|) of
+                            |source|.{{GPUImageCopyExternalImage/source}} after applying any
+                            [[#color-space-conversions|color encoding]] required by
+                            |destination|.{{GPUImageCopyTextureTagged/colorSpace}} and
+                            |destination|.{{GPUImageCopyTextureTagged/premultipliedAlpha}}.
             </div>
         </div>
 
@@ -13060,7 +13451,7 @@ When beginning a render pass, {{GPURenderPassDescriptor}}.{{GPURenderPassDescrip
 must be set to be able to use occlusion queries during the pass. An occlusion query is begun
 and ended by calling {{GPURenderPassEncoder/beginOcclusionQuery()}} and
 {{GPURenderPassEncoder/endOcclusionQuery()}} in pairs that cannot be nested, and resolved into a
-{{GPUBuffer}} as 64-bit unsigned integer by {{GPUCommandEncoder}}.{{GPUCommandEncoder/resolveQuerySet()}}.
+{{GPUBuffer}} as a [=64-bit unsigned integer=] by {{GPUCommandEncoder}}.{{GPUCommandEncoder/resolveQuerySet()}}.
 
 ## Timestamp Query ## {#timestamp}
 
@@ -13069,7 +13460,7 @@ Timestamp queries allow applications to write timestamps to a {{GPUQuerySet}}, u
 - {{GPUComputePassDescriptor}}.{{GPUComputePassDescriptor/timestampWrites}}
 - {{GPURenderPassDescriptor}}.{{GPURenderPassDescriptor/timestampWrites}}
 
-and then resolve timestamp values (in nanoseconds as a 64-bit unsigned integer) into
+and then resolve timestamp values (in nanoseconds as a [=64-bit unsigned integer=]) into
 a {{GPUBuffer}}, using {{GPUCommandEncoder}}.{{GPUCommandEncoder/resolveQuerySet()}}.
 
 Timestamp values are implementation defined and may not increase monotonically. The physical device
@@ -13387,6 +13778,13 @@ interface GPUCanvasContext {
 
     [=Content timeline=] steps:
 
+    1. If |context|.{{GPUCanvasContext/[[configuration]]}} is `null`:
+        1. Return a transparent black image of the same size as |context|.{{GPUCanvasContext/canvas}}.
+
+        Note: The {{GPUCanvasContext/[[configuration]]}} will be `null` if the context has not been
+        configured or has been {{GPUCanvasContext/unconfigure()|unconfigured}}. This is identical to
+        the behavior when the canvas has no context.
+
     1. Ensure that all submitted work items (e.g. queue submissions) have
         completed writing to the image (via |context|.{{GPUCanvasContext/[[currentTexture]]}}).
     1. Let |snapshot| be a copy of |context|.{{GPUCanvasContext/[[drawingBuffer]]}}.
@@ -13541,12 +13939,22 @@ enum GPUCanvasAlphaMode {
     "premultiplied",
 };
 
+enum GPUCanvasToneMappingMode {
+    "standard",
+    "extended",
+};
+
+dictionary GPUCanvasToneMapping {
+  GPUCanvasToneMappingMode mode = "standard";
+};
+
 dictionary GPUCanvasConfiguration {
     required GPUDevice device;
     required GPUTextureFormat format;
     GPUTextureUsageFlags usage = 0x10;  // GPUTextureUsage.RENDER_ATTACHMENT
     sequence<GPUTextureFormat> viewFormats = [];
     PredefinedColorSpace colorSpace = "srgb";
+    GPUCanvasToneMapping toneMapping = {};
     GPUCanvasAlphaMode alphaMode = "opaque";
 };
 </script>
@@ -13581,6 +13989,11 @@ dictionary GPUCanvasConfiguration {
     ::
         The color space that values written into textures returned by
         {{GPUCanvasContext/getCurrentTexture()}} should be displayed with.
+
+    : <dfn>toneMapping</dfn>
+    ::
+        The tone mapping determines how the content of textures returned by
+        {{GPUCanvasContext/getCurrentTexture()}} are to be displayed.
 
     : <dfn>alphaMode</dfn>
     ::
@@ -13623,23 +14036,10 @@ dictionary GPUCanvasConfiguration {
 ### Canvas Color Space ### {#canvas-color-space}
 
 During presentation, the color values in the canvas are converted to the color
-space of the screen. Color values are then clamped to the `[0, 1]` interval in
-the color space of the screen.
+space of the screen.
 
-<div class=note heading>
-    For example, suppose that the value `(1.035, -0.175, -0.140)` is written to an
-    `'srgb'` canvas.
-
-    If this is presented to an sRGB screen, then this will be converted to sRGB
-    (which is a no-op, because the canvas is sRGB), and then will be clamped to
-    the sRGB value `(1.0, 0.0, 0.0)`.
-
-    If this is presented to a Display P3 screen, then this will be converted to
-    the value `(0.948, 0.106, 0.01)` in the Display P3 color space, and no
-    clamping will be needed.
-</div>
-
-<!-- POSTV1(HDR canvases): ... unless HDR is explicitly enabled for the canvas element. -->
+The {{GPUCanvasConfiguration/toneMapping}} determines the handling of values
+outside of the `[0, 1]` interval in the color space of the screen.
 
 ### Canvas Context sizing ### {#context-sizing}
 
@@ -13669,6 +14069,62 @@ In WebGPU, it does so by [$Replace the drawing buffer|replacing the drawing buff
     Note: This algorithm is run any time the |canvas| `width` or `height` attributes are set, even
     if their value is not changed.
 </div>
+
+<h3 id=gpucanvastonemappingmode data-dfn-type=enum>`GPUCanvasToneMappingMode`
+</h3>
+
+This enum specifies how color values are displayed to the screen.
+
+<dl dfn-type=enum-value dfn-for=GPUCanvasToneMappingMode>
+    : <dfn>"standard"</dfn>
+    ::
+        Color values within the standard dynamic range of the screen are unchanged, and
+        all other color values are projected to the standard dynamic range of the screen.
+
+        Note:
+        This projection is often accomplished by clamping color values in the color space
+        of the screen to the `[0, 1]` interval.
+
+        <div class=example>
+            For example, suppose that the value `(1.035, -0.175, -0.140)` is written to an
+            `'srgb'` canvas.
+
+            If this is presented to an sRGB screen, then this will be converted to sRGB
+            (which is a no-op, because the canvas is sRGB), then projected into the display's space.
+            Using component-wise clamping, this results in the sRGB value `(1.0, 0.0, 0.0)`.
+
+            If this is presented to a Display P3 screen, then this will be converted to
+            the value `(0.948, 0.106, 0.01)` in the Display P3 color space, and no
+            clamping will be needed.
+        </div>
+
+    : <dfn>"extended"</dfn>
+    ::
+        Color values in the extended dynamic range of the screen are unchanged, and all
+        other color values are projected to the extended dynamic range of the screen.
+
+        Note:
+        This projection is often accomplished by clamping color values in the color space of
+        the screen to the interval of values that the screen is capable of displaying,
+        which may include values greater than `1`.
+
+        <div class=example>
+            For example, suppose that the value `(2.5, -0.15, -0.15)` is written to an
+            `'srgb'` canvas.
+
+            If this is presented to an sRGB screen that is capable of displaying values
+            in the `[0, 4]` interval in sRGB space, then this will be converted to sRGB
+            (which is a no-op, because the canvas is sRGB), then projected into the display's space.
+            If using component-wise clamping, this results in the sRGB value `(2.5, 0.0, 0.0)`.
+
+            If this is presented to a Display P3 screen that is capable of displaying
+            values in the `[0, 2]` interval in Display P3 space, then this will be
+            converted to the value `(2.3, 0.545, 0.386)` in the Display P3 color space,
+            then projected into the display's space.
+            If using component-wise clamping, this results in the Display P3 value `(2.0, 0.545, 0.386)`.
+        </div>
+
+</dl>
 
 <h3 id=gpucanvasalphamode data-dfn-type=enum>`GPUCanvasAlphaMode`
 <span id=GPUCanvasAlphaMode></span>
@@ -14208,10 +14664,6 @@ This section describes the details of various GPU operations.
 
 Issue: This section is incomplete.
 
-## Transfer ## {#transfer-operations}
-
-<p class="note editorial"><span class=marker>Editorial note:</span> describe the transfers at the high level
-
 ## Computing ## {#computing-operations}
 
 Computing operations provide direct access to GPU's programmable hardware.
@@ -14223,7 +14675,63 @@ These operations are encoded within {{GPUComputePassEncoder}} as:
 - {{GPUComputePassEncoder/dispatchWorkgroups()}}
 - {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}
 
-<p class="note editorial"><span class=marker>Editorial note:</span> describe the computing algorithm
+The main compute algorithm:
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>compute</dfn>(descriptor, drawCall, state)
+
+    **Arguments:**
+
+    - |descriptor|: Description of the current {{GPUComputePipeline}}.
+    - |dispatchCall|: The dispatch call parameters. May come from function arguments or an {{GPUBufferUsage/INDIRECT}} buffer.
+
+    1. Let |computeInvocations| be an [=list/empty=] [=list=].
+    1. Let |computeStage| be |descriptor|.{{GPUComputePipelineDescriptor/compute}}.
+    1. Let |workgroupSize| be the computed workgroup size for |computeStage|.{{GPUProgrammableStage/entryPoint}} after
+        applying |computeStage|.{{GPUProgrammableStage/constants}} to |computeStage|.{{GPUProgrammableStage/module}}.
+    1. For |workgroupX| in range <code>[0, |dispatchCall|.`workgroupCountX`]</code>:
+        1. For |workgroupY| in range <code>[0, |dispatchCall|.`workgroupCountY`]</code>:
+            1. For |workgroupZ| in range <code>[0, |dispatchCall|.`workgroupCountZ`]</code>:
+                1. For |localX| in range <code>[0, |workgroupSize|.`x`]</code>:
+                    1. For |localY| in range <code>[0, |workgroupSize|.`y`]</code>:
+                        1. For |localZ| in range <code>[0, |workgroupSize|.`y`]</code>:
+                            1. Let |invocation| be <code>{ |computeStage|, |workgroupX|, |workgroupY|, |workgroupZ|, |localX|, |localY|, |localZ| }</code>
+                            1. [=list/Append=] |invocation| to |computeInvocations|.
+
+    1. For every |invocation| in |computeInvocations|, in any order the [=device=] chooses, including in parallel:
+        1. Set the shader [=builtins=]:
+            - Set the [=builtin/num_workgroups=] builtin, if any, to <code>(<br/>
+                    |dispatchCall|.`workgroupCountX`,<br/>
+                    |dispatchCall|.`workgroupCountY`,<br/>
+                    |dispatchCall|.`workgroupCountZ`<br/>
+                )</code>
+            - Set the [=builtin/workgroup_id=] builtin, if any, to <code>(<br/>
+                    |invocation|.|workgroupX|,<br/>
+                    |invocation|.|workgroupY|,<br/>
+                    |invocation|.|workgroupZ|<br/>
+                )</code>
+            - Set the [=builtin/local_invocation_id=] builtin, if any, to <code>(<br/>
+                    |invocation|.|localX|,<br/>
+                    |invocation|.|localY|,<br/>
+                    |invocation|.|localZ|<br/>
+                )</code>
+            - Set the [=builtin/global_invocation_id=] builtin, if any, to <code>(<br/>
+                    |invocation|.|workgroupX| * |workgroupSize|.`x` + |invocation|.|localX|,<br/>
+                    |invocation|.|workgroupY| * |workgroupSize|.`y` + |invocation|.|localY|,<br/>
+                    |invocation|.|workgroupZ| * |workgroupSize|.`z` + |invocation|.|localZ|<br/>
+                )</code>.
+            - Set the [=builtin/local_invocation_index=] builtin, if any, to <code>
+                |invocation|.|localX| + (|invocation|.|localY| * |workgroupSize|.`x`) +
+                (|invocation|.|localZ| * |workgroupSize|.`x` * |workgroupSize|.`y`)
+                </code>
+        1. Invoke the compute shader entry point described by |invocation|.|computeStage|.
+
+    Note: Shader invocations have no guaranteed order, and will generally run in parallel according to device
+    capabilities. Developers should not assume that any given invocation or workgroup will complete before any
+    other one is started. Some devices may appear to execute in a consistent order, but this behavior should not
+    be relied on as it will not perform identically across all devices. Shaders that require synchronization
+    across invocations must use [=Synchronization Built-in Functions=] to coordinate execution.
+</div>
 
 The [=device=] may become [=lose the device|lost=] if
 [=shader execution end|shader execution does not end=]
@@ -14251,7 +14759,7 @@ The main rendering algorithm:
         **Arguments:**
 
         - |descriptor|: Description of the current {{GPURenderPipeline}}.
-        - |drawCall|: The draw call parameters.
+        - |drawCall|: The draw call parameters. May come from function arguments or an {{GPUBufferUsage/INDIRECT}} buffer.
         - |state|: [=RenderState=] of the {{GPURenderCommandsMixin}} where the draw call is issued.
 
         1. **Resolve indices**. See [[#index-resolution]].
@@ -14299,7 +14807,7 @@ a list of vertices to process for each instance.
 
     **Arguments:**
 
-    - |drawCall|: The draw call parameters.
+    - |drawCall|: The draw call parameters. May come from function arguments or an {{GPUBufferUsage/INDIRECT}} buffer.
     - |state|: The snapshot of the {{GPURenderCommandsMixin}} state at the time of the draw call.
 
     **Returns:** list of integer indices.
@@ -14321,11 +14829,9 @@ a list of vertices to process for each instance.
         1. Set each |vertexIndexList| item |i| to the value |drawCall|.firstVertex + |i|.
     1. Return |vertexIndexList|.
 
-    Note: in case of indirect draw calls, the `indexCount`, `vertexCount`,
+    Note: in the case of indirect draw calls, the `indexCount`, `vertexCount`,
     and other properties of |drawCall| are read from the indirect buffer
     instead of the draw command itself.
-
-    <p class="note editorial"><span class=marker>Editorial note:</span> specify indirect commands better.
 </div>
 
 <div algorithm data-timeline=queue>
@@ -14367,7 +14873,7 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
     **Arguments:**
 
     - |vertexIndexList|: List of vertex indices to process (mutable, passed by reference).
-    - |drawCall|: The draw call parameters.
+    - |drawCall|: The draw call parameters. May come from function arguments or an {{GPUBufferUsage/INDIRECT}} buffer.
     - |desc|: The descriptor of type {{GPUVertexState}}.
     - |state|: The snapshot of the {{GPURenderCommandsMixin}} state at the time of the draw call.
 
@@ -14462,7 +14968,7 @@ Primitives are assembled by a fixed-function stage of GPUs.
     **Arguments:**
 
     - |vertexIndexList|: List of vertex indices to process.
-    - |drawCall|: The draw call parameters.
+    - |drawCall|: The draw call parameters. May come from function arguments or an {{GPUBufferUsage/INDIRECT}} buffer.
     - |desc|: The descriptor of type {{GPUPrimitiveState}}.
 
     For each instance, the primitives get assembled from the vertices that have been
@@ -14506,8 +15012,6 @@ Primitives are assembled by a fixed-function stage of GPUs.
                 then (|vl|.4, |vl|.3, |vl|.5), etc.
                 Each subsequent primitive takes 1 vertices.
         </dl>
-
-        <p class="note editorial"><span class=marker>Editorial note:</span> should this be defined more formally?
 
         Any incomplete primitives are dropped.
 </div>
@@ -14558,28 +15062,22 @@ For each vertex output value "v" with a corresponding fragment input,
 |a|.v and |b|.v would be the outputs for |a| and |b| vertices respectively.
 The clipped shader output |c|.v is produced based on the interpolation qualifier:
 <dl class=switch>
-    : "flat"
+    : [=interpolation type/flat=]
     ::
-        Flat interpolation is unaffected, and is based on <dfn dfn>provoking vertex</dfn>,
-        which is the first vertex in the primitive. The output value is the same
-        for the whole primitive, and matches the vertex output of the [=provoking vertex=]:
-        |c|.v = [=provoking vertex=].v
+        Flat interpolation is unaffected, and is based on the <dfn dfn>provoking vertex</dfn>,
+        which is determined by the [=interpolation sampling=] mode declared in the shader. The
+        output value is the same for the whole primitive, and matches the vertex output of the
+        [=provoking vertex=].
 
-    : "linear"
+    : [=interpolation type/linear=]
     ::
         The interpolation ratio gets adjusted against the perspective coordinates of the
         [=clip position=]s, so that the result of interpolation is linear in screen space.
 
-        <p class="note editorial"><span class=marker>Editorial note:</span> provide more specifics here, if possible
-
-    : "perspective"
+    : [=interpolation type/perspective=]
     ::
-        The value is linearly interpolated in clip space, producing perspective-correct values:
-
-        |c|.v = |t| &times; |a|.v &plus; (1 &minus; |t|) &times; |b|.v
+        The value is linearly interpolated in clip space, producing perspective-correct values.
 </dl>
-
-<p class="note editorial"><span class=marker>Editorial note:</span> link to interpolation qualifiers in WGSL
 
 The result of primitive clipping is a new set of primitives, which are contained
 within the [=clip volume=].
@@ -14614,6 +15112,9 @@ such that the pixel ranges from (0, 0) to (1, 1):
             Sample 3: (0.625, 0.875)
 </table>
 
+Implementations must use the [=standard sample pattern=] for the given
+{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}} when performing rasterization.
+
 Let's define a <dfn dfn>FragmentDestination</dfn> to contain:
 <dl dfn-for=FragmentDestination>
     : <dfn dfn>position</dfn>
@@ -14644,8 +15145,6 @@ Rasterization produces a list of <dfn dfn>RasterizationPoint</dfn>s, each contai
     : <dfn dfn>barycentricCoordinates</dfn>
     :: refers to [[#barycentric-coordinates]]
 </dl>
-
-<p class="note editorial"><span class=marker>Editorial note:</span> define the depth computation algorithm
 
 <div algorithm data-timeline=queue>
     <dfn abstract-op>rasterize</dfn>(primitiveList, state)
@@ -14821,10 +15320,7 @@ Otherwise, the polygon is <dfn dfn>back-facing</dfn>.
         1. Let |rp| be a new [=RasterizationPoint=] object
         1. Compute the list |b| as [[#barycentric-coordinates]] of that fragment.
             Set |rp|.[=RasterizationPoint/barycentricCoordinates=] to |b|.
-
         1. Let |d|<sub>|i|</sub> be the depth value of |v|<sub>|i|</sub>.
-
-            <p class="note editorial"><span class=marker>Editorial note:</span> define how this value is constructed.
         1. Set |rp|.[=RasterizationPoint/depth=] to &sum; (|b|<sub>|i|</sub> &times; |d|<sub>|i|</sub>)
         1. Append |rp| to |rasterizationPoints|.
 
@@ -14882,8 +15378,6 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
             1. Let |value| be the interpolated fragment input,
                 based on |rp|.[=RasterizationPoint/barycentricCoordinates=], |rp|.[=RasterizationPoint/primitiveVertices=],
                 and the [=interpolation=] qualifier on the input.
-
-                <p class="note editorial"><span class=marker>Editorial note:</span> describe the exact equations.
             1. Set the corresponding fragment shader [=location=] input to |value|.
         1. Invoke the fragment shader entry point described by |desc|.
 
@@ -15200,7 +15694,7 @@ This feature adds the following [=optional API surfaces=]:
 <span id=dom-gpufeaturename-texture-compression-bc></span>
 </h3>
 
-Allows for explicit creation of textures of BC compressed formats.
+Allows for explicit creation of textures of BC compressed formats. Supports both 2D and 3D textures.
 
 This feature adds the following [=optional API surfaces=]:
 
@@ -15225,7 +15719,7 @@ This feature adds the following [=optional API surfaces=]:
 <span id=dom-gpufeaturename-texture-compression-etc2></span>
 </h3>
 
-Allows for explicit creation of textures of ETC2 compressed formats.
+Allows for explicit creation of textures of ETC2 compressed formats. Only supports 2D textures.
 
 This feature adds the following [=optional API surfaces=]:
 
@@ -15245,7 +15739,7 @@ This feature adds the following [=optional API surfaces=]:
 <span id=dom-gpufeaturename-texture-compression-astc></span>
 </h3>
 
-Allows for explicit creation of textures of ASTC compressed formats.
+Allows for explicit creation of textures of ASTC compressed formats. Only supports 2D textures.
 
 This feature adds the following [=optional API surfaces=]:
 
@@ -15345,13 +15839,32 @@ This feature adds the following [=optional API surfaces=]:
 - New WGSL extensions:
     - [=extension/clip_distances=]
 
+<h3 id=dom-gpufeaturename-dual-source-blending data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"dual-source-blending"`
+</h3>
+
+Allows the use of [=blend_src=] in WGSL and simultaneously using both pixel shader outputs
+(`@blend_src(0)` and `@blend_src(1)`) as inputs to a blending operation with the single color
+attachment at [=location=] `0`.
+
+This feature adds the following [=optional API surfaces=]:
+- Allows the use of the below {{GPUBlendFactor}}s:
+    - {{GPUBlendFactor/"src1"}}
+    - {{GPUBlendFactor/"one-minus-src1"}}
+    - {{GPUBlendFactor/"src1-alpha"}}
+    - {{GPUBlendFactor/"one-minus-src1-alpha"}}
+
+- New WGSL extensions:
+    - [=extension/dual_source_blending=]
+
 # Appendices # {#appendices}
 
 ## Texture Format Capabilities ## {#texture-format-caps}
 
 ### Plain color formats ### {#plain-color-formats}
 
-All plain color formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}}, and {{GPUTextureUsage/TEXTURE_BINDING}} usage.
+All plain color formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}},
+and {{GPUTextureUsage/TEXTURE_BINDING}} usage. Additionally, all plain color formats support
+textures with {{GPUTextureDimension/"3d"}} dimension.
 
 The {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/STORAGE_BINDING}} columns
 specify support for {{GPUTextureUsage/RENDER_ATTACHMENT|GPUTextureUsage.RENDER_ATTACHMENT}}
@@ -15769,7 +16282,8 @@ depth and stencil aspects.
 All [=depth-or-stencil formats=] support the {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsage/COPY_DST}},
 {{GPUTextureUsage/TEXTURE_BINDING}}, and {{GPUTextureUsage/RENDER_ATTACHMENT}} usages.
 All of these formats support multisampling.
-However, certain copy operations also restrict the source and destination formats.
+However, certain copy operations also restrict the source and destination formats, and none of
+these formats support textures with {{GPUTextureDimension/"3d"}} dimension.
 
 Depth textures cannot be used with {{GPUSamplerBindingType/"filtering"}} samplers, but can always
 be used with {{GPUSamplerBindingType/"comparison"}} samplers even if they use filtering.
@@ -15927,6 +16441,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
             <th>[=Texel block copy footprint=] (Bytes)
             <th>{{GPUTextureSampleType}}
             <th>Texel block [=texel block width|width=]/[=texel block height|height=]
+            <th>{{GPUTextureDimension/"3d"}}
             <th>[=Feature=]
     </thead>
     <tr>
@@ -15934,12 +16449,14 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>4
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>1 &times; 1
+        <td>&check;
         <td>
     <tr>
         <td>{{GPUTextureFormat/bc1-rgba-unorm}}
         <td rowspan=2>8
         <td rowspan=14>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td rowspan=14>4 &times; 4
+        <td rowspan=14>&check;
         <td rowspan=14>{{GPUFeatureName/texture-compression-bc}}
     <tr>
         <td>{{GPUTextureFormat/bc1-rgba-unorm-srgb}}
@@ -15978,6 +16495,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td rowspan=2>8
         <td rowspan=10>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td rowspan=10>4 &times; 4
+        <td rowspan=10>
         <td rowspan=10>{{GPUFeatureName/texture-compression-etc2}}
     <tr>
         <td>{{GPUTextureFormat/etc2-rgb8unorm-srgb}}
@@ -16006,6 +16524,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td rowspan=2>16
         <td rowspan=28>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td rowspan=2>4 &times; 4
+        <td rowspan=28>
         <td rowspan=28>{{GPUFeatureName/texture-compression-astc}}
     <tr>
         <td>{{GPUTextureFormat/astc-4x4-unorm-srgb}}
