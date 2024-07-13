@@ -121,3 +121,7 @@ Open Questions:
 - Should pipelineLayout defines immediate range compatible?
   - Implementation internal immediate data usage could easily break compatibility. Implementation needs extra
     effort to ensure such compatibility.
+
+- Should it be allowed to use multiple `var<immediate_data>` in one entry point?
+  <https://github.com/gpuweb/gpuweb/pull/4612#discussion_r1584076993>
+  Currently this proposal allows only one, for simplicity.
