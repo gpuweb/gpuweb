@@ -114,7 +114,8 @@ interface mixin GPUBindingCommandsMixin {
 NOTE: rangeOffset: Offset in bytes into immediate data range to begin writing at. Requires multiple of 4 bytes.
 NOTE: dataOffset: Offset in into data to begin writing from. Given in elements if data is a TypedArray and bytes otherwise.
 
-Open Questions:
+# Open Questions:
+
 - Should immediates be defined per-stage?
   - wgpu currently has per-stage immediates (@teoxoy?) and we weren't sure if that is a feasible alternative.
 
