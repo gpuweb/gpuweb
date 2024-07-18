@@ -171,7 +171,10 @@ main dl:not(.switch) {
     padding-left: .5em;
 }
 
-/* Remove unnecessary extra margin on switch bodies */
+/* Tweak default "switch" statement layout to work better for our style. */
+dl.switch dt {
+    margin-left: -0.5em;
+}
 dl.switch dd {
     margin-left: 0em;
 }
@@ -777,9 +780,9 @@ Several operations in WebGPU return promises.
 - {{GPUAdapter}}.{{GPUAdapter/requestDevice()}}
 - {{GPUDevice}}.{{GPUDevice/createComputePipelineAsync()}}
 - {{GPUDevice}}.{{GPUDevice/createRenderPipelineAsync()}}
-- {{GPUBuffer}}.{{GPUBuffer/mapAsync()}}
 - {{GPUShaderModule}}.{{GPUShaderModule/getCompilationInfo()}}
 - {{GPUQueue}}.{{GPUQueue/onSubmittedWorkDone()}}
+- {{GPUBuffer}}.{{GPUBuffer/mapAsync()}}
 - {{GPUDevice}}.{{GPUDevice/lost}}
 - {{GPUDevice}}.{{GPUDevice/popErrorScope()}}
 
@@ -1296,7 +1299,7 @@ These scenarios should be rare, and the signal is vital to developers because mo
 API tries to behave like nothing is wrong to avoid interrupting the runtime flow of the application:
 no validation errors are raised, most promises resolve normally, etc.
 
-<div algorithm data-timeline=device>
+<div algorithm="lose the device" data-timeline=device>
     To <dfn dfn>lose the device</dfn>(|device|, |reason|) run the following [=device timeline=] steps:
 
     1. [$Invalidate$] |device|.
@@ -1309,8 +1312,8 @@ no validation errors are raised, most promises resolve normally, etc.
                 Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
                 information and should never be parsed by applications.
         </div>
-    1. Complete any outstanding {{GPUBuffer/mapAsync()}} steps.
-    1. Complete any outstanding {{GPUQueue/onSubmittedWorkDone()}} steps.
+
+    1. Complete any outstanding steps that are waiting until |device| <dfn dfn>becomes lost</dfn>.
 
     Note: No errors are generated after device loss. See [[#errors-and-debugging]].
 </div>
@@ -3455,22 +3458,31 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                 1. Set |this|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/unavailable=]".
 
-                    Note: Since the buffer is mapped, its contents cannot change between this completion and {{GPUBuffer/unmap()}}.
-                1. If |this|.{{GPUObjectBase/[[device]]}} is [$invalid|lost$], or when it [=lose the device|becomes lost=]:
+                    Note: Since the buffer is mapped, its contents cannot change between this step and {{GPUBuffer/unmap()}}.
+
+                1. When either of the following events occur (whichever comes first),
+                    or if either has already occurred:
+
+                    - The [=device timeline=] becomes informed of the completion of an unspecified
+                        [=queue timeline=] point:
+                        - after the completion of
+                            <span data-timeline=queue>currently-enqueued operations that use |this|</span>
+                        - and no later than the completion of
+                            <span data-timeline=queue>all currently-enqueued operations</span>
+                            (regardless of whether they use |this|).
+                    - |this|.{{GPUObjectBase/[[device]]}} [=becomes lost=].
+
+                    Then issue the subsequent steps on the [=device timeline=] of |this|.{{GPUObjectBase/[[device]]}}.
+            </div>
+            <div data-timeline=device>
+                [=Device timeline=] steps:
+
+                1. If |this|.{{GPUObjectBase/[[device]]}} is [$invalid|lost$]:
 
                     1. Issue the <var data-timeline=content>map failure steps</var> on
                         <var data-timeline=content>contentTimeline</var>.
 
-                    Otherwise, at an unspecified point:
-
-                    - after the completion of
-                        <span data-timeline=queue>currently-enqueued operations that use |this|</span>,
-                    - and no later than the next [=device timeline=] operation after the
-                        [=device timeline=] becomes informed of the completion of
-                        <span data-timeline=queue>all currently-enqueued operations</span>
-                        (regardless of whether they use |this|),
-
-                    run the following steps:
+                    Otherwise:
 
                     1. Let |internalStateAtCompletion| be |this|.{{GPUBuffer/[[internal state]]}}.
 
@@ -6736,16 +6748,22 @@ Note: {{GPUCompilationMessage}}.{{GPUCompilationMessage/offset}} and
             <div data-timeline=device>
                 [=Device timeline=] |synchronization steps|:
 
-                1. When the [=device timeline=] becomes informed that [=shader module creation=] has
-                    completed for |this|:
-                    1. Let |messages| be a list of any errors, warnings, or informational messages
-                        generated during [=shader module creation=] for |this|.
-                    1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+                1. When either of the following events occur (whichever comes first),
+                    or if either has already occurred:
+
+                    - The [=device timeline=] becomes informed that [=shader module creation=] has
+                        completed for |this| (successfully or unsuccessfully).
+                    - |this|.{{GPUObjectBase/[[device]]}} [=becomes lost=].
+
+                    Then issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
             <div data-timeline=content>
                 [=Content timeline=] steps:
 
                 1. Let |info| be a new {{GPUCompilationInfo}}.
+                1. Let |messages| be a list of any errors, warnings, or informational messages
+                    generated during [=shader module creation=] for |this|, or the empty list
+                    `[]` if the device was lost.
                 1. For each |message| in |messages|:
                     1. Let |m| be a new {{GPUCompilationMessage}}.
                     1. Set |m|.{{GPUCompilationMessage/message}} to be the text of |message|.
@@ -7611,6 +7629,7 @@ dictionary GPUComputePipelineDescriptor
         is ready to be used without additional delay.
 
         If pipeline creation fails, the returned {{Promise}} rejects with an {{GPUPipelineError}}.
+        (A {{GPUError}} is not dispatched to the device.)
 
         Note: Use of this method is preferred whenever possible, as it prevents blocking the
         [=queue timeline=] work on pipeline compilation.
@@ -7638,26 +7657,51 @@ dictionary GPUComputePipelineDescriptor
                 [=Device timeline=] |initialization steps|:
 
                 1. Let |pipeline| be a new {{GPUComputePipeline}} created as if
-                    |this|.{{GPUDevice/createComputePipeline()}} was called with |descriptor|;
+                    |this|.{{GPUDevice/createComputePipeline()}} was called with |descriptor|,
+                    except capturing any errors as |error|, rather than dispatching them to the device.
 
-                1. When |pipeline| is ready to be used or has been [$invalidated$]:
-                    1. Let |valid| be |pipeline|'s [$valid$] state.
-                    1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+                1. When either of the following events occur (whichever comes first),
+                    or if either has already occurred:
+
+                    - The [=device timeline=] becomes informed that [=pipeline creation=] has
+                        completed for |pipeline| (successfully or unsuccessfully).
+                    - |this| [=becomes lost=].
+
+                    Then issue the subsequent steps on the [=device timeline=] of |this|.
             </div>
-            <div data-timeline=content>
-                [=Content timeline=] steps:
+            <div data-timeline=device>
+                [=Device timeline=] steps:
 
-                1. If |valid| is...
-                    <dl class=switch>
-                        : `true`
-                        :: [=Resolve=] |promise| with |pipeline|.
-                        : `false` due to an [$internal error$]
-                        :: [=Reject=] |promise| with a {{GPUPipelineError}} with
+                1. If |this| is [$invalid|lost$] or |pipeline| is [$valid$],
+                    issue the following steps on |contentTimeline|, and return.
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Resolve=] |promise| with |pipeline|.
+                    </div>
+
+                    Note: No errors are generated after device loss. See [[#errors-and-debugging]].
+
+                1. If |pipeline| is [$invalid$] and |error| is an [$internal error$],
+                    issue the following steps on |contentTimeline|, and return.
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Reject=] |promise| with a {{GPUPipelineError}} with
                             {{GPUPipelineErrorInit/reason}} {{GPUPipelineErrorReason/"internal"}}.
-                        : `false` due to a [$validation error$]
-                        :: [=Reject=] |promise| with a {{GPUPipelineError}} with
+                    </div>
+
+                1. If |pipeline| is [$invalid$] and |error| is a [$validation error$],
+                    issue the following steps on |contentTimeline|, and return.
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Reject=] |promise| with a {{GPUPipelineError}} with
                             {{GPUPipelineErrorInit/reason}} {{GPUPipelineErrorReason/"validation"}}.
-                    </dl>
+                    </div>
             </div>
         </div>
 </dl>
@@ -7859,6 +7903,7 @@ dictionary GPURenderPipelineDescriptor
         is ready to be used without additional delay.
 
         If pipeline creation fails, the returned {{Promise}} rejects with an {{GPUPipelineError}}.
+        (A {{GPUError}} is not dispatched to the device.)
 
         Note: Use of this method is preferred whenever possible, as it prevents blocking the
         [=queue timeline=] work on pipeline compilation.
@@ -7886,26 +7931,51 @@ dictionary GPURenderPipelineDescriptor
                 [=Device timeline=] |initialization steps|:
 
                 1. Let |pipeline| be a new {{GPURenderPipeline}} created as if
-                    |this|.{{GPUDevice/createRenderPipeline()}} was called with |descriptor|;
+                    |this|.{{GPUDevice/createRenderPipeline()}} was called with |descriptor|,
+                    except capturing any errors as |error|, rather than dispatching them to the device.
 
-                1. When |pipeline| is ready to be used or has been [$invalidated$]:
-                    1. Let |valid| be |pipeline|'s [$valid$] state.
-                    1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+                1. When either of the following events occur (whichever comes first),
+                    or if either has already occurred:
+
+                    - The [=device timeline=] becomes informed that [=pipeline creation=] has
+                        completed for |pipeline| (successfully or unsuccessfully).
+                    - |this| [=becomes lost=].
+
+                    Then issue the subsequent steps on the [=device timeline=] of |this|.
             </div>
-            <div data-timeline=content>
-                [=Content timeline=] steps:
+            <div data-timeline=device>
+                [=Device timeline=] steps:
 
-                1. If |valid| is...
-                    <dl class=switch>
-                        : `true`
-                        :: [=Resolve=] |promise| with |pipeline|.
-                        : `false` due to an [$internal error$]
-                        :: [=Reject=] |promise| with a {{GPUPipelineError}} with
+                1. If |this| is [$invalid|lost$] or |pipeline| is [$valid$],
+                    issue the following steps on |contentTimeline|, and return.
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Resolve=] |promise| with |pipeline|.
+                    </div>
+
+                    Note: No errors are generated after device loss. See [[#errors-and-debugging]].
+
+                1. If |pipeline| is [$invalid$] and |error| is an [$internal error$],
+                    issue the following steps on |contentTimeline|, and return.
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Reject=] |promise| with a {{GPUPipelineError}} with
                             {{GPUPipelineErrorInit/reason}} {{GPUPipelineErrorReason/"internal"}}.
-                        : `false` due to a [$validation error$]
-                        :: [=Reject=] |promise| with a {{GPUPipelineError}} with
+                    </div>
+
+                1. If |pipeline| is [$invalid$] and |error| is a [$validation error$],
+                    issue the following steps on |contentTimeline|, and return.
+
+                    <div data-timeline=content>
+                        [=Content timeline=] steps:
+
+                        1. [=Reject=] |promise| with a {{GPUPipelineError}} with
                             {{GPUPipelineErrorInit/reason}} {{GPUPipelineErrorReason/"validation"}}.
-                    </dl>
+                    </div>
             </div>
         </div>
 </dl>
@@ -13294,10 +13364,14 @@ GPUQueue includes GPUObjectBase;
             <div data-timeline=device>
                 [=Device timeline=] |synchronization steps|:
 
-                1. When the [=device timeline=] becomes informed of the completion of all
-                    <span data-timeline=queue>currently-enqueued operations</span> on |this|, or
-                    if |this| is [$invalid|lost$], or when |this| [=lose the device|becomes lost=]:
-                    1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+                1. When either of the following events occur (whichever comes first),
+                    or if either has already occurred:
+
+                    - The [=device timeline=] becomes informed of the completion of
+                        <span data-timeline=queue>all currently-enqueued operations</span>.
+                    - |this|.{{GPUObjectBase/[[device]]}} [=becomes lost=].
+
+                    Then issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
             <div data-timeline=content>
                 [=Content timeline=] steps:
@@ -14194,13 +14268,16 @@ is being composited into (e.g. an HTML page rendering, or a 2D canvas).
 
 During the normal course of operation of WebGPU, errors are raised via [$dispatch error$].
 
-After a device is [=lose the device|lost=] (described below), errors are no longer surfaced.
-At this point, implementations do not need to run validation or error tracking:
-{{GPUDevice/popErrorScope()}} and {{GPUDevice/uncapturederror}} stop reporting errors,
-and the validity of objects on the device becomes unobservable.
+After a device is [=lose the device|lost=] (described below), errors are no longer surfaced,
+where possible. ({{GPUBuffer/mapAsync()}} does produce an error, because it is impossible to
+provide the correct mapped data after the device has been lost.)
 
-Additionally, no errors are generated by the device loss itself.
-Instead, the {{GPUDevice}}.{{GPUDevice/lost}} promise resolves to indicate the device is lost.
+At this point, implementations do not need to run validation or error tracking:
+
+- The validity of objects on the device becomes unobservable.
+- {{GPUDevice/popErrorScope()}} and {{GPUDevice/uncapturederror}} stop reporting errors.
+    (No errors are generated by the device loss itself.
+    Instead, the {{GPUDevice}}.{{GPUDevice/lost}} promise resolves to indicate the device is lost.)
 
 ## Fatal Errors ## {#fatal-errors}
 
