@@ -1202,6 +1202,10 @@ An [=adapter=] has the following internal slots:
     ::
         If set to `true` indicates that the adapter can no longer be used to create a [=device=].
 
+    : <dfn>[[default feature level]]</dfn>, of type {{GPUFeatureLevel}}, readonly
+    ::
+        The feature level which defines the default values for any device created from this adapter.
+
     : <dfn>\[[features]]</dfn>, of type [=ordered set=]&lt;{{GPUFeatureName}}&gt;, readonly
     ::
         The [=features=] which can be used to create devices on this adapter.
@@ -1277,10 +1281,12 @@ A [=device=] also has the following [=content timeline property=]:
 
     - Set |device|.{{device/[[adapter]]}} to |adapter|.
 
-    - Set |device|.{{device/[[features]]}} to the [=ordered set|set=] of values in
+    - Set |device|.{{device/[[features]]}} to the [=ordered set|set=] of features provided
+        by default by |adapter|.{{adapter/[[default feature level]]}}, plus the features in
         |descriptor|.{{GPUDeviceDescriptor/requiredFeatures}}.
 
-    - Let |device|.{{device/[[limits]]}} be a [=supported limits=] object with the default values.
+    - Set |device|.{{device/[[limits]]}} to a [=supported limits=] object with the default values
+        as defined by |adapter|.{{adapter/[[default feature level]]}}.
         For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}, set the
         member corresponding to |key| in |device|.{{device/[[limits]]}} to the [=limit/better=]
         value of |value| or the default value in [=supported limits=].
@@ -1338,20 +1344,112 @@ Only supported capabilities may be requested in {{GPUAdapter/requestDevice()}};
 requesting unsupported capabilities results in failure.
 
 The capabilities of a [=device=] are determined in "[=a new device=]" by starting with the adapter's
-defaults (no features and the default [=supported limits=])
+defaults (from {{adapter/[[default feature level]]}})
 and adding capabilities as requested in {{GPUAdapter/requestDevice()}}.
 These capabilities are enforced regardless of the capabilities of the [=adapter=].
 
 <p tracking-vector>
 For privacy considerations, see [[#privacy-machine-limits]].
 
+### Feature Levels ### {#feature-levels}
+
+<dfn enum>GPUFeatureLevel</dfn>s describe a bundles of [=features=] and [=limits=].
+They are passed to {{GPU/requestAdapter()}}
+(via {{GPURequestAdapterOptions}}.{{GPURequestAdapterOptions/minFeatureLevel}}),
+which return either `null` or an adapter which:
+
+- Provides certain additional capabilities by default when requesting a device.
+- May have additional adapter capability guarantees.
+
+Note:
+Feature levels are defined additively on top of previous feature levels, such that it is always
+possible to request a lower feature level, then choose additional capabilities from there to
+create a device that could have been created from a higher feature level.
+This avoids the need to call {{GPU/requestAdapter()}} multiple times to initialize an application:
+request the minimum {{GPURequestAdapterOptions/minFeatureLevel}} needed for base functionality,
+then apply progressive enhancements depending on what extra capabilities are available on the
+resulting adapter.
+
+{{GPU/requestAdapter()}} may fail (if the implementation or underlying implementation does
+not support the feature level), but it must gracefully accept all enum values defined here.
+If any feature level is requested on an implementation that only supports lower feature levels,
+the implementation must return `null`.
+
+Implementations must not automatically upgrade feature level requests, unless the requested
+feature level is <dfn dfn for=GPUFeatureLevel>upgradeable</dfn> to another feature level.
+<!-- This is defined on a level-by-level basis. For example, someday, FL1 could allow upgrading to
+FL2, if we want to allow implementation to drop their implementations of FL1 validation entirely. -->
+
+<script type=idl>
+enum GPUFeatureLevel {
+    "compatibility",
+    "fl1",
+    "fl1-desktop",
+};
+</script>
+
+<dl dfn-type=enum-value dfn-for=GPUFeatureLevel>
+    : <dfn>"compatibility"</dfn>
+    ::
+        Issue: remove for initial landing
+
+        This is the minimum feature level.
+
+        It is [=GPUFeatureLevel/upgradeable=] to {{GPUFeatureLevel/"fl1"}}.
+
+        It provides the following device capabilities by default:
+
+        - Limits as described in the [=supported limits=] table.
+
+        It also guarantees of any adapter returned:
+
+        - At least one of the following:
+            - {{GPUFeatureName/"texture-compression-bc"}} is supported.
+            - {{GPUFeatureName/"texture-compression-etc2"}} is supported.
+
+    : <dfn>"fl1"</dfn>
+    ::
+        Issue: bikeshed name
+
+        This feature level is the default for
+        {{GPURequestAdapterOptions}}.{{GPURequestAdapterOptions/minFeatureLevel}}.
+
+        It provides the following device capabilities by default:
+
+        - Limits as described in the [=supported limits=] table.
+        - {{GPUFeatureName/"everything-from-compat-to-fl1"}}
+
+        It also guarantees of any adapter returned:
+
+        - At least one of the following:
+            - {{GPUFeatureName/"texture-compression-bc"}} is supported.
+            - Both {{GPUFeatureName/"texture-compression-etc2"}} and
+                {{GPUFeatureName/"texture-compression-astc"}} are supported.
+
+    : <dfn>"fl1-desktop"</dfn>
+    ::
+        Issue: Just an example, probably not something we want to do exactly. Remove for initial landing.
+
+        This feature level describes "desktop" class hardware.
+
+        It provides the following device capabilities by default:
+
+        - Limits as described in the [=supported limits=] table.
+        - {{GPUFeatureName/"texture-compression-bc"}}
+</dl>
+
 ### Features ### {#features}
 
 A <dfn dfn>feature</dfn> is a set of optional WebGPU functionality that is not supported
 on all implementations, typically due to hardware or system software constraints.
 
-Functionality that is part of a feature may only be used if the feature was requested at device
-creation (in {{GPUDeviceDescriptor/requiredFeatures}}).
+Functionality that is part of a feature may only be used if the feature was enabled at device
+creation; either:
+
+- Part of the adapter's {{adapter/[[default feature level]]}}
+    (the {{GPURequestAdapterOptions/minFeatureLevel}} used to request the adapter), or
+- Requested explicitly in {{GPUDeviceDescriptor}}.{{GPUDeviceDescriptor/requiredFeatures}}.
+
 Otherwise, using existing API surfaces in a new way **typically** results in a [$validation error$],
 and using <dfn dfn>optional API surfaces</dfn> results in the following:
 
@@ -1374,7 +1472,8 @@ See the [[#feature-index|Feature Index]] for a description of the functionality 
 Each <dfn dfn>limit</dfn> is a numeric limit on the usage of WebGPU on a device.
 
 Each limit has a <dfn dfn for=limit>default</dfn> value.
-Every [=adapter=] is guaranteed to support the default value or [=limit/better=].
+Every [=adapter=] is guaranteed to support the default value for its
+{{adapter/[[default feature level]]}}, or [=limit/better=].
 The default is used if a value is not explicitly specified in {{GPUDeviceDescriptor/requiredLimits}}.
 
 One limit value may be <dfn dfn for=limit>better</dfn> than another.
@@ -1413,51 +1512,82 @@ applications should generally request the "worst" limits that work for their con
 
 A <dfn dfn>supported limits</dfn> object has a value for every limit defined by WebGPU:
 
+Issue: Remove other feature levels for initial landing
+
 <table class=data dfn-type=attribute dfn-for="supported limits">
     <thead>
-        <tr><th>Limit name <th>Type <th>[=Limit class=] <th>[=limit/Default=]
+        <tr>
+            <th>Limit name
+            <th>Type <th>[=Limit class=]
+            <th colspan=3>[=limit/Default=]
+        <tr class=row-continuation>
+            <th>
+            <th> <th>
+            <th class=vertical><span>{{GPUFeatureLevel/"compatibility"}}</span>
+            <th class=vertical><span>{{GPUFeatureLevel/"fl1"}}</span>
+            <th class=vertical><span>{{GPUFeatureLevel/"fl1-desktop"}}</span>
     </thead>
 
     <tr><td><dfn>maxTextureDimension1D</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8192
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>4096
+        <td>8192
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=]
         of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"1d"}}.
 
     <tr><td><dfn>maxTextureDimension2D</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8192
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>4096
+        <td>8192
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=] and {{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=]
         of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"2d"}}.
 
     <tr><td><dfn>maxTextureDimension3D</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>2048
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>2048
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=], {{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=] and {{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=]
         of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"3d"}}.
 
     <tr><td><dfn>maxTextureArrayLayers</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>256
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>256
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=]
         of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"2d"}}.
 
     <tr><td><dfn>maxBindGroups</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>4
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td colspan=2>4
+        <td>8
     <tr class=row-continuation><td colspan=4>
         The maximum number of {{GPUBindGroupLayout|GPUBindGroupLayouts}}
         allowed in {{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
         when creating a {{GPUPipelineLayout}}.
 
     <tr><td><dfn>maxBindGroupsPlusVertexBuffers</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>24
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>24
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum number of bind group and vertex buffer slots used simultaneously,
         counting any empty slots below the highest index.
         Validated in {{GPUDevice/createRenderPipeline()}} and [$valid to draw|in draw calls$].
 
     <tr><td><dfn>maxBindingsPerBindGroup</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>1000
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>1000
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The number of binding indices available when creating a {{GPUBindGroupLayout}}.
 
@@ -1469,21 +1599,30 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         within reasonable memory space, rather than a sparse map structure.
 
     <tr><td><dfn>maxDynamicUniformBuffersPerPipelineLayout</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>8
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
         which are uniform buffers with dynamic offsets.
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxDynamicStorageBuffersPerPipelineLayout</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>4
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>4
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
         which are storage buffers with dynamic offsets.
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxSampledTexturesPerShaderStage</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>16
+        <td>?
     <tr class=row-continuation><td colspan=4>
         For each possible {{GPUShaderStage}} `stage`,
         the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
@@ -1491,7 +1630,10 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxSamplersPerShaderStage</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>16
+        <td>?
     <tr class=row-continuation><td colspan=4>
         For each possible {{GPUShaderStage}} `stage`,
         the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
@@ -1499,7 +1641,10 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxStorageBuffersPerShaderStage</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>4
+        <td>8
+        <td>?
     <tr class=row-continuation><td colspan=4>
         For each possible {{GPUShaderStage}} `stage`,
         the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
@@ -1507,7 +1652,10 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxStorageTexturesPerShaderStage</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>4
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>4
+        <td>?
     <tr class=row-continuation><td colspan=4>
         For each possible {{GPUShaderStage}} `stage`,
         the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
@@ -1515,7 +1663,10 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxUniformBuffersPerShaderStage</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>12
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>12
+        <td>?
     <tr class=row-continuation><td colspan=4>
         For each possible {{GPUShaderStage}} `stage`,
         the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
@@ -1523,7 +1674,10 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxUniformBufferBindingSize</dfn>
-        <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>65536 bytes
+        <td>{{GPUSize64}} <td>[=limit class/maximum=]
+        <td>16384 bytes
+        <td>65536 bytes
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum {{GPUBufferBinding}}.{{GPUBufferBinding/size}} for bindings with a
         {{GPUBindGroupLayoutEntry}} |entry| for which
@@ -1531,7 +1685,10 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         is {{GPUBufferBindingType/"uniform"}}.
 
     <tr><td><dfn>maxStorageBufferBindingSize</dfn>
-        <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>134217728 bytes (128 MiB)
+        <td>{{GPUSize64}} <td>[=limit class/maximum=]
+        <td>?
+        <td>134217728 bytes (128 MiB)
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum {{GPUBufferBinding}}.{{GPUBufferBinding/size}} for bindings with a
         {{GPUBindGroupLayoutEntry}} |entry| for which
@@ -1540,7 +1697,10 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         or {{GPUBufferBindingType/"read-only-storage"}}.
 
     <tr><td><dfn>minUniformBufferOffsetAlignment</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/alignment=] <td>256 bytes
+        <td>{{GPUSize32}} <td>[=limit class/alignment=]
+        <td>?
+        <td>256 bytes
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The required alignment for {{GPUBufferBinding}}.{{GPUBufferBinding/offset}} and
         the dynamic offsets provided in [=GPUBindingCommandsMixin/setBindGroup()=],
@@ -1549,7 +1709,10 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         is {{GPUBufferBindingType/"uniform"}}.
 
     <tr><td><dfn>minStorageBufferOffsetAlignment</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/alignment=] <td>256 bytes
+        <td>{{GPUSize32}} <td>[=limit class/alignment=]
+        <td>?
+        <td>256 bytes
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The required alignment for {{GPUBufferBinding}}.{{GPUBufferBinding/offset}} and
         the dynamic offsets provided in [=GPUBindingCommandsMixin/setBindGroup()=],
@@ -1559,44 +1722,65 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         or {{GPUBufferBindingType/"read-only-storage"}}.
 
     <tr><td><dfn>maxVertexBuffers</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>8
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum number of {{GPUVertexState/buffers}}
         when creating a {{GPURenderPipeline}}.
 
     <tr><td><dfn>maxBufferSize</dfn>
-        <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>268435456 bytes (256 MiB)
+        <td>{{GPUSize64}} <td>[=limit class/maximum=]
+        <td>?
+        <td>268435456 bytes (256 MiB)
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum size of {{GPUBufferDescriptor/size}}
         when creating a {{GPUBuffer}}.
 
     <tr><td><dfn>maxVertexAttributes</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>16
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum number of {{GPUVertexBufferLayout/attributes}}
         in total across {{GPUVertexState/buffers}}
         when creating a {{GPURenderPipeline}}.
 
     <tr><td><dfn>maxVertexBufferArrayStride</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>2048 bytes
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>2048 bytes
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum allowed {{GPUVertexBufferLayout/arrayStride}}
         when creating a {{GPURenderPipeline}}.
 
     <tr><td><dfn>maxInterStageShaderComponents</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>64
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>64
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum allowed number of components of input or output variables
         for inter-stage communication (like vertex outputs or fragment inputs).
 
     <tr><td><dfn>maxInterStageShaderVariables</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>16
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum allowed number of input or output variables for inter-stage
         communication (like vertex outputs or fragment inputs).
 
     <tr><td><dfn>maxColorAttachments</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>4
+        <td>8
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum allowed number of color attachments in
         {{GPURenderPipelineDescriptor}}.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}},
@@ -1604,43 +1788,64 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         and {{GPURenderPassLayout}}.{{GPURenderPassLayout/colorFormats}}.
 
     <tr><td><dfn>maxColorAttachmentBytesPerSample</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>32
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>32
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum number of bytes necessary to hold one sample (pixel or subpixel)
         of render pipeline output data, across all color attachments.
 
     <tr><td><dfn>maxComputeWorkgroupStorageSize</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16384 bytes
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>16384 bytes
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum number of bytes of [=address spaces/workgroup=] storage used for a compute stage
         {{GPUShaderModule}} entry-point.
 
     <tr><td><dfn>maxComputeInvocationsPerWorkgroup</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>256
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>128
+        <td>256
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum value of the product of the `workgroup_size` dimensions for a
         compute stage {{GPUShaderModule}} entry-point.
 
     <tr><td><dfn>maxComputeWorkgroupSizeX</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>256
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>128
+        <td>256
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum value of the `workgroup_size` X dimension for a
         compute stage {{GPUShaderModule}} entry-point.
 
     <tr><td><dfn>maxComputeWorkgroupSizeY</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>256
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>128
+        <td>256
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum value of the `workgroup_size` Y dimensions for a
         compute stage {{GPUShaderModule}} entry-point.
 
     <tr><td><dfn>maxComputeWorkgroupSizeZ</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>64
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>64
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum value of the `workgroup_size` Z dimensions for a
         compute stage {{GPUShaderModule}} entry-point.
 
     <tr><td><dfn>maxComputeWorkgroupsPerDimension</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>65535
+        <td>{{GPUSize32}} <td>[=limit class/maximum=]
+        <td>?
+        <td>65535
+        <td>?
     <tr class=row-continuation><td colspan=4>
         The maximum value for the arguments of
         {{GPUComputePassEncoder/dispatchWorkgroups(workgroupCountX, workgroupCountY, workgroupCountZ)}}.
@@ -2166,6 +2371,9 @@ interface GPU {
                 [=Device timeline=] |initialization steps|:
 
                 1. Let |adapter| be `null`.
+                1. If |options|.{{GPURequestAdapterOptions/minFeatureLevel}} is
+                    [=GPUFeatureLevel/upgradeable=] and the user agent chooses to upgrade
+                    it, set it to the upgraded feature level.
                 1. If the user agent chooses to return an adapter:
                     1. Set |adapter| to an [=adapter=] chosen according to
                         the rules in [[#adapter-selection]] and the criteria in |options|,
@@ -2174,6 +2382,8 @@ interface GPU {
                         The [=supported limits=] of the adapter must adhere to the requirements
                         defined in [[#limits]].
 
+                    1. Set |adapter|.{{adapter/[[default feature level]]}} to
+                        |options|.{{GPURequestAdapterOptions/minFeatureLevel}}.
                     1. If |adapter| meets the criteria of a [=fallback adapter=] set
                         |adapter|.{{adapter/[[fallback]]}} to `true`.
 
@@ -2248,13 +2458,11 @@ handling should allow it to recover.
 
 ### Adapter Capability Guarantees ### {#adapter-capability-guarantees}
 
-Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}} must provide the following guarantees:
+Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}}, regardless of
+{{GPURequestAdapterOptions/minFeatureLevel}}, must provide the following guarantees:
 
-- At least one of the following must be true:
-    - {{GPUFeatureName/"texture-compression-bc"}} is supported.
-    - Both {{GPUFeatureName/"texture-compression-etc2"}} and
-        {{GPUFeatureName/"texture-compression-astc"}} are supported.
-- All supported limits must be either the [=limit/default=] value or [=limit/better=].
+- Any features and limit defaults bundled by or guaranteed by the request's
+    {{GPURequestAdapterOptions/minFeatureLevel}}.
 - All [=limit class/alignment|alignment-class=] limits must be powers of 2.
 - {{supported limits/maxBindingsPerBindGroup}} must be must be &ge;
     ([=max bindings per shader stage=] &times; [=max shader stages per pipeline=]), where:
@@ -2296,6 +2504,7 @@ configuration is suitable for the application.
 
 <script type=idl>
 dictionary GPURequestAdapterOptions {
+    GPUFeatureLevel minFeatureLevel = "fl1";
     GPUPowerPreference powerPreference;
     boolean forceFallbackAdapter = false;
 };
@@ -2311,6 +2520,14 @@ enum GPUPowerPreference {
 {{GPURequestAdapterOptions}} has the following members:
 
 <dl dfn-type=dict-member dfn-for=GPURequestAdapterOptions>
+    : <dfn>minFeatureLevel</dfn>
+    ::
+        The minimum feature level which must be supported by the adapter that is returned.
+
+        Note:
+        Generally, only one {{GPU/requestAdapter()}} call should be needed to initialize an
+        application. See {{GPUFeatureLevel}} for details.
+
     : <dfn>powerPreference</dfn>
     ::
         Optionally provides a hint indicating what class of [=adapter=] should be selected from
@@ -2601,8 +2818,10 @@ dictionary GPUDeviceDescriptor
         Specifies the [=features=] that are required by the device request.
         The request will fail if the adapter cannot provide these features.
 
-        Exactly the specified set of features, and no more or less, will be allowed in validation
-        of API calls on the resulting device.
+        The specified set of features will be [=a new device|applied=] on top of the
+        {{adapter/[[default feature level]]}}'s features.
+        The resulting set of features, and no more or less,
+        will be allowed in validation of API calls on the resulting device.
 
     : <dfn>requiredLimits</dfn>
     ::
@@ -2610,7 +2829,10 @@ dictionary GPUDeviceDescriptor
         The request will fail if the adapter cannot provide these limits.
 
         Each key must be the name of a member of [=supported limits=].
-        Exactly the specified limits, and no [=limit/better=] or worse,
+
+        The specified set of limits will be [=a new device|applied=] on top of the
+        {{adapter/[[default feature level]]}}'s limits.
+        The resulting limits, and no [=limit/better=] or worse,
         will be allowed in validation of API calls on the resulting device.
 
         <!-- If we ever need limit types other than GPUSize32/GPUSize64, we can change the value
@@ -15779,6 +16001,11 @@ typedef (sequence<GPUIntegerCoordinate> or GPUExtent3DDict) GPUExtent3D;
 </div>
 
 # Feature Index # {#feature-index}
+
+<h3 id=everything-from-compat-to-fl1 data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"everything-from-compat-to-fl1"`
+</h3>
+
+Issue: TBD
 
 <h3 id=depth-clip-control data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"depth-clip-control"`
 <span id=dom-gpufeaturename-depth-clip-control></span>
