@@ -1275,18 +1275,20 @@ A [=device=] also has the following [=content timeline property=]:
 </dl>
 
 <div algorithm data-timeline=device>
-    When <dfn dfn>a new device</dfn> |device| is created from [=adapter=] |adapter|
+    To create <dfn dfn>a new device</dfn> from [=adapter=] |adapter|
     with {{GPUDeviceDescriptor}} |descriptor|, run the following [=device timeline=] steps:
 
-    - Set |device|.{{device/[[adapter]]}} to |adapter|.
-
-    - Set |device|.{{device/[[features]]}} to the [=ordered set|set=] of values in
+    1. Let |features| be the [=set=] of values in
         |descriptor|.{{GPUDeviceDescriptor/requiredFeatures}}.
-
-    - Let |device|.{{device/[[limits]]}} be a [=supported limits=] object with the default values.
-        For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}, set the
-        member corresponding to |key| in |device|.{{device/[[limits]]}} to the [=limit/better=]
-        value of |value| or the default value in [=supported limits=].
+    1. Let |limits| be a [=supported limits=] object with all values set to their defaults.
+    1. For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}:
+        1. If |value| is [=limit/better=] than |limits|[|key|]:
+            1. Set |limits|[|key|] to |value|.
+    1. Let |device| be a [=device=] object.
+    1. Set |device|.{{device/[[adapter]]}} to |adapter|.
+    1. Set |device|.{{device/[[features]]}} to |features|.
+    1. Set |device|.{{device/[[limits]]}} to |limits|.
+    1. Return |device|.
 </div>
 
 Any time the user agent needs to revoke access to a device, it calls
@@ -1377,10 +1379,16 @@ See the [[#feature-index|Feature Index]] for a description of the functionality 
 Each <dfn dfn>limit</dfn> is a numeric limit on the usage of WebGPU on a device.
 
 Each limit has a <dfn dfn for=limit>default</dfn> value.
-Every [=adapter=] is guaranteed to support the default value or [=limit/better=].
-The default is used if a value is not explicitly specified in {{GPUDeviceDescriptor/requiredLimits}}.
 
-One limit value may be <dfn dfn for=limit>better</dfn> than another.
+[=Adapters=] are always guaranteed to support the defaults or [=limit/better=]
+(see [[#adapter capability guarantees]].
+
+[=Devices=] support each limit requested in {{GPUDeviceDescriptor/requiredLimits}},
+or the default if none is requested or the default is [=limit/better=] (see [=a new device=]).
+API calls perform validation according to the exact limits of the device (not the adapter),
+no [=limit/better=] or worse.
+
+For any given limit, some values are <dfn dfn for=limit>better</dfn> than others.
 A [=limit/better=] limit value always relaxes validation, enabling strictly
 more programs to be valid. For each [=limit class=], "better" is defined.
 
@@ -1414,7 +1422,7 @@ Because of this, and to improve portability across devices and implementations,
 applications should generally request the "worst" limits that work for their content
 (ideally, the default values).
 
-A <dfn dfn>supported limits</dfn> object has a value for every limit defined by WebGPU:
+A <dfn dfn>supported limits</dfn> object has an entry for every limit defined by WebGPU:
 
 <table class=data dfn-type=attribute dfn-for="supported limits">
     <thead>
@@ -1653,7 +1661,7 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
 <span id=gpu-supportedlimits></span>
 </h5>
 
-{{GPUSupportedLimits}} exposes the [=limits=] supported by an adapter or device.
+{{GPUSupportedLimits}} exposes the [=supported limits=] supported by an adapter or device.
 See {{GPUAdapter/limits|GPUAdapter.limits}} and {{GPUDevice/limits|GPUDevice.limits}}.
 
 <!-- When adding limits here, add them to the Correspondence Reference as well. -->
@@ -2509,21 +2517,17 @@ interface GPUAdapter {
                     This converges the behavior when the browser doesn't support a feature
                     with the behavior when a particular adapter doesn't support a feature.
 
-                1. If any of the following requirements are unmet:
+                1. All of the requirements in the following steps |must| be met.
 
                     <div class=validusage>
-                        - Each key in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}
-                            must be the name of a member of [=supported limits=].
-
-                        - For each limit name |key| in the keys of [=supported limits=]:
-                            Let |value| be |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}[|key|].
-                            - |value| must be no [=limit/better=] than the value of that limit in
-                                |adapter|.{{adapter/[[limits]]}}.
-                            - If the limit's [=limit class|class=] is [=limit class/alignment=],
-                                |value| must be a power of 2 less than 2<sup>32</sup>.
+                        1. For each [|key|, |value|] in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}:
+                            1. |key| |must| be the name of a member of [=supported limits=].
+                            1. |value| |must| be no [=limit/better=] than |adapter|.{{adapter/[[limits]]}}[|key|].
+                            1. If |key|'s [=limit class|class=] is [=limit class/alignment=],
+                                |value| |must| be a power of 2 less than 2<sup>32</sup>.
                     </div>
 
-                    Then issue the following steps on <var data-timeline=content>contentTimeline</var>
+                    If any are unmet, issue the following steps on <var data-timeline=content>contentTimeline</var>
                     and return:
 
                     <div data-timeline=content>
@@ -2548,7 +2552,7 @@ interface GPUAdapter {
 
                     Otherwise:
 
-                    1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
+                    1. Let |device| be [=a new device=] created from |adapter| with |descriptor|.
                     1. [$Expire$] |adapter|.
 
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
@@ -2613,8 +2617,9 @@ dictionary GPUDeviceDescriptor
         The request will fail if the adapter cannot provide these limits.
 
         Each key must be the name of a member of [=supported limits=].
-        Exactly the specified limits, and no [=limit/better=] or worse,
-        will be allowed in validation of API calls on the resulting device.
+
+        API calls on the resulting device perform validation according to the exact limits of the
+        device (not the adapter; see [[#limits]]).
 
         <!-- If we ever need limit types other than GPUSize32/GPUSize64, we can change the value
         type to `double` or `any` in the future and write out the type conversion explicitly (by
