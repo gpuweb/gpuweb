@@ -34,7 +34,6 @@ spec:resource-hints;
 spec: ECMA-262; urlPrefix: https://tc39.es/ecma262/#
     type: dfn
         text: agent; url: agent
-        text: surrounding agent; url: surrounding-agent
         text: agent cluster; url: sec-agent-clusters
         text: ?; url: sec-returnifabrupt-shorthands
         text: !; url: sec-returnifabrupt-shorthands
@@ -574,10 +573,12 @@ Any interface which includes <dfn interface>GPUObjectBase</dfn> is a [=WebGPU in
 
 The <dfn dfn>internal object</dfn> tracks the state of the [=WebGPU object=] on the [=device timeline=].
 All reads/writes to the mutable state of an [=internal object=] occur from steps executing on a
-single well-ordered [=device timeline=]. These steps may have been issued from a [=content timeline=]
-algorithm on any of multiple [=agents=].
+single well-ordered [=device timeline=].
 
+<!-- POSTV1(multithreading) tentative text:
+These steps may have been issued from a [=content timeline=] algorithm on any of multiple [=agents=].
 Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
+-->
 
 The following special property types can be defined on [=WebGPU objects=]:
 
@@ -887,6 +888,8 @@ browser engines (typically with a "content process" and "GPU process"), as well
 as the GPU itself as a separate execution unit in many implementations.
 Implementing WebGPU does not require timelines to execute in parallel, so does
 not require multiple processes, or even multiple threads.
+(It does require concurrency for cases like [$get a copy of the image contents of a context$]
+which synchronously blocks on another timeline to complete.)
 
 : <dfn dfn>Content timeline</dfn>
 :: Associated with the execution of the Web script.
@@ -1185,7 +1188,8 @@ calling {{GPU/requestAdapter()}} multiple times returns a different [=adapter=]
 object each time.
 
 Each [=adapter=] object can only be used to create one [=device=]:
-upon a successful {{GPUAdapter/requestDevice()}} call, the adapter [$expires$].
+upon a successful {{GPUAdapter/requestDevice()}} call, the adapter's {{adapter/[[state]]}}
+changes to {{adapter/[[state]]/"consumed"}}.
 Additionally, [=adapter=] objects may [$expire$] at any time.
 
 Note:
@@ -1201,9 +1205,16 @@ improved privacy. It is not required that a [=fallback adapter=] is available on
 An [=adapter=] has the following internal slots:
 
 <dl dfn-type=attribute dfn-for=adapter>
-    : <dfn>\[[expired]]</dfn>, of type boolean, initially `false`
+    : <dfn>\[[state]]</dfn>, initially {{adapter/[[state]]/"valid"}}
     ::
-        If set to `true` indicates that the adapter can no longer be used to create a [=device=].
+        <dl dfn-type=enum-value dfn-for="adapter/[[state]]">
+            : <dfn>"valid"</dfn>
+            :: The adapter can be used to create a device.
+            : <dfn>"consumed"</dfn>
+            :: The adapter has already been used to create a device, and cannot be used again.
+            : <dfn>"expired"</dfn>
+            :: The adapter has expired for some other reason.
+        </dl>
 
     : <dfn>\[[features]]</dfn>, of type [=ordered set=]&lt;{{GPUFeatureName}}&gt;, readonly
     ::
@@ -1224,22 +1235,21 @@ An [=adapter=] has the following internal slots:
 [=Adapters=] are exposed via {{GPUAdapter}}.
 
 <div algorithm data-timeline=device>
-    A given {{GPUAdapter}} |adapter| is <dfn abstract-op>expired</dfn> if
-    |adapter|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[expired]]}} is `true`.
-</div>
-
-<div algorithm data-timeline=device>
     To <dfn abstract-op lt='expire|Expire|expires'>expire</dfn> a {{GPUAdapter}} |adapter|, run the
     following [=device timeline=] steps:
 
-    1. Set |adapter|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[expired]]}} to `true`
+    1. Set |adapter|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[state]]}} to
+        {{adapter/[[state]]/"expired"}}.
 </div>
 
 ### Devices ### {#devices}
 
 A <dfn dfn>device</dfn> is the logical instantiation of an [=adapter=],
 through which [=internal objects=] are created.
+
+<!-- POSTV1(multithreading) tentative text:
 It can be shared across multiple [=agents=] (e.g. dedicated workers).
+-->
 
 A [=device=] is the exclusive owner of all [=internal objects=] created from it:
 when the [=device=] becomes [$invalid$]
@@ -2257,6 +2267,9 @@ Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}} must provide the followi
     - {{GPUFeatureName/"texture-compression-bc"}} is supported.
     - Both {{GPUFeatureName/"texture-compression-etc2"}} and
         {{GPUFeatureName/"texture-compression-astc"}} are supported.
+- If either {{GPUFeatureName/"texture-compression-bc"}} or
+    {{GPUFeatureName/"texture-compression-bc-sliced-3d"}}
+    is supported, both must be supported.
 - All supported limits must be either the [=limit/default=] value or [=limit/better=].
 - All [=limit class/alignment|alignment-class=] limits must be powers of 2.
 - {{supported limits/maxBindingsPerBindGroup}} must be must be &ge;
@@ -2463,7 +2476,7 @@ interface GPUAdapter {
         Requests a [=device=] from the [=adapter=].
 
         This is a one-time action: if a device is returned successfully,
-        the adapter [$expires$].
+        the adapter becomes {{adapter/[[state]]/"consumed"}}.
 
         <div algorithm=GPUAdapter.requestDevice>
             <div data-timeline=content>
@@ -2512,9 +2525,9 @@ interface GPUAdapter {
                 1. If any of the following requirements are unmet:
 
                     <div class=validusage>
+                        - |adapter|.{{adapter/[[state]]}} must not be {{adapter/[[state]]/"consumed"}}.
                         - Each key in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}
                             must be the name of a member of [=supported limits=].
-
                         - For each limit name |key| in the keys of [=supported limits=]:
                             Let |value| be |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}[|key|].
                             - |value| must be no [=limit/better=] than the value of that limit in
@@ -2532,14 +2545,12 @@ interface GPUAdapter {
                         1. [=Reject=] |promise| with an {{OperationError}}.
                     </div>
 
-                1. If |adapter| is [$expired$],
+                1. If |adapter|.{{adapter/[[state]]}} is {{adapter/[[state]]/"expired"}}
                     or the user agent otherwise cannot fulfill the request:
 
                     1. Let |device| be a new [=device=].
                     1. [=Lose the device=](|device|, {{GPUDeviceLostReason/"unknown"}}).
-
-                        Note:
-                        This [$expires$] |adapter|, if it wasn't already expired.
+                    1. [=Assert=] |adapter|.{{adapter/[[state]]}} is {{adapter/[[state]]/"expired"}}.
 
                         Note:
                         User agents should consider issuing developer-visible warnings in
@@ -2549,7 +2560,7 @@ interface GPUAdapter {
                     Otherwise:
 
                     1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
-                    1. [$Expire$] |adapter|.
+                    1. Set |adapter|.{{adapter/[[state]]}} to {{adapter/[[state]]/"consumed"}}.
 
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
@@ -2674,6 +2685,7 @@ enum GPUFeatureName {
     "depth-clip-control",
     "depth32float-stencil8",
     "texture-compression-bc",
+    "texture-compression-bc-sliced-3d",
     "texture-compression-etc2",
     "texture-compression-astc",
     "timestamp-query",
@@ -15007,23 +15019,36 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
                 : {{GPUVertexStepMode/"instance"}}
                 :: |instanceIndex|
             </dl>
+        1. Let |drawCallOutOfBounds| be `false`.
         1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
             1. Let |attributeOffset| be |vertexBufferOffset| +
                 |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
                 |attributeDesc|.{{GPUVertexAttribute/offset}}.
-            1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
-                from |vertexBuffer| starting at offset |attributeOffset|.
-                The components are loaded in the order `x`, `y`, `z`, `w` from buffer memory.
+            1. If |attributeOffset| + sizeof(|attributeDesc|.{{GPUVertexAttribute/format}}) &gt;
+                |vertexBufferOffset| + |vertexBufferBindingSize|:
+                1. Set |drawCallOutOfBounds| to `true`.
+                1. **Optionally ([=implementation-defined=])**,
+                    [=list/empty=] |vertexIndexList| and stop, cancelling the draw call.
 
-                If this results in an out-of-bounds access, the resulting value is determined
-                according to WGSL's [=invalid memory reference=] behavior.
-            1. **Optionally ([=implementation-defined=]):**
-                If |attributeOffset| + sizeof(|attributeDesc|.{{GPUVertexAttribute/format}}) &gt;
-                |vertexBufferOffset| + |vertexBufferBindingSize|,
-                [=list/empty=] |vertexIndexList| and stop, cancelling the draw call.
+                    Note: This allows implementations to detect out-of-bounds values in the index buffer
+                    before issuing a draw call, instead of using [=invalid memory reference=] behavior.
+        1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
+            1. If |drawCallOutOfBounds| is `true`:
+                1. Load the attribute |data| according to WGSL's [=invalid memory reference=]
+                    behavior, from |vertexBuffer|.
 
-                Note: This allows implementations to detect out-of-bounds values in the index buffer
-                before issuing a draw call, instead of using [=invalid memory reference=] behavior.
+                    Note: [=Invalid memory reference=] allows several behaviors, including actually
+                    loading the "correct" result for an attribute that is in-bounds, even when
+                    the draw-call-wide |drawCallOutOfBounds| is `true`.
+
+                Otherwise:
+
+                1. Let |attributeOffset| be |vertexBufferOffset| +
+                    |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
+                    |attributeDesc|.{{GPUVertexAttribute/offset}}.
+                1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
+                    from |vertexBuffer| starting at offset |attributeOffset|.
+                    The components are loaded in the order `x`, `y`, `z`, `w` from buffer memory.
             1. Convert the |data| into a shader-visible format, according to [=channel formats=] rules.
 
                 <div class=example>
@@ -15812,7 +15837,12 @@ This feature adds the following [=optional API surfaces=]:
 <span id=dom-gpufeaturename-texture-compression-bc></span>
 </h3>
 
-Allows for explicit creation of textures of BC compressed formats. Supports both 2D and 3D textures.
+Allows for explicit creation of textures of BC compressed formats. Only supports 2D textures.
+
+Note: Adapters which support either {{GPUFeatureName/"texture-compression-bc"}}
+or {{GPUFeatureName/"texture-compression-bc-sliced-3d"}}
+always support both, even though they are separate features.
+To use {{GPUFeatureName/"texture-compression-bc-sliced-3d"}}, enable it separately.
 
 This feature adds the following [=optional API surfaces=]:
 
@@ -15831,6 +15861,20 @@ This feature adds the following [=optional API surfaces=]:
     - {{GPUTextureFormat/"bc6h-rgb-float"}}
     - {{GPUTextureFormat/"bc7-rgba-unorm"}}
     - {{GPUTextureFormat/"bc7-rgba-unorm-srgb"}}
+
+<h3 id=texture-compression-bc-sliced-3d data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"texture-compression-bc-sliced-3d"`
+<span id=dom-gpufeaturename-texture-compression-bc-sliced-3d></span>
+</h3>
+
+Allows the {{GPUTextureDimension/3d}} dimension for textures with BC compressed formats.
+
+Note: Adapters which support either {{GPUFeatureName/"texture-compression-bc"}}
+or {{GPUFeatureName/"texture-compression-bc-sliced-3d"}}
+always support both, even though they are separate features.
+To use {{GPUFeatureName/"texture-compression-bc-sliced-3d"}},
+both must be enabled explicitly as this feature does not enable the BC formats.
+
+This feature adds no [=optional API surfaces=].
 
 <h3 id=texture-compression-etc2 data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"texture-compression-etc2"`
 <span id=texture-compression-etc></span>
@@ -16611,7 +16655,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td rowspan=2>8
         <td rowspan=14>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td rowspan=14>4 &times; 4
-        <td rowspan=14>&check;
+        <td rowspan=14>If {{GPUFeatureName/"texture-compression-bc-sliced-3d"}} is enabled
         <td rowspan=14>{{GPUFeatureName/texture-compression-bc}}
     <tr>
         <td>{{GPUTextureFormat/bc1-rgba-unorm-srgb}}
