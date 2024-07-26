@@ -1045,7 +1045,7 @@ the user behind an `ArrayBuffer`, thus avoiding any data copies.
 
 ### Resource Usages ### {#programming-model-resource-usages}
 
-A [=physical resource=] can be used on GPU with an <dfn dfn>internal usage</dfn>:
+A [=physical resource=] can be used with an <dfn dfn>internal usage</dfn> by a [=GPU command=]:
 
 <dl dfn-type=dfn dfn-for="internal usage">
     : <dfn>input</dfn>
@@ -1055,13 +1055,14 @@ A [=physical resource=] can be used on GPU with an <dfn dfn>internal usage</dfn>
     ::  Resource bindings that are constant from the shader point of view. Preserves the contents.
         Allowed by buffer {{GPUBufferUsage/UNIFORM}} or texture {{GPUTextureUsage/TEXTURE_BINDING}}.
     : <dfn>storage</dfn>
-    ::  Writable storage resource binding.
+    ::  Read/write storage resource binding.
         Allowed by buffer {{GPUBufferUsage/STORAGE}} or texture {{GPUTextureUsage/STORAGE_BINDING}}.
     : <dfn>storage-read</dfn>
     ::  Read-only storage resource bindings. Preserves the contents.
         Allowed by buffer {{GPUBufferUsage/STORAGE}} or texture {{GPUTextureUsage/STORAGE_BINDING}}.
     : <dfn>attachment</dfn>
-    :: Texture used as an output attachment in a render pass.
+    :: Texture used as a read/write output attachment or
+        write-only resolve target in a render pass.
         Allowed by texture {{GPUTextureUsage/RENDER_ATTACHMENT}}.
     : <dfn>attachment-read</dfn>
     ::  Texture used as a read-only attachment in a render pass. Preserves the contents.
@@ -1077,6 +1078,8 @@ We define <dfn dfn>subresource</dfn> to be either a whole buffer, or a [=texture
 
     - Each usage in |U| is [=internal usage/input=], [=internal usage/constant=], [=internal usage/storage-read=], or [=internal usage/attachment-read=].
     - Each usage in |U| is [=internal usage/storage=].
+        Multiple such usages are allowed even though they are writable;
+        this is the <dfn dfn>usage scope storage exception</dfn>.
     - |U| contains exactly one element: [=internal usage/attachment=].
 </div>
 
@@ -1085,65 +1088,109 @@ allows the API to limit when data races can occur in working with memory.
 That property makes applications written against
 WebGPU more likely to run without modification on different platforms.
 
-Generally, when an implementation processes an operation that uses a [=subresource=]
-in a different way than its current usage allows, it schedules a transition of the resource
-into the new state. In some cases, like within an open {{GPURenderPassEncoder}}, such a
-transition is impossible due to the hardware limitations.
-We define these places as <dfn dfn>usage scopes</dfn>.
+<div class=example heading>
+    Binding the same buffer for [=internal usage/storage=] as well as for
+    [=internal usage/input=] within the same {{GPURenderPassEncoder}}
+    results in a non-[=compatible usage list=] for that buffer.
+</div>
 
-The **main usage rule** is, for any one [=subresource=], its list of [=internal usages=]
-within one [=usage scope=] must be a [=compatible usage list=].
+<div class=example heading>
+    These rules allow for <dfn dfn>read-only depth-stencil</dfn>: a single depth/stencil
+    texture can be used as two different read-only usages in a render pass simultaneously:
 
-For example, binding the same buffer for [=internal usage/storage=] as well as for
-[=internal usage/input=] within the same {{GPURenderPassEncoder}} would put the encoder
-as well as the owning {{GPUCommandEncoder}} into the error state.
-This combination of usages does not make a [=compatible usage list=].
+    - [=internal usage/attachment-read=]
 
-Note: race condition of multiple writable storage buffer/texture usages in a single [=usage scope=] is allowed.
+        As a depth/stencil attachment with all aspects marked read-only
+        (using {{GPURenderPassDepthStencilAttachment/depthReadOnly}} and/or
+        {{GPURenderPassDepthStencilAttachment/stencilReadOnly}} as necessary).
 
-The [=subresources=] of textures included in the views provided to
-{{GPURenderPassColorAttachment/view|GPURenderPassColorAttachment.view}} and
-{{GPURenderPassColorAttachment/resolveTarget|GPURenderPassColorAttachment.resolveTarget}}
-are considered to be used as [=internal usage/attachment=] for the [=usage scope=] of this render pass.
+    - [=internal usage/constant=]
+
+        As a texture binding to a draw call.
+</div>
+
+<div class=example heading>
+    The following operations are allowed by the [=usage scope storage exception=]:
+
+    - A buffer or texture may be bound as [=internal usage/storage=] to two
+        different draw calls in a render pass.
+    - Disjoint ranges of a single buffer may be bound to two different binding
+        points as [=internal usage/storage=].
+
+        This case is governed by "[$Encoder bind groups alias a writable resource$]".
+</div>
 
 ### Synchronization ### {#programming-model-synchronization}
 
-For each [=subresource=] of a [=physical resource=], its set of
-[=internal usage=] flags is tracked on the [=Queue timeline=].
-
 <!-- POSTV1(multi-queue): revise this section -->
 
-On the [=Queue timeline=], there is an ordered sequence of [=usage scopes=].
-For the duration of each scope, the set of [=internal usage=] flags of any given
-[=subresource=] is constant.
-A [=subresource=] may transition to new usages at the boundaries between [=usage scope=]s.
+A <dfn dfn>usage scope</dfn> is a [=map=] from [=subresource=] to [=list=]&lt;[=internal usage=]&gt;&gt;.
+Each usage scope covers a range of operations which may execute in a concurrent
+fashion with each other, and therefore may only use [=subresources=] in consistent
+    [=compatible usage lists=] within the scope.
 
-This specification defines the following [=usage scopes=]:
+<div algorithm>
+    A [=usage scope=] |scope| passes <dfn dfn>usage scope validation</dfn> if,
+    for each [`subresource`, |usageList|] in |scope|,
+    |usageList| is a [=compatible usage list=].
+</div>
 
-- Outside of a pass (in {{GPUCommandEncoder}}), each (non-state-setting) command is one usage scope
-    (e.g. {{GPUCommandEncoder/copyBufferToTexture()}}).
+<div algorithm>
+    To <dfn abstract-op for="usage scope" lt="add|Add">add</dfn>
+    a [=subresource=] |subresource| to [=usage scope=] |usageScope| with usage
+    ([=internal usage=] or set of [=internal usages=]) |usage|:
+
+    1. If |usageScope|[|subresource|] does not [=map/exist=], set it to `[]`.
+    1. [=list/Append=] |usage| to |usageScope|[|subresource|].
+</div>
+
+<div algorithm>
+    To <dfn abstract-op for="usage scope" lt="merge|Merge">merge</dfn>
+    [=usage scope=] |A| into [=usage scope=] |B|:
+
+    1. For each [|subresource|, |usage|] in |A|:
+        1. [$usage scope/Add$] |subresource| to |B| with usage |usage|.
+</div>
+
+[=Usage scopes=] are constructed and validated during encoding:
+- in {{GPUComputePassEncoder/dispatchWorkgroups()}}
+- in {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}
+- at {{GPURenderPassEncoder/end()|GPURenderPassEncoder.end()}}
+- at {{GPURenderBundleEncoder/finish()|GPURenderBundleEncoder.finish()}}
+
+The [=usage scopes=] are as follows:
+
 - In a compute pass, each dispatch command ({{GPUComputePassEncoder/dispatchWorkgroups()}} or
     {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}) is one usage scope.
-    A subresource is "used" in the usage scope if it is potentially accessible by the command.
-    Within a dispatch, for each bind group slot that is used by the current {{GPUComputePipeline}}'s
-    {{GPUPipelineBase/[[layout]]}}, every [=subresource=] referenced by
-    that bind group is "used" in the usage scope.
+
+    A subresource is used in the usage scope if it is
+    potentially accessible by the dispatched invocations, including:
+
+    - All [=subresources=] referenced by bind groups in slots used by the current
+        {{GPUComputePipeline}}'s {{GPUPipelineBase/[[layout]]}}
+    - Buffers used directly by dispatch calls (such as indirect buffers)
+
+    Note:
     State-setting compute pass commands, like
     [=GPUBindingCommandsMixin/setBindGroup()=],
-    do not contribute directly to a usage scope; they instead change the
+    do not contribute their bound resources directly to a usage scope: they only change the
     state that is checked in dispatch commands.
 - One render pass is one usage scope.
-    A subresource is "used" in the usage scope if it's referenced by any
-    (state-setting or non-state-setting) command. For example, in
-    [=GPUBindingCommandsMixin/setBindGroup()=],
-    every subresource in `bindGroup` is "used" in the render pass's usage scope.
 
-Issue: The above should probably talk about [=GPU commands=]. But we don't have a way to
-reference specific GPU commands (like dispatch) yet.
+    A subresource is used in the usage scope if it's referenced by any command,
+    including state-setting commands (unlike in compute passes), including:
 
-<div class=note heading>
-    The above rules mean the following example resource usages **are**
-    included in [=usage scope validation=]:
+    - Buffers set by {{GPURenderCommandsMixin/setVertexBuffer()}}
+    - Buffers set by {{GPURenderCommandsMixin/setIndexBuffer()}}
+    - All [=subresources=] referenced by bind groups set by
+        [=GPUBindingCommandsMixin/setBindGroup()=]
+    - Buffers used directly by draw calls (such as indirect buffers)
+
+Note: Copy commands are standalone operations and don't use [=usage scopes=] for validation.
+They implement their own validation to prevent self-races.
+
+<div class=example heading>
+    The following example resource usages *are* included in [=usage scopes=]:
 
     - In a render pass, subresources used in any
         [=GPUBindingCommandsMixin/setBindGroup()=]
@@ -1152,10 +1199,10 @@ reference specific GPU commands (like dispatch) yet.
         or the bind group is shadowed by another 'set' call.
     - A buffer used in any {{GPURenderCommandsMixin/setVertexBuffer()|setVertexBuffer()}}
         call, regardless of whether any draw call depends on this buffer,
-        or this buffer is shadowed by another 'set' call.
+        or whether this buffer is shadowed by another 'set' call.
     - A buffer used in any {{GPURenderCommandsMixin/setIndexBuffer()|setIndexBuffer()}}
         call, regardless of whether any draw call depends on this buffer,
-        or this buffer is shadowed by another 'set' call.
+        or whether this buffer is shadowed by another 'set' call.
     - A texture subresource used as a color attachment, resolve attachment, or
         depth/stencil attachment in {{GPURenderPassDescriptor}} by
         {{GPUCommandEncoder/beginRenderPass()|beginRenderPass()}},
@@ -1163,16 +1210,6 @@ reference specific GPU commands (like dispatch) yet.
     - Resources used in bind group entries with visibility 0, or visible only
         to the compute stage but used in a render pass (or vice versa).
 </div>
-
-During command encoding, every usage of a subresource is recorded in one of the
-[=usage scopes=] in the command buffer.
-For each [=usage scope=], the implementation performs
-<dfn dfn>usage scope validation</dfn> by composing the list of all
-[=internal usage=] flags of each [=subresource=] used in the [=usage scope=].
-If any of those lists is not a [=compatible usage list=],
-{{GPUCommandEncoder/finish()|GPUCommandEncoder.finish()}}
-will [$generate a validation error$].
-
 
 ## Core Internal Objects ## {#core-internal-objects}
 
@@ -3803,7 +3840,8 @@ GPUTexture includes GPUObjectBase;
 
     : <dfn>\[[viewFormats]]</dfn>, of type [=sequence=]&lt;{{GPUTextureFormat}}&gt;
     ::
-        The set of {{GPUTextureFormat}}s that can be used {{GPUTextureViewDescriptor}}.{{GPUTextureViewDescriptor/format}}
+        The set of {{GPUTextureFormat}}s that can be used as the
+        {{GPUTextureViewDescriptor}}.{{GPUTextureViewDescriptor/format}}
         when creating views on this {{GPUTexture}}.
 
     : <dfn>\[[destroyed]]</dfn>, of type `boolean`, initially false
@@ -5965,7 +6003,7 @@ If bind groups layouts are [=group-equivalent=] they can be interchangeably used
 </h3>
 
 A {{GPUBindGroup}} defines a set of resources to be bound together in a group
-    and how the resources are used in shader stages.
+and how the resources are used in shader stages.
 
 <script type=idl>
 [Exposed=(Window, Worker), SecureContext]
@@ -5985,7 +6023,7 @@ A {{GPUBindGroup}} object has the following internal slots:
     ::
         The set of {{GPUBindGroupEntry}}s this {{GPUBindGroup}} describes.
 
-    : <dfn>\[[usedResources]]</dfn>, of type [=ordered map=]&lt;[=subresource=], [=list=]&lt;[=internal usage=]&gt;&gt;, readonly
+    : <dfn>\[[usedResources]]</dfn>, of type [=usage scope=], readonly
     ::
         The set of buffer and texture [=subresource=]s used by this bind group,
         associated with lists of the [=internal usage=] flags.
@@ -9485,9 +9523,10 @@ path: sections/copies.bs
 
 # Command Buffers # {#command-buffers}
 
-Command buffers are pre-recorded lists of [=GPU commands=] that can be submitted to a {{GPUQueue}}
-for execution. Each <dfn dfn>GPU command</dfn> represents a task to be performed on the GPU, such as
-setting state, drawing, copying resources, etc.
+Command buffers are pre-recorded lists of [=GPU commands=] (blocks of [=queue timeline=]
+steps) that can be submitted to a {{GPUQueue}} for execution.
+Each <dfn dfn>GPU command</dfn> represents a task to be performed on the
+[=queue timeline=], such as setting state, drawing, copying resources, etc.
 
 A {{GPUCommandBuffer}} can only be submitted once, at which point it becomes [$invalidated$].
 To reuse rendering commands across multiple submissions, use {{GPURenderBundle}}.
@@ -9747,7 +9786,7 @@ dictionary GPUCommandEncoderDescriptor
                 1. For each non-`null` |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
                     1. Add [|colorAttachment|.{{GPURenderPassColorAttachment/view}},
                         |colorAttachment|.{{GPURenderPassColorAttachment/depthSlice}}] to |attachmentRegions|.
-                    1. If |colorAttachment|.{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
                         1. Add [|colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}},
                             `undefined`] to |attachmentRegions|.
                 1. If any of the following requirements are unmet, [$invalidate$] |pass| and return.
@@ -9757,8 +9796,9 @@ dictionary GPUCommandEncoderDescriptor
                         - The set of texture regions in |attachmentRegions| must be pairwise disjoint.
                             That is, no two texture regions may overlap.
                     </div>
-                1. Consider each [=texture subresource=] in |attachmentRegions| to be used as
-                    an [=internal usage/attachment=] for the duration of the render pass.
+                1. [$usage scope/Add$] each [=texture subresource=] in |attachmentRegions|
+                    to |pass|.{{GPURenderCommandsMixin/[[usage scope]]}}
+                    with usage [=internal usage/attachment=].
 
                     If a subresource is seen more than once, consider it used only once.
                     (Attachments are already checked for overlaps in the validation rules above.)
@@ -9766,14 +9806,16 @@ dictionary GPUCommandEncoderDescriptor
                     or `null` if not [=map/exist|provided=].
                 1. If |depthStencilAttachment| is not `null`:
                     1. Let |depthStencilView| be |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}.
-                    1. Consider the [=aspect/depth=] [=GPUTextureView/subresource=] of |depthStencilView|
-                        (if any) used for the duration of the render pass, as [=internal usage/attachment-read=] if
+                    1. [$usage scope/Add$] the [=aspect/depth=] [=subresource=] of |depthStencilView|, if any,
+                        to |pass|.{{GPURenderCommandsMixin/[[usage scope]]}}
+                        with usage [=internal usage/attachment-read=] if
                         |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} is true,
-                        or as [=internal usage/attachment=] otherwise.
-                    1. Consider the [=aspect/stencil=] [=GPUTextureView/subresource=] of |depthStencilView|
-                        (if any) used for the duration of the render pass, as [=internal usage/attachment-read=] if
+                        or [=internal usage/attachment=] otherwise.
+                    1. [$usage scope/Add$] the [=aspect/stencil=] [=subresource=] of |depthStencilView|, if any,
+                        to |pass|.{{GPURenderCommandsMixin/[[usage scope]]}}
+                        with usage [=internal usage/attachment-read=] if
                         |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}} is true,
-                        or as [=internal usage/attachment=] otherwise.
+                        or [=internal usage/attachment=] otherwise.
                     1. Set |pass|.{{GPURenderCommandsMixin/[[depthReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}}.
                     1. Set |pass|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}}.
                 1. Set |pass|.{{GPURenderCommandsMixin/[[layout]]}} to [$derive render targets layout from pass$](|descriptor|).
@@ -9890,7 +9932,7 @@ dictionary GPUCommandEncoderDescriptor
                                 |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilClearValue}}.
                         </dl>
 
-                Note: Read-only depth/stencil attachments are implicitly treated as though the {{GPULoadOp/"load"}}
+                Note: [=Read-only depth-stencil=] attachments are implicitly treated as though the {{GPULoadOp/"load"}}
                 operation was used. Validation that requires the load op to not be provided for read-only attachments
                 is done in [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$].
             </div>
@@ -10045,7 +10087,7 @@ dictionary GPUCommandEncoderDescriptor
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. If |size| is missing, set |size| to `max(0, |buffer|.{{GPUBuffer/size}} - |offset|)`.
+                1. If |size| is missing, set |size| to <code>max(0, |buffer|.{{GPUBuffer/size}} - |offset|)</code>.
                 1. If any of the following conditions are unsatisfied [$invalidate$] |this| and stop.
 
                     <div class=validusage>
@@ -10405,7 +10447,6 @@ command encoder can no longer be used.
                         - |this| must be [$valid$].
                         - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
-                        - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
                     </div>
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
                 1. If |validationSucceeded| is `false`, then:
@@ -10535,6 +10576,10 @@ It must only be included by interfaces which also include those mixins.
                         </div>
                     1. Set |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|] to be |bindGroup|.
                     1. Set |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|] to be a copy of |dynamicOffsets|.
+                    1. If |this| is a {{GPURenderCommandsMixin}}:
+                        1. For each |bindGroup| in |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}},
+                            [$usage scope/merge$] |bindGroup|.{{GPUBindGroup/[[usedResources]]}}
+                            into |this|.{{GPURenderCommandsMixin/[[usage scope]]}}
             </div>
         </div>
 
@@ -10632,6 +10677,8 @@ It must only be included by interfaces which also include those mixins.
     if any writable buffer binding range overlaps with any other binding range of the same buffer,
     or any writable texture binding overlaps in [=texture subresources=] with any other texture binding
     (which may use the same or a different {{GPUTextureView}} object).
+
+    Note: This algorithm limits the use of the [=usage scope storage exception=].
 
     **Arguments:**
 
@@ -10960,9 +11007,14 @@ dictionary GPUComputePassDescriptor
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
+                1. Let |usageScope| be an empty [=usage scope=].
+                1. For each |bindGroup| in |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}},
+                    [$usage scope/merge$] |bindGroup|.{{GPUBindGroup/[[usedResources]]}}
+                    into |this|.{{GPURenderCommandsMixin/[[usage scope]]}}
                 1. If any of the following conditions are unsatisfied, [$invalidate$] |this| and stop.
 
                     <div class=validusage>
+                        - |usageScope| must satisfy [=usage scope validation=].
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
                         - all of |workgroupCountX|, |workgroupCountY| and |workgroupCountZ| are &le;
@@ -11022,9 +11074,16 @@ dictionary GPUComputePassDescriptor
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
+                1. Let |usageScope| be an empty [=usage scope=].
+                1. For each |bindGroup| in |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}},
+                    [$usage scope/merge$] |bindGroup|.{{GPUBindGroup/[[usedResources]]}}
+                    into |this|.{{GPURenderCommandsMixin/[[usage scope]]}}
+                1. [$usage scope/Add$] |indirectBuffer| to |usageScope|
+                    with usage [=internal usage/input=].
                 1. If any of the following conditions are unsatisfied, [$invalidate$] |this| and stop.
 
                     <div class=validusage>
+                        - |usageScope| must satisfy [=usage scope validation=].
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
                         - |indirectBuffer| is [$valid to use with$] |this|.
@@ -11033,8 +11092,6 @@ dictionary GPUComputePassDescriptor
                             |indirectBuffer|.{{GPUBuffer/size}}.
                         - |indirectOffset| is a multiple of 4.
                     </div>
-                1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
-
                 1. Let |bindingState| be a snapshot of |this|'s current state.
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=].
@@ -11768,6 +11825,7 @@ called the render pass encoder can no longer be used.
 
                     <div class=validusage>
                         - |this| must be [$valid$].
+                        - |this|.{{GPURenderCommandsMixin/[[usage scope]]}} must satisfy [=usage scope validation=].
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} must be `false`.
                         - |this|.{{GPURenderCommandsMixin/[[drawCount]]}} must be &le; |this|.{{GPURenderPassEncoder/[[maxDrawCount]]}}.
@@ -11859,7 +11917,7 @@ called the render pass encoder can no longer be used.
                 to perform a clear at the end of the render pass. See the note on {{GPUStoreOp/"discard"}} for
                 additional details.
 
-                Note: Read-only depth/stencil attachments can be thought of as implicitly using the {{GPUStoreOp/"store"}}
+                Note: [=Read-only depth-stencil=] attachments can be thought of as implicitly using the {{GPUStoreOp/"store"}}
                 operation, but since their content is unchanged during the render pass implementations don't need to
                 update the attachment. Validation that requires the store op to not be provided for read-only attachments
                 is done in [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$].
@@ -11912,6 +11970,10 @@ It must only be included by interfaces which also include those mixins.
     : <dfn>\[[stencilReadOnly]]</dfn>, of type boolean, readonly
     ::
         If `true`, indicates that the stencil component is not modified.
+
+    : <dfn>[[usage scope]]</dfn>, of type [=usage scope=], initially empty
+    ::
+        The [=usage scope=] for this render pass or bundle.
 
     : <dfn>\[[pipeline]]</dfn>, of type {{GPURenderPipeline}}
     ::
@@ -12038,7 +12100,8 @@ It must only be included by interfaces which also include those mixins.
                         - |offset| is a multiple of |indexFormat|'s byte size.
                         - |offset| + |size| &le; |buffer|.{{GPUBuffer/size}}.
                     </div>
-                1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
+                1. [$usage scope/Add$] |buffer| to {{GPURenderCommandsMixin/[[usage scope]]}}
+                    with usage [=internal usage/input=].
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer]]}} to be |buffer|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_format]]}} to be |indexFormat|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer_offset]]}} to be |offset|.
@@ -12096,7 +12159,8 @@ It must only be included by interfaces which also include those mixins.
                             - |buffer| must be [$valid to use with$] |this|.
                             - |buffer|.{{GPUBuffer/usage}} must contain {{GPUBufferUsage/VERTEX}}.
                         </div>
-                    1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
+                    1. [$usage scope/Add$] |buffer| to {{GPURenderCommandsMixin/[[usage scope]]}}
+                        with usage [=internal usage/input=].
                     1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|] to be |buffer|.
                     1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|] to be |size|.
             </div>
@@ -12291,7 +12355,8 @@ It must only be included by interfaces which also include those mixins.
                             |indirectBuffer|.{{GPUBuffer/size}}.
                         - |indirectOffset| is a multiple of 4.
                     </div>
-                1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
+                1. [$usage scope/Add$] |indirectBuffer| to {{GPURenderCommandsMixin/[[usage scope]]}}
+                    with usage [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
                 1. Let |bindingState| be a snapshot of |this|'s current state.
@@ -12372,7 +12437,8 @@ It must only be included by interfaces which also include those mixins.
                             |indirectBuffer|.{{GPUBuffer/size}}.
                         - |indirectOffset| is a multiple of 4.
                     </div>
-                1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
+                1. [$usage scope/Add$] |indirectBuffer| to {{GPURenderCommandsMixin/[[usage scope]]}}
+                    with usage [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
                 1. Let |bindingState| be a snapshot of |this|'s current state.
@@ -12764,6 +12830,8 @@ attachments used by this encoder.
 
                 1. For each |bundle| in |bundles|:
                     1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by |bundle|.{{GPURenderBundle/[[drawCount]]}}.
+                    1. [$usage scope/Merge$] |bundle|.{{GPURenderCommandsMixin/[[usage scope]]}} into
+                        |this|.{{GPURenderCommandsMixin/[[usage scope]]}}.
                     1. [$Enqueue a render command$] on |this| which issues the following steps on the
                         [=Queue timeline=] with |renderState| when executed:
 
@@ -12815,6 +12883,12 @@ GPURenderBundle includes GPUObjectBase;
     ::
         A [=list=] of [=GPU commands=] to be submitted to the {{GPURenderPassEncoder}} when the
         {{GPURenderBundle}} is executed.
+
+    : <dfn>[[usage scope]]</dfn>, of type [=usage scope=], initially empty
+    ::
+        The [=usage scope=] for this render bundle, stored for later merging into the
+        {{GPURenderPassEncoder}}'s {{GPURenderCommandsMixin/[[usage scope]]}}
+        in {{GPURenderPassEncoder/executeBundles()}}.
 
     : <dfn>\[[layout]]</dfn>, of type {{GPURenderPassLayout}}
     ::
@@ -12928,11 +13002,15 @@ dictionary GPURenderBundleEncoderDescriptor
         {{GPURenderPassDepthStencilAttachment}} of any render pass the render bundle is executed
         in.
 
+        See [=read-only depth-stencil=].
+
     : <dfn>stencilReadOnly</dfn>
     ::
         If `true`, indicates that the render bundle does not modify the stencil component of the
         {{GPURenderPassDepthStencilAttachment}} of any render pass the render bundle is executed
         in.
+
+        See [=read-only depth-stencil=].
 </dl>
 
 ### Finalization ### {#render-bundle-finalization}
@@ -12968,9 +13046,9 @@ dictionary GPURenderBundleEncoderDescriptor
 
                     <div class=validusage>
                         - |this| must be [$valid$].
+                        - |this|.{{GPURenderCommandsMixin/[[usage scope]]}} must satisfy [=usage scope validation=].
                         - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
-                        - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
                     </div>
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
                 1. If |validationSucceeded| is `false`, then:
@@ -12978,6 +13056,8 @@ dictionary GPURenderBundleEncoderDescriptor
                     1. Return an [$invalidated$] {{GPURenderBundle}}.
                 1. Set |renderBundle|.{{GPURenderBundle/[[command_list]]}} to
                     |this|.{{GPUCommandsMixin/[[commands]]}}.
+                1. Set |renderBundle|.{{GPURenderBundle/[[usage scope]]}} to
+                    |this|.{{GPURenderCommandsMixin/[[usage scope]]}}.
                 1. Set |renderBundle|.{{GPURenderBundle/[[drawCount]]}} to
                     |this|.{{GPURenderCommandsMixin/[[drawCount]]}}.
             </div>
