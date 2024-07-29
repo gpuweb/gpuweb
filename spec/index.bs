@@ -34,7 +34,6 @@ spec:resource-hints;
 spec: ECMA-262; urlPrefix: https://tc39.es/ecma262/#
     type: dfn
         text: agent; url: agent
-        text: surrounding agent; url: surrounding-agent
         text: agent cluster; url: sec-agent-clusters
         text: ?; url: sec-returnifabrupt-shorthands
         text: !; url: sec-returnifabrupt-shorthands
@@ -575,10 +574,12 @@ Any interface which includes <dfn interface>GPUObjectBase</dfn> is a [=WebGPU in
 
 The <dfn dfn>internal object</dfn> tracks the state of the [=WebGPU object=] on the [=device timeline=].
 All reads/writes to the mutable state of an [=internal object=] occur from steps executing on a
-single well-ordered [=device timeline=]. These steps may have been issued from a [=content timeline=]
-algorithm on any of multiple [=agents=].
+single well-ordered [=device timeline=].
 
+<!-- POSTV1(multithreading) tentative text:
+These steps may have been issued from a [=content timeline=] algorithm on any of multiple [=agents=].
 Note: An "[=agent=]" refers to a JavaScript "thread" (i.e. main thread, or Web Worker).
+-->
 
 The following special property types can be defined on [=WebGPU objects=]:
 
@@ -641,7 +642,7 @@ interface mixin GPUObjectBase {
 <dl dfn-type=attribute dfn-for=GPUObjectBase data-timeline=content>
     : <dfn>label</dfn>
     ::
-        A developer-provided label which is used in an implementation-defined way.
+        A developer-provided label which is used in an [=implementation-defined=] way.
         It can be used by the browser, OS, or other tools to help
         identify the underlying [=internal object=] to the developer.
         Examples include displaying the label in {{GPUError}} messages, console warnings,
@@ -671,7 +672,7 @@ interface mixin GPUObjectBase {
 
             This means one underlying object could be associated with multiple labels.
             This specification does not define how the label is propagated to the [=device timeline=].
-            How labels are used is completely implementation-defined: error messages could
+            How labels are used is completely [=implementation-defined=]: error messages could
             show the most recently set label, all known labels, or no labels at all.
 
             It is defined as a {{USVString}} because some user agents may
@@ -888,6 +889,8 @@ browser engines (typically with a "content process" and "GPU process"), as well
 as the GPU itself as a separate execution unit in many implementations.
 Implementing WebGPU does not require timelines to execute in parallel, so does
 not require multiple processes, or even multiple threads.
+(It does require concurrency for cases like [$get a copy of the image contents of a context$]
+which synchronously blocks on another timeline to complete.)
 
 : <dfn dfn>Content timeline</dfn>
 :: Associated with the execution of the Web script.
@@ -1043,7 +1046,7 @@ the user behind an `ArrayBuffer`, thus avoiding any data copies.
 
 ### Resource Usages ### {#programming-model-resource-usages}
 
-A [=physical resource=] can be used on GPU with an <dfn dfn>internal usage</dfn>:
+A [=physical resource=] can be used with an <dfn dfn>internal usage</dfn> by a [=GPU command=]:
 
 <dl dfn-type=dfn dfn-for="internal usage">
     : <dfn>input</dfn>
@@ -1053,13 +1056,14 @@ A [=physical resource=] can be used on GPU with an <dfn dfn>internal usage</dfn>
     ::  Resource bindings that are constant from the shader point of view. Preserves the contents.
         Allowed by buffer {{GPUBufferUsage/UNIFORM}} or texture {{GPUTextureUsage/TEXTURE_BINDING}}.
     : <dfn>storage</dfn>
-    ::  Writable storage resource binding.
+    ::  Read/write storage resource binding.
         Allowed by buffer {{GPUBufferUsage/STORAGE}} or texture {{GPUTextureUsage/STORAGE_BINDING}}.
     : <dfn>storage-read</dfn>
     ::  Read-only storage resource bindings. Preserves the contents.
         Allowed by buffer {{GPUBufferUsage/STORAGE}} or texture {{GPUTextureUsage/STORAGE_BINDING}}.
     : <dfn>attachment</dfn>
-    :: Texture used as an output attachment in a render pass.
+    :: Texture used as a read/write output attachment or
+        write-only resolve target in a render pass.
         Allowed by texture {{GPUTextureUsage/RENDER_ATTACHMENT}}.
     : <dfn>attachment-read</dfn>
     ::  Texture used as a read-only attachment in a render pass. Preserves the contents.
@@ -1075,6 +1079,8 @@ We define <dfn dfn>subresource</dfn> to be either a whole buffer, or a [=texture
 
     - Each usage in |U| is [=internal usage/input=], [=internal usage/constant=], [=internal usage/storage-read=], or [=internal usage/attachment-read=].
     - Each usage in |U| is [=internal usage/storage=].
+        Multiple such usages are allowed even though they are writable;
+        this is the <dfn dfn>usage scope storage exception</dfn>.
     - |U| contains exactly one element: [=internal usage/attachment=].
 </div>
 
@@ -1083,65 +1089,109 @@ allows the API to limit when data races can occur in working with memory.
 That property makes applications written against
 WebGPU more likely to run without modification on different platforms.
 
-Generally, when an implementation processes an operation that uses a [=subresource=]
-in a different way than its current usage allows, it schedules a transition of the resource
-into the new state. In some cases, like within an open {{GPURenderPassEncoder}}, such a
-transition is impossible due to the hardware limitations.
-We define these places as <dfn dfn>usage scopes</dfn>.
+<div class=example heading>
+    Binding the same buffer for [=internal usage/storage=] as well as for
+    [=internal usage/input=] within the same {{GPURenderPassEncoder}}
+    results in a non-[=compatible usage list=] for that buffer.
+</div>
 
-The **main usage rule** is, for any one [=subresource=], its list of [=internal usages=]
-within one [=usage scope=] must be a [=compatible usage list=].
+<div class=example heading>
+    These rules allow for <dfn dfn>read-only depth-stencil</dfn>: a single depth/stencil
+    texture can be used as two different read-only usages in a render pass simultaneously:
 
-For example, binding the same buffer for [=internal usage/storage=] as well as for
-[=internal usage/input=] within the same {{GPURenderPassEncoder}} would put the encoder
-as well as the owning {{GPUCommandEncoder}} into the error state.
-This combination of usages does not make a [=compatible usage list=].
+    - [=internal usage/attachment-read=]
 
-Note: race condition of multiple writable storage buffer/texture usages in a single [=usage scope=] is allowed.
+        As a depth/stencil attachment with all aspects marked read-only
+        (using {{GPURenderPassDepthStencilAttachment/depthReadOnly}} and/or
+        {{GPURenderPassDepthStencilAttachment/stencilReadOnly}} as necessary).
 
-The [=subresources=] of textures included in the views provided to
-{{GPURenderPassColorAttachment/view|GPURenderPassColorAttachment.view}} and
-{{GPURenderPassColorAttachment/resolveTarget|GPURenderPassColorAttachment.resolveTarget}}
-are considered to be used as [=internal usage/attachment=] for the [=usage scope=] of this render pass.
+    - [=internal usage/constant=]
+
+        As a texture binding to a draw call.
+</div>
+
+<div class=example heading>
+    The following operations are allowed by the [=usage scope storage exception=]:
+
+    - A buffer or texture may be bound as [=internal usage/storage=] to two
+        different draw calls in a render pass.
+    - Disjoint ranges of a single buffer may be bound to two different binding
+        points as [=internal usage/storage=].
+
+        This case is governed by "[$Encoder bind groups alias a writable resource$]".
+</div>
 
 ### Synchronization ### {#programming-model-synchronization}
 
-For each [=subresource=] of a [=physical resource=], its set of
-[=internal usage=] flags is tracked on the [=Queue timeline=].
-
 <!-- POSTV1(multi-queue): revise this section -->
 
-On the [=Queue timeline=], there is an ordered sequence of [=usage scopes=].
-For the duration of each scope, the set of [=internal usage=] flags of any given
-[=subresource=] is constant.
-A [=subresource=] may transition to new usages at the boundaries between [=usage scope=]s.
+A <dfn dfn>usage scope</dfn> is a [=map=] from [=subresource=] to [=list=]&lt;[=internal usage=]&gt;&gt;.
+Each usage scope covers a range of operations which may execute in a concurrent
+fashion with each other, and therefore may only use [=subresources=] in consistent
+    [=compatible usage lists=] within the scope.
 
-This specification defines the following [=usage scopes=]:
+<div algorithm>
+    A [=usage scope=] |scope| passes <dfn dfn>usage scope validation</dfn> if,
+    for each [`subresource`, |usageList|] in |scope|,
+    |usageList| is a [=compatible usage list=].
+</div>
 
-- Outside of a pass (in {{GPUCommandEncoder}}), each (non-state-setting) command is one usage scope
-    (e.g. {{GPUCommandEncoder/copyBufferToTexture()}}).
+<div algorithm>
+    To <dfn abstract-op for="usage scope" lt="add|Add">add</dfn>
+    a [=subresource=] |subresource| to [=usage scope=] |usageScope| with usage
+    ([=internal usage=] or set of [=internal usages=]) |usage|:
+
+    1. If |usageScope|[|subresource|] does not [=map/exist=], set it to `[]`.
+    1. [=list/Append=] |usage| to |usageScope|[|subresource|].
+</div>
+
+<div algorithm>
+    To <dfn abstract-op for="usage scope" lt="merge|Merge">merge</dfn>
+    [=usage scope=] |A| into [=usage scope=] |B|:
+
+    1. For each [|subresource|, |usage|] in |A|:
+        1. [$usage scope/Add$] |subresource| to |B| with usage |usage|.
+</div>
+
+[=Usage scopes=] are constructed and validated during encoding:
+- in {{GPUComputePassEncoder/dispatchWorkgroups()}}
+- in {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}
+- at {{GPURenderPassEncoder/end()|GPURenderPassEncoder.end()}}
+- at {{GPURenderBundleEncoder/finish()|GPURenderBundleEncoder.finish()}}
+
+The [=usage scopes=] are as follows:
+
 - In a compute pass, each dispatch command ({{GPUComputePassEncoder/dispatchWorkgroups()}} or
     {{GPUComputePassEncoder/dispatchWorkgroupsIndirect()}}) is one usage scope.
-    A subresource is "used" in the usage scope if it is potentially accessible by the command.
-    Within a dispatch, for each bind group slot that is used by the current {{GPUComputePipeline}}'s
-    {{GPUPipelineBase/[[layout]]}}, every [=subresource=] referenced by
-    that bind group is "used" in the usage scope.
+
+    A subresource is used in the usage scope if it is
+    potentially accessible by the dispatched invocations, including:
+
+    - All [=subresources=] referenced by bind groups in slots used by the current
+        {{GPUComputePipeline}}'s {{GPUPipelineBase/[[layout]]}}
+    - Buffers used directly by dispatch calls (such as indirect buffers)
+
+    Note:
     State-setting compute pass commands, like
     [=GPUBindingCommandsMixin/setBindGroup()=],
-    do not contribute directly to a usage scope; they instead change the
+    do not contribute their bound resources directly to a usage scope: they only change the
     state that is checked in dispatch commands.
 - One render pass is one usage scope.
-    A subresource is "used" in the usage scope if it's referenced by any
-    (state-setting or non-state-setting) command. For example, in
-    [=GPUBindingCommandsMixin/setBindGroup()=],
-    every subresource in `bindGroup` is "used" in the render pass's usage scope.
 
-Issue: The above should probably talk about [=GPU commands=]. But we don't have a way to
-reference specific GPU commands (like dispatch) yet.
+    A subresource is used in the usage scope if it's referenced by any command,
+    including state-setting commands (unlike in compute passes), including:
 
-<div class=note heading>
-    The above rules mean the following example resource usages **are**
-    included in [=usage scope validation=]:
+    - Buffers set by {{GPURenderCommandsMixin/setVertexBuffer()}}
+    - Buffers set by {{GPURenderCommandsMixin/setIndexBuffer()}}
+    - All [=subresources=] referenced by bind groups set by
+        [=GPUBindingCommandsMixin/setBindGroup()=]
+    - Buffers used directly by draw calls (such as indirect buffers)
+
+Note: Copy commands are standalone operations and don't use [=usage scopes=] for validation.
+They implement their own validation to prevent self-races.
+
+<div class=example heading>
+    The following example resource usages *are* included in [=usage scopes=]:
 
     - In a render pass, subresources used in any
         [=GPUBindingCommandsMixin/setBindGroup()=]
@@ -1150,10 +1200,10 @@ reference specific GPU commands (like dispatch) yet.
         or the bind group is shadowed by another 'set' call.
     - A buffer used in any {{GPURenderCommandsMixin/setVertexBuffer()|setVertexBuffer()}}
         call, regardless of whether any draw call depends on this buffer,
-        or this buffer is shadowed by another 'set' call.
+        or whether this buffer is shadowed by another 'set' call.
     - A buffer used in any {{GPURenderCommandsMixin/setIndexBuffer()|setIndexBuffer()}}
         call, regardless of whether any draw call depends on this buffer,
-        or this buffer is shadowed by another 'set' call.
+        or whether this buffer is shadowed by another 'set' call.
     - A texture subresource used as a color attachment, resolve attachment, or
         depth/stencil attachment in {{GPURenderPassDescriptor}} by
         {{GPUCommandEncoder/beginRenderPass()|beginRenderPass()}},
@@ -1161,16 +1211,6 @@ reference specific GPU commands (like dispatch) yet.
     - Resources used in bind group entries with visibility 0, or visible only
         to the compute stage but used in a render pass (or vice versa).
 </div>
-
-During command encoding, every usage of a subresource is recorded in one of the
-[=usage scopes=] in the command buffer.
-For each [=usage scope=], the implementation performs
-<dfn dfn>usage scope validation</dfn> by composing the list of all
-[=internal usage=] flags of each [=subresource=] used in the [=usage scope=].
-If any of those lists is not a [=compatible usage list=],
-{{GPUCommandEncoder/finish()|GPUCommandEncoder.finish()}}
-will [$generate a validation error$].
-
 
 ## Core Internal Objects ## {#core-internal-objects}
 
@@ -1186,7 +1226,8 @@ calling {{GPU/requestAdapter()}} multiple times returns a different [=adapter=]
 object each time.
 
 Each [=adapter=] object can only be used to create one [=device=]:
-upon a successful {{GPUAdapter/requestDevice()}} call, the adapter [$expires$].
+upon a successful {{GPUAdapter/requestDevice()}} call, the adapter's {{adapter/[[state]]}}
+changes to {{adapter/[[state]]/"consumed"}}.
 Additionally, [=adapter=] objects may [$expire$] at any time.
 
 Note:
@@ -1202,9 +1243,16 @@ improved privacy. It is not required that a [=fallback adapter=] is available on
 An [=adapter=] has the following internal slots:
 
 <dl dfn-type=attribute dfn-for=adapter>
-    : <dfn>\[[expired]]</dfn>, of type boolean, initially `false`
+    : <dfn>\[[state]]</dfn>, initially {{adapter/[[state]]/"valid"}}
     ::
-        If set to `true` indicates that the adapter can no longer be used to create a [=device=].
+        <dl dfn-type=enum-value dfn-for="adapter/[[state]]">
+            : <dfn>"valid"</dfn>
+            :: The adapter can be used to create a device.
+            : <dfn>"consumed"</dfn>
+            :: The adapter has already been used to create a device, and cannot be used again.
+            : <dfn>"expired"</dfn>
+            :: The adapter has expired for some other reason.
+        </dl>
 
     : <dfn>\[[features]]</dfn>, of type [=ordered set=]&lt;{{GPUFeatureName}}&gt;, readonly
     ::
@@ -1225,22 +1273,21 @@ An [=adapter=] has the following internal slots:
 [=Adapters=] are exposed via {{GPUAdapter}}.
 
 <div algorithm data-timeline=device>
-    A given {{GPUAdapter}} |adapter| is <dfn abstract-op>expired</dfn> if
-    |adapter|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[expired]]}} is `true`.
-</div>
-
-<div algorithm data-timeline=device>
     To <dfn abstract-op lt='expire|Expire|expires'>expire</dfn> a {{GPUAdapter}} |adapter|, run the
     following [=device timeline=] steps:
 
-    1. Set |adapter|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[expired]]}} to `true`
+    1. Set |adapter|.{{GPUAdapter/[[adapter]]}}.{{adapter/[[state]]}} to
+        {{adapter/[[state]]/"expired"}}.
 </div>
 
 ### Devices ### {#devices}
 
 A <dfn dfn>device</dfn> is the logical instantiation of an [=adapter=],
 through which [=internal objects=] are created.
+
+<!-- POSTV1(multithreading) tentative text:
 It can be shared across multiple [=agents=] (e.g. dedicated workers).
+-->
 
 A [=device=] is the exclusive owner of all [=internal objects=] created from it:
 when the [=device=] becomes [$invalid$]
@@ -1276,18 +1323,20 @@ A [=device=] also has the following [=content timeline property=]:
 </dl>
 
 <div algorithm data-timeline=device>
-    When <dfn dfn>a new device</dfn> |device| is created from [=adapter=] |adapter|
+    To create <dfn dfn>a new device</dfn> from [=adapter=] |adapter|
     with {{GPUDeviceDescriptor}} |descriptor|, run the following [=device timeline=] steps:
 
-    - Set |device|.{{device/[[adapter]]}} to |adapter|.
-
-    - Set |device|.{{device/[[features]]}} to the [=ordered set|set=] of values in
+    1. Let |features| be the [=set=] of values in
         |descriptor|.{{GPUDeviceDescriptor/requiredFeatures}}.
-
-    - Let |device|.{{device/[[limits]]}} be a [=supported limits=] object with the default values.
-        For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}, set the
-        member corresponding to |key| in |device|.{{device/[[limits]]}} to the [=limit/better=]
-        value of |value| or the default value in [=supported limits=].
+    1. Let |limits| be a [=supported limits=] object with all values set to their defaults.
+    1. For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}:
+        1. If |value| is [=limit/better=] than |limits|[|key|]:
+            1. Set |limits|[|key|] to |value|.
+    1. Let |device| be a [=device=] object.
+    1. Set |device|.{{device/[[adapter]]}} to |adapter|.
+    1. Set |device|.{{device/[[features]]}} to |features|.
+    1. Set |device|.{{device/[[limits]]}} to |limits|.
+    1. Return |device|.
 </div>
 
 Any time the user agent needs to revoke access to a device, it calls
@@ -1314,7 +1363,7 @@ no validation errors are raised, most promises resolve normally, etc.
         <div data-timeline=content>
             1. Resolve |device|.{{GPUDevice/lost}} with a new {{GPUDeviceLostInfo}} with
                 {{GPUDeviceLostInfo/reason}} set to |reason| and
-                {{GPUDeviceLostInfo/message}} set to an implementation-defined value.
+                {{GPUDeviceLostInfo/message}} set to an [=implementation-defined=] value.
 
                 Note: {{GPUDeviceLostInfo/message}} should not disclose unnecessary user/system
                 information and should never be parsed by applications.
@@ -1354,16 +1403,19 @@ For privacy considerations, see [[#privacy-machine-limits]].
 A <dfn dfn>feature</dfn> is a set of optional WebGPU functionality that is not supported
 on all implementations, typically due to hardware or system software constraints.
 
-Functionality that is part of a feature may only be used if the feature was requested at device
-creation (in {{GPUDeviceDescriptor/requiredFeatures}}).
-Otherwise, using existing API surfaces in a new way **typically** results in a [$validation error$],
-and using <dfn dfn>optional API surfaces</dfn> results in the following:
+All [=features=] are optional, but [=adapters=] make some guarantees about their availability
+(see [[#adapter capability guarantees]].
 
-- Using a new method or enum value always throws a {{TypeError}}.
-- Using a new dictionary member with a (correctly-typed) non-default value **typically**
-    results in a [$validation error$].
-- Using a new WGSL `enable` directive always results in a {{GPUDevice/createShaderModule()}}
-    [$validation error$].
+A [=device=] supports the exact set of features determined at creation (see [[#optional-capabilities]]).
+API calls perform validation according to these features (not the [=adapter=]'s features):
+
+- Using existing API surfaces in a new way **typically** results in a [$validation error$].
+- There are several types of <dfn dfn>optional API surface</dfn>:
+    - Using a new method or enum value always throws a {{TypeError}}.
+    - Using a new dictionary member with a (correctly-typed) non-default value **typically**
+        results in a [$validation error$].
+    - Using a new WGSL `enable` directive always results in a {{GPUDevice/createShaderModule()}}
+        [$validation error$].
 
 <div algorithm data-timeline=const>
     A {{GPUFeatureName}} |feature| is <dfn dfn>enabled for</dfn>
@@ -1378,10 +1430,15 @@ See the [[#feature-index|Feature Index]] for a description of the functionality 
 Each <dfn dfn>limit</dfn> is a numeric limit on the usage of WebGPU on a device.
 
 Each limit has a <dfn dfn for=limit>default</dfn> value.
-Every [=adapter=] is guaranteed to support the default value or [=limit/better=].
-The default is used if a value is not explicitly specified in {{GPUDeviceDescriptor/requiredLimits}}.
 
-One limit value may be <dfn dfn for=limit>better</dfn> than another.
+[=Adapters=] are always guaranteed to support the defaults or [=limit/better=]
+(see [[#adapter capability guarantees]].
+
+A [=device=] supports the exact set of limits determined at creation (see [[#optional-capabilities]]).
+API calls perform validation according to these limits (not the [=adapter=]'s limits),
+no [=limit/better=] or worse.
+
+For any given limit, some values are <dfn dfn for=limit>better</dfn> than others.
 A [=limit/better=] limit value always relaxes validation, enabling strictly
 more programs to be valid. For each [=limit class=], "better" is defined.
 
@@ -1415,7 +1472,7 @@ Because of this, and to improve portability across devices and implementations,
 applications should generally request the "worst" limits that work for their content
 (ideally, the default values).
 
-A <dfn dfn>supported limits</dfn> object has a value for every limit defined by WebGPU:
+A <dfn dfn>supported limits</dfn> object has an entry for every limit defined by WebGPU:
 
 <table class=data dfn-type=attribute dfn-for="supported limits">
     <thead>
@@ -1654,7 +1711,7 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
 <span id=gpu-supportedlimits></span>
 </h5>
 
-{{GPUSupportedLimits}} exposes the [=limits=] supported by an adapter or device.
+{{GPUSupportedLimits}} exposes an adapter or device's [=supported limits=].
 See {{GPUAdapter/limits|GPUAdapter.limits}} and {{GPUDevice/limits|GPUDevice.limits}}.
 
 <!-- When adding limits here, add them to the Correspondence Reference as well. -->
@@ -2093,7 +2150,7 @@ them to WGSL values (`bool`, `i32`, `u32`, `f32`, `f16`).
         step, and return the result.
 
         Note:
-        For non-integer types, the exact choice of value is implementation-defined.
+        For non-integer types, the exact choice of value is [=implementation-defined=].
         For normalized types, the value is clamped to the range of the type.
 
     Note:
@@ -2258,6 +2315,9 @@ Any {{GPUAdapter}} returned by {{GPU/requestAdapter()}} must provide the followi
     - {{GPUFeatureName/"texture-compression-bc"}} is supported.
     - Both {{GPUFeatureName/"texture-compression-etc2"}} and
         {{GPUFeatureName/"texture-compression-astc"}} are supported.
+- If either {{GPUFeatureName/"texture-compression-bc"}} or
+    {{GPUFeatureName/"texture-compression-bc-sliced-3d"}}
+    is supported, both must be supported.
 - All supported limits must be either the [=limit/default=] value or [=limit/better=].
 - All [=limit class/alignment|alignment-class=] limits must be powers of 2.
 - {{supported limits/maxBindingsPerBindGroup}} must be must be &ge;
@@ -2464,7 +2524,7 @@ interface GPUAdapter {
         Requests a [=device=] from the [=adapter=].
 
         This is a one-time action: if a device is returned successfully,
-        the adapter [$expires$].
+        the adapter becomes {{adapter/[[state]]/"consumed"}}.
 
         <div algorithm=GPUAdapter.requestDevice>
             <div data-timeline=content>
@@ -2510,21 +2570,18 @@ interface GPUAdapter {
                     This converges the behavior when the browser doesn't support a feature
                     with the behavior when a particular adapter doesn't support a feature.
 
-                1. If any of the following requirements are unmet:
+                1. All of the requirements in the following steps |must| be met.
 
                     <div class=validusage>
-                        - Each key in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}
-                            must be the name of a member of [=supported limits=].
-
-                        - For each limit name |key| in the keys of [=supported limits=]:
-                            Let |value| be |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}[|key|].
-                            - |value| must be no [=limit/better=] than the value of that limit in
-                                |adapter|.{{adapter/[[limits]]}}.
-                            - If the limit's [=limit class|class=] is [=limit class/alignment=],
-                                |value| must be a power of 2 less than 2<sup>32</sup>.
+                        1. |adapter|.{{adapter/[[state]]}} must not be {{adapter/[[state]]/"consumed"}}.
+                        1. For each [|key|, |value|] in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}:
+                            1. |key| |must| be the name of a member of [=supported limits=].
+                            1. |value| |must| be no [=limit/better=] than |adapter|.{{adapter/[[limits]]}}[|key|].
+                            1. If |key|'s [=limit class|class=] is [=limit class/alignment=],
+                                |value| |must| be a power of 2 less than 2<sup>32</sup>.
                     </div>
 
-                    Then issue the following steps on <var data-timeline=content>contentTimeline</var>
+                    If any are unmet, issue the following steps on <var data-timeline=content>contentTimeline</var>
                     and return:
 
                     <div data-timeline=content>
@@ -2533,14 +2590,12 @@ interface GPUAdapter {
                         1. [=Reject=] |promise| with an {{OperationError}}.
                     </div>
 
-                1. If |adapter| is [$expired$],
+                1. If |adapter|.{{adapter/[[state]]}} is {{adapter/[[state]]/"expired"}}
                     or the user agent otherwise cannot fulfill the request:
 
                     1. Let |device| be a new [=device=].
                     1. [=Lose the device=](|device|, {{GPUDeviceLostReason/"unknown"}}).
-
-                        Note:
-                        This [$expires$] |adapter|, if it wasn't already expired.
+                    1. [=Assert=] |adapter|.{{adapter/[[state]]}} is {{adapter/[[state]]/"expired"}}.
 
                         Note:
                         User agents should consider issuing developer-visible warnings in
@@ -2614,8 +2669,9 @@ dictionary GPUDeviceDescriptor
         The request will fail if the adapter cannot provide these limits.
 
         Each key must be the name of a member of [=supported limits=].
-        Exactly the specified limits, and no [=limit/better=] or worse,
-        will be allowed in validation of API calls on the resulting device.
+
+        API calls on the resulting device perform validation according to the exact limits of the
+        device (not the adapter; see [[#limits]]).
 
         <!-- If we ever need limit types other than GPUSize32/GPUSize64, we can change the value
         type to `double` or `any` in the future and write out the type conversion explicitly (by
@@ -2675,6 +2731,7 @@ enum GPUFeatureName {
     "depth-clip-control",
     "depth32float-stencil8",
     "texture-compression-bc",
+    "texture-compression-bc-sliced-3d",
     "texture-compression-etc2",
     "texture-compression-astc",
     "timestamp-query",
@@ -3484,7 +3541,9 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. If |this|.{{GPUObjectBase/[[device]]}} is [$invalid|lost$]:
+                1. Set |deviceLost| to `true` if |this|.{{GPUObjectBase/[[device]]}} is [$invalid|lost$],
+                    and `false` otherwise.
+                1. If |deviceLost|:
 
                     1. Issue the <var data-timeline=content>map failure steps</var> on
                         <var data-timeline=content>contentTimeline</var>.
@@ -3536,8 +3595,17 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     1. [=Assert=] |p| is already rejected.
                     1. Return.
                 1. [=Assert=] |p| is still pending.
-                1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`,
-                    and [=reject=] |p| with an {{OperationError}}.
+                1. Set |this|.{{GPUBuffer/[[pending_map]]}} to `null`.
+                1. If |deviceLost|:
+
+                    1. [=Reject=] |p| with an {{AbortError}}.
+
+                        Note: This is the same error type produced by cancelling the map using
+                        {{GPUBuffer/unmap()}}.
+
+                    Otherwise:
+
+                    1. [=Reject=] |p| with an {{OperationError}}.
             </div>
         </div>
 
@@ -3781,7 +3849,8 @@ GPUTexture includes GPUObjectBase;
 
     : <dfn>\[[viewFormats]]</dfn>, of type [=sequence=]&lt;{{GPUTextureFormat}}&gt;
     ::
-        The set of {{GPUTextureFormat}}s that can be used {{GPUTextureViewDescriptor}}.{{GPUTextureViewDescriptor/format}}
+        The set of {{GPUTextureFormat}}s that can be used as the
+        {{GPUTextureViewDescriptor}}.{{GPUTextureViewDescriptor/format}}
         when creating views on this {{GPUTexture}}.
 
     : <dfn>\[[destroyed]]</dfn>, of type `boolean`, initially false
@@ -4896,7 +4965,7 @@ External textures use several binding slots: see [=Exceeds the binding slot limi
 
 <div class=note heading>
     External textures *can* be implemented without creating a copy of the imported source,
-    but this depends implementation-defined factors.
+    but this depends [=implementation-defined=] factors.
     Ownership of the underlying representation may either be exclusive or shared with other
     owners (such as a video decoder), but this is not visible to the application.
 
@@ -5943,7 +6012,7 @@ If bind groups layouts are [=group-equivalent=] they can be interchangeably used
 </h3>
 
 A {{GPUBindGroup}} defines a set of resources to be bound together in a group
-    and how the resources are used in shader stages.
+and how the resources are used in shader stages.
 
 <script type=idl>
 [Exposed=(Window, Worker), SecureContext]
@@ -5963,7 +6032,7 @@ A {{GPUBindGroup}} object has the following internal slots:
     ::
         The set of {{GPUBindGroupEntry}}s this {{GPUBindGroup}} describes.
 
-    : <dfn>\[[usedResources]]</dfn>, of type [=ordered map=]&lt;[=subresource=], [=list=]&lt;[=internal usage=]&gt;&gt;, readonly
+    : <dfn>\[[usedResources]]</dfn>, of type [=usage scope=], readonly
     ::
         The set of buffer and texture [=subresource=]s used by this bind group,
         associated with lists of the [=internal usage=] flags.
@@ -6736,7 +6805,7 @@ Note: {{GPUCompilationMessage}}.{{GPUCompilationMessage/offset}} and
     ::
         Returns any messages generated during the {{GPUShaderModule}}'s compilation.
 
-        The locations, order, and contents of messages are implementation-defined.
+        The locations, order, and contents of messages are [=implementation-defined=]
         In particular, messages may not be ordered by {{GPUCompilationMessage/lineNum}}.
 
         <div algorithm=GPUShaderModule.getCompilationInfo>
@@ -9459,9 +9528,10 @@ path: sections/copies.bs
 
 # Command Buffers # {#command-buffers}
 
-Command buffers are pre-recorded lists of [=GPU commands=] that can be submitted to a {{GPUQueue}}
-for execution. Each <dfn dfn>GPU command</dfn> represents a task to be performed on the GPU, such as
-setting state, drawing, copying resources, etc.
+Command buffers are pre-recorded lists of [=GPU commands=] (blocks of [=queue timeline=]
+steps) that can be submitted to a {{GPUQueue}} for execution.
+Each <dfn dfn>GPU command</dfn> represents a task to be performed on the
+[=queue timeline=], such as setting state, drawing, copying resources, etc.
 
 A {{GPUCommandBuffer}} can only be submitted once, at which point it becomes [$invalidated$].
 To reuse rendering commands across multiple submissions, use {{GPURenderBundle}}.
@@ -9721,7 +9791,7 @@ dictionary GPUCommandEncoderDescriptor
                 1. For each non-`null` |colorAttachment| in |descriptor|.{{GPURenderPassDescriptor/colorAttachments}}:
                     1. Add [|colorAttachment|.{{GPURenderPassColorAttachment/view}},
                         |colorAttachment|.{{GPURenderPassColorAttachment/depthSlice}}] to |attachmentRegions|.
-                    1. If |colorAttachment|.{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
+                    1. If |colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}} is not `null`:
                         1. Add [|colorAttachment|.{{GPURenderPassColorAttachment/resolveTarget}},
                             `undefined`] to |attachmentRegions|.
                 1. If any of the following requirements are unmet, [$invalidate$] |pass| and return.
@@ -9731,8 +9801,9 @@ dictionary GPUCommandEncoderDescriptor
                         - The set of texture regions in |attachmentRegions| must be pairwise disjoint.
                             That is, no two texture regions may overlap.
                     </div>
-                1. Consider each [=texture subresource=] in |attachmentRegions| to be used as
-                    an [=internal usage/attachment=] for the duration of the render pass.
+                1. [$usage scope/Add$] each [=texture subresource=] in |attachmentRegions|
+                    to |pass|.{{GPURenderCommandsMixin/[[usage scope]]}}
+                    with usage [=internal usage/attachment=].
 
                     If a subresource is seen more than once, consider it used only once.
                     (Attachments are already checked for overlaps in the validation rules above.)
@@ -9740,14 +9811,16 @@ dictionary GPUCommandEncoderDescriptor
                     or `null` if not [=map/exist|provided=].
                 1. If |depthStencilAttachment| is not `null`:
                     1. Let |depthStencilView| be |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/view}}.
-                    1. Consider the [=aspect/depth=] [=GPUTextureView/subresource=] of |depthStencilView|
-                        (if any) used for the duration of the render pass, as [=internal usage/attachment-read=] if
+                    1. [$usage scope/Add$] the [=aspect/depth=] [=subresource=] of |depthStencilView|, if any,
+                        to |pass|.{{GPURenderCommandsMixin/[[usage scope]]}}
+                        with usage [=internal usage/attachment-read=] if
                         |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} is true,
-                        or as [=internal usage/attachment=] otherwise.
-                    1. Consider the [=aspect/stencil=] [=GPUTextureView/subresource=] of |depthStencilView|
-                        (if any) used for the duration of the render pass, as [=internal usage/attachment-read=] if
+                        or [=internal usage/attachment=] otherwise.
+                    1. [$usage scope/Add$] the [=aspect/stencil=] [=subresource=] of |depthStencilView|, if any,
+                        to |pass|.{{GPURenderCommandsMixin/[[usage scope]]}}
+                        with usage [=internal usage/attachment-read=] if
                         |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}} is true,
-                        or as [=internal usage/attachment=] otherwise.
+                        or [=internal usage/attachment=] otherwise.
                     1. Set |pass|.{{GPURenderCommandsMixin/[[depthReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}}.
                     1. Set |pass|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} to |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}}.
                 1. Set |pass|.{{GPURenderCommandsMixin/[[layout]]}} to [$derive render targets layout from pass$](|descriptor|).
@@ -9864,7 +9937,7 @@ dictionary GPUCommandEncoderDescriptor
                                 |depthStencilAttachment|.{{GPURenderPassDepthStencilAttachment/stencilClearValue}}.
                         </dl>
 
-                Note: Read-only depth/stencil attachments are implicitly treated as though the {{GPULoadOp/"load"}}
+                Note: [=Read-only depth-stencil=] attachments are implicitly treated as though the {{GPULoadOp/"load"}}
                 operation was used. Validation that requires the load op to not be provided for read-only attachments
                 is done in [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$].
             </div>
@@ -10019,7 +10092,7 @@ dictionary GPUCommandEncoderDescriptor
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
-                1. If |size| is missing, set |size| to `max(0, |buffer|.{{GPUBuffer/size}} - |offset|)`.
+                1. If |size| is missing, set |size| to <code>max(0, |buffer|.{{GPUBuffer/size}} - |offset|)</code>.
                 1. If any of the following conditions are unsatisfied [$invalidate$] |this| and stop.
 
                     <div class=validusage>
@@ -10379,7 +10452,6 @@ command encoder can no longer be used.
                         - |this| must be [$valid$].
                         - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
-                        - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
                     </div>
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
                 1. If |validationSucceeded| is `false`, then:
@@ -10509,6 +10581,10 @@ It must only be included by interfaces which also include those mixins.
                         </div>
                     1. Set |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|] to be |bindGroup|.
                     1. Set |this|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|] to be a copy of |dynamicOffsets|.
+                    1. If |this| is a {{GPURenderCommandsMixin}}:
+                        1. For each |bindGroup| in |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}},
+                            [$usage scope/merge$] |bindGroup|.{{GPUBindGroup/[[usedResources]]}}
+                            into |this|.{{GPURenderCommandsMixin/[[usage scope]]}}
             </div>
         </div>
 
@@ -10606,6 +10682,8 @@ It must only be included by interfaces which also include those mixins.
     if any writable buffer binding range overlaps with any other binding range of the same buffer,
     or any writable texture binding overlaps in [=texture subresources=] with any other texture binding
     (which may use the same or a different {{GPUTextureView}} object).
+
+    Note: This algorithm limits the use of the [=usage scope storage exception=].
 
     **Arguments:**
 
@@ -10840,7 +10918,7 @@ dictionary GPUComputePassTimestampWrites {
 </dl>
 
 Note: Timestamp query values are written in nanoseconds, but how the value is determined is
-implementation-defined and may not increase monotonically. See [[#timestamp]] for details.
+[=implementation-defined=] and may not increase monotonically. See [[#timestamp]] for details.
 
 <script type=idl>
 dictionary GPUComputePassDescriptor
@@ -10934,9 +11012,14 @@ dictionary GPUComputePassDescriptor
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
+                1. Let |usageScope| be an empty [=usage scope=].
+                1. For each |bindGroup| in |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}},
+                    [$usage scope/merge$] |bindGroup|.{{GPUBindGroup/[[usedResources]]}}
+                    into |this|.{{GPURenderCommandsMixin/[[usage scope]]}}
                 1. If any of the following conditions are unsatisfied, [$invalidate$] |this| and stop.
 
                     <div class=validusage>
+                        - |usageScope| must satisfy [=usage scope validation=].
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
                         - all of |workgroupCountX|, |workgroupCountY| and |workgroupCountZ| are &le;
@@ -10996,9 +11079,16 @@ dictionary GPUComputePassDescriptor
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, stop.
+                1. Let |usageScope| be an empty [=usage scope=].
+                1. For each |bindGroup| in |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}},
+                    [$usage scope/merge$] |bindGroup|.{{GPUBindGroup/[[usedResources]]}}
+                    into |this|.{{GPURenderCommandsMixin/[[usage scope]]}}
+                1. [$usage scope/Add$] |indirectBuffer| to |usageScope|
+                    with usage [=internal usage/input=].
                 1. If any of the following conditions are unsatisfied, [$invalidate$] |this| and stop.
 
                     <div class=validusage>
+                        - |usageScope| must satisfy [=usage scope validation=].
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
                         - |indirectBuffer| is [$valid to use with$] |this|.
@@ -11007,8 +11097,6 @@ dictionary GPUComputePassDescriptor
                             |indirectBuffer|.{{GPUBuffer/size}}.
                         - |indirectOffset| is a multiple of 4.
                     </div>
-                1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
-
                 1. Let |bindingState| be a snapshot of |this|'s current state.
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
                     [=Queue timeline=].
@@ -11214,7 +11302,7 @@ dictionary GPURenderPassTimestampWrites {
 </dl>
 
 Note: Timestamp query values are written in nanoseconds, but how the value is determined is
-implementation-defined and may not increase monotonically. See [[#timestamp]] for details.
+[=implementation-defined=] and may not increase monotonically. See [[#timestamp]] for details.
 
 <script type=idl>
 dictionary GPURenderPassDescriptor
@@ -11742,6 +11830,7 @@ called the render pass encoder can no longer be used.
 
                     <div class=validusage>
                         - |this| must be [$valid$].
+                        - |this|.{{GPURenderCommandsMixin/[[usage scope]]}} must satisfy [=usage scope validation=].
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
                         - |this|.{{GPURenderPassEncoder/[[occlusion_query_active]]}} must be `false`.
                         - |this|.{{GPURenderCommandsMixin/[[drawCount]]}} must be &le; |this|.{{GPURenderPassEncoder/[[maxDrawCount]]}}.
@@ -11833,7 +11922,7 @@ called the render pass encoder can no longer be used.
                 to perform a clear at the end of the render pass. See the note on {{GPUStoreOp/"discard"}} for
                 additional details.
 
-                Note: Read-only depth/stencil attachments can be thought of as implicitly using the {{GPUStoreOp/"store"}}
+                Note: [=Read-only depth-stencil=] attachments can be thought of as implicitly using the {{GPUStoreOp/"store"}}
                 operation, but since their content is unchanged during the render pass implementations don't need to
                 update the attachment. Validation that requires the store op to not be provided for read-only attachments
                 is done in [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$].
@@ -11886,6 +11975,10 @@ It must only be included by interfaces which also include those mixins.
     : <dfn>\[[stencilReadOnly]]</dfn>, of type boolean, readonly
     ::
         If `true`, indicates that the stencil component is not modified.
+
+    : <dfn>[[usage scope]]</dfn>, of type [=usage scope=], initially empty
+    ::
+        The [=usage scope=] for this render pass or bundle.
 
     : <dfn>\[[pipeline]]</dfn>, of type {{GPURenderPipeline}}
     ::
@@ -12012,7 +12105,8 @@ It must only be included by interfaces which also include those mixins.
                         - |offset| is a multiple of |indexFormat|'s byte size.
                         - |offset| + |size| &le; |buffer|.{{GPUBuffer/size}}.
                     </div>
-                1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
+                1. [$usage scope/Add$] |buffer| to {{GPURenderCommandsMixin/[[usage scope]]}}
+                    with usage [=internal usage/input=].
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer]]}} to be |buffer|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_format]]}} to be |indexFormat|.
                 1. Set |this|.{{GPURenderCommandsMixin/[[index_buffer_offset]]}} to be |offset|.
@@ -12070,7 +12164,8 @@ It must only be included by interfaces which also include those mixins.
                             - |buffer| must be [$valid to use with$] |this|.
                             - |buffer|.{{GPUBuffer/usage}} must contain {{GPUBufferUsage/VERTEX}}.
                         </div>
-                    1. Add |buffer| to the [=usage scope=] as [=internal usage/input=].
+                    1. [$usage scope/Add$] |buffer| to {{GPURenderCommandsMixin/[[usage scope]]}}
+                        with usage [=internal usage/input=].
                     1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}[|slot|] to be |buffer|.
                     1. Set |this|.{{GPURenderCommandsMixin/[[vertex_buffer_sizes]]}}[|slot|] to be |size|.
             </div>
@@ -12265,7 +12360,8 @@ It must only be included by interfaces which also include those mixins.
                             |indirectBuffer|.{{GPUBuffer/size}}.
                         - |indirectOffset| is a multiple of 4.
                     </div>
-                1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
+                1. [$usage scope/Add$] |indirectBuffer| to {{GPURenderCommandsMixin/[[usage scope]]}}
+                    with usage [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
                 1. Let |bindingState| be a snapshot of |this|'s current state.
@@ -12346,7 +12442,8 @@ It must only be included by interfaces which also include those mixins.
                             |indirectBuffer|.{{GPUBuffer/size}}.
                         - |indirectOffset| is a multiple of 4.
                     </div>
-                1. Add |indirectBuffer| to the [=usage scope=] as [=internal usage/input=].
+                1. [$usage scope/Add$] |indirectBuffer| to {{GPURenderCommandsMixin/[[usage scope]]}}
+                    with usage [=internal usage/input=].
                 1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by 1.
 
                 1. Let |bindingState| be a snapshot of |this|'s current state.
@@ -12738,6 +12835,8 @@ attachments used by this encoder.
 
                 1. For each |bundle| in |bundles|:
                     1. Increment |this|.{{GPURenderCommandsMixin/[[drawCount]]}} by |bundle|.{{GPURenderBundle/[[drawCount]]}}.
+                    1. [$usage scope/Merge$] |bundle|.{{GPURenderCommandsMixin/[[usage scope]]}} into
+                        |this|.{{GPURenderCommandsMixin/[[usage scope]]}}.
                     1. [$Enqueue a render command$] on |this| which issues the following steps on the
                         [=Queue timeline=] with |renderState| when executed:
 
@@ -12789,6 +12888,12 @@ GPURenderBundle includes GPUObjectBase;
     ::
         A [=list=] of [=GPU commands=] to be submitted to the {{GPURenderPassEncoder}} when the
         {{GPURenderBundle}} is executed.
+
+    : <dfn>[[usage scope]]</dfn>, of type [=usage scope=], initially empty
+    ::
+        The [=usage scope=] for this render bundle, stored for later merging into the
+        {{GPURenderPassEncoder}}'s {{GPURenderCommandsMixin/[[usage scope]]}}
+        in {{GPURenderPassEncoder/executeBundles()}}.
 
     : <dfn>\[[layout]]</dfn>, of type {{GPURenderPassLayout}}
     ::
@@ -12902,11 +13007,15 @@ dictionary GPURenderBundleEncoderDescriptor
         {{GPURenderPassDepthStencilAttachment}} of any render pass the render bundle is executed
         in.
 
+        See [=read-only depth-stencil=].
+
     : <dfn>stencilReadOnly</dfn>
     ::
         If `true`, indicates that the render bundle does not modify the stencil component of the
         {{GPURenderPassDepthStencilAttachment}} of any render pass the render bundle is executed
         in.
+
+        See [=read-only depth-stencil=].
 </dl>
 
 ### Finalization ### {#render-bundle-finalization}
@@ -12942,9 +13051,9 @@ dictionary GPURenderBundleEncoderDescriptor
 
                     <div class=validusage>
                         - |this| must be [$valid$].
+                        - |this|.{{GPURenderCommandsMixin/[[usage scope]]}} must satisfy [=usage scope validation=].
                         - |this|.{{GPUCommandsMixin/[[state]]}} must be "[=encoder state/open=]".
                         - |this|.{{GPUDebugCommandsMixin/[[debug_group_stack]]}} must [=list/is empty|be empty=].
-                        - Every [=usage scope=] contained in |this| must satisfy the [=usage scope validation=].
                     </div>
                 1. Set |this|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/ended=]".
                 1. If |validationSucceeded| is `false`, then:
@@ -12952,6 +13061,8 @@ dictionary GPURenderBundleEncoderDescriptor
                     1. Return an [$invalidated$] {{GPURenderBundle}}.
                 1. Set |renderBundle|.{{GPURenderBundle/[[command_list]]}} to
                     |this|.{{GPUCommandsMixin/[[commands]]}}.
+                1. Set |renderBundle|.{{GPURenderBundle/[[usage scope]]}} to
+                    |this|.{{GPURenderCommandsMixin/[[usage scope]]}}.
                 1. Set |renderBundle|.{{GPURenderBundle/[[drawCount]]}} to
                     |this|.{{GPURenderCommandsMixin/[[drawCount]]}}.
             </div>
@@ -13566,7 +13677,7 @@ Timestamp queries allow applications to write timestamps to a {{GPUQuerySet}}, u
 and then resolve timestamp values (in nanoseconds as a [=64-bit unsigned integer=]) into
 a {{GPUBuffer}}, using {{GPUCommandEncoder}}.{{GPUCommandEncoder/resolveQuerySet()}}.
 
-Timestamp values are implementation defined and may not increase monotonically. The physical device
+Timestamp values are [=implementation-defined=] and may not increase monotonically. The physical device
 may reset the timestamp counter occasionally, which can result in unexpected values such as negative
 deltas between timestamps that logically should be monotonically increasing. These instances should
 be rare and can safely be ignored. Applications should not be written in such a way that unexpected
@@ -13580,8 +13691,9 @@ To mitigate security and privacy concerns, their precision must be reduced:
     To get the <dfn abstract-op>current queue timestamp</dfn>, run the following [=queue timeline=] steps:
 
     - Let |fineTimestamp| be the current timestamp value of the current [=queue timeline=],
-        in nanoseconds, relative to an implementation-defined point in the past.
-    - Return the result of calling [=coarsen time=] on |fineTimestamp|.
+        in nanoseconds, relative to an [=implementation-defined=] point in the past.
+    - Return the result of calling [=coarsen time=] on |fineTimestamp|
+        with `crossOriginIsolatedCapability` set to `false`.
 
     Note: Since cross-origin isolation may not apply to the [=device timeline=] or
     [=queue timeline=], `crossOriginIsolatedCapability` is never set to `true`.
@@ -15003,23 +15115,36 @@ clip space positions for [[#primitive-clipping]], as well as other data for the
                 : {{GPUVertexStepMode/"instance"}}
                 :: |instanceIndex|
             </dl>
+        1. Let |drawCallOutOfBounds| be `false`.
         1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
             1. Let |attributeOffset| be |vertexBufferOffset| +
                 |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
                 |attributeDesc|.{{GPUVertexAttribute/offset}}.
-            1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
-                from |vertexBuffer| starting at offset |attributeOffset|.
-                The components are loaded in the order `x`, `y`, `z`, `w` from buffer memory.
+            1. If |attributeOffset| + sizeof(|attributeDesc|.{{GPUVertexAttribute/format}}) &gt;
+                |vertexBufferOffset| + |vertexBufferBindingSize|:
+                1. Set |drawCallOutOfBounds| to `true`.
+                1. **Optionally ([=implementation-defined=])**,
+                    [=list/empty=] |vertexIndexList| and stop, cancelling the draw call.
 
-                If this results in an out-of-bounds access, the resulting value is determined
-                according to WGSL's [=invalid memory reference=] behavior.
-            1. **Optionally (implementation-defined):**
-                If |attributeOffset| + sizeof(|attributeDesc|.{{GPUVertexAttribute/format}}) &gt;
-                |vertexBufferOffset| + |vertexBufferBindingSize|,
-                [=list/empty=] |vertexIndexList| and stop, cancelling the draw call.
+                    Note: This allows implementations to detect out-of-bounds values in the index buffer
+                    before issuing a draw call, instead of using [=invalid memory reference=] behavior.
+        1. For each |attributeDesc| in |vertexBufferLayout|.{{GPUVertexBufferLayout/attributes}}:
+            1. If |drawCallOutOfBounds| is `true`:
+                1. Load the attribute |data| according to WGSL's [=invalid memory reference=]
+                    behavior, from |vertexBuffer|.
 
-                Note: This allows implementations to detect out-of-bounds values in the index buffer
-                before issuing a draw call, instead of using [=invalid memory reference=] behavior.
+                    Note: [=Invalid memory reference=] allows several behaviors, including actually
+                    loading the "correct" result for an attribute that is in-bounds, even when
+                    the draw-call-wide |drawCallOutOfBounds| is `true`.
+
+                Otherwise:
+
+                1. Let |attributeOffset| be |vertexBufferOffset| +
+                    |vertexElementIndex| * |vertexBufferLayout|.{{GPUVertexBufferLayout/arrayStride}} +
+                    |attributeDesc|.{{GPUVertexAttribute/offset}}.
+                1. Load the attribute |data| of format |attributeDesc|.{{GPUVertexAttribute/format}}
+                    from |vertexBuffer| starting at offset |attributeOffset|.
+                    The components are loaded in the order `x`, `y`, `z`, `w` from buffer memory.
             1. Convert the |data| into a shader-visible format, according to [=channel formats=] rules.
 
                 <div class=example>
@@ -15421,7 +15546,7 @@ Otherwise, the polygon is <dfn dfn>back-facing</dfn>.
 
             : enabled
             :: Each pixel is associated with |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/count}}
-                locations, which are implementation-defined.
+                locations, which are [=implementation-defined=].
                 The locations are ordered, and the list is the same for each pixel of the [=framebuffer=].
                 Each location corresponds to one fragment in the multisampled [=framebuffer=].
 
@@ -15808,7 +15933,12 @@ This feature adds the following [=optional API surfaces=]:
 <span id=dom-gpufeaturename-texture-compression-bc></span>
 </h3>
 
-Allows for explicit creation of textures of BC compressed formats. Supports both 2D and 3D textures.
+Allows for explicit creation of textures of BC compressed formats. Only supports 2D textures.
+
+Note: Adapters which support either {{GPUFeatureName/"texture-compression-bc"}}
+or {{GPUFeatureName/"texture-compression-bc-sliced-3d"}}
+always support both, even though they are separate features.
+To use {{GPUFeatureName/"texture-compression-bc-sliced-3d"}}, enable it separately.
 
 This feature adds the following [=optional API surfaces=]:
 
@@ -15827,6 +15957,20 @@ This feature adds the following [=optional API surfaces=]:
     - {{GPUTextureFormat/"bc6h-rgb-float"}}
     - {{GPUTextureFormat/"bc7-rgba-unorm"}}
     - {{GPUTextureFormat/"bc7-rgba-unorm-srgb"}}
+
+<h3 id=texture-compression-bc-sliced-3d data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"texture-compression-bc-sliced-3d"`
+<span id=dom-gpufeaturename-texture-compression-bc-sliced-3d></span>
+</h3>
+
+Allows the {{GPUTextureDimension/3d}} dimension for textures with BC compressed formats.
+
+Note: Adapters which support either {{GPUFeatureName/"texture-compression-bc"}}
+or {{GPUFeatureName/"texture-compression-bc-sliced-3d"}}
+always support both, even though they are separate features.
+To use {{GPUFeatureName/"texture-compression-bc-sliced-3d"}},
+both must be enabled explicitly as this feature does not enable the BC formats.
+
+This feature adds no [=optional API surfaces=].
 
 <h3 id=texture-compression-etc2 data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"texture-compression-etc2"`
 <span id=texture-compression-etc></span>
@@ -16529,7 +16673,7 @@ must be {{GPUTextureSampleType/"uint"}}.
 
 Reading or sampling the depth or stencil aspect of a texture behaves as if the texture contains
 the values `(V, X, X, X)`, where V is the actual depth or stencil value,
-and each X is an implementation-defined unspecified value.
+and each X is an [=implementation-defined=] unspecified value.
 
 For depth-aspect bindings, the unspecified values are not visible through bindings with
 `texture_depth_*` types.
@@ -16607,7 +16751,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td rowspan=2>8
         <td rowspan=14>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td rowspan=14>4 &times; 4
-        <td rowspan=14>&check;
+        <td rowspan=14>If {{GPUFeatureName/"texture-compression-bc-sliced-3d"}} is enabled
         <td rowspan=14>{{GPUFeatureName/texture-compression-bc}}
     <tr>
         <td>{{GPUTextureFormat/bc1-rgba-unorm-srgb}}
