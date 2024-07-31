@@ -96,7 +96,7 @@ def read_lines_from_file(filename, exclusions):
     parts = [j for i in [i.split("\n") for i in file.readlines()]
              for j in i if len(j) > 0]
     result = []
-    include_re = re.compile('(?!.*\.syntax\.bs\.include)path:\s+(\S+)')
+    include_re = re.compile('(?!.*\\.syntax\\.bs\\.include)path:\\s+(\\S+)')
     for line in parts:
         m = include_re.match(line)
         if m:
@@ -1353,6 +1353,10 @@ def main():
     options.verbose = args.verbose
     if args.verbose:
         print(options)
+
+    if not os.path.exists(options.syntax_dir):
+        print("ERROR: Syntax directory does not exist: {}".format(options.syntax_dir))
+        return 1
 
     scan_result = None
 
