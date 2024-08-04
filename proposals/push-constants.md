@@ -116,9 +116,6 @@ NOTE: dataOffset: Offset in into data to begin writing from. Given in elements i
 
 # Open Questions:
 
-- Should immediates be defined per-stage?
-  - wgpu currently has per-stage immediates (@teoxoy?) and we weren't sure if that is a feasible alternative.
-
 - Should pipelineLayout defines immediate range compatible?
   - Implementation internal immediate data usage could easily break compatibility. Implementation needs extra
     effort to ensure such compatibility.
