@@ -2169,6 +2169,8 @@ A [=type rule=] has two parts:
     * For expressions:
         * Type assertions for subexpressions, when it has subexpressions.
              Each may be satisfied directly, or via a [=feasible automatic conversion=] (as defined in [[#conversion-rank]]).
+             WGSL [=behavioral requirement|will=] evaluate all [=const-expressions=] required
+             to determine the [=static types=] of a program.
         * How the expression is used in a statement.
     * For statements:
         * The syntactic form of the statement, and
@@ -5204,13 +5206,19 @@ The type of a `const` expression [=shader-creation error|must=] [=type rules|res
 Note: [=type/abstract|Abstract types=] can be the inferred type of a const-expression.
 
 A const-expression |E| [=behavioral requirement|will=] be evaluated if and only if:
-* |E| is [=top-level expression=], or
+* |E| is [=top-level expression=], 
 * |E| is a [=subexpression=] of an expression |OuterE|, and |OuterE|
     [=behavioral requirement|will=] be evaluated, and evaluation of |OuterE|
-    requires |E| to be evaluated.
+    requires |E| to be evaluated,
+* |E| is a [=subexpression=] of an expression |OuterE| such that evaluation of
+    |E| is required to determine the [=static type=] of |OuterE|, or
+* |E| is a [=subexpression=] of an expression |OuterE| such that |OuterE| requires
+    |E| to be evaluated to produce a [=shader-creation error=]
+    (e.g. [[#arithmetic-expr|integer division]]).
 
 Note: The evaluation rule implies that short-circuiting operators `&&` and `||` guard evaluation of their right-hand
-side subexpressions.
+side subexpressions unless there is a [=subexpression=] that requires evaluation to determine
+a [=static type=].
 
 A const-expression may be evaluated by the CPU implementing the WebGPU API methods.
 Therefore accuracy requirements for operations on [=AbstractFloat=] values are *no more strict* than
@@ -5254,6 +5262,16 @@ Example:  `false && (10i < i32(5 * 1000 * 1000 * 1000))` is analyzed as follows:
 * Evaluation of i32(5 * 1000 * 1000 * 1000) would have caused a [=shader-creation error=]
     because the [=AbstractInt=] value 5000000000 overflows the [=i32=] type.
 
+Example: `false && array<u32, 1 + 2>(0, 1, 2)[0] == 0`
+* The entire expression is a const-expression.
+* Type checking requires the `e1 : bool && e2 : bool`:
+    * `false` is a bool value.
+    * Type checking proceeds on the right-hand side and eventually evaluates `1 + 2`
+        in the array element count expression.
+* `1 + 2` evaluates to an i32 value of `3`.
+    * The array is typed `array<u32, 3i>`.
+* Neither the array access expression nor the equality operator are evaluated.
+
 ### `override` Expressions ### {#override-expr}
 
 Expressions that can be evaluated at [=pipeline creation=] time are called <dfn
@@ -5273,10 +5291,13 @@ If an [=override-declaration=] has its value substituted via the API, its
 initializer expression, if present, will not be evaluated.
 Otherwise, an override-expression |E| [=behavioral requirement|will=] be
 evaluated if and only if:
-* |E| is [=top-level expression=] (after value substitution), or
+* |E| is [=top-level expression=] (after value substitution),
 * |E| is a [=subexpression=] of an expression |OuterE|, and |OuterE|
     [=behavioral requirement|will=] be evaluated, and evaluation of |OuterE|
-    requires |E| to be evaluated.
+    requires |E| to be evaluated, or
+* |E| is a [=subexpression=] of an expression |OuterE| such that |OuterE| requires
+    |E| to be evaluated to produce a [=pipeline-creation error=]
+    (e.g. [[#arithmetic-expr|integer division]]).
 
 Note: Not all override-expressions may be usable as the initializer for an
 [=override-declaration=], because such initializers must [=type rules|resolve=]
@@ -16042,7 +16063,8 @@ https://github.com/gpuweb/gpuweb/issues/2343
   <tr><td>`coords`<td>
   The texture coordinates.
   <tr><td>`array_index`<td>
-  The 0-based texture array index.
+  The 0-based texture array index.<br>
+  This value [=behavioral requirement|will=] be clamped to the range `[0, textureNumLayers(t) - 1]`.
   <tr><td>`offset`<td>
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
@@ -16181,7 +16203,8 @@ texture and collects the results into a single vector, as follows:
   <tr><td>`coords`<td>
   The texture coordinates.
   <tr><td>`array_index`<td>
-  The 0-based texture array index.
+  The 0-based texture array index.<br>
+  This value [=behavioral requirement|will=] be clamped to the range `[0, textureNumLayers(t) - 1]`.
   <tr><td>`depth_ref`<td>
   The reference value to compare the sampled depth value against.
   <tr><td>`offset`<td>
@@ -16656,7 +16679,8 @@ then a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
   <tr><td>`coords`<td>
   The texture coordinates used for sampling.
   <tr><td>`array_index`<td>
-  The 0-based texture array index to sample.
+  The 0-based texture array index to sample.<br>
+  This value [=behavioral requirement|will=] be clamped to the range `[0, textureNumLayers(t) - 1]`.
   <tr><td>`offset`<td>
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
@@ -16773,10 +16797,11 @@ then a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
   <tr><td>`coords`<td>
   The texture coordinates used for sampling.
   <tr><td>`array_index`<td>
-  The 0-based texture array index to sample.
+  The 0-based texture array index to sample.<br>
+  This value [=behavioral requirement|will=] be clamped to the range `[0, textureNumLayers(t) - 1]`.
   <tr><td>`bias`<td>
-  The bias to apply to the mip level before sampling.
-  `bias` [=shader-creation error|must=] be between `-16.0` and `15.99`.
+  The bias to apply to the mip level before sampling.<br>
+  This value [=behavioral requirement|will=] be clamped in the range `[-16.0, 15.99]`.
   <tr><td>`offset`<td>
   The optional texel offset applied to the unnormalized texture coordinate
   before sampling the texture. This offset is applied before applying any
@@ -16789,8 +16814,6 @@ then a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
 **Returns:**
 
 The sampled value.
-
-An [=indeterminate value=] results if called in [=uniform control flow|non-uniform control flow=].
 
 ### `textureSampleCompare` ### {#texturesamplecompare}
 
@@ -16882,7 +16905,8 @@ then a [=trigger/derivative_uniformity=] [=diagnostic=] is [=triggered=].
   <tr><td>`coords`<td>
   The texture coordinates used for sampling.
   <tr><td>`array_index`<td>
-  The 0-based texture array index to sample.
+  The 0-based texture array index to sample.<br>
+  This value [=behavioral requirement|will=] be clamped to the range `[0, textureNumLayers(t) - 1]`.
   <tr><td>`depth_ref`<td>
   The reference value to compare the sampled depth value against.
   <tr><td>`offset`<td>
@@ -16993,7 +17017,8 @@ Samples a [=type/depth texture=] and compares the sampled depth values against a
   <tr><td>`coords`<td>
   The texture coordinates used for sampling.
   <tr><td>`array_index`<td>
-  The 0-based texture array index to sample.
+  The 0-based texture array index to sample.<br>
+  This value [=behavioral requirement|will=] be clamped to the range `[0, textureNumLayers(t) - 1]`.
   <tr><td>`depth_ref`<td>
   The reference value to compare the sampled depth value against.
   <tr><td>`offset`<td>
@@ -17119,7 +17144,8 @@ Samples a texture using explicit gradients.
   <tr><td>`coords`<td>
   The texture coordinates used for sampling.
   <tr><td>`array_index`<td>
-  The 0-based texture array index to sample.
+  The 0-based texture array index to sample.<br>
+  This value [=behavioral requirement|will=] be clamped to the range `[0, textureNumLayers(t) - 1]`.
   <tr><td>`ddx`<td>
   The x direction derivative vector used to compute the sampling locations.
   <tr><td>`ddy`<td>
@@ -17136,7 +17162,6 @@ Samples a texture using explicit gradients.
 **Returns:**
 
 The sampled value.
-
 
 ### `textureSampleLevel` ### {#texturesamplelevel}
 
@@ -17302,7 +17327,8 @@ Samples a texture using an explicit mip level.
   <tr><td>`coords`<td>
   The texture coordinates used for sampling.
   <tr><td>`array_index`<td>
-  The 0-based texture array index to sample.
+  The 0-based texture array index to sample.<br>
+  This value [=behavioral requirement|will=] be clamped to the range `[0, textureNumLayers(t) - 1]`.
   <tr><td>`level`<td>
   The mip level, with level 0 containing a full size version of the texture.
   For the functions where `level` is a `f32`, fractional values may interpolate
@@ -17579,7 +17605,8 @@ Note: For packing snorm values, the normalized floating point values are in the 
   <tr>
     <td>Description
     <td>Converts four normalized floating point values to 8-bit signed integers, and then combines them
-        into one `u32` value.<br>
+        into one `u32` value.
+
         Component `e[i]` of the input is converted to an 8-bit twos complement integer value
         &lfloor; 0.5 + 127 &times; min(1, max(-1, e[i])) &rfloor; which is then placed in bits
         8 &times; `i` through
@@ -17597,7 +17624,8 @@ Note: For packing snorm values, the normalized floating point values are in the 
   <tr>
     <td>Description
     <td>Converts four normalized floating point values to 8-bit unsigned integers, and then combines them
-        into one `u32` value.<br>
+        into one `u32` value.
+
         Component `e[i]` of the input is converted to an 8-bit unsigned integer value
         &lfloor; 0.5 + 255 &times; min(1, max(0, e[i])) &rfloor; which is then placed in bits
         8 &times; `i` through
@@ -17615,6 +17643,10 @@ Note: For packing snorm values, the normalized floating point values are in the 
   <tr>
     <td>Description
     <td>Pack the lower 8 bits of each component of `e` into a [=u32=] value and drop all the unused bits.
+
+        Component `e[i]` of the input is mapped to bits
+        8 &times; `i` through
+        8 &times; `i` + 7 of the result.
 </table>
 
 ### `pack4xU8` ### {#pack4xU8-builtin}
@@ -17628,6 +17660,10 @@ Note: For packing snorm values, the normalized floating point values are in the 
   <tr>
     <td>Description
     <td>Pack the lower 8 bits of each component of `e` into a [=u32=] value and drop all the unused bits.
+
+        Component `e[i]` of the input is mapped to bits
+        8 &times; `i` through
+        8 &times; `i` + 7 of the result.
 </table>
 
 ### `pack4xI8Clamp` ### {#pack4xI8Clamp-builtin}
@@ -17642,6 +17678,10 @@ Note: For packing snorm values, the normalized floating point values are in the 
     <td>Description
     <td>Clamp each component of `e` in the range [-128, 127] and then pack the lower 8 bits of each
         component into a [=u32=] value.
+
+        Component `e[i]` of the input is mapped to bits
+        8 &times; `i` through
+        8 &times; `i` + 7 of the result.
 </table>
 
 ### `pack4xU8Clamp` ### {#pack4xU8Clamp-builtin}
@@ -17656,6 +17696,10 @@ Note: For packing snorm values, the normalized floating point values are in the 
     <td>Description
     <td>Clamp each component of `e` in the range of [0, 255] and then pack the lower 8 bits of each
         component into a [=u32=] value.
+
+        Component `e[i]` of the input is mapped to bits
+        8 &times; `i` through
+        8 &times; `i` + 7 of the result.
 </table>
 
 ### `pack2x16snorm` ### {#pack2x16snorm-builtin}
