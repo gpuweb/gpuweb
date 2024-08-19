@@ -90,8 +90,8 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupElect() -> bool` | | Returns true if this invocation has the lowest subgroup_invocation_id among active invocations in the subgroup |
 | `fn subgroupAll(e : bool) -> bool` | | Returns true if `e` is true for all active invocations in the subgroup |
 | `fn subgroupAny(e : bool) -> bool` | | Returns true if `e` is true for any active invocation in the subgroup |
-| `fn subgroupBroadcast(e : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be i32 or u32 | Broadcasts `e` from subgroup_invocation_id `id` to all active invocations. `id` must be dynamically uniform<sup>1</sup> |
-| `fn subgroupBroadcastFirst(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Broadcasts `e` from the active invocation with the lowest subgroup_invocation_id in the subgroup  to all other active invocations |
+| `fn subgroupBroadcast(e : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be i32 or u32 | Broadcasts `e` from the invocation whose subgroup_invocation_id matches `id`, to all active invocations. <br>`id` must be a constant-expression. Use `subgroupShuffle` if you need a non-constant `id`. |
+| `fn subgroupBroadcastFirst(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Broadcasts `e` from the active invocation with the lowest subgroup_invocation_id in the subgroup to all other active invocations |
 | `fn subgroupBallot(pred : bool) -> vec4<u32>` | | Returns a set of bitfields where the bit corresponding to subgroup_invocation_id is 1 if `pred` is true for that active invocation and 0 otherwise. |
 | `fn subgroupShuffle(v : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Returns `v` from the active invocation whose subgroup_invocation_id matches `id` |
 | `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask`.<br>`mask` must be dynamically uniform. |
@@ -106,12 +106,11 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupXor(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise xor of `e` among all active invocations and returns that result |
 | `fn subgroupMin(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a min of `e` among all active invocations and returns that result |
 | `fn subgroupMax(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a max of `e` among all active invocations and returns that result |
-| `fn quadBroadcast(e : T, id : I)` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Broadcasts `e` from the quad invocation with id equal to `id`<br>`id` must be a constant-expression<sup>2</sup> |
+| `fn quadBroadcast(e : T, id : I)` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Broadcasts `e` from the quad invocation with id equal to `id`<br>`id` must be a constant-expression<sup>1</sup> |
 | `fn quadSwapX(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the X direction |
 | `fn quadSwapY(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the Y direction |
 | `fn quadSwapDiagonal(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad diagnoally |
-1. This is the first instance of dynamic uniformity. See the portability and uniformity section for more details.
-2. Unlike `subgroupBroadcast`, SPIR-V does not have a shuffle operation to fall back on, so this requirement must be surfaced.
+1.  Unlike `subgroupBroadcast`, there is no alternative if the author wants a non-constant `id`: SPIR-V does not have a quad shuffle operation to fall back on.
 
 **TODO**: Are quad operations worth it?
 Quad operations present even less portability than subgroup operations due to
