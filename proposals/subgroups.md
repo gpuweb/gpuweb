@@ -99,8 +99,10 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta` |
 | `fn subgroupAdd(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Adds `e` among all active invocations and returns that result |
 | `fn subgroupExclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than this invocation |
+| `fn subgroupInclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Inclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than or equal to this invocation |
 | `fn subgroupMul(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Multiplies `e` among all active invocations and returns that result |
 | `fn subgroupExclusiveMul(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than this invocation |
+| `fn subgroupInclusiveMul(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Inclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than or equal to this invocation |
 | `fn subgroupAnd(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise and of `e` among all active invocations and returns that result |
 | `fn subgroupOr(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise or of `e` among all active invocations and returns that result |
 | `fn subgroupXor(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise xor of `e` among all active invocations and returns that result |
@@ -233,8 +235,10 @@ D3D12 would have to be proven empricially.
 | `subgroupShuffleDown` | OpGroupNonUniformShuffleDown | simd_shuffle_down | WaveReadLaneAt with index equal `subgroup_invocation_id + delta` |
 | `subgroupAdd` | OpGroupNonUniform[IF]Add with Reduce operation | simd_sum | WaveActiveSum |
 | `subgroupExclusiveAdd` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_sum | WavePrefixSum |
+| `subgroupInclusiveAdd` | OpGroupNonUniform[IF]Add with InclusiveScan operation | simd_prefix_inclusive_sum | WavePrefixSum(x) + x |
 | `subgroupMul` | OpGroupNonUniform[IF]Mul with Reduce operation | simd_product | WaveActiveProduct |
 | `subgroupExclusiveMul` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_product | WavePrefixProduct |
+| `subgroupInclusiveMul` | OpGroupNonUniform[IF]Add with InclusiveScan operation | simd_prefix_inclusive_product | WavePrefixProduct(x) * x |
 | `subgroupAnd` | OpGroupNonUniformBitwiseAnd with Reduce operation | simd_and | WaveActiveBitAnd |
 | `subgroupOr` | OpGroupNonUniformBitwiseOr with Reduce operation | simd_or | WaveActiveBitOr |
 | `subgroupXor` | OpGroupNonUniformBitwiseXor with Reduce operation | simd_xor | WaveActiveBitXor |
