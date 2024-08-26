@@ -11,7 +11,7 @@ clean:
 
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs ./tools/scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include) $(wildcard img/*.svg)
+WGSL_SOURCES:=index.bs ./grammar/src/scanner.cpp wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include) $(wildcard img/*.svg)
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
@@ -29,12 +29,12 @@ img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
 TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
 TREESITTER_PARSER := grammar/build/wgsl.so
 # Extract WGSL grammar from the spec
-$(TREESITTER_GRAMMAR_INPUT): index.bs ./tools/scanner.cc ./tools/extract-grammar.py
-	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./tools/scanner.cc --tree-sitter-dir grammar --flow x
+$(TREESITTER_GRAMMAR_INPUT): index.bs ./grammar/src/scanner.cpp ./tools/extract-grammar.py
+	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./grammar/src/scanner.cpp --tree-sitter-dir grammar --flow x
 
 # Build a Treesitter parser to validate grammar extract and later examples in spec
 $(TREESITTER_PARSER): $(TREESITTER_GRAMMAR_INPUT)
-	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./tools/scanner.cc --tree-sitter-dir grammar --flow b
+	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./grammar/src/scanner.cpp --tree-sitter-dir grammar --flow b
 
 .PHONY: validate-examples
 # Use Treesitter to parse many code examples in the spec.
