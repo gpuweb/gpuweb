@@ -13,8 +13,6 @@ import sys
 import string
 import shutil
 
-import wgsl_unit_tests
-
 from distutils.ccompiler import new_compiler
 from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
@@ -1330,6 +1328,7 @@ def main():
         if not flow_examples(options,scan_result):
             return 1
     if 't' in args.flow:
+        import wgsl_unit_tests
         test_options = wgsl_unit_tests.Options(options.wgsl_shared_lib)
         if not wgsl_unit_tests.run_tests(test_options):
             return 1
