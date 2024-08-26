@@ -47,6 +47,7 @@ RUN \
   npm install -g @mermaid-js/mermaid-cli@$NPM_MERMAID_CLI_VERSION && \
   npm install -g tree-sitter-cli@$NPM_TREE_SITTER_CLI_VERSION && \
   cd /grammar && \
+  tree-sitter generate && \
   npm install
 
 ENTRYPOINT [ "/entrypoint.sh" ]
