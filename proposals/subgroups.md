@@ -106,7 +106,7 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupXor(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise xor of `e` among all active invocations and returns that result |
 | `fn subgroupMin(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a min of `e` among all active invocations and returns that result |
 | `fn subgroupMax(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a max of `e` among all active invocations and returns that result |
-| `fn quadBroadcast(e : T, id : I)` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Broadcasts `e` from the quad invocation with id equal to `id`<br>`id` must be a constant-expression<sup>1</sup> |
+| `fn quadBroadcast(e : T, id : I)` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Broadcasts `e` from the quad invocation with id equal to `id`<br>`id` must be a constant-expression<sup>2</sup> |
 | `fn quadSwapX(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the X direction |
 | `fn quadSwapY(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the Y direction |
 | `fn quadSwapDiagonal(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad diagnoally |
