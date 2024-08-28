@@ -91,7 +91,7 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupAll(e : bool) -> bool` | | Returns true if `e` is true for all active invocations in the subgroup |
 | `fn subgroupAny(e : bool) -> bool` | | Returns true if `e` is true for any active invocation in the subgroup |
 | `fn subgroupBroadcast(e : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be i32 or u32 | Broadcasts `e` from the invocation whose subgroup_invocation_id matches `id`, to all active invocations. <br>`id` must be a constant-expression. Use `subgroupShuffle` if you need a non-constant `id`. |
-| `fn subgroupBroadcastFirst(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Broadcasts `e` from the active invocation with the lowest subgroup_invocation_id in the subgroup to all other active invocations |
+| `fn subgroupBroadcastFirst(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Broadcasts `e` from the active invocation with the lowest subgroup_invocation_id in the subgroup  to all other active invocations |
 | `fn subgroupBallot(pred : bool) -> vec4<u32>` | | Returns a set of bitfields where the bit corresponding to subgroup_invocation_id is 1 if `pred` is true for that active invocation and 0 otherwise. |
 | `fn subgroupShuffle(v : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Returns `v` from the active invocation whose subgroup_invocation_id matches `id` |
 | `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask`.<br>`mask` must be dynamically uniform<sup>1</sup> |
@@ -110,7 +110,8 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn quadSwapX(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the X direction |
 | `fn quadSwapY(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the Y direction |
 | `fn quadSwapDiagonal(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad diagnoally |
-1.  Unlike `subgroupBroadcast`, there is no alternative if the author wants a non-constant `id`: SPIR-V does not have a quad shuffle operation to fall back on.
+1. This is the first instance of dynamic uniformity. See the portability and uniformity section for more details.
+2. Unlike `subgroupBroadcast`, there is no alternative if the author wants a non-constant `id`: SPIR-V does not have a quad shuffle operation to fall back on.
 
 **TODO**: Are quad operations worth it?
 Quad operations present even less portability than subgroup operations due to
