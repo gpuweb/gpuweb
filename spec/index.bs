@@ -100,8 +100,10 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
         text: language extension; url: language-extension
         text: runtime-sized; url: runtime-sized
         text: WGSL floating point conversion; url: floating-point-conversion
+        text: WGSL floating point behaviors; url: differences-from-ieee754
         text: WGSL identifier comparison; url: identifier-comparison
         text: WGSL scalar type; url: scalar-types
+        text: indeterminate value; url: indeterminate-values
         text: @binding; url: attribute-binding
         text: @group; url: attribute-group
         text: @interpolate; url: interpolate-attr
@@ -1246,6 +1248,8 @@ both an instance of compute/rendering functionality on the
 platform underlying a browser, and an instance of a browser's implementation of
 WebGPU on top of that functionality.
 
+[=Adapters=] are exposed via {{GPUAdapter}}.
+
 [=Adapters=] do not uniquely represent underlying implementations:
 calling {{GPU/requestAdapter()}} multiple times returns a different [=adapter=]
 object each time.
@@ -1299,8 +1303,6 @@ improved privacy. It is not required that a [=fallback adapter=] is available on
         </dl>
 </dl>
 
-[=Adapters=] are exposed via {{GPUAdapter}}.
-
 <div algorithm data-timeline=device>
     To <dfn abstract-op lt='expire|Expire|expires'>expire</dfn> a {{GPUAdapter}} |adapter|, run the
     following [=device timeline=] steps:
@@ -1317,6 +1319,8 @@ through which [=internal objects=] are created.
 <!-- POSTV1(multithreading) tentative text:
 It can be shared across multiple [=agents=] (e.g. dedicated workers).
 -->
+
+[=Devices=] are exposed via {{GPUDevice}}.
 
 A [=device=] is the exclusive owner of all [=internal objects=] created from it:
 when the [=device=] becomes [$invalid$]
@@ -1343,12 +1347,26 @@ implicitly [$valid to use with|unusable$].
         No [=limit/better=] limits can be used, even if the underlying [=adapter=] can support them.
 </dl>
 
-[=device=] has the following [=content timeline property=]:
+[=device=] has the following [=content timeline properties=]:
 
 <dl dfn-type=attribute dfn-for=device data-timeline=content>
     : <dfn>[[content device]]</dfn>, of type {{GPUDevice}}, readonly
     ::
         The [=Content timeline=] {{GPUDevice}} interface which this device is associated with.
+</dl>
+
+[=device=] has the following [=device timeline properties=]:
+
+<dl dfn-type=attribute dfn-for=device data-timeline=device>
+    : <dfn>[[destroy started]]</dfn>, of type `boolean`, initially `false`
+    ::
+        Becomes true when a {{GPUDevice/destroy()}} operation is started,
+        and remains true once it is finished.
+
+        Note:
+        Once destruction starts, ongoing operations can complete and send messages back to the
+        [=content timeline=], but no new operations can start which do so.
+        See also [[#errors-and-debugging]].
 </dl>
 
 <div algorithm data-timeline=device>
@@ -1359,7 +1377,7 @@ implicitly [$valid to use with|unusable$].
         |descriptor|.{{GPUDeviceDescriptor/requiredFeatures}}.
     1. Let |limits| be a [=supported limits=] object with all values set to their defaults.
     1. For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}:
-        1. If |value| is [=limit/better=] than |limits|[|key|]:
+        1. If |value| is not `undefined` and |value| is [=limit/better=] than |limits|[|key|]:
             1. Set |limits|[|key|] to |value|.
     1. Let |device| be a [=device=] object.
     1. Set |device|.{{device/[[adapter]]}} to |adapter|.
@@ -1400,10 +1418,20 @@ no validation errors are raised, most promises resolve normally, etc.
 
     1. Complete any outstanding steps that are waiting until |device| <dfn dfn>becomes lost</dfn>.
 
-    Note: No errors are generated after device loss. See [[#errors-and-debugging]].
+    Note: No errors are generated from a device which is lost or pending destruction.
+    See [[#errors-and-debugging]].
 </div>
 
-[=Devices=] are exposed via {{GPUDevice}}.
+<div algorithm data-timeline=device>
+    To <dfn abstract-op lt="Listen for timeline event">listen for timeline event</dfn>
+    |event| on [=device=] |device|, handled by |steps| on timeline |timeline|:
+
+    - If or when the [=device timeline=] has been informed of the completion of |event|, or
+    - If |device|.{{device/[[destroy started]]}} is already `true`, or
+    - If |device| is [$invalid|lost$] already, or when it [=becomes lost=]:
+
+    Then issue |steps| on |timeline|.
+</div>
 
 ## Optional Capabilities ## {#optional-capabilities}
 
@@ -1683,12 +1711,6 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         The maximum allowed {{GPUVertexBufferLayout/arrayStride}}
         when creating a {{GPURenderPipeline}}.
 
-    <tr><td><dfn>maxInterStageShaderComponents</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>64
-    <tr class=row-continuation><td colspan=4>
-        The maximum allowed number of components of input or output variables
-        for inter-stage communication (like vertex outputs or fragment inputs).
-
     <tr><td><dfn>maxInterStageShaderVariables</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16
     <tr class=row-continuation><td colspan=4>
@@ -1780,7 +1802,6 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long long maxBufferSize;
     readonly attribute unsigned long maxVertexAttributes;
     readonly attribute unsigned long maxVertexBufferArrayStride;
-    readonly attribute unsigned long maxInterStageShaderComponents;
     readonly attribute unsigned long maxInterStageShaderVariables;
     readonly attribute unsigned long maxColorAttachments;
     readonly attribute unsigned long maxColorAttachmentBytesPerSample;
@@ -2613,11 +2634,16 @@ interface GPUAdapter {
 
                     <div class=validusage>
                         1. |adapter|.{{adapter/[[state]]}} must not be {{adapter/[[state]]/"consumed"}}.
-                        1. For each [|key|, |value|] in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}:
+                        1. For each [|key|, |value|] in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}
+                            for which |value| is not `undefined`:
                             1. |key| |must| be the name of a member of [=supported limits=].
                             1. |value| |must| be no [=limit/better=] than |adapter|.{{adapter/[[limits]]}}[|key|].
                             1. If |key|'s [=limit class|class=] is [=limit class/alignment=],
                                 |value| |must| be a power of 2 less than 2<sup>32</sup>.
+
+                            Note:
+                            User agents should consider issuing developer-visible warnings when
+                            |key| is not recognized, even when |value| is `undefined`.
                     </div>
 
                     If any are unmet, issue the following steps on <var data-timeline=content>contentTimeline</var>
@@ -2686,7 +2712,7 @@ interface GPUAdapter {
 dictionary GPUDeviceDescriptor
          : GPUObjectDescriptorBase {
     sequence<GPUFeatureName> requiredFeatures = [];
-    record<DOMString, GPUSize64> requiredLimits = {};
+    record<DOMString, (GPUSize64 or undefined)> requiredLimits = {};
     GPUQueueDescriptor defaultQueue = {};
 };
 </script>
@@ -2707,7 +2733,7 @@ dictionary GPUDeviceDescriptor
         Specifies the [=limits=] that are required by the device request.
         The request will fail if the adapter cannot provide these limits.
 
-        Each key must be the name of a member of [=supported limits=].
+        Each key with a non-`undefined` value must be the name of a member of [=supported limits=].
 
         API calls on the resulting device perform validation according to the exact limits of the
         device (not the adapter; see [[#limits]]).
@@ -2879,8 +2905,15 @@ to.
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. Once all <span data-timeline=queue>currently-enqueued operations on any queue on this device</span>
-                    are completed, issue the subsequent steps on the <span data-timeline=device>current timeline</span>.
+                1. Set |this|.{{GPUObjectBase/[[device]]}}.{{device/[[destroy started]]}} to `true`.
+                1. Once:
+                    - All <span data-timeline=queue>currently-enqueued operations on any queue on this device</span> have completed, and
+                    - Any [=device timeline=] steps that were listening for completion of
+                        queue operations have completed
+                        ([=asserting=] that no new listeners were added after {{device/[[destroy started]]}} was set):
+
+                    Then issue the subsequent steps on the
+                    <span data-timeline=device>current timeline</span>.
             </div>
             <div data-timeline=device>
                 1. [=Lose the device=](|this|.{{GPUObjectBase/[[device]]}},
@@ -3523,13 +3556,21 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                 [=Content timeline=] steps:
 
                 1. Let <var data-timeline=content>contentTimeline</var> be the current [=Content timeline=].
-                1. If |this|.{{GPUBuffer/[[pending_map]]}} is not `null`:
+                1. If |this|.{{GPUBuffer/mapState}} is not {{GPUBufferMapState/"unmapped"}}:
+                    1. Issue the |early-reject steps| on the [=Device timeline=] of
+                        |this|.{{GPUObjectBase/[[device]]}}.
                     1. Return [=a promise rejected with=] {{OperationError}}.
                 1. Let |p| be a new {{Promise}}.
                 1. Set |this|.{{GPUBuffer/[[pending_map]]}} to |p|.
                 1. Issue the |validation steps| on the [=Device timeline=] of
                     |this|.{{GPUObjectBase/[[device]]}}.
                 1. Return |p|.
+            </div>
+            <div data-timeline=device>
+                [=Device timeline=] |early-reject steps|:
+
+                1. [$Generate a validation error$].
+                1. Return.
             </div>
             <div data-timeline=device>
                 [=Device timeline=] |validation steps|:
@@ -3565,6 +3606,16 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                 1. Set |this|.{{GPUBuffer/[[internal state]]}} to "[=GPUBuffer/[[internal state]]/unavailable=]".
 
                     Note: Since the buffer is mapped, its contents cannot change between this step and {{GPUBuffer/unmap()}}.
+
+                1. If |this|.{{GPUObjectBase/[[device]]}}.{{device/[[destroy started]]}} is `true`:
+                    1. Return.
+
+                    Note:
+                    The map promise will already have been aborted, because
+                    {{GPUDevice/destroy()|GPUDevice.destroy()}}
+                    aborts it, so there is no need to do so here.
+                    <!-- POSTV1(multithreading): this will no longer be true; instead,
+                    issue the map failure steps before returning -->
 
                 1. When either of the following events occur (whichever comes first),
                     or if either has already occurred:
@@ -6557,7 +6608,6 @@ GPUShaderModule includes GPUObjectBase;
 dictionary GPUShaderModuleDescriptor
          : GPUObjectDescriptorBase {
     required USVString code;
-    object sourceMap;
     sequence<GPUShaderModuleCompilationHint> compilationHints = [];
 };
 </script>
@@ -6567,21 +6617,6 @@ dictionary GPUShaderModuleDescriptor
     ::
         The <a href="https://gpuweb.github.io/gpuweb/wgsl/">WGSL</a> source code for the shader
         module.
-
-    : <dfn>sourceMap</dfn>
-    ::
-        If defined, **may** be interpreted in the [[!SourceMap]] v3 format.
-
-        If an implementation supports this option but is unable to process the provided value,
-        it should show a developer-visible warning but must not produce any application-observable
-        error.
-
-        Note:
-        Source map support is optional, but serves as a semi-standardized way to support dev-tool
-        integration such as source-language debugging.
-
-        WGSL names (identifiers) in source maps follow the rules defined in [=WGSL identifier
-        comparison=].
 
     : <dfn>compilationHints</dfn>
     ::
@@ -6874,14 +6909,11 @@ Note: {{GPUCompilationMessage}}.{{GPUCompilationMessage/offset}} and
             <div data-timeline=device>
                 [=Device timeline=] |synchronization steps|:
 
-                1. When either of the following events occur (whichever comes first),
-                    or if either has already occurred:
-
-                    - The [=device timeline=] becomes informed that [=shader module creation=] has
-                        completed for |this| (successfully or unsuccessfully).
-                    - |this|.{{GPUObjectBase/[[device]]}} [=becomes lost=].
-
-                    Then issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+                1. Let |event| occur upon the (successful or unsuccessful) completion of
+                    [=shader module creation=] for |this|.
+                1. [$Listen for timeline event$] |event|
+                    on |this|.{{GPUObjectBase/[[device]]}}, handled by
+                    the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
             <div data-timeline=content>
                 [=Content timeline=] steps:
@@ -7786,29 +7818,31 @@ dictionary GPUComputePipelineDescriptor
                 1. Let |pipeline| be a new {{GPUComputePipeline}} created as if
                     |this|.{{GPUDevice/createComputePipeline()}} was called with |descriptor|,
                     except capturing any errors as |error|, rather than dispatching them to the device.
-
-                1. When either of the following events occur (whichever comes first),
-                    or if either has already occurred:
-
-                    - The [=device timeline=] becomes informed that [=pipeline creation=] has
-                        completed for |pipeline| (successfully or unsuccessfully).
-                    - |this| [=becomes lost=].
-
-                    Then issue the subsequent steps on the [=device timeline=] of |this|.
+                1. Let |event| occur upon the (successful or unsuccessful) completion of
+                    [=pipeline creation=] for |pipeline|.
+                1. [$Listen for timeline event$] |event|
+                    on |this|.{{GPUObjectBase/[[device]]}}, handled by
+                    the subsequent steps on the [=device timeline=] of |this|.
             </div>
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. If |this| is [$invalid|lost$] or |pipeline| is [$valid$],
-                    issue the following steps on |contentTimeline|, and return.
+                1. If |pipeline| is [$valid$],
+                    |this|.{{GPUObjectBase/[[device]]}}.{{device/[[destroy started]]}} is `true`,
+                    or |this| is [$invalid|lost$]:
 
-                    <div data-timeline=content>
-                        [=Content timeline=] steps:
+                    1. Issue the following steps on |contentTimeline|:
 
-                        1. [=Resolve=] |promise| with |pipeline|.
-                    </div>
+                        <div data-timeline=content>
+                            [=Content timeline=] steps:
 
-                    Note: No errors are generated after device loss. See [[#errors-and-debugging]].
+                            1. [=Resolve=] |promise| with |pipeline|.
+                        </div>
+
+                    1. Return.
+
+                    Note: No errors are generated from a device which is lost or pending destruction.
+                    See [[#errors-and-debugging]].
 
                 1. If |pipeline| is [$invalid$] and |error| is an [$internal error$],
                     issue the following steps on |contentTimeline|, and return.
@@ -8060,29 +8094,31 @@ dictionary GPURenderPipelineDescriptor
                 1. Let |pipeline| be a new {{GPURenderPipeline}} created as if
                     |this|.{{GPUDevice/createRenderPipeline()}} was called with |descriptor|,
                     except capturing any errors as |error|, rather than dispatching them to the device.
-
-                1. When either of the following events occur (whichever comes first),
-                    or if either has already occurred:
-
-                    - The [=device timeline=] becomes informed that [=pipeline creation=] has
-                        completed for |pipeline| (successfully or unsuccessfully).
-                    - |this| [=becomes lost=].
-
-                    Then issue the subsequent steps on the [=device timeline=] of |this|.
+                1. Let |event| occur upon the (successful or unsuccessful) completion of
+                    [=pipeline creation=] for |pipeline|.
+                1. [$Listen for timeline event$] |event|
+                    on |this|.{{GPUObjectBase/[[device]]}}, handled by
+                    the subsequent steps on the [=device timeline=] of |this|.
             </div>
             <div data-timeline=device>
                 [=Device timeline=] steps:
 
-                1. If |this| is [$invalid|lost$] or |pipeline| is [$valid$],
-                    issue the following steps on |contentTimeline|, and return.
+                1. If |pipeline| is [$valid$],
+                    |this|.{{GPUObjectBase/[[device]]}}.{{device/[[destroy started]]}} is `true`,
+                    or |this| is [$invalid|lost$]:
 
-                    <div data-timeline=content>
-                        [=Content timeline=] steps:
+                    1. Issue the following steps on |contentTimeline|:
 
-                        1. [=Resolve=] |promise| with |pipeline|.
-                    </div>
+                        <div data-timeline=content>
+                            [=Content timeline=] steps:
 
-                    Note: No errors are generated after device loss. See [[#errors-and-debugging]].
+                            1. [=Resolve=] |promise| with |pipeline|.
+                        </div>
+
+                    1. Return.
+
+                    Note: No errors are generated from a device which is lost or pending destruction.
+                    See [[#errors-and-debugging]].
 
                 1. If |pipeline| is [$invalid$] and |error| is an [$internal error$],
                     issue the following steps on |contentTimeline|, and return.
@@ -8165,45 +8201,31 @@ dictionary GPURenderPipelineDescriptor
 
     [=Device timeline=] steps:
 
-    1. Let |maxVertexShaderOutputComponents| be
-        |device|.limits.{{supported limits/maxInterStageShaderComponents}}.
     1. Let |maxVertexShaderOutputVariables| be
         |device|.limits.{{supported limits/maxInterStageShaderVariables}}.
+    1. Let |maxVertexShaderOutputLocation| be
+        |device|.limits.{{supported limits/maxInterStageShaderVariables}} - 1.
     1. If |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}}
         is {{GPUPrimitiveTopology/"point-list"}}:
-        1. Decrement |maxVertexShaderOutputComponents| by 1.
+        1. Decrement |maxVertexShaderOutputVariables| by 1.
     1. If [=builtin/clip_distances=] is declared in the output of
         |descriptor|.{{GPURenderPipelineDescriptor/vertex}}:
         1. Let |clipDistancesSize| be the array size of [=builtin/clip_distances=].
-            1. Decrement |maxVertexShaderOutputComponents| by [=roundUp=](4, |clipDistancesSize|).
-            1. Decrement |maxVertexShaderOutputVariables| by ([=roundUp=](4, |clipDistancesSize|) / 4).
+        1. Decrement |maxVertexShaderOutputVariables| by ceil(|clipDistancesSize| / 4).
+        1. Decrement |maxVertexShaderOutputLocation| by ceil(|clipDistancesSize| / 4).
     1. Return `false` if any of the following requirements are unmet:
-        - There must be no more than |maxVertexShaderOutputComponents| scalar
-            components across all user-defined outputs for
+        - There must be no more than |maxVertexShaderOutputVariables| user-defined outputs for
             |descriptor|.{{GPURenderPipelineDescriptor/vertex}}.
-            Each user-defined output of |descriptor|.{{GPURenderPipelineDescriptor/vertex}}
-            consumes 4 scalar components.
         - The [=location=] of each user-defined output of
             |descriptor|.{{GPURenderPipelineDescriptor/vertex}} must be
-            &lt; |maxVertexShaderOutputVariables|.
+            &le; |maxVertexShaderOutputLocation|.
     1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} [=map/exist|is provided=]:
-        1. Let |maxFragmentShaderInputComponents| be
-            |device|.limits.{{supported limits/maxInterStageShaderComponents}}.
-            1. If the `front_facing` [=builtin=] is an input of
-                |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
-                1. Decrement |maxFragmentShaderInputComponents| by 1.
-            1. If the `sample_index` [=builtin=] is an input of
-                |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
-                1. Decrement |maxFragmentShaderInputComponents| by 1.
-            1. If the `sample_mask` [=builtin=] is an input of
-                |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
-                1. Decrement |maxFragmentShaderInputComponents| by 1.
+        1. Let |maxFragmentShaderInputVariables| be
+            |device|.limits.{{supported limits/maxInterStageShaderVariables}}.
+        1. If any of the `front_facing`, `sample_index`, or `sample_mask` [=builtins=] are an input of
+            |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
+            1. Decrement |maxFragmentShaderInputVariables| by 1.
         1. Return `false` if any of the following requirements are unmet:
-            - There must be no more than |maxFragmentShaderInputComponents| scalar
-                components across all user-defined inputs for
-                |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.
-                Each user-defined input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}
-                consumes 4 scalar components.
             - For each user-defined input of |descriptor|.{{GPURenderPipelineDescriptor/fragment}} there
                 must be a user-defined output of |descriptor|.{{GPURenderPipelineDescriptor/vertex}} that
                 [=location=], type, and [=interpolation=] of the input.
@@ -8212,8 +8234,8 @@ dictionary GPURenderPipelineDescriptor
                 their values will be discarded.
         1. [=Assert=] that the [=location=] of each user-defined input of
             |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is less
-            than |device|.limits.{{supported limits/maxInterStageShaderVariables}}
-            (resulting from the above rules).
+            than |device|.limits.{{supported limits/maxInterStageShaderVariables}}.
+            (This follows from the above rules.)
     1. Return `true`.
 </div>
 
@@ -10713,12 +10735,25 @@ It must only be included by interfaces which also include those mixins.
                 For each pair of ({{GPUIndex32}} |index|, {{GPUBindGroupLayout}} |bindGroupLayout|) in
                 |pipeline|.{{GPUPipelineBase/[[layout]]}}.{{GPUPipelineLayout/[[bindGroupLayouts]]}}:
                 - Let |bindGroup| be |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|].
+                - Let |dynamicOffsets| be |encoder|.{{GPUBindingCommandsMixin/[[dynamic_offsets]]}}[|index|].
                 - |bindGroup| must not be `null`.
                 - |bindGroup|.{{GPUBindGroup/[[layout]]}} must be [=group-equivalent=] with |bindGroupLayout|.
-                - For each |entry| of |bindGroup|.{{GPUBindGroup/[[entries]]}}:
-                    - If |entry|.{{GPUBindGroupEntry/[[prevalidatedSize]]}} is `false`:
-                        - [$effective buffer binding size$](|entry|.{{GPUBindGroupEntry/resource}}) must be &ge; [=minimum buffer binding size=]
-                            of the binding variable in |pipeline|'s shader that corresponds to |entry|.
+                - Let |dynamicOffsetIndex| be 0.
+                - For each {{GPUBindGroupEntry}} |bindGroupEntry| in |bindGroup|.{{GPUBindGroup/[[entries]]}},
+                    sorted by |bindGroupEntry|.{{GPUBindGroupEntry/binding}}:
+                    - Let |bindGroupLayoutEntry| be
+                        |bindGroup|.{{GPUBindGroup/[[layout]]}}.{{GPUBindGroupLayout/[[entryMap]]}}[|bindGroupEntry|.{{GPUBindGroupEntry/binding}}].
+                    - If |bindGroupLayoutEntry|.{{GPUBindGroupLayoutEntry/buffer}} is not
+                        [=map/exists|provided=], **continue**.
+                    - Let |bound| be a copy of |bindGroupEntry|.{{GPUBindGroupEntry/resource}}.
+                    - [=Assert=] |bound| is a {{GPUBufferBinding}}.
+                    - If |bindGroupLayoutEntry|.{{GPUBindGroupLayoutEntry/buffer}}.{{GPUBufferBindingLayout/hasDynamicOffset}}:
+                        - Increment |bound|.{{GPUBufferBinding/offset}} by
+                            |dynamicOffsets|[|dynamicOffsetIndex|].
+                        - Increment |dynamicOffsetIndex| by 1.
+                    - If |bindGroupEntry|.{{GPUBindGroupEntry/[[prevalidatedSize]]}} is `false`:
+                        - [$effective buffer binding size$](|bound|) must be &ge; [=minimum buffer binding size=]
+                            of the binding variable in |pipeline|'s shader that corresponds to |bindGroupEntry|.
             - [$Encoder bind groups alias a writable resource$](|encoder|, |pipeline|) must be `false`.
         </div>
 
@@ -13528,14 +13563,11 @@ GPUQueue includes GPUObjectBase;
             <div data-timeline=device>
                 [=Device timeline=] |synchronization steps|:
 
-                1. When either of the following events occur (whichever comes first),
-                    or if either has already occurred:
-
-                    - The [=device timeline=] becomes informed of the completion of
-                        <span data-timeline=queue>all currently-enqueued operations</span>.
-                    - |this|.{{GPUObjectBase/[[device]]}} [=becomes lost=].
-
-                    Then issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+                1. Let |event| occur upon the completion of
+                    <span data-timeline=queue>all currently-enqueued operations</span>.
+                1. [$Listen for timeline event$] |event|
+                    on |this|.{{GPUObjectBase/[[device]]}}, handled by
+                    the subsequent steps on <var data-timeline=content>contentTimeline</var>.
             </div>
             <div data-timeline=content>
                 [=Content timeline=] steps:
@@ -14425,16 +14457,20 @@ is being composited into (e.g. an HTML page rendering, or a 2D canvas).
 
 During the normal course of operation of WebGPU, errors are raised via [$dispatch error$].
 
-After a device is [=lose the device|lost=] (described below), errors are no longer surfaced,
-where possible. ({{GPUBuffer/mapAsync()}} does produce an error, because it is impossible to
-provide the correct mapped data after the device has been lost.)
-
-At this point, implementations do not need to run validation or error tracking:
+After a device is {{device/[[destroy started]]}} or [=lose the device|lost=],
+errors are no longer surfaced, where possible.
+After this point, implementations do not need to run validation or error tracking:
 
 - The validity of objects on the device becomes unobservable.
 - {{GPUDevice/popErrorScope()}} and {{GPUDevice/uncapturederror}} stop reporting errors.
     (No errors are generated by the device loss itself.
     Instead, the {{GPUDevice}}.{{GPUDevice/lost}} promise resolves to indicate the device is lost.)
+- All operations which send a message back to the [=content timeline=] will skip their usual steps.
+    Most will appear to succeed, except for {{GPUBuffer/mapAsync()}}, which produces an error
+    because it is impossible to provide the correct mapped data after the device has been lost.
+
+    This makes it unobservable whether other types of operations (that don't send messages back)
+    actually execute or not.
 
 ## Fatal Errors ## {#fatal-errors}
 
@@ -14483,7 +14519,8 @@ and the {{GPUDevice/uncapturederror}} event.
 Errors must only be generated for operations that explicitly state the conditions one may
 be generated under in their respective algorithms, and the subtype of error that is generated.
 
-No errors are generated after device loss. See [[#errors-and-debugging]].
+No errors are generated from a device which is lost or pending destruction.
+See [[#errors-and-debugging]].
 
 Note: {{GPUError}} may gain new subtypes in future versions of this spec. Applications should handle
 this possibility, using only the error's {{GPUError/message}} when possible, and specializing using
@@ -14671,9 +14708,12 @@ partial interface GPUDevice {
     <div data-timeline=device>
         [=Device timeline=] steps:
 
-        1. If |device| is [$invalid|lost$], return.
+        Note: No errors are generated from a device which is lost or pending destruction.
+        If this algorithm is called while
+        |device|.{{GPUObjectBase/[[device]]}}.{{device/[[destroy started]]}} is `true`
+        or |device| is [$invalid|lost$], it will not be observable to the application.
+        See [[#errors-and-debugging]].
 
-            Note: No errors are generated after device loss. See [[#errors-and-debugging]].
         1. Let |scope| be the [$current error scope$] for |error| and |device|.
         1. If |scope| is not `undefined`:
             1. [=list/Append=] |error| to |scope|.{{GPU error scope/[[errors]]}}.
@@ -14754,17 +14794,22 @@ partial interface GPUDevice {
             <div data-timeline=device>
                 [=Device timeline=] |check steps|:
 
-                1. If |this| is [$invalid|lost$], issue the following steps on
-                    <var data-timeline=content>contentTimeline</var> and return:
+                1. If |this|.{{GPUObjectBase/[[device]]}}.{{device/[[destroy started]]}} or
+                    |this| is [$invalid|lost$]:
 
-                    <div data-timeline=content>
-                        [=Content timeline=] steps:
+                    1. Issue the following steps on
+                        <var data-timeline=content>contentTimeline</var>:
 
-                        1. [=Resolve=] |promise| with `null`.
-                    </div>
+                        <div data-timeline=content>
+                            [=Content timeline=] steps:
 
-                    Note: No errors are generated after device loss. See [[#errors-and-debugging]].
+                            1. [=Resolve=] |promise| with `null`.
+                        </div>
 
+                    1. Return.
+
+                    Note: No errors are generated from a device which is lost or pending destruction.
+                    See [[#errors-and-debugging]].
                 1. If any of the following requirements are unmet:
 
                     <div class=validusage>
