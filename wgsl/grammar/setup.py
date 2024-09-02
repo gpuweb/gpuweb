@@ -5,10 +5,9 @@ from setuptools import Extension, find_packages, setup
 from setuptools.command.build import build
 from wheel.bdist_wheel import bdist_wheel
 
+
 class Build(build):
     def run(self):
-        dest = join(self.build_lib, "tree_sitter_wgsl", "src")
-        self.copy_tree("src", dest)
         if isdir("queries"):
             dest = join(self.build_lib, "tree_sitter_wgsl", "queries")
             self.copy_tree("queries", dest)
@@ -19,7 +18,7 @@ class BdistWheel(bdist_wheel):
     def get_tag(self):
         python, abi, platform = super().get_tag()
         if python.startswith("cp"):
-            python, abi = "cp38", "abi3"
+            python, abi = "cp39", "abi3"
         return python, abi, platform
 
 
@@ -35,21 +34,24 @@ setup(
         Extension(
             name="_binding",
             sources=[
-                "bindings/python/tree_sitter_wgsl/binding.cpp",
-                "src/parser.cpp",
-                "src/scanner.cpp",
+                "bindings/python/tree_sitter_wgsl/binding.c",
+                "src/parser.c",
+                # NOTE: if your language uses an external scanner, add it here.
+                "src/scanner.c",
             ],
             extra_compile_args=[
-                "-std=c++17",
+                "-std=c11",
+                "-fvisibility=hidden",
             ] if system() != "Windows" else [
-                "/std:c++17",
+                "/std:c11",
                 "/utf-8",
             ],
             define_macros=[
-                ("Py_LIMITED_API", "0x03080000"),
-                ("PY_SSIZE_T_CLEAN", None)
+                ("Py_LIMITED_API", "0x03090000"),
+                ("PY_SSIZE_T_CLEAN", None),
+                ("TREE_SITTER_HIDE_SYMBOLS", None),
             ],
-            include_dirs=["src", "src/tree_sitter"],
+            include_dirs=["src"],
             py_limited_api=True,
         )
     ],

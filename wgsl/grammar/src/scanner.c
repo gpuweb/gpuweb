@@ -1,12 +1,11 @@
-#include "tree_sitter/parser.h"
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <wctype.h>
-#include <algorithm>
-#include <bitset>
-#include <cassert>
-#include <cstring>
-#include <string>
-#include <type_traits>
-#include <vector>
+#include "tree_sitter/parser.h"
 
 #define ENABLE_LOGGING 0
 
@@ -15,8 +14,6 @@
 #else
 #define LOG(...)
 #endif
-
-namespace {
 
 /// The possible external tokens matched by this custom scanner.
 /// The order of the entries in this enumerator must match the 'externals' in
@@ -40,58 +37,79 @@ enum Token {
   ERROR,
 };
 
-const char* str(Token tok,bool brief=false) {
+const char* str(enum Token tok, bool brief) {
   switch (tok) {
-    case Token::BLOCK_COMMENT:
+    case BLOCK_COMMENT:
       return "BLOCK_COMMENT";
-    case Token::DISAMBIGUATE_TEMPLATE:
+    case DISAMBIGUATE_TEMPLATE:
       return "DISAMBIGUATE_TEMPLATE";
-    case Token::TEMPLATE_ARGS_START:
+    case TEMPLATE_ARGS_START:
       return "TEMPLATE_ARGS_START";
-    case Token::TEMPLATE_ARGS_END:
+    case TEMPLATE_ARGS_END:
       return "TEMPLATE_ARGS_END";
-    case Token::LESS_THAN:
+    case LESS_THAN:
       return brief ? "<" : "LESS_THAN";
-    case Token::LESS_THAN_EQUAL:
+    case LESS_THAN_EQUAL:
       return brief ? "<=" : "LESS_THAN_EQUAL";
-    case Token::SHIFT_LEFT:
+    case SHIFT_LEFT:
       return brief ? "<<" : "SHIFT_LEFT";
-    case Token::SHIFT_LEFT_ASSIGN:
+    case SHIFT_LEFT_ASSIGN:
       return brief ? "<<=" : "SHIFT_LEFT_ASSIGN";
-    case Token::GREATER_THAN:
+    case GREATER_THAN:
       return brief ? ">" : "GREATER_THAN";
-    case Token::GREATER_THAN_EQUAL:
+    case GREATER_THAN_EQUAL:
       return brief ? ">=" : "GREATER_THAN_EQUAL";
-    case Token::SHIFT_RIGHT:
+    case SHIFT_RIGHT:
       return brief ? ">>" : "SHIFT_RIGHT";
-    case Token::SHIFT_RIGHT_ASSIGN:
+    case SHIFT_RIGHT_ASSIGN:
       return brief ? ">>=" : "SHIFT_RIGHT_ASSIGN";
-    case Token::ERROR:
+    case ERROR:
       return "ERROR";
     default:
       return "<invalid>";
   }
 }
 
-using CodePoint = uint32_t;
+typedef uint32_t CodePoint;
 
-static constexpr CodePoint kEOF = 0;
+static const CodePoint kEOF = 0;
 
-struct CodePointRange {
+typedef struct {
   CodePoint first;  // First code point in the interval
   CodePoint last;   // Last code point in the interval (inclusive)
-};
+} CodePointRange;
 
-inline bool operator<(CodePoint code_point, CodePointRange range) {
+bool code_point_less_than(CodePoint code_point, CodePointRange range) {
   return code_point < range.first;
 }
-inline bool operator<(CodePointRange range, CodePoint code_point) {
+bool range_less_than(CodePointRange range, CodePoint code_point) {
   return range.last < code_point;
+}
+
+/* Implement C++ std::binary_search using C */
+bool binary_search(const CodePointRange* ranges,
+                   size_t num_ranges,
+                   CodePoint code_point) {
+  size_t left = 0;
+  size_t right = num_ranges;
+
+  while (left < right) {
+    size_t mid = left + (right - left) / 2;
+    if (range_less_than(ranges[mid], code_point)) {
+      left = mid + 1;
+    } else if (code_point_less_than(code_point, ranges[mid])) {
+      right = mid;
+    } else {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // Interval ranges of all code points in the Unicode 14 XID_Start set
 // This array needs to be in ascending order.
-constexpr CodePointRange kXIDStartRanges[] = {
+static const CodePointRange kXIDStartRanges[] = {
     {0x00041, 0x0005a}, {0x00061, 0x0007a}, {0x000aa, 0x000aa},
     {0x000b5, 0x000b5}, {0x000ba, 0x000ba}, {0x000c0, 0x000d6},
     {0x000d8, 0x000f6}, {0x000f8, 0x002c1}, {0x002c6, 0x002d1},
@@ -314,13 +332,13 @@ constexpr CodePointRange kXIDStartRanges[] = {
 };
 
 // Number of ranges in kXIDStartRanges
-constexpr size_t kNumXIDStartRanges =
+const size_t kNumXIDStartRanges =
     sizeof(kXIDStartRanges) / sizeof(kXIDStartRanges[0]);
 
 // The additional code point interval ranges for the Unicode 14 XID_Continue
 // set. This extends the values in kXIDStartRanges.
 // This array needs to be in ascending order.
-constexpr CodePointRange kXIDContinueRanges[] = {
+static const CodePointRange kXIDContinueRanges[] = {
     {0x00030, 0x00039}, {0x0005f, 0x0005f}, {0x000b7, 0x000b7},
     {0x00300, 0x0036f}, {0x00387, 0x00387}, {0x00483, 0x00487},
     {0x00591, 0x005bd}, {0x005bf, 0x005bf}, {0x005c1, 0x005c2},
@@ -445,7 +463,7 @@ constexpr CodePointRange kXIDContinueRanges[] = {
 };
 
 // Number of ranges in kXIDContinueRanges
-constexpr size_t kNumXIDContinueRanges =
+const size_t kNumXIDContinueRanges =
     sizeof(kXIDContinueRanges) / sizeof(kXIDContinueRanges[0]);
 
 /// @param code_point the input code_point
@@ -462,8 +480,7 @@ bool is_xid_start(CodePoint code_point) {
   if (code_point < 0x000aa) {
     return false;
   }
-  return std::binary_search(kXIDStartRanges,
-                            kXIDStartRanges + kNumXIDStartRanges, code_point);
+  return binary_search(kXIDStartRanges, kNumXIDStartRanges, code_point);
 }
 
 /// @param code_point the input code_point
@@ -475,12 +492,10 @@ bool is_xid_continue(CodePoint code_point) {
     return true;
   }
   return is_xid_start(code_point) ||
-         std::binary_search(kXIDContinueRanges,
-                            kXIDContinueRanges + kNumXIDContinueRanges,
-                            code_point);
+         binary_search(kXIDContinueRanges, kNumXIDContinueRanges, code_point);
 }
 
-/// @return true if @p code_point is considered a whitespace
+/// @return true if @p code_point is considered a blankspace
 bool is_space(CodePoint code_point) {
   switch (code_point) {
     case 0x0020:
@@ -501,564 +516,660 @@ bool is_space(CodePoint code_point) {
 }
 
 /// A fixed capacity, dynamic sized queue of bits (expressed as bools)
-template <size_t CAPACITY_IN_BITS>
-class BitQueue {
- public:
-  /// @param index the index of the bit starting from the front
-  /// @return the bit value
-  auto operator[](size_t index) {
-    assert(index < count());  // TODO(dneto): this should error out.
-    return bits_[(index + read_offset_) % CAPACITY_IN_BITS];
+#define BITQUEUE_CAPACITY 64
+
+typedef struct {
+  uint64_t bits;
+  size_t count;
+  size_t read_offset;
+} BitQueue;
+
+/// @param index the index of the bit starting from the front
+/// @return the bit value
+bool bitqueue_get(BitQueue* queue, size_t index) {
+  assert(index < queue->count);
+  return (queue->bits >> ((index + queue->read_offset) % BITQUEUE_CAPACITY)) &
+         1;
+}
+
+void bitqueue_set(BitQueue* queue, size_t index, bool value) {
+  assert(index < queue->count);
+  size_t bit_index = (index + queue->read_offset) % BITQUEUE_CAPACITY;
+  if (value) {
+    queue->bits |= (1ULL << bit_index);
+  } else {
+    queue->bits &= ~(1ULL << bit_index);
   }
+}
 
-  /// Removes the bit at the front of the queue
-  /// @returns the value of the bit that was removed
-  bool pop_front() {
-    assert(count_ > 0);
-    bool value = (*this)[0];
-    count_--;
-    read_offset_++;
-    return value;
-  }
+/// Removes the bit at the front of the queue
+/// @returns the value of the bit that was removed
+bool bitqueue_pop_front(BitQueue* queue) {
+  assert(queue->count > 0);
+  bool value = bitqueue_get(queue, 0);
+  queue->count--;
+  queue->read_offset++;
+  return value;
+}
 
-  /// Appends a bit to the back of the queue
-  void push_back(bool value) {
-    assert(count_ < CAPACITY_IN_BITS);
-    count_++;
-    (*this)[count_ - 1] = value;
-  }
+/// Appends a bit to the back of the queue
+void bitqueue_push_back(BitQueue* queue, bool value) {
+  assert(queue->count < BITQUEUE_CAPACITY);
+  queue->count++;
+  bitqueue_set(queue, queue->count - 1, value);
+}
 
-  /// @returns true if the queue holds no bits.
-  bool empty() const { return count_ == 0; }
+/// @returns true if the queue holds no bits.
+bool bitqueue_empty(const BitQueue* queue) {
+  return queue->count == 0;
+}
 
-  /// @returns the number of bits held by the queue.
-  size_t count() const { return count_; }
+/// @returns the number of bits held by the queue.
+size_t bitqueue_count(const BitQueue* queue) {
+  return queue->count;
+}
 
- private:
-  std::bitset<CAPACITY_IN_BITS> bits_;
-  size_t count_ = 0;        // number of bits contained
-  size_t read_offset_ = 0;  // read offset in bits
-                            //
 #if ENABLE_LOGGING
- public:
-  void to_chars(std::string& str) {
-    std::stringstream ss;
-    ss << count_ << ":";
-    for (auto i = 0; i < count_; ++i) {
-      bool is_template = (*this)[i];
-      ss << (is_template ? "#" : ".");
-    }
-    str = ss.str();
+void bitqueue_to_chars(const BitQueue* queue, char* str) {
+  sprintf(str, "%zu:", queue->count);
+  for (size_t i = 0; i < queue->count; ++i) {
+    strcat(str, bitqueue_get(queue, i) ? "#" : ".");
   }
+}
 #endif
-};
 
-class Lexer {
- public:
-  Lexer(TSLexer* l) : lexer_(l) {}
+typedef struct {
+  TSLexer* lexer;
+} Lexer;
 
-  /// Advances the lexer by one code point.
-  void advance() { lexer_->advance(lexer_, /* whitespace */ false); }
-
-  /// Returns the next code point, advancing the lexer by one code point.
-  CodePoint next() {
-    // TODO(dneto): should assert !lexer_->eof(lexer_)
-    CodePoint lookahead = lexer_->lookahead;
-    advance();
-    return lookahead;
-  }
-
-  /// @return the next code point without advancing the lexer, or kEOF if there
-  /// are no more code points
-  CodePoint peek() { return lexer_->eof(lexer_) ? kEOF : lexer_->lookahead; }
-
-  /// @return true if the next code point is equal to @p code_point.
-  /// @note if the code point was found, then the lexer is advanced to that code
-  /// point.
-  bool match(CodePoint code_point) {
-    if (peek() == code_point) {
-      advance();
-      return true;
-    }
-    return false;
-  }
-
-  /// @return true if the next code point is found in @p code_points.
-  /// @note if the code point was found, then the lexer is advanced to that code
-  /// point.
-  bool match_anyof(std::initializer_list<CodePoint> code_points) {
-    for (CodePoint code_point : code_points) {
-      if (match(code_point)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// Attempts to match an identifier pattern that starts with XIDStart followed by
-  /// any number of XIDContinue code points.
-  bool match_identifier() {
-    if (!is_xid_start(peek())) {
-      return false;
-    }
-
-    bool is_ascii = true;
-    if (CodePoint start = next(); start < 0x80) {
-    } else {
-      is_ascii = false;
-    }
-
-    while (true) {
-      if (!is_xid_continue(peek())) {
-        break;
-      }
-      if (CodePoint code_point = next(); code_point < 0x80) {
-      } else {
-        is_ascii = false;
-      }
-    }
-
-    if (is_ascii) {
-      LOG("ident is ascii");
-    } else {
-      LOG("ident");
-    }
-
-    return true;
-  }
-
-  /// Attempts to match a /* block comment */
-  bool match_block_comment() {
-    // TODO(dneto): Need to un-advance if matched '/' but not '*'
-    if (!match('/') || !match('*')) {
-      return false;
-    }
-
-    size_t nesting = 1;
-    while (nesting > 0 && !match(kEOF)) {
-      // TODO(dneto): If we match '/' but not '*' there is no way to un-advance
-      // back to make '/' the lookahead.
-      if (match('/') && match('*')) {
-        nesting++;
-      // TODO(dneto): Same here, need to be able to un-advance to before '*'
-      } else if (match('*') && match('/')) {
-        nesting--;
-      } else {
-        next();
-      }
-    }
-    return true;
-  }
-
-  /// Advances the lexer while the next code point is considered whitespace
-  void skip_whitespace() {
-    while (is_space(peek())) {
-      lexer_->advance(lexer_, /* whitespace */ true);
-    }
-  }
-
- private:
-  TSLexer* lexer_;
-};
-
-struct Scanner {
-  struct State {
-    BitQueue<64> lt_is_tmpl;  // Queue of disambiguated '<'
-    BitQueue<64> gt_is_tmpl;  // Queue of disambiguated '>'
-    bool empty() const { return lt_is_tmpl.empty() && gt_is_tmpl.empty(); }
-  };
-  State state;
-  static_assert(sizeof(State) < TREE_SITTER_SERIALIZATION_BUFFER_SIZE);
-  // State is trivially copyable, so it can be serialized and deserialized
-  // with memcpy.
-  static_assert(std::is_trivially_copyable<State>::value);
-
-  /// Updates #state with the disambiguated '<' and '>' tokens.
-  /// The following assumptions are made on entry:
-  /// * lexer has just advanced to the end of an identifier
-  /// On exit, all '<' and '>' template tokens will be paired up to the closing
-  /// '>' for the first '<'.
-  void classify_template_args(Lexer& lexer) {
-    LOG("classify_template_args()");
-
-    if (!lexer.match('<')) {
-      LOG("  missing '<'");
-      return;
-    }
-
-    // The current expression nesting depth.
-    size_t expr_depth = 0;
-
-    // A stack of '<' tokens. Each is a candidate for the start of a template list.
-    // Used to pair '<' and '>' tokens at the same expression depth.
-    struct StackEntry {
-      size_t index;       // Index of the opening '>' in lt_is_tmpl
-      size_t expr_depth;  // The value of 'expr_depth' for the opening '<'
-    };
-    // The stack of unclosed candidates for template-list starts.
-    std::vector<StackEntry> lt_stack;
-
-    LOG("classify_template_args() '<' (initial)");
-    lt_stack.push_back(StackEntry{state.lt_is_tmpl.count(), expr_depth});
-    // Default to less-than (or less-than-equal, or left-shift, or left-shift-equal)
-    state.lt_is_tmpl.push_back(false);
-
-    while (!lt_stack.empty() && !lexer.match(kEOF)) {
-      lexer.skip_whitespace();
-
-      // TODO: skip line-ending comments.
-      if (lexer.match_block_comment()) {
-        continue;
-      }
-
-      // A template list can't contain an assignment or a compound assignment.
-      // There is logic below which clears the stack when reaching one of those.
-      // It looks for a '=' code point.  But we still want to allow
-      // comparison operations inside expressions. So we must pre-emptively
-      // allow operators: == >= <= !=
-
-      // Look for a nested template-list.
-      if (lexer.match_identifier()) {
-        lexer.skip_whitespace(); // TODO: Skip comments
-        if (lexer.match('<')) {
-          LOG("classify_template_args() '<' after ident");
-          // Record this '<' in state.lt_is_tmpl, initially treating this as the operator
-          // in an expression (less-than, less-than, equal, left-shift, or left-shift-equal).
-          // If this '<' is recorded in lt_stack, and a corresponding '>' is found, then this
-          // will be transformed into a template-start token.
-          state.lt_is_tmpl.push_back(false);
-
-          if (lexer.match('=')) {
-            // We entered the loop at "ident<=". No template arg can start with '=',
-            // so consider "<=" to be a single token.
-            // Litmus test: "alias z = a<b<=c>;"
-          } else if (lexer.match('<')) {
-            // We entered the loop at "ident<<". No template arg can start with '<',
-            // so consider "<<" to be a single token.
-            // Litmus test: "alias z = a<b<<c>;"
-            state.lt_is_tmpl.push_back(false);
-          } else {
-            lt_stack.push_back(StackEntry{state.lt_is_tmpl.count()-1, expr_depth});
-          }
-        }
-        continue;
-      }
-
-      // Each '<' must be recorded in the lt_is_tmpl queue.
-      // Each '>' must be recorded in the gt_is_tmpl queue.
-
-      if (lexer.match('<')) {
-        // Litmus test: "alias z =a<1<<c<d>()>;"
-        LOG("classify_template_args() '<'");
-        state.lt_is_tmpl.push_back(false);
-        continue;
-      }
-
-      if (lexer.match('>')) {
-        LOG("classify_template_args() '>'");
-        if (!lt_stack.empty() && lt_stack.back().expr_depth == expr_depth) {
-          LOG("   TEMPLATE MATCH");
-          state.gt_is_tmpl.push_back(true);
-          state.lt_is_tmpl[lt_stack.back().index] = true;
-          lt_stack.pop_back();
-        } else {
-          LOG("   non-template '>'");
-          state.gt_is_tmpl.push_back(false);
-          // Pre-emptvely allow >= as a comparison operator:
-          // Skip over '=', if present.
-          lexer.match('=');
-        }
-        continue;
-      }
-
-      // Pre-emptively allow the != operator.
-      // As a side effect, allow unary negation operator !
-      if (lexer.match('!')) {
-        lexer.match('=');
-        continue;
-      }
-
-      CodePoint was = lexer.peek();
-      if (lexer.match_anyof({'(', '['})) {
-        LOG("   %c expr_depth++", static_cast<int>(was));
-        // Entering a nested expression
-        expr_depth++;
-        continue;
-      }
-
-      if (lexer.match_anyof({')', ']'})) {
-        LOG("   %c expr_depth--", static_cast<int>(was));
-        // Exiting a nested expression
-        // Pop the stack until we return to the current expression
-        // expr_depth
-        while (!lt_stack.empty() && lt_stack.back().expr_depth == expr_depth) {
-          lt_stack.pop_back();
-        }
-        if (expr_depth > 0) {
-          expr_depth--;
-        }
-        continue;
-      }
-
-      was = lexer.peek();
-      if (lexer.match('=')) {
-        // A subtle point. The '=' we just matched might be the start of a
-        // syntactic token, or the end of a compound-assignment operator like +=
-        // In either case, it's fine to proceed with the logic below.
-
-        if (lexer.match('=')) {
-          // Pre-emptively allow equality ==
-          continue;
-        }
-        // A template list can't contain an assignment, because an expression
-        // can't contain an assignment.
-        // This might be a regular assignment, or the tail end of a compound
-        // assignment.
-        LOG("   %c expression terminator", was);
-        expr_depth = 0;
-        lt_stack.clear();
-        continue;
-      }
-
-      was = lexer.peek();
-      if (lexer.match_anyof({';', '{', ':'})) {
-        LOG("   %c expression terminator", was);
-        // Expression terminating tokens. No template list can
-        // hold these code points, so clear the stack and expression depth.
-        expr_depth = 0;
-        lt_stack.clear();
-        continue;
-      }
-
-      bool short_circuit = false;
-      if (lexer.match('&')) {
-        short_circuit = lexer.match('&');
-      } else if (lexer.match('|')) {
-        short_circuit = lexer.match('|');
-      }
-      if (short_circuit) {
-        LOG("   short-circuiting expression");
-        // Treat 'a < b || c > d' as a logical binary operator of two
-        // comparison operators instead of a single template argument
-        // 'b||c'. Use parentheses around 'b||c' to parse as a
-        // template argument list.
-        while (!lt_stack.empty() && lt_stack.back().expr_depth == expr_depth) {
-          lt_stack.pop_back();
-        }
-        continue;
-      }
-
-      LOG("   skip: '%c'",char(lexer.peek()));
-      lexer.next();
-    }
-  }
-
-  std::string valids(const bool* const valid_symbols) {
-    std::string result;
-    for (int i = 0; i < static_cast<int>(ERROR) ; i++) {
-      result += std::string(valid_symbols[i] ? "+" : "_");
-    }
-    for (int i = 0; i < static_cast<int>(ERROR) ; i++) {
-      if (valid_symbols[i]) {
-        result += std::string(" ") + str(static_cast<Token>(i),true);
-      }
-    }
-    return result;
-  }
-
-  /// The external token scanner function. Handles block comments and
-  /// template-argument-list vs less-than / greater-than disambiguation.
-  /// @return true if lexer->result_symbol was assigned a Token, or
-  /// false if the token should be taken from the regular WGSL tree-sitter
-  /// grammar.
-  bool scan(TSLexer* ts_lexer, const bool* const valid_symbols) {
-    Lexer lexer{ts_lexer};
-
-    LOG("scan: '%c' [%u] %s", char(lexer.peek()), unsigned(ts_lexer->get_column(ts_lexer)), valids(valid_symbols).c_str());
-
-    if (valid_symbols[Token::ERROR]) {
-      ts_lexer->result_symbol = Token::ERROR;
-      return true;
-    }
-
-    if (valid_symbols[Token::DISAMBIGUATE_TEMPLATE]) {
-      // The parser is telling us the _disambiguate_template token
-      // may appear at the current position.
-      // The next token may be the start of a template list, so
-      // scan forward and use the token-list disambiguation
-      // algorithm to mark template-list-start and template-list-end
-      // tokens.  These are recorded in the lt and gt bit queues.
-
-      // Call mark_end so that we can "advance" past codepoints without
-      // automatically including them in the resulting token.
-      ts_lexer->mark_end(ts_lexer);
-      ts_lexer->result_symbol = Token::DISAMBIGUATE_TEMPLATE;
-
-      // TODO(dneto): should also skip comments, both line comments
-      // and block comments.
-      // https://github.com/gpuweb/gpuweb/issues/3876
-      lexer.skip_whitespace();
-      if (lexer.peek() == '<') {
-        if (state.lt_is_tmpl.empty()) {
-          classify_template_args(lexer);
-        }
-      }
-
-      // This has to return true so that Treesitter will save
-      // the state generated by the disambiguation scan.
-      return true;
-    }
-
-    lexer.skip_whitespace();
-
-    auto match = [&](Token token) {
-      ts_lexer->mark_end(ts_lexer);
-      ts_lexer->result_symbol = token;
-      return true;
-    };
-
-    // TODO(dneto): checkpoint and rewind if failed.
-    if (lexer.match_block_comment()) {
-      return match(Token::BLOCK_COMMENT);
-    }
-
-    // TODO(dneto): Check valid array first.
-    if (lexer.match('<')) {
-      if (!state.lt_is_tmpl.empty() && state.lt_is_tmpl.pop_front()) {
-        return match(Token::TEMPLATE_ARGS_START);
-      }
-      if (lexer.match('=')) {
-        return match(Token::LESS_THAN_EQUAL);
-      }
-      if (lexer.match('<')) {
-        // Consume the '<' in the lt queue.
-        // Litmus test: "alias z = a<1<<c<d>()>;"
-        if (!state.lt_is_tmpl.empty()) {
-          state.lt_is_tmpl.pop_front();
-        }
-        if (lexer.match('=')) {
-          return match(Token::SHIFT_LEFT_ASSIGN);
-        }
-        return match(Token::SHIFT_LEFT);
-      }
-      return match(Token::LESS_THAN);
-    }
-
-    // TODO(dneto): check valid array first.
-    if (lexer.match('>')) {
-      if (!state.gt_is_tmpl.empty() && state.gt_is_tmpl.pop_front()) {
-        return match(Token::TEMPLATE_ARGS_END);
-      }
-      if (lexer.match('=')) {
-        return match(Token::GREATER_THAN_EQUAL);
-      }
-      if (lexer.match('>')) {
-        // Consume the '>' in the gt queue.
-        if (!state.gt_is_tmpl.empty()) {
-          state.gt_is_tmpl.pop_front();
-        }
-        if (lexer.match('=')) {
-          return match(Token::SHIFT_RIGHT_ASSIGN);
-        }
-        return match(Token::SHIFT_RIGHT);
-      }
-      return match(Token::GREATER_THAN);
-    }
-
-    return false;  // Use regular parsing
-  }
-
-  /// Serializes the scanner state into @p buffer.
-  unsigned serialize(char* buffer) {
-    if (state.empty()) {
-      return 0;
-    }
-#if ENABLE_LOGGING
-      std::string lt_str;  state.lt_is_tmpl.to_chars(lt_str);
-      std::string gt_str;  state.gt_is_tmpl.to_chars(gt_str);
-      LOG("serialize(lt_is_tmpl: %s, gt_is_tmpl: %s)",
-          lt_str.c_str(), gt_str.c_str());
-#endif
-    size_t bytes_written = 0;
-    auto write = [&](const void* data, size_t num_bytes) {
-      assert(bytes_written + num_bytes <=
-             TREE_SITTER_SERIALIZATION_BUFFER_SIZE);
-      memcpy(buffer + bytes_written, data, num_bytes);
-      bytes_written += num_bytes;
-    };
-    write(&state.lt_is_tmpl, sizeof(state.lt_is_tmpl));
-    write(&state.gt_is_tmpl, sizeof(state.gt_is_tmpl));
-    // TODO(dneto): implicit conversion be narrowing.
-    return bytes_written;
-  }
-
-  /// Deserializes the scanner state from @p buffer.
-  void deserialize(const char* const buffer, unsigned length) {
-    if (length == 0) {
-      state = {};
-    } else {
-      size_t bytes_read = 0;
-      auto read = [&](void* data, size_t num_bytes) {
-        assert(bytes_read + num_bytes <= length);
-        memcpy(data, buffer + bytes_read, num_bytes);
-        bytes_read += num_bytes;
-      };
-      read(&state.lt_is_tmpl, sizeof(state.lt_is_tmpl));
-      read(&state.gt_is_tmpl, sizeof(state.gt_is_tmpl));
-#if ENABLE_LOGGING
-      std::string lt_str;  state.lt_is_tmpl.to_chars(lt_str);
-      std::string gt_str;  state.gt_is_tmpl.to_chars(gt_str);
-      LOG("deserialize(lt_is_tmpl: %s, gt_is_tmpl: %s)",
-          lt_str.c_str(), gt_str.c_str());
-#endif
-      assert(bytes_read == length);
-    }
-  }
-};
-
-}  // anonymous namespace
-
-extern "C" {
-// Called once when language is set on a parser.
-// Allocates memory for storing scanner state.
-void* tree_sitter_wgsl_external_scanner_create() {
-  return new Scanner();
+void lexer_init(Lexer* lexer, TSLexer* l) {
+  lexer->lexer = l;
 }
 
-// Called once parser is deleted or different language set.
-// Frees memory storing scanner state.
-void tree_sitter_wgsl_external_scanner_destroy(void* const payload) {
-  Scanner* const scanner = static_cast<Scanner*>(payload);
-  delete scanner;
+/// Advances the lexer by one code point.
+void lexer_advance(Lexer* lexer) {
+  lexer->lexer->advance(lexer->lexer, false);
 }
 
-// Called whenever this scanner recognizes a token.
-// Serializes scanner state into buffer.
-unsigned tree_sitter_wgsl_external_scanner_serialize(void* const payload,
-                                                     char* const buffer) {
-  Scanner* scanner = static_cast<Scanner*>(payload);
-  return scanner->serialize(buffer);
+/// Returns the next code point, advancing the lexer by one code point.
+CodePoint lexer_next(Lexer* lexer) {
+  // TODO(dneto): should assert !lexer_->eof(lexer_)
+  CodePoint lookahead = lexer->lexer->lookahead;
+  lexer_advance(lexer);
+  return lookahead;
 }
 
-// Called when handling edits and ambiguities.
-// Deserializes scanner state from buffer.
-void tree_sitter_wgsl_external_scanner_deserialize(void* const payload,
-                                                   const char* const buffer,
-                                                   unsigned const length) {
-  Scanner* const scanner = static_cast<Scanner*>(payload);
-  scanner->deserialize(buffer, length);
+/// @return the next code point without advancing the lexer, or kEOF if there
+/// are no more code points
+CodePoint lexer_peek(Lexer* lexer) {
+  return lexer->lexer->eof(lexer->lexer) ? kEOF : lexer->lexer->lookahead;
 }
 
-// Scans for tokens.
-bool tree_sitter_wgsl_external_scanner_scan(void* const payload,
-                                            TSLexer* const lexer,
-                                            const bool* const valid_symbols) {
-  Scanner* const scanner = static_cast<Scanner*>(payload);
-  if (scanner->scan(lexer, valid_symbols)) {
-    LOG("scan returned: %s", str(static_cast<Token>(lexer->result_symbol)));
+/// @return true if the next code point is equal to @p code_point.
+/// @note if the code point was found, then the lexer is advanced to that code
+/// point.
+bool lexer_match(Lexer* lexer, CodePoint code_point) {
+  if (lexer_peek(lexer) == code_point) {
+    lexer_advance(lexer);
     return true;
   }
   return false;
 }
 
-}  // extern "C"
+/// @return true if the next code point is found in @p code_points.
+/// @note if the code point was found, then the lexer is advanced to that code
+/// point.
+bool lexer_match_anyof(Lexer* lexer,
+                       const CodePoint* code_points,
+                       size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    if (lexer_match(lexer, code_points[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Attempts to match an identifier pattern that starts with XIDStart followed
+/// by any number of XIDContinue code points.
+bool lexer_match_identifier(Lexer* lexer) {
+  if (!is_xid_start(lexer_peek(lexer))) {
+    return false;
+  }
+
+  bool is_ascii = true;
+  CodePoint start = lexer_next(lexer);
+  if (start >= 0x80) {
+    is_ascii = false;
+  }
+
+  while (true) {
+    if (!is_xid_continue(lexer_peek(lexer))) {
+      break;
+    }
+    CodePoint code_point = lexer_next(lexer);
+    if (code_point >= 0x80) {
+      is_ascii = false;
+    }
+  }
+
+  if (is_ascii) {
+    LOG("ident is ascii");
+  } else {
+    LOG("ident");
+  }
+
+  return true;
+}
+
+/// Attempts to match a /* block comment */
+bool lexer_match_block_comment(Lexer* lexer) {
+  // TODO(dneto): Need to un-advance if matched '/' but not '*'
+  if (!lexer_match(lexer, '/') || !lexer_match(lexer, '*')) {
+    return false;
+  }
+
+  size_t nesting = 1;
+  while (nesting > 0 && !lexer_match(lexer, kEOF)) {
+    // TODO(dneto): If we match '/' but not '*' there is no way to un-advance
+    // back to make '/' the lookahead.
+    if (lexer_match(lexer, '/') && lexer_match(lexer, '*')) {
+      nesting++;
+      // TODO(dneto): Same here, need to be able to un-advance to before '*'
+    } else if (lexer_match(lexer, '*') && lexer_match(lexer, '/')) {
+      nesting--;
+    } else {
+      lexer_next(lexer);
+    }
+  }
+  return true;
+}
+
+/// Advances the lexer while the next code point is considered blankspace
+void lexer_skip_blankspace(Lexer* lexer) {
+  while (is_space(lexer_peek(lexer))) {
+    lexer->lexer->advance(lexer->lexer, true);
+  }
+}
+
+typedef struct {
+  BitQueue lt_is_tmpl;  // Queue of disambiguated '<'
+  BitQueue gt_is_tmpl;  // Queue of disambiguated '>'
+} ScannerState;
+
+typedef struct {
+  ScannerState state;
+} Scanner;
+
+/* Stack entry for template argument parsing */
+typedef struct {
+  size_t index;       // Index of the opening '>' in lt_is_tmpl
+  size_t expr_depth;  // The value of 'expr_depth' for the opening '<'
+} StackEntry;
+
+/* Dynamic array for StackEntry */
+typedef struct {
+  StackEntry* data;
+  size_t size;
+  size_t capacity;
+} StackEntryArray;
+
+void stack_entry_array_init(StackEntryArray* array) {
+  array->data = NULL;
+  array->size = 0;
+  array->capacity = 0;
+}
+
+void stack_entry_array_push(StackEntryArray* array, StackEntry entry) {
+  if (array->size == array->capacity) {
+    size_t new_capacity = array->capacity == 0 ? 1 : array->capacity * 2;
+    StackEntry* new_data =
+        realloc(array->data, new_capacity * sizeof(StackEntry));
+    if (new_data == NULL) {
+      /* Handle allocation failure */
+      return;
+    }
+    array->data = new_data;
+    array->capacity = new_capacity;
+  }
+  array->data[array->size++] = entry;
+}
+
+void stack_entry_array_pop(StackEntryArray* array) {
+  if (array->size > 0) {
+    array->size--;
+  }
+}
+
+StackEntry* stack_entry_array_back(StackEntryArray* array) {
+  if (array->size > 0) {
+    return &array->data[array->size - 1];
+  }
+  return NULL;
+}
+
+bool stack_entry_array_empty(StackEntryArray* array) {
+  return array->size == 0;
+}
+
+void stack_entry_array_clear(StackEntryArray* array) {
+  array->size = 0;
+}
+
+void stack_entry_array_free(StackEntryArray* array) {
+  free(array->data);
+  array->data = NULL;
+  array->size = 0;
+  array->capacity = 0;
+}
+
+/// Updates #state with the disambiguated '<' and '>' tokens.
+/// The following assumptions are made on entry:
+/// * lexer has just advanced to the end of an identifier
+/// On exit, all '<' and '>' template tokens will be paired up to the closing
+/// '>' for the first '<'.
+void classify_template_args(Scanner* scanner, Lexer* lexer) {
+  LOG("classify_template_args()");
+
+  if (!lexer_match(lexer, '<')) {
+    LOG("  missing '<'");
+    return;
+  }
+
+  // The current expression nesting depth.
+  size_t expr_depth = 0;
+
+  // A stack of '<' tokens. Each is a candidate for the start of a template
+  // list. Used to pair '<' and '>' tokens at the same expression depth.
+  StackEntryArray lt_stack;
+  stack_entry_array_init(&lt_stack);
+
+  LOG("classify_template_args() '<' (initial)");
+  StackEntry entry = {bitqueue_count(&scanner->state.lt_is_tmpl), expr_depth};
+  stack_entry_array_push(&lt_stack, entry);
+  // Default to less-than (or less-than-equal, or left-shift, or
+  // left-shift-equal)
+  bitqueue_push_back(&scanner->state.lt_is_tmpl, false);
+
+  while (!stack_entry_array_empty(&lt_stack) && !lexer_match(lexer, kEOF)) {
+    lexer_skip_blankspace(lexer);
+
+    // TODO: skip line-ending comments.
+    if (lexer_match_block_comment(lexer)) {
+      continue;
+    }
+
+    // A template list can't contain an assignment or a compound assignment.
+    // There is logic below which clears the stack when reaching one of those.
+    // It looks for a '=' code point.  But we still want to allow
+    // comparison operations inside expressions. So we must pre-emptively
+    // allow operators: == >= <= !=
+
+    // Look for a nested template-list.
+    if (lexer_match_identifier(lexer)) {
+      lexer_skip_blankspace(lexer);
+      if (lexer_match(lexer, '<')) {
+        LOG("classify_template_args() '<' after ident");
+        bitqueue_push_back(&scanner->state.lt_is_tmpl, false);
+
+        if (lexer_match(lexer, '=')) {
+          // We entered the loop at "ident<=". No template arg can start with
+          // '=', so consider "<=" to be a single token. Litmus test: "alias z
+          // = a<b<=c>;"
+        } else if (lexer_match(lexer, '<')) {
+          // We entered the loop at "ident<<". No template arg can start with
+          // '<', so consider "<<" to be a single token. Litmus test: "alias z
+          // = a<b<<c>;"
+          bitqueue_push_back(&scanner->state.lt_is_tmpl, false);
+        } else {
+          StackEntry new_entry = {
+              bitqueue_count(&scanner->state.lt_is_tmpl) - 1, expr_depth};
+          stack_entry_array_push(&lt_stack, new_entry);
+        }
+      }
+      continue;
+    }
+
+    // Each '<' must be recorded in the lt_is_tmpl queue.
+    // Each '>' must be recorded in the gt_is_tmpl queue.
+
+    if (lexer_match(lexer, '<')) {
+      // Litmus test: "alias z =a<1<<c<d>()>;"
+      LOG("classify_template_args() '<'");
+      bitqueue_push_back(&scanner->state.lt_is_tmpl, false);
+      continue;
+    }
+
+    if (lexer_match(lexer, '>')) {
+      LOG("classify_template_args() '>'");
+      StackEntry* back = stack_entry_array_back(&lt_stack);
+      if (back != NULL && back->expr_depth == expr_depth) {
+        LOG("   TEMPLATE MATCH");
+        bitqueue_push_back(&scanner->state.gt_is_tmpl, true);
+        bitqueue_set(&scanner->state.lt_is_tmpl, back->index, true);
+        stack_entry_array_pop(&lt_stack);
+      } else {
+        LOG("   non-template '>'");
+        bitqueue_push_back(&scanner->state.gt_is_tmpl, false);
+        // Pre-emptvely allow >= as a comparison operator:
+        // Skip over '=', if present.
+        lexer_match(lexer, '=');
+      }
+      continue;
+    }
+
+    // Pre-emptively allow the != operator.
+    // As a side effect, allow unary negation operator !
+    if (lexer_match(lexer, '!')) {
+      lexer_match(lexer, '=');
+      continue;
+    }
+
+    CodePoint was = lexer_peek(lexer);
+    if (lexer_match(lexer, '(') || lexer_match(lexer, '[')) {
+      LOG("   %c expr_depth++", (int)was);
+      // Entering a nested expression
+      expr_depth++;
+      continue;
+    }
+
+    if (lexer_match(lexer, ')') || lexer_match(lexer, ']')) {
+      LOG("   %c expr_depth--", (int)was);
+      // Exiting a nested expression
+      // Pop the stack until we return to the current expression
+      // expr_depth
+      while (!stack_entry_array_empty(&lt_stack) &&
+             stack_entry_array_back(&lt_stack)->expr_depth == expr_depth) {
+        stack_entry_array_pop(&lt_stack);
+      }
+      if (expr_depth > 0) {
+        expr_depth--;
+      }
+      continue;
+    }
+
+    was = lexer_peek(lexer);
+    if (lexer_match(lexer, '=')) {
+      // A subtle point. The '=' we just matched might be the start of a
+      // syntactic token, or the end of a compound-assignment operator like +=
+      // In either case, it's fine to proceed with the logic below.
+
+      if (lexer_match(lexer, '=')) {
+        // Pre-emptively allow equality ==
+        continue;
+      }
+      // A template list can't contain an assignment, because an expression
+      // can't contain an assignment.
+      // This might be a regular assignment, or the tail end of a compound
+      // assignment.
+      LOG("   %c expression terminator", (int)was);
+      expr_depth = 0;
+      stack_entry_array_clear(&lt_stack);
+      continue;
+    }
+
+    was = lexer_peek(lexer);
+    if (lexer_match(lexer, ';') || lexer_match(lexer, '{') ||
+        lexer_match(lexer, ':')) {
+      LOG("   %c expression terminator", (int)was);
+      // Expression terminating tokens. No template list can
+      // hold these code points, so clear the stack and expression depth.
+      expr_depth = 0;
+      stack_entry_array_clear(&lt_stack);
+      continue;
+    }
+
+    bool short_circuit = false;
+    if (lexer_match(lexer, '&')) {
+      short_circuit = lexer_match(lexer, '&');
+    } else if (lexer_match(lexer, '|')) {
+      short_circuit = lexer_match(lexer, '|');
+    }
+    if (short_circuit) {
+      LOG("   short-circuiting expression");
+      // Treat 'a < b || c > d' as a logical binary operator of two
+      // comparison operators instead of a single template argument
+      // 'b||c'. Use parentheses around 'b||c' to parse as a
+      // template argument list.
+      while (!stack_entry_array_empty(&lt_stack) &&
+             stack_entry_array_back(&lt_stack)->expr_depth == expr_depth) {
+        stack_entry_array_pop(&lt_stack);
+      }
+      continue;
+    }
+
+    LOG("   skip: '%c'", (char)lexer_peek(lexer));
+    lexer_next(lexer);
+  }
+
+  stack_entry_array_free(&lt_stack);
+}
+
+char* valids(const bool* const valid_symbols) {
+  static char result[256];
+  char* p = result;
+  for (int i = 0; i < ERROR; i++) {
+    *p++ = valid_symbols[i] ? '+' : '_';
+  }
+  *p++ = ' ';
+  for (int i = 0; i < ERROR; i++) {
+    if (valid_symbols[i]) {
+      p += sprintf(p, " %s", str((enum Token)i, true));
+    }
+  }
+  *p = '\0';
+  return result;
+}
+
+/// The external token scanner function. Handles block comments and
+/// template-argument-list vs less-than / greater-than disambiguation.
+/// @return true if lexer->result_symbol was assigned a Token, or
+/// false if the token should be taken from the regular WGSL tree-sitter
+/// grammar.
+bool scanner_scan(Scanner* scanner,
+                  TSLexer* ts_lexer,
+                  const bool* const valid_symbols) {
+  Lexer lexer;
+  lexer_init(&lexer, ts_lexer);
+
+  LOG("scan: '%c' [%u] %s", (char)lexer_peek(&lexer),
+      ts_lexer->get_column(ts_lexer), valids(valid_symbols));
+
+  if (valid_symbols[ERROR]) {
+    ts_lexer->result_symbol = ERROR;
+    return true;
+  }
+
+  if (valid_symbols[DISAMBIGUATE_TEMPLATE]) {
+    // The parser is telling us the _disambiguate_template token
+    // may appear at the current position.
+    // The next token may be the start of a template list, so
+    // scan forward and use the token-list disambiguation
+    // algorithm to mark template-list-start and template-list-end
+    // tokens.  These are recorded in the lt and gt bit queues.
+
+    // Call mark_end so that we can "advance" past codepoints without
+    // automatically including them in the resulting token.
+    ts_lexer->mark_end(ts_lexer);
+    ts_lexer->result_symbol = DISAMBIGUATE_TEMPLATE;
+
+    // TODO(dneto): should also skip comments, both line comments
+    // and block comments.
+    // https://github.com/gpuweb/gpuweb/issues/3876
+    lexer_skip_blankspace(&lexer);
+    if (lexer_peek(&lexer) == '<') {
+      if (bitqueue_empty(&scanner->state.lt_is_tmpl)) {
+        classify_template_args(scanner, &lexer);
+      }
+    }
+
+    // This has to return true so that Treesitter will save
+    // the state generated by the disambiguation scan.
+    return true;
+  }
+
+  lexer_skip_blankspace(&lexer);
+
+  // TODO(dneto): checkpoint and rewind if failed.
+  if (lexer_match_block_comment(&lexer)) {
+    ts_lexer->mark_end(ts_lexer);
+    ts_lexer->result_symbol = BLOCK_COMMENT;
+    return true;
+  }
+
+  // TODO(dneto): Check valid array first.
+  if (lexer_match(&lexer, '<')) {
+    if (!bitqueue_empty(&scanner->state.lt_is_tmpl) &&
+        bitqueue_pop_front(&scanner->state.lt_is_tmpl)) {
+      ts_lexer->mark_end(ts_lexer);
+      ts_lexer->result_symbol = TEMPLATE_ARGS_START;
+      return true;
+    }
+    if (lexer_match(&lexer, '=')) {
+      ts_lexer->mark_end(ts_lexer);
+      ts_lexer->result_symbol = LESS_THAN_EQUAL;
+      return true;
+    }
+    if (lexer_match(&lexer, '<')) {
+      // Consume the '<' in the lt queue.
+      // Litmus test: "alias z = a<1<<c<d>()>;"
+      if (!bitqueue_empty(&scanner->state.lt_is_tmpl)) {
+        bitqueue_pop_front(&scanner->state.lt_is_tmpl);
+      }
+      if (lexer_match(&lexer, '=')) {
+        ts_lexer->mark_end(ts_lexer);
+        ts_lexer->result_symbol = SHIFT_LEFT_ASSIGN;
+        return true;
+      }
+      ts_lexer->mark_end(ts_lexer);
+      ts_lexer->result_symbol = SHIFT_LEFT;
+      return true;
+    }
+    ts_lexer->mark_end(ts_lexer);
+    ts_lexer->result_symbol = LESS_THAN;
+    return true;
+  }
+
+  // TODO(dneto): check valid array first.
+  if (lexer_match(&lexer, '>')) {
+    if (!bitqueue_empty(&scanner->state.gt_is_tmpl) &&
+        bitqueue_pop_front(&scanner->state.gt_is_tmpl)) {
+      ts_lexer->mark_end(ts_lexer);
+      ts_lexer->result_symbol = TEMPLATE_ARGS_END;
+      return true;
+    }
+    if (lexer_match(&lexer, '=')) {
+      ts_lexer->mark_end(ts_lexer);
+      ts_lexer->result_symbol = GREATER_THAN_EQUAL;
+      return true;
+    }
+    if (lexer_match(&lexer, '>')) {
+      // Consume the '>' in the gt queue.
+      if (!bitqueue_empty(&scanner->state.gt_is_tmpl)) {
+        bitqueue_pop_front(&scanner->state.gt_is_tmpl);
+      }
+      if (lexer_match(&lexer, '=')) {
+        ts_lexer->mark_end(ts_lexer);
+        ts_lexer->result_symbol = SHIFT_RIGHT_ASSIGN;
+        return true;
+      }
+      ts_lexer->mark_end(ts_lexer);
+      ts_lexer->result_symbol = SHIFT_RIGHT;
+      return true;
+    }
+    ts_lexer->mark_end(ts_lexer);
+    ts_lexer->result_symbol = GREATER_THAN;
+    return true;
+  }
+
+  return false;  // Use regular parsing
+}
+
+/// Serializes the scanner state into @p buffer.
+unsigned scanner_serialize(Scanner* scanner, char* buffer) {
+  if (bitqueue_empty(&scanner->state.lt_is_tmpl) &&
+      bitqueue_empty(&scanner->state.gt_is_tmpl)) {
+    return 0;
+  }
+#if ENABLE_LOGGING
+  char lt_str[256], gt_str[256];
+  bitqueue_to_chars(&scanner->state.lt_is_tmpl, lt_str);
+  bitqueue_to_chars(&scanner->state.gt_is_tmpl, gt_str);
+  LOG("serialize(lt_is_tmpl: %s, gt_is_tmpl: %s)", lt_str, gt_str);
+#endif
+  size_t bytes_written = 0;
+  memcpy(buffer + bytes_written, &scanner->state.lt_is_tmpl,
+         sizeof(scanner->state.lt_is_tmpl));
+  bytes_written += sizeof(scanner->state.lt_is_tmpl);
+  memcpy(buffer + bytes_written, &scanner->state.gt_is_tmpl,
+         sizeof(scanner->state.gt_is_tmpl));
+  bytes_written += sizeof(scanner->state.gt_is_tmpl);
+  // TODO(dneto): implicit conversion be narrowing.
+  return (unsigned)bytes_written;
+}
+
+/// Deserializes the scanner state from @p buffer.
+void scanner_deserialize(Scanner* scanner,
+                         const char* buffer,
+                         unsigned length) {
+  if (length == 0) {
+    memset(&scanner->state, 0, sizeof(scanner->state));
+  } else {
+    size_t bytes_read = 0;
+    memcpy(&scanner->state.lt_is_tmpl, buffer + bytes_read,
+           sizeof(scanner->state.lt_is_tmpl));
+    bytes_read += sizeof(scanner->state.lt_is_tmpl);
+    memcpy(&scanner->state.gt_is_tmpl, buffer + bytes_read,
+           sizeof(scanner->state.gt_is_tmpl));
+    bytes_read += sizeof(scanner->state.gt_is_tmpl);
+#if ENABLE_LOGGING
+    char lt_str[256], gt_str[256];
+    bitqueue_to_chars(&scanner->state.lt_is_tmpl, lt_str);
+    bitqueue_to_chars(&scanner->state.gt_is_tmpl, gt_str);
+    LOG("deserialize(lt_is_tmpl: %s, gt_is_tmpl: %s)", lt_str, gt_str);
+#endif
+    assert(bytes_read == length);
+  }
+}
+// Called once when language is set on a parser.
+// Allocates memory for storing scanner state.
+void* tree_sitter_wgsl_external_scanner_create() {
+  Scanner* scanner = (Scanner*)calloc(1, sizeof(Scanner));
+  return scanner;
+}
+
+// Called once parser is deleted or different language set.
+// Frees memory storing scanner state.
+void tree_sitter_wgsl_external_scanner_destroy(void* payload) {
+  Scanner* scanner = (Scanner*)payload;
+  free(scanner);
+}
+
+// Called whenever this scanner recognizes a token.
+// Serializes scanner state into buffer.
+unsigned tree_sitter_wgsl_external_scanner_serialize(void* payload,
+                                                     char* buffer) {
+  Scanner* scanner = (Scanner*)payload;
+  return scanner_serialize(scanner, buffer);
+}
+
+// Called when handling edits and ambiguities.
+// Deserializes scanner state from buffer.
+void tree_sitter_wgsl_external_scanner_deserialize(void* payload,
+                                                   const char* buffer,
+                                                   unsigned length) {
+  Scanner* scanner = (Scanner*)payload;
+  scanner_deserialize(scanner, buffer, length);
+}
+
+// Scans for tokens.
+bool tree_sitter_wgsl_external_scanner_scan(void* payload,
+                                            TSLexer* lexer,
+                                            const bool* valid_symbols) {
+  Scanner* scanner = (Scanner*)payload;
+  if (scanner_scan(scanner, lexer, valid_symbols)) {
+    LOG("scan returned: %s", str((enum Token)lexer->result_symbol, false));
+    return true;
+  }
+  return false;
+}

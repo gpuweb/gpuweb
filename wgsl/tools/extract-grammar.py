@@ -1144,7 +1144,7 @@ def flow_build(options):
     # See: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
 
     os.makedirs(os.path.join(options.grammar_dir, "src"), exist_ok=True)
-    scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.cpp")
+    scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.c")
 
     # Use "npm install" to create the tree-sitter CLI that has WGSL
     # support.  But "npm install" fetches data over the network.
