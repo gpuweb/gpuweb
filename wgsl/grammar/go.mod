@@ -1,4 +1,4 @@
-module github.com/wgsl/tree-sitter-wgsl
+module github.com/gpuweb/tree-sitter-wgsl
 
 go 1.23
 
