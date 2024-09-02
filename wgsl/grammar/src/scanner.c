@@ -1,3 +1,4 @@
+#include "tree_sitter/parser.h"
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -5,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wctype.h>
-#include "tree_sitter/parser.h"
 
 #define ENABLE_LOGGING 0
 
@@ -20,53 +20,53 @@
 /// the grammar.js.
 enum Token {
   BLOCK_COMMENT,
-  DISAMBIGUATE_TEMPLATE,  // A zero-length token used to scan ahead
+  DISAMBIGUATE_TEMPLATE, // A zero-length token used to scan ahead
   TEMPLATE_ARGS_START,
   TEMPLATE_ARGS_END,
-  LESS_THAN,           // '<'
-  LESS_THAN_EQUAL,     // '<='
-  SHIFT_LEFT,          // '<<'
-  SHIFT_LEFT_ASSIGN,   // '<<='
-  GREATER_THAN,        // '>'
-  GREATER_THAN_EQUAL,  // '>='
-  SHIFT_RIGHT,         // '>>'
-  SHIFT_RIGHT_ASSIGN,  // '>>='
+  LESS_THAN,          // '<'
+  LESS_THAN_EQUAL,    // '<='
+  SHIFT_LEFT,         // '<<'
+  SHIFT_LEFT_ASSIGN,  // '<<='
+  GREATER_THAN,       // '>'
+  GREATER_THAN_EQUAL, // '>='
+  SHIFT_RIGHT,        // '>>'
+  SHIFT_RIGHT_ASSIGN, // '>>='
 
   // A sentinel value used to signal an error has occurred already.
   // https://tree-sitter.github.io/tree-sitter/creating-parsers#other-external-scanner-details
   ERROR,
 };
 
-const char* str(enum Token tok, bool brief) {
+static const char *tree_sitter_wgsl_str(enum Token tok, bool brief) {
   switch (tok) {
-    case BLOCK_COMMENT:
-      return "BLOCK_COMMENT";
-    case DISAMBIGUATE_TEMPLATE:
-      return "DISAMBIGUATE_TEMPLATE";
-    case TEMPLATE_ARGS_START:
-      return "TEMPLATE_ARGS_START";
-    case TEMPLATE_ARGS_END:
-      return "TEMPLATE_ARGS_END";
-    case LESS_THAN:
-      return brief ? "<" : "LESS_THAN";
-    case LESS_THAN_EQUAL:
-      return brief ? "<=" : "LESS_THAN_EQUAL";
-    case SHIFT_LEFT:
-      return brief ? "<<" : "SHIFT_LEFT";
-    case SHIFT_LEFT_ASSIGN:
-      return brief ? "<<=" : "SHIFT_LEFT_ASSIGN";
-    case GREATER_THAN:
-      return brief ? ">" : "GREATER_THAN";
-    case GREATER_THAN_EQUAL:
-      return brief ? ">=" : "GREATER_THAN_EQUAL";
-    case SHIFT_RIGHT:
-      return brief ? ">>" : "SHIFT_RIGHT";
-    case SHIFT_RIGHT_ASSIGN:
-      return brief ? ">>=" : "SHIFT_RIGHT_ASSIGN";
-    case ERROR:
-      return "ERROR";
-    default:
-      return "<invalid>";
+  case BLOCK_COMMENT:
+    return "BLOCK_COMMENT";
+  case DISAMBIGUATE_TEMPLATE:
+    return "DISAMBIGUATE_TEMPLATE";
+  case TEMPLATE_ARGS_START:
+    return "TEMPLATE_ARGS_START";
+  case TEMPLATE_ARGS_END:
+    return "TEMPLATE_ARGS_END";
+  case LESS_THAN:
+    return brief ? "<" : "LESS_THAN";
+  case LESS_THAN_EQUAL:
+    return brief ? "<=" : "LESS_THAN_EQUAL";
+  case SHIFT_LEFT:
+    return brief ? "<<" : "SHIFT_LEFT";
+  case SHIFT_LEFT_ASSIGN:
+    return brief ? "<<=" : "SHIFT_LEFT_ASSIGN";
+  case GREATER_THAN:
+    return brief ? ">" : "GREATER_THAN";
+  case GREATER_THAN_EQUAL:
+    return brief ? ">=" : "GREATER_THAN_EQUAL";
+  case SHIFT_RIGHT:
+    return brief ? ">>" : "SHIFT_RIGHT";
+  case SHIFT_RIGHT_ASSIGN:
+    return brief ? ">>=" : "SHIFT_RIGHT_ASSIGN";
+  case ERROR:
+    return "ERROR";
+  default:
+    return "<invalid>";
   }
 }
 
@@ -75,20 +75,19 @@ typedef uint32_t CodePoint;
 static const CodePoint kEOF = 0;
 
 typedef struct {
-  CodePoint first;  // First code point in the interval
-  CodePoint last;   // Last code point in the interval (inclusive)
+  CodePoint first; // First code point in the interval
+  CodePoint last;  // Last code point in the interval (inclusive)
 } CodePointRange;
 
-bool code_point_less_than(CodePoint code_point, CodePointRange range) {
+static  bool code_point_less_than(CodePoint code_point, CodePointRange range) {
   return code_point < range.first;
 }
-bool range_less_than(CodePointRange range, CodePoint code_point) {
+static bool range_less_than(CodePointRange range, CodePoint code_point) {
   return range.last < code_point;
 }
 
 /* Implement C++ std::binary_search using C */
-bool binary_search(const CodePointRange* ranges,
-                   size_t num_ranges,
+static bool binary_search(const CodePointRange *ranges, size_t num_ranges,
                    CodePoint code_point) {
   size_t left = 0;
   size_t right = num_ranges;
@@ -468,7 +467,7 @@ const size_t kNumXIDContinueRanges =
 
 /// @param code_point the input code_point
 /// @return true if the code_point is part of the XIDStart unicode set
-bool is_xid_start(CodePoint code_point) {
+static bool is_xid_start(CodePoint code_point) {
   // Fast path for ASCII.
   if ((code_point >= 'a' && code_point <= 'z') ||
       (code_point >= 'A' && code_point <= 'Z')) {
@@ -485,7 +484,7 @@ bool is_xid_start(CodePoint code_point) {
 
 /// @param code_point the input code_point
 /// @return true if the code_point is part of the XIDContinue unicode set
-bool is_xid_continue(CodePoint code_point) {
+static bool is_xid_continue(CodePoint code_point) {
   // Short circuit ASCII. The binary search will find these last, but most
   // of our current source is ASCII, so handle them quicker.
   if ((code_point >= '0' && code_point <= '9') || code_point == '_') {
@@ -496,22 +495,22 @@ bool is_xid_continue(CodePoint code_point) {
 }
 
 /// @return true if @p code_point is considered a blankspace
-bool is_space(CodePoint code_point) {
+static bool is_space(CodePoint code_point) {
   switch (code_point) {
-    case 0x0020:
-    case 0x0009:
-    case 0x000a:
-    case 0x000b:
-    case 0x000c:
-    case 0x000d:
-    case 0x0085:
-    case 0x200e:
-    case 0x200f:
-    case 0x2028:
-    case 0x2029:
-      return true;
-    default:
-      return false;
+  case 0x0020:
+  case 0x0009:
+  case 0x000a:
+  case 0x000b:
+  case 0x000c:
+  case 0x000d:
+  case 0x0085:
+  case 0x200e:
+  case 0x200f:
+  case 0x2028:
+  case 0x2029:
+    return true;
+  default:
+    return false;
   }
 }
 
@@ -526,13 +525,13 @@ typedef struct {
 
 /// @param index the index of the bit starting from the front
 /// @return the bit value
-bool bitqueue_get(BitQueue* queue, size_t index) {
+static bool bitqueue_get(BitQueue *queue, size_t index) {
   assert(index < queue->count);
   return (queue->bits >> ((index + queue->read_offset) % BITQUEUE_CAPACITY)) &
          1;
 }
 
-void bitqueue_set(BitQueue* queue, size_t index, bool value) {
+static void bitqueue_set(BitQueue *queue, size_t index, bool value) {
   assert(index < queue->count);
   size_t bit_index = (index + queue->read_offset) % BITQUEUE_CAPACITY;
   if (value) {
@@ -544,7 +543,7 @@ void bitqueue_set(BitQueue* queue, size_t index, bool value) {
 
 /// Removes the bit at the front of the queue
 /// @returns the value of the bit that was removed
-bool bitqueue_pop_front(BitQueue* queue) {
+static bool bitqueue_pop_front(BitQueue *queue) {
   assert(queue->count > 0);
   bool value = bitqueue_get(queue, 0);
   queue->count--;
@@ -553,24 +552,20 @@ bool bitqueue_pop_front(BitQueue* queue) {
 }
 
 /// Appends a bit to the back of the queue
-void bitqueue_push_back(BitQueue* queue, bool value) {
+static void bitqueue_push_back(BitQueue *queue, bool value) {
   assert(queue->count < BITQUEUE_CAPACITY);
   queue->count++;
   bitqueue_set(queue, queue->count - 1, value);
 }
 
 /// @returns true if the queue holds no bits.
-bool bitqueue_empty(const BitQueue* queue) {
-  return queue->count == 0;
-}
+static bool bitqueue_empty(const BitQueue *queue) { return queue->count == 0; }
 
 /// @returns the number of bits held by the queue.
-size_t bitqueue_count(const BitQueue* queue) {
-  return queue->count;
-}
+static size_t bitqueue_count(const BitQueue *queue) { return queue->count; }
 
 #if ENABLE_LOGGING
-void bitqueue_to_chars(const BitQueue* queue, char* str) {
+static void bitqueue_to_chars(const BitQueue *queue, char *str) {
   sprintf(str, "%zu:", queue->count);
   for (size_t i = 0; i < queue->count; ++i) {
     strcat(str, bitqueue_get(queue, i) ? "#" : ".");
@@ -579,20 +574,16 @@ void bitqueue_to_chars(const BitQueue* queue, char* str) {
 #endif
 
 typedef struct {
-  TSLexer* lexer;
+  TSLexer *lexer;
 } Lexer;
 
-void lexer_init(Lexer* lexer, TSLexer* l) {
-  lexer->lexer = l;
-}
+static void lexer_init(Lexer *lexer, TSLexer *l) { lexer->lexer = l; }
 
 /// Advances the lexer by one code point.
-void lexer_advance(Lexer* lexer) {
-  lexer->lexer->advance(lexer->lexer, false);
-}
+static void lexer_advance(Lexer *lexer) { lexer->lexer->advance(lexer->lexer, false); }
 
 /// Returns the next code point, advancing the lexer by one code point.
-CodePoint lexer_next(Lexer* lexer) {
+static CodePoint lexer_next(Lexer *lexer) {
   // TODO(dneto): should assert !lexer_->eof(lexer_)
   CodePoint lookahead = lexer->lexer->lookahead;
   lexer_advance(lexer);
@@ -601,14 +592,14 @@ CodePoint lexer_next(Lexer* lexer) {
 
 /// @return the next code point without advancing the lexer, or kEOF if there
 /// are no more code points
-CodePoint lexer_peek(Lexer* lexer) {
+static CodePoint lexer_peek(Lexer *lexer) {
   return lexer->lexer->eof(lexer->lexer) ? kEOF : lexer->lexer->lookahead;
 }
 
 /// @return true if the next code point is equal to @p code_point.
 /// @note if the code point was found, then the lexer is advanced to that code
 /// point.
-bool lexer_match(Lexer* lexer, CodePoint code_point) {
+static bool lexer_match(Lexer *lexer, CodePoint code_point) {
   if (lexer_peek(lexer) == code_point) {
     lexer_advance(lexer);
     return true;
@@ -619,8 +610,7 @@ bool lexer_match(Lexer* lexer, CodePoint code_point) {
 /// @return true if the next code point is found in @p code_points.
 /// @note if the code point was found, then the lexer is advanced to that code
 /// point.
-bool lexer_match_anyof(Lexer* lexer,
-                       const CodePoint* code_points,
+static bool lexer_match_anyof(Lexer *lexer, const CodePoint *code_points,
                        size_t count) {
   for (size_t i = 0; i < count; i++) {
     if (lexer_match(lexer, code_points[i])) {
@@ -632,7 +622,7 @@ bool lexer_match_anyof(Lexer* lexer,
 
 /// Attempts to match an identifier pattern that starts with XIDStart followed
 /// by any number of XIDContinue code points.
-bool lexer_match_identifier(Lexer* lexer) {
+static bool lexer_match_identifier(Lexer *lexer) {
   if (!is_xid_start(lexer_peek(lexer))) {
     return false;
   }
@@ -663,7 +653,7 @@ bool lexer_match_identifier(Lexer* lexer) {
 }
 
 /// Attempts to match a /* block comment */
-bool lexer_match_block_comment(Lexer* lexer) {
+static bool lexer_match_block_comment(Lexer *lexer) {
   // TODO(dneto): Need to un-advance if matched '/' but not '*'
   if (!lexer_match(lexer, '/') || !lexer_match(lexer, '*')) {
     return false;
@@ -686,15 +676,15 @@ bool lexer_match_block_comment(Lexer* lexer) {
 }
 
 /// Advances the lexer while the next code point is considered blankspace
-void lexer_skip_blankspace(Lexer* lexer) {
+static void lexer_skip_blankspace(Lexer *lexer) {
   while (is_space(lexer_peek(lexer))) {
     lexer->lexer->advance(lexer->lexer, true);
   }
 }
 
 typedef struct {
-  BitQueue lt_is_tmpl;  // Queue of disambiguated '<'
-  BitQueue gt_is_tmpl;  // Queue of disambiguated '>'
+  BitQueue lt_is_tmpl; // Queue of disambiguated '<'
+  BitQueue gt_is_tmpl; // Queue of disambiguated '>'
 } ScannerState;
 
 typedef struct {
@@ -703,27 +693,27 @@ typedef struct {
 
 /* Stack entry for template argument parsing */
 typedef struct {
-  size_t index;       // Index of the opening '>' in lt_is_tmpl
-  size_t expr_depth;  // The value of 'expr_depth' for the opening '<'
+  size_t index;      // Index of the opening '>' in lt_is_tmpl
+  size_t expr_depth; // The value of 'expr_depth' for the opening '<'
 } StackEntry;
 
 /* Dynamic array for StackEntry */
 typedef struct {
-  StackEntry* data;
+  StackEntry *data;
   size_t size;
   size_t capacity;
 } StackEntryArray;
 
-void stack_entry_array_init(StackEntryArray* array) {
+static void stack_entry_array_init(StackEntryArray *array) {
   array->data = NULL;
   array->size = 0;
   array->capacity = 0;
 }
 
-void stack_entry_array_push(StackEntryArray* array, StackEntry entry) {
+static void stack_entry_array_push(StackEntryArray *array, StackEntry entry) {
   if (array->size == array->capacity) {
     size_t new_capacity = array->capacity == 0 ? 1 : array->capacity * 2;
-    StackEntry* new_data =
+    StackEntry *new_data =
         realloc(array->data, new_capacity * sizeof(StackEntry));
     if (new_data == NULL) {
       /* Handle allocation failure */
@@ -735,28 +725,26 @@ void stack_entry_array_push(StackEntryArray* array, StackEntry entry) {
   array->data[array->size++] = entry;
 }
 
-void stack_entry_array_pop(StackEntryArray* array) {
+static void stack_entry_array_pop(StackEntryArray *array) {
   if (array->size > 0) {
     array->size--;
   }
 }
 
-StackEntry* stack_entry_array_back(StackEntryArray* array) {
+static StackEntry *stack_entry_array_back(StackEntryArray *array) {
   if (array->size > 0) {
     return &array->data[array->size - 1];
   }
   return NULL;
 }
 
-bool stack_entry_array_empty(StackEntryArray* array) {
+static bool stack_entry_array_empty(StackEntryArray *array) {
   return array->size == 0;
 }
 
-void stack_entry_array_clear(StackEntryArray* array) {
-  array->size = 0;
-}
+static void stack_entry_array_clear(StackEntryArray *array) { array->size = 0; }
 
-void stack_entry_array_free(StackEntryArray* array) {
+static void stack_entry_array_free(StackEntryArray *array) {
   free(array->data);
   array->data = NULL;
   array->size = 0;
@@ -768,7 +756,7 @@ void stack_entry_array_free(StackEntryArray* array) {
 /// * lexer has just advanced to the end of an identifier
 /// On exit, all '<' and '>' template tokens will be paired up to the closing
 /// '>' for the first '<'.
-void classify_template_args(Scanner* scanner, Lexer* lexer) {
+static void classify_template_args(Scanner *scanner, Lexer *lexer) {
   LOG("classify_template_args()");
 
   if (!lexer_match(lexer, '<')) {
@@ -842,7 +830,7 @@ void classify_template_args(Scanner* scanner, Lexer* lexer) {
 
     if (lexer_match(lexer, '>')) {
       LOG("classify_template_args() '>'");
-      StackEntry* back = stack_entry_array_back(&lt_stack);
+      StackEntry *back = stack_entry_array_back(&lt_stack);
       if (back != NULL && back->expr_depth == expr_depth) {
         LOG("   TEMPLATE MATCH");
         bitqueue_push_back(&scanner->state.gt_is_tmpl, true);
@@ -945,16 +933,16 @@ void classify_template_args(Scanner* scanner, Lexer* lexer) {
   stack_entry_array_free(&lt_stack);
 }
 
-char* valids(const bool* const valid_symbols) {
+static char *valids(const bool *const valid_symbols) {
   static char result[256];
-  char* p = result;
+  char *p = result;
   for (int i = 0; i < ERROR; i++) {
     *p++ = valid_symbols[i] ? '+' : '_';
   }
   *p++ = ' ';
   for (int i = 0; i < ERROR; i++) {
     if (valid_symbols[i]) {
-      p += sprintf(p, " %s", str((enum Token)i, true));
+      p += sprintf(p, " %s", tree_sitter_wgsl_str((enum Token)i, true));
     }
   }
   *p = '\0';
@@ -966,9 +954,8 @@ char* valids(const bool* const valid_symbols) {
 /// @return true if lexer->result_symbol was assigned a Token, or
 /// false if the token should be taken from the regular WGSL tree-sitter
 /// grammar.
-bool scanner_scan(Scanner* scanner,
-                  TSLexer* ts_lexer,
-                  const bool* const valid_symbols) {
+static bool scanner_scan(Scanner *scanner, TSLexer *ts_lexer,
+                  const bool *const valid_symbols) {
   Lexer lexer;
   lexer_init(&lexer, ts_lexer);
 
@@ -1082,11 +1069,11 @@ bool scanner_scan(Scanner* scanner,
     return true;
   }
 
-  return false;  // Use regular parsing
+  return false; // Use regular parsing
 }
 
 /// Serializes the scanner state into @p buffer.
-unsigned scanner_serialize(Scanner* scanner, char* buffer) {
+static unsigned scanner_serialize(Scanner *scanner, char *buffer) {
   if (bitqueue_empty(&scanner->state.lt_is_tmpl) &&
       bitqueue_empty(&scanner->state.gt_is_tmpl)) {
     return 0;
@@ -1109,8 +1096,7 @@ unsigned scanner_serialize(Scanner* scanner, char* buffer) {
 }
 
 /// Deserializes the scanner state from @p buffer.
-void scanner_deserialize(Scanner* scanner,
-                         const char* buffer,
+static void scanner_deserialize(Scanner *scanner, const char *buffer,
                          unsigned length) {
   if (length == 0) {
     memset(&scanner->state, 0, sizeof(scanner->state));
@@ -1133,42 +1119,42 @@ void scanner_deserialize(Scanner* scanner,
 }
 // Called once when language is set on a parser.
 // Allocates memory for storing scanner state.
-void* tree_sitter_wgsl_external_scanner_create() {
-  Scanner* scanner = (Scanner*)calloc(1, sizeof(Scanner));
+void *tree_sitter_wgsl_external_scanner_create() {
+  Scanner *scanner = (Scanner *)calloc(1, sizeof(Scanner));
   return scanner;
 }
 
 // Called once parser is deleted or different language set.
 // Frees memory storing scanner state.
-void tree_sitter_wgsl_external_scanner_destroy(void* payload) {
-  Scanner* scanner = (Scanner*)payload;
+void tree_sitter_wgsl_external_scanner_destroy(void *payload) {
+  Scanner *scanner = (Scanner *)payload;
   free(scanner);
 }
 
 // Called whenever this scanner recognizes a token.
 // Serializes scanner state into buffer.
-unsigned tree_sitter_wgsl_external_scanner_serialize(void* payload,
-                                                     char* buffer) {
-  Scanner* scanner = (Scanner*)payload;
+unsigned tree_sitter_wgsl_external_scanner_serialize(void *payload,
+                                                     char *buffer) {
+  Scanner *scanner = (Scanner *)payload;
   return scanner_serialize(scanner, buffer);
 }
 
 // Called when handling edits and ambiguities.
 // Deserializes scanner state from buffer.
-void tree_sitter_wgsl_external_scanner_deserialize(void* payload,
-                                                   const char* buffer,
+void tree_sitter_wgsl_external_scanner_deserialize(void *payload,
+                                                   const char *buffer,
                                                    unsigned length) {
-  Scanner* scanner = (Scanner*)payload;
+  Scanner *scanner = (Scanner *)payload;
   scanner_deserialize(scanner, buffer, length);
 }
 
 // Scans for tokens.
-bool tree_sitter_wgsl_external_scanner_scan(void* payload,
-                                            TSLexer* lexer,
-                                            const bool* valid_symbols) {
-  Scanner* scanner = (Scanner*)payload;
+bool tree_sitter_wgsl_external_scanner_scan(void *payload, TSLexer *lexer,
+                                            const bool *valid_symbols) {
+  Scanner *scanner = (Scanner *)payload;
   if (scanner_scan(scanner, lexer, valid_symbols)) {
-    LOG("scan returned: %s", str((enum Token)lexer->result_symbol, false));
+    LOG("scan returned: %s",
+        tree_sitter_wgsl_str((enum Token)lexer->result_symbol, false));
     return true;
   }
   return false;
