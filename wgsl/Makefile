@@ -27,7 +27,7 @@ img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
 	bash ../tools/invoke-mermaid.sh -i $< -o $@
 
 TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
-TREESITTER_PARSER := grammar/libtree-sitter-wgsl.a
+TREESITTER_PARSER := grammar/src/scanner.o
 # Extract WGSL grammar from the spec
 $(TREESITTER_GRAMMAR_INPUT): index.bs ./grammar/src/scanner.c ./tools/extract-grammar.py
 	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./grammar/src/scanner.c --tree-sitter-dir grammar --flow x
