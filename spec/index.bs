@@ -15116,12 +15116,12 @@ The main rendering algorithm:
         1. **Process fragments**. See [[#fragment-processing]].
 
             Gather a list of |fragments|, resulting from executing
-            [$process fragment$](|rasterPoint|, |descriptor|.{{GPURenderPipelineDescriptor/fragment}}, |state|)
+            [$process fragment$](|rasterPoint|, |descriptor|, |state|)
             for each |rasterPoint| in |rasterizationList|.
 
         1. **Process depth/stencil**. See [[#depth-stencil-processing]]
 
-            Execute [$process depth stencil$](|fragment|, |descriptor|, |state|) For each |fragment| of |fragments|.
+            Execute [$process depth stencil$](|rasterPoint|, |fragment|, |descriptor|, |state|) For each |fragment| of |fragments|.
 
         1. **Write pixels**. See [[#output-merging]]
 
@@ -15692,29 +15692,49 @@ computes the fragment data (often a color) to be written into render targets.
 This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
 <div algorithm="Fragment accessors" dfn-for=Fragment>
     - <dfn dfn>destination</dfn> refers to [=FragmentDestination=].
+    - <dfn dfn>frontFacing</dfn> is true if it's a fragment on the front face of a primitive.
     - <dfn dfn>coverageMask</dfn> refers to multisample coverage mask (see [[#sample-masking]]).
     - <dfn dfn>depth</dfn> refers to the depth in [=viewport coordinates=],
         i.e. between the {{RenderState/[[viewport]]}} `minDepth` and `maxDepth`.
     - <dfn dfn>colors</dfn> refers to the list of color values,
         one for each target in {{GPURenderPassDescriptor/colorAttachments}}.
+    - <dfn dfn>depthPassed</dfn>
+        is `true` if the fragment passed the {{GPUDepthStencilState/depthCompare}} operation.
+    - <dfn dfn>stencilPassed</dfn>
+        is `true` if  the fragment passed the stencil {{GPUStencilFaceState/compare}} operation.
 </div>
 
 <div algorithm data-timeline=queue>
-    <dfn abstract-op>process fragment</dfn>(rp, desc, state)
+    <dfn abstract-op>process fragment</dfn>(rp, descriptor, state)
 
     **Arguments:**
 
     - |rp|: The [=RasterizationPoint=], produced by [[#rasterization]].
-    - |desc|: The descriptor of type {{GPUFragmentState}}.
+    - |descriptor|: The descriptor of type {{GPURenderPipelineDescriptor}}.
     - |state|: The active [=RenderState=].
 
     **Returns:** [=Fragment=] or `null`.
 
+    1. Let |fragmentDesc| be |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.
+    1. Let |depthStencilDesc| be |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.
     1. Let |fragment| be a new [=Fragment=] object.
     1. Set |fragment|.[=Fragment/destination=] to |rp|.[=RasterizationPoint/destination=].
+    1. Set |fragment|.[=Fragment/frontFacing=] to |rp|.[=RasterizationPoint/frontFacing=].
     1. Set |fragment|.[=Fragment/coverageMask=] to |rp|.[=RasterizationPoint/coverageMask=].
     1. Set |fragment|.[=Fragment/depth=] to |rp|.[=RasterizationPoint/depth=].
-    1. If |desc| is not `null`:
+    1. If `frag_depth` [=builtin=] is not produced by the shader:
+        1. Set |fragment|.[=Fragment/depthPassed=] to the result of [$compare fragment$](|fragment|.[=Fragment/destination=],
+            |fragment|.[=Fragment/depth=], depth, |state|.{{RenderState/[[depthStencilAttachment]]}},
+            |depthStencilDesc|?.{{GPUDepthStencilState/depthCompare}}).
+    1. Set |stencilState| to |depthStencilDesc|?.{{GPUDepthStencilState/stencilFront}} if
+        |rp|.[=RasterizationPoint/frontFacing=] is `true` and |depthStencilDesc|?.{{GPUDepthStencilState/stencilBack}}
+        otherwise.
+    1. Set |fragment|.[=Fragment/stencilPassed=] to the result of [$compare fragment$](|fragment|.[=Fragment/destination=],
+        |state|.{{RenderState/[[stencilReference]]}}, stencil, |state|.{{RenderState/[[depthStencilAttachment]]}},
+        |stencilState|?.{{GPUStencilFaceState/compare}}).
+    1. If |fragmentDesc| is not `null`:
+        1. If |fragment|.[=Fragment/stencilPassed=] is `false` or (|fragment|.[=Fragment/depthPassed=] is `false` and the 
+            `frag_depth` [=builtin=] is not produced by the shader) the following steps may be skipped.
         1. Set the shader input [=builtins=]. For each non-composite argument of the entry point,
             annotated as a [=builtin=], set its value based on the annotation:
 
@@ -15736,7 +15756,7 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
                 based on |rp|.[=RasterizationPoint/barycentricCoordinates=], |rp|.[=RasterizationPoint/primitiveVertices=],
                 and the [=interpolation=] qualifier on the input.
             1. Set the corresponding fragment shader [=location=] input to |value|.
-        1. Invoke the fragment shader entry point described by |desc|.
+        1. Invoke the fragment shader entry point described by |fragmentDesc|.
 
             The [=device=] may become [=lose the device|lost=] if
             [=shader execution end|shader execution does not end=]
@@ -15748,11 +15768,33 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
             1. If `frag_depth` [=builtin=] is produced by the shader as |value|:
                 1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
                 1. Set |fragment|.[=Fragment/depth=] to clamp(|value|, |vp|.`minDepth`, |vp|.`maxDepth`).
+                1. Set |fragment|.[=Fragment/depthPassed=] to the result of [$compare fragment$](|fragment|.[=Fragment/destination=],
+                    |fragment|.[=Fragment/depth=], depth, |state|.{{RenderState/[[depthStencilAttachment]]}},
+                    |depthStencilDesc|?.{{GPUDepthStencilState/depthCompare}}).
         1. If `sample_mask` [=builtin=] is produced by the shader as |value|:
             1. Set |fragment|.[=Fragment/coverageMask=] to |fragment|.[=Fragment/coverageMask=] &and; |value|.
 
         Otherwise we are in [[#no-color-output]] mode, and |fragment|.[=Fragment/colors=] is empty.
     1. Return |fragment|.
+</div>
+
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>compare fragment</dfn>(destination, value, aspect, attachment, compareFunc)
+
+    **Arguments:**
+
+    - |destination|: The [=FragmentDestination=].
+    - |value|: The value to be compared.
+    - |aspect|: The aspect of |attachement| to sample values from.
+    - |attachment|: The attachment to be compared against.
+    - |compareFunc|: The comparison function to use.
+
+    **Returns:** `true` if the comparison passes, or `false` otherwise
+
+    - If |attachement| is `undefined` or does not have |aspect|, return `true`.
+    - If |compareFunc| is `undefined` or {{GPUCompareFunction/"always"}}, return `true`.
+    - Let |attachmentValue| be the value of |aspect| of |attachment| at |destination|.
+    - Return `true` if comparing |value| with |attachmentValue| using |compareFunc| succeeds, and `false` otherwise.
 </div>
 
 Processing of fragments happens in parallel, while any side effects,
@@ -15773,23 +15815,29 @@ outputs the fragment depth and stencil data to be written into the depth/stencil
     - |descriptor|: The descriptor of type {{GPURenderPipelineDescriptor}}.
     - |state|: The active [=RenderState=].
 
-    1. Let |depthSample| be the sample corresponding to |fragment| of the depth aspect of
-            |state|.{{RenderState/[[depthStencilAttachment]]}}.
+    1. Let |depthStencilDesc| be |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.
 
-    1. If |descriptor|.{{GPURenderPipeline/[[writesDepth]]}} is true:
-        1. If testing |fragment|.[=Fragment/depth=] against |depthSample| using the
-            {{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/depthCompare}}
-            operation passes, set |depthSample| to |fragment|.[=Fragment/depth=].
+    1. If |descriptor|.{{GPURenderPipeline/[[writesDepth]]}} is `true` and |fragment|.[=Fragment/depthPassed=] is `true`:
+        1. Set the value of the depth aspect of |state|.{{RenderState/[[depthStencilAttachment]]}} at
+            |fragment|.[=Fragment/destination=] to |fragment|.[=Fragment/depth=].
 
     1. If |descriptor|.{{GPURenderPipeline/[[writesStencil]]}} is true:
-        1. Let |stencilSample| be the sample corresponding to |fragment| of the stencil aspect of
-            |state|.{{RenderState/[[depthStencilAttachment]]}}.
-        1. If testing |fragment|.[=Fragment/depth=] against |depthSample| using the
-            {{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/depthCompare}}
-            operation fails, update |stencilSample| as defined by the
-            {{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/depthFailOp}}.
-
-    <p class="note editorial"><span class=marker>Editorial note:</span> Describe stencil behavior
+        1. Set |stencilState| to |depthStencilDesc|.{{GPUDepthStencilState/stencilFront}} if
+            |fragment|.[=Fragment/frontFacing=] is `true` and
+            |depthStencilDesc|.{{GPUDepthStencilState/stencilBack}} otherwise.
+        1. Let |stencilOp| be `undefined`
+        1. If:
+            <dl class=switch>
+                : |fragment|.[=Fragment/stencilPassed=] is `false`:
+                :: Set |stencilOp| to |stencilState|.{{GPUStencilFaceState/failOp}}.
+                : |fragment|.[=Fragment/depthPassed=] is `false`:
+                :: Set |stencilOp| to |stencilState|.{{GPUStencilFaceState/depthFailOp}}.
+                : |fragment|.[=Fragment/stencilPassed=] is `true`:
+                :: Set |stencilOp| to |stencilState|.{{GPUStencilFaceState/passOp}}.
+            </dl>
+        1. If |stencilOp| is not `undefined` update the value of the stencil aspect of
+            |state|.{{RenderState/[[depthStencilAttachment]]}} at |fragment|.[=Fragment/destination=] by performing the
+            operation described by |stencilOp|.
 </div>
 
 ### Output Merging ### {#output-merging}
