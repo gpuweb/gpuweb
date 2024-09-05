@@ -4338,10 +4338,12 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
                 - |descriptor|.{{GPUTextureDescriptor/dimension}} must be either {{GPUTextureDimension/"2d"}} or {{GPUTextureDimension/"3d"}}.
             - If |descriptor|.{{GPUTextureDescriptor/usage}} includes the {{GPUTextureUsage/STORAGE_BINDING}} bit:
                 - |descriptor|.{{GPUTextureDescriptor/format}} must be listed in [[#plain-color-formats]] table
-                    with {{GPUTextureUsage/STORAGE_BINDING}} capability for the appropriate access mode.
+                    with {{GPUTextureUsage/STORAGE_BINDING}} capability for at least one access mode.
             - For each |viewFormat| in |descriptor|.{{GPUTextureDescriptor/viewFormats}},
                 |descriptor|.{{GPUTextureDescriptor/format}} and |viewFormat| must be
                 [=texture view format compatible=].
+
+                Issue(#4852): Either validate or encourage a warning here if there is no valid viewFormat/usage combination.
         </div>
 </div>
 
@@ -4453,6 +4455,7 @@ dictionary GPUTextureViewDescriptor
          : GPUObjectDescriptorBase {
     GPUTextureFormat format;
     GPUTextureViewDimension dimension;
+    GPUTextureUsageFlags usage = 0;
     GPUTextureAspect aspect = "all";
     GPUIntegerCoordinate baseMipLevel = 0;
     GPUIntegerCoordinate mipLevelCount;
@@ -4472,6 +4475,16 @@ dictionary GPUTextureViewDescriptor
     : <dfn>dimension</dfn>
     ::
         The dimension to view the texture as.
+
+    : <dfn>usage</dfn>
+    ::
+        The allowed {{GPUTextureUsage|usage(s)}} for the texture view. Must be a subset of the
+        {{GPUTexture/usage}} flags of the texture. If 0, defaults to the full set of
+        {{GPUTexture/usage}} flags of the texture.
+
+        Note: If the view's {{GPUTextureViewDescriptor/format}} doesn't support all of the
+        texture's {{GPUTextureDescriptor/usage}}s, the default will fail,
+        and the view's {{GPUTextureViewDescriptor/usage}} must be specified explicitly.
 
     : <dfn>aspect</dfn>
     ::
@@ -4682,6 +4695,12 @@ enum GPUTextureAspect {
                                 |this|.{{GPUTexture/format}},
                                 |descriptor|.{{GPUTextureViewDescriptor/aspect}}).
 
+                        - |descriptor|.{{GPUTextureViewDescriptor/usage}} must be a subset of |this|.{{GPUTexture/usage}}.
+                        - If |descriptor|.{{GPUTextureViewDescriptor/usage}} includes the {{GPUTextureUsage/RENDER_ATTACHMENT}} bit:
+                            - |descriptor|.{{GPUTextureViewDescriptor/format}} must be a [=renderable format=].
+                        - If |descriptor|.{{GPUTextureViewDescriptor/usage}} includes the {{GPUTextureUsage/STORAGE_BINDING}} bit:
+                            - |descriptor|.{{GPUTextureViewDescriptor/format}} must be listed in [[#plain-color-formats]] table
+                                with {{GPUTextureUsage/STORAGE_BINDING}} capability for at least one access mode.
                         - |descriptor|.{{GPUTextureViewDescriptor/mipLevelCount}} must be &gt; 0.
                         - |descriptor|.{{GPUTextureViewDescriptor/baseMipLevel}} +
                             |descriptor|.{{GPUTextureViewDescriptor/mipLevelCount}} must be &le;
@@ -4732,7 +4751,7 @@ enum GPUTextureAspect {
                 1. Let |view| be a new {{GPUTextureView}} object.
                 1. Set |view|.{{GPUTextureView/[[texture]]}} to |this|.
                 1. Set |view|.{{GPUTextureView/[[descriptor]]}} to |descriptor|.
-                1. If |this|.{{GPUTexture/usage}} contains {{GPUTextureUsage/RENDER_ATTACHMENT}}:
+                1. If |descriptor|.{{GPUTextureViewDescriptor/usage}} contains {{GPUTextureUsage/RENDER_ATTACHMENT}}:
                     1. Let |renderExtent| be [$compute render extent$]([|this|.{{GPUTexture/width}}, |this|.{{GPUTexture/height}}, |this|.{{GPUTexture/depthOrArrayLayers}}], |descriptor|.{{GPUTextureViewDescriptor/baseMipLevel}}).
                     1. Set |view|.{{GPUTextureView/[[renderExtent]]}} to |renderExtent|.
             </div>
@@ -4792,6 +4811,8 @@ enum GPUTextureAspect {
             :: Set |resolved|.{{GPUTextureViewDescriptor/arrayLayerCount}} to the [$array layer count$] of |texture|
                 &minus; |resolved|.{{GPUTextureViewDescriptor/baseArrayLayer}}.
         </dl>
+    1. If |resolved|.{{GPUTextureViewDescriptor/usage}} is `0`:
+        set |resolved|.{{GPUTextureViewDescriptor/usage}} to |texture|.{{GPUTexture/usage}}.
 
     1. Return |resolved|.
 </div>
@@ -6320,7 +6341,8 @@ following members:
                                         - |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/sampleType}}
                                             is [[#texture-format-caps|compatible]] with
                                             |resource|'s {{GPUTextureViewDescriptor/format}}.
-                                        - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/TEXTURE_BINDING}}.
+                                        - |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/usage}}
+                                            includes {{GPUTextureUsage/TEXTURE_BINDING}}.
                                         - If |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}}
                                             is `true`, |texture|'s {{GPUTextureDescriptor/sampleCount}}
                                             &gt; `1`, Otherwise |texture|'s {{GPUTextureDescriptor/sampleCount}} is `1`.
@@ -6334,7 +6356,8 @@ following members:
                                             is equal to |resource|'s {{GPUTextureViewDescriptor/dimension}}.
                                         - |layoutBinding|.{{GPUBindGroupLayoutEntry/storageTexture}}.{{GPUStorageTextureBindingLayout/format}}
                                             is equal to |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
-                                        - |texture|'s {{GPUTextureDescriptor/usage}} includes {{GPUTextureUsage/STORAGE_BINDING}}.
+                                        - |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/usage}}
+                                            includes {{GPUTextureUsage/STORAGE_BINDING}}.
                                         - |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/mipLevelCount}} must be 1.
 
                                     :  {{GPUBindGroupLayoutEntry/buffer}}
@@ -8991,8 +9014,8 @@ operations are performed:
 <dl dfn-type=dict-member dfn-for=GPUStencilFaceState>
     : <dfn>compare</dfn>
     ::
-        The {{GPUCompareFunction}} used when testing fragments against
-        {{GPURenderPassDescriptor/depthStencilAttachment}} stencil values.
+        The {{GPUCompareFunction}} used when testing testing fragments against
+        {{GPURenderPassDescriptor/depthStencilAttachment}} stencil value.
 
     : <dfn>failOp</dfn>
     ::
@@ -11600,7 +11623,7 @@ dictionary GPURenderPassColorAttachment {
 
     <div class=validusage>
         1. Let |descriptor| be |view|.{{GPUTextureView/[[descriptor]]}}.
-        1. |view|.{{GPUTextureView/[[texture]]}}.{{GPUTexture/usage}}
+        1. |descriptor|.{{GPUTextureViewDescriptor/usage}}
             must contain {{GPUTextureUsage/RENDER_ATTACHMENT}}.
         1. |descriptor|.{{GPUTextureViewDescriptor/dimension}} must be {{GPUTextureViewDimension/"2d"}}
             or {{GPUTextureViewDimension/"2d-array"}} or {{GPUTextureViewDimension/"3d"}}.
