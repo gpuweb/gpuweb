@@ -15085,13 +15085,15 @@ blocks in hardware.
 The main rendering algorithm:
 
 <div algorithm data-timeline=queue>
-    <dfn abstract-op>render</dfn>(descriptor, drawCall, state)
+    <dfn abstract-op>render</dfn>(pipeline, drawCall, state)
 
         **Arguments:**
 
-        - |descriptor|: Description of the current {{GPURenderPipeline}}.
+        - |pipeline|: The current {{GPURenderPipeline}}.
         - |drawCall|: The draw call parameters. May come from function arguments or an {{GPUBufferUsage/INDIRECT}} buffer.
         - |state|: [=RenderState=] of the {{GPURenderCommandsMixin}} where the draw call is issued.
+
+        1. Let |descriptor| be |pipeline|.{{GPURenderPipeline/[[descriptor]]}}.
 
         1. **Resolve indices**. See [[#index-resolution]].
 
@@ -15119,14 +15121,11 @@ The main rendering algorithm:
             [$process fragment$](|rasterPoint|, |descriptor|, |state|)
             for each |rasterPoint| in |rasterizationList|.
 
-        1. **Process depth/stencil**. See [[#output-merging]].
-
-            Execute [$process depth stencil$](|fragment|, |descriptor|, |state|) For each non-null
-            |fragment| of |fragments|.
-
         1. **Write pixels**. See [[#output-merging]].
 
-            <p class="note editorial"><span class=marker>Editorial note:</span> fill out the section
+            For each non-null |fragment| of |fragments|:
+                - Execute [$process depth stencil$](|fragment|, |pipeline|, |state|).
+                - Execute [$process color attachments$](|fragment|, |pipeline|, |state|).
 </div>
 
 ### Index Resolution ### {#index-resolution}
@@ -15720,13 +15719,13 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
     1. Set |fragment|.[=Fragment/depth=] to |rp|.[=RasterizationPoint/depth=].
     1. If `frag_depth` [=builtin=] is not produced by the shader:
         1. Set |fragment|.[=Fragment/depthPassed=] to the result of [$compare fragment$](|fragment|.[=Fragment/destination=],
-            |fragment|.[=Fragment/depth=], depth, |state|.{{RenderState/[[depthStencilAttachment]]}},
+            |fragment|.[=Fragment/depth=], "[=aspect/depth=]", |state|.{{RenderState/[[depthStencilAttachment]]}},
             |depthStencilDesc|?.{{GPUDepthStencilState/depthCompare}}).
     1. Set |stencilState| to |depthStencilDesc|?.{{GPUDepthStencilState/stencilFront}} if
         |rp|.[=RasterizationPoint/frontFacing=] is `true` and |depthStencilDesc|?.{{GPUDepthStencilState/stencilBack}}
         otherwise.
     1. Set |fragment|.[=Fragment/stencilPassed=] to the result of [$compare fragment$](|fragment|.[=Fragment/destination=],
-        |state|.{{RenderState/[[stencilReference]]}}, stencil, |state|.{{RenderState/[[depthStencilAttachment]]}},
+        |state|.{{RenderState/[[stencilReference]]}}, "[=aspect/stencil=]", |state|.{{RenderState/[[depthStencilAttachment]]}},
         |stencilState|?.{{GPUStencilFaceState/compare}}).
     1. If |fragmentDesc| is not `null`:
         1. If |fragment|.[=Fragment/depthPassed=] is `false` and the `frag_depth` [=builtin=] is not produced by the
@@ -15765,7 +15764,7 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
                 1. Let |vp| be |state|.{{RenderState/[[viewport]]}}.
                 1. Set |fragment|.[=Fragment/depth=] to clamp(|value|, |vp|.`minDepth`, |vp|.`maxDepth`).
                 1. Set |fragment|.[=Fragment/depthPassed=] to the result of [$compare fragment$](|fragment|.[=Fragment/destination=],
-                    |fragment|.[=Fragment/depth=], depth, |state|.{{RenderState/[[depthStencilAttachment]]}},
+                    |fragment|.[=Fragment/depth=], "[=aspect/depth=]", |state|.{{RenderState/[[depthStencilAttachment]]}},
                     |depthStencilDesc|?.{{GPUDepthStencilState/depthCompare}}).
         1. If `sample_mask` [=builtin=] is produced by the shader as |value|:
             1. Set |fragment|.[=Fragment/coverageMask=] to |fragment|.[=Fragment/coverageMask=] &and; |value|.
@@ -15781,13 +15780,13 @@ This stage produces a <dfn dfn>Fragment</dfn> for each [=RasterizationPoint=]:
 
     - |destination|: The [=FragmentDestination=].
     - |value|: The value to be compared.
-    - |aspect|: The aspect of |attachement| to sample values from.
+    - |aspect|: The [=aspect=] of |attachment| to sample values from.
     - |attachment|: The attachment to be compared against.
-    - |compareFunc|: The comparison function to use.
+    - |compareFunc|: The {{GPUCompareFunction}} to use, or `undefined`.
 
     **Returns:** `true` if the comparison passes, or `false` otherwise
 
-    - If |attachement| is `undefined` or does not have |aspect|, return `true`.
+    - If |attachment| is `undefined` or does not have |aspect|, return `true`.
     - If |compareFunc| is `undefined` or {{GPUCompareFunction/"always"}}, return `true`.
     - Let |attachmentValue| be the value of |aspect| of |attachment| at |destination|.
     - Return `true` if comparing |value| with |attachmentValue| using |compareFunc| succeeds, and `false` otherwise.
@@ -15803,21 +15802,21 @@ Output merging is a fixed-function stage of the render [=pipeline=] that
 outputs the fragment color, depth and stencil data to be written into the render pass attachments.
 
 <div algorithm data-timeline=queue>
-    <dfn abstract-op>process depth stencil</dfn>(fragment, descriptor, state)
+    <dfn abstract-op>process depth stencil</dfn>(fragment, pipeline, state)
 
     **Arguments:**
 
     - |fragment|: The [=Fragment=], produced by [[#fragment-processing]].
-    - |descriptor|: The descriptor of type {{GPURenderPipelineDescriptor}}.
+    - |pipeline|: The current {{GPURenderPipeline}}.
     - |state|: The active [=RenderState=].
 
-    1. Let |depthStencilDesc| be |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.
+    1. Let |depthStencilDesc| be |pipeline|.{{GPURenderPipeline/[[descriptor]]}}.{{GPURenderPipelineDescriptor/depthStencil}}.
 
-    1. If |descriptor|.{{GPURenderPipeline/[[writesDepth]]}} is `true` and |fragment|.[=Fragment/depthPassed=] is `true`:
+    1. If |pipeline|.{{GPURenderPipeline/[[writesDepth]]}} is `true` and |fragment|.[=Fragment/depthPassed=] is `true`:
         1. Set the value of the depth aspect of |state|.{{RenderState/[[depthStencilAttachment]]}} at
             |fragment|.[=Fragment/destination=] to |fragment|.[=Fragment/depth=].
 
-    1. If |descriptor|.{{GPURenderPipeline/[[writesStencil]]}} is true:
+    1. If |pipeline|.{{GPURenderPipeline/[[writesStencil]]}} is true:
         1. Set |stencilState| to |depthStencilDesc|.{{GPUDepthStencilState/stencilFront}} if
             |fragment|.[=Fragment/frontFacing=] is `true` and
             |depthStencilDesc|.{{GPUDepthStencilState/stencilBack}} otherwise.
@@ -15836,7 +15835,34 @@ outputs the fragment color, depth and stencil data to be written into the render
 The depth input to this stage, if any, is clamped to the current {{RenderState/[[viewport]]}} depth
 range (regardless of whether the fragment shader stage writes the `frag_depth` builtin).
 
-<p class="note editorial"><span class=marker>Editorial note:</span> fill out this section
+<div algorithm data-timeline=queue>
+    <dfn abstract-op>process color attachments</dfn>(fragment, pipeline, state)
+
+    **Arguments:**
+
+    - |fragment|: The [=Fragment=], produced by [[#fragment-processing]].
+    - |pipeline|: The current {{GPURenderPipeline}}.
+    - |state|: The active [=RenderState=].
+
+    1. If |fragment|.[=Fragment/depthPassed=] is `false` or |fragment|.[=Fragment/stencilPassed=] is `false`, return.
+
+    1. Let |targets| be |pipeline|.{{GPURenderPipeline/[[descriptor]]}}.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}}.
+    1. For each |attachment| of |state|.{{RenderState/[[colorAttachments]]}}:
+        1. Let |color| be the value from |fragment|.[=Fragment/colors=] that corresponds with |attachment|.
+        1. Let |targetDesc| be the |targets| entry that corresponds with |attachment|.
+
+        1. If |targetDesc|.{{GPUColorTargetState/blend}} is [=map/exist|provided=]:
+            1. Let |colorBlend| be |targetDesc|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}.
+            1. Let |alphaBlend| be |targetDesc|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}.
+            1. Set the RGB components of |color| to the value computed by performing the operation described by
+                |colorBlend|.{{GPUBlendComponent/operation}} with the values described by
+                |colorBlend|.{{GPUBlendComponent/srcFactor}} and |colorBlend|.{{GPUBlendComponent/dstFactor}}.
+            1. Set the alpha component of |color| to the value computed by performing the operation described by
+                |alphaBlend|.{{GPUBlendComponent/operation}} with the values described by
+                |alphaBlend|.{{GPUBlendComponent/srcFactor}} and |alphaBlend|.{{GPUBlendComponent/dstFactor}}.
+
+        1. Set the value of |attachment| at |fragment|.[=Fragment/destination=] to |color|.
+</div>
 
 ### No Color Output ### {#no-color-output}
 
