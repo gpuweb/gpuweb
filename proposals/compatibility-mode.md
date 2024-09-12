@@ -16,24 +16,81 @@ Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility m
 
 ## WebGPU Spec Changes
 
-```webidl
-partial dictionary GPURequestAdapterOptions {
-    boolean compatibilityMode = false;
-}
+Terms:
+
+- Compat-defaulting adapter: an adapter on which `requestDevice()` defaults to a Compat device.
+- Core-defaulting adapter: an adapter on which `requestDevice()` defaults to a Core device.
+- Core-capable adapter: an adapter which can provide a Core device if requested.
+- Core-only implementation: a User Agent implementation which does not implement Compatibility Mode validation.
+
+### Capabilities
+
+Compatibility Mode introduces a new baseline "feature level" for WebGPU.
+From this baseline, the "core" feature level is a collection of capability upgrades from "compatibility":
+
+- Core requires some better limits which are optional in compat. See [10. Lower Limits](#10-lower-limits).
+- Core requires some features which are optional in compat.
+
+The `"webgpu-core"` feature enables **all features and limits** that are allowed in Core.
+On Core-defaulting adapters, it is always available and enabled by default (including in Core-only implementations).
+On Compat-defaulting adapters, may be enabled if available.
+
+As always, the capabilities of the resulting device are enforced on all calls to the API.
+
+EXTENSIBILITY:
+Incremental capabilities between compat and core can be exposed as limits or features which are optional on Compat-defaulting adapters.
+They would be similarly always available and enabled by default on Core-requested adapters
+(including in Core-only implementations).
+
+### Initialization
+
+No IDL changes.
+
+The core spec already allows `featureLevel: "compatibility"`, which is currently ignored.
+When an application passes `"compatibility"`, it indicates that it can handle (and hopefully use) an adapter with capabilities lower than the `"core"` defaults. In this case:
+
+- If a User Agent supporting Compat is running on a Core-*incapable*, it returns a Compat-defaulting Core-incapable adapter (or null).
+- If a User Agent supporting Compat is running on a Core-*capable*, it **may** return a Compat-defaulting Core-capable adapter, or **may** return a Core-defaulting adapter.
+    - ALTERNATIVE: "require" (non-normatively encourage) UAs to go one way or the other - either always emulate compat or always upgrade to core. This is probably not necessary.
+- As already in the current spec, Core-only implementations must still recognize `"compatibility"` but ignore it (automatically upgrade the request) and return a Core-defaulting adapter (or null).
+
+The `GPUAdapter` does not expose whether it is Core-defaulting or Compat-defaulting.
+Most applications shouldn't need to check that compat is enforced, instead requesting the capabilities they want and only using those capabilities.
+Applications that do need to check that compat is enforced (such as tests) should create a device and then check whether the `"webgpu-core"` feature is enabled on the device.
+
+#### Example
+
+```js
+const adapter = await navigator.gpu.requestAdapter()
+const device = await adapter.requestDevice();
 ```
 
-When calling `GPU.RequestAdapter()`, passing `compatibilityMode = true` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
+and
 
-Note that a supporting User Agent may return a `compatibilityMode = true` Adapter which is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, so long as it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
-
-```webidl
-partial interface GPUAdapter {
-    readonly attribute boolean isCompatibilityMode;
-}
+```js
+const adapter = await navigator.gpu.requestAdapter({ featureLevel: 'compatibility' });
+const device = await adapter.requestDevice({ requiredFeatures: ['webgpu-core'] });
 ```
 
-As a convenience to the developer, the Adapter returned will have the `isCompatibilityMode` property set to `true`.
+have the same result. Both will succeed if core is available and fail if not.
 
+Using the latter method is a way to upgrade functionality at runtime, but get compat if available, as in:
+
+```js
+const adapter = await navigator.gpu.requestAdapter({ featureLevel: 'compatibility' });
+const hasCore = adapter.features.has('webgpu-core');
+const requiredFeatures = [];
+if (hasCore) {
+   requiredFeatures.push('webgpu-core');
+}
+const device = await adapter.requestDevice({ requiredFeatures });
+
+...
+
+// enable fancier rendering if `hasCore` is true.
+```
+
+### Texture Creation
 
 ```webidl
 partial dictionary GPUTextureDescriptor {
