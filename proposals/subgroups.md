@@ -109,9 +109,9 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupMin(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a min of `e` among all active invocations and returns that result |
 | `fn subgroupMax(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a max of `e` among all active invocations and returns that result |
 | `fn quadBroadcast(e : T, id : I)` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Broadcasts `e` from the quad invocation with id equal to `id`<br>`id` must be a constant-expression<sup>2</sup> |
-| `fn quadSwapX(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the X direction |
-| `fn quadSwapY(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the Y direction |
-| `fn quadSwapDiagonal(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad diagnoally |
+| `fn quadSwapX(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the X direction |
+| `fn quadSwapY(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the Y direction |
+| `fn quadSwapDiagonal(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad diagnoally |
 1. This is the first instance of dynamic uniformity. See the portability and uniformity section for more details.
 2. Unlike `subgroupBroadcast`, there is no alternative if the author wants a non-constant `id`: SPIR-V does not have a quad shuffle operation to fall back on.
 
@@ -245,9 +245,9 @@ D3D12 would have to be proven empricially.
 | `subgroupMin` | OpGroupNonUniform[SUF]Min with Reduce operation | simd_min | WaveActiveMin |
 | `subgroupMax` | OpGroupNonUniform[SUF]Max with Reduce operation | simd_max | WaveActiveMax |
 | `quadBroadcast` | OpGroupNonUniformQuadBroadcast | quad_broadcast | QuadReadLaneAt |
-| `quadSwapX` | OpGroupNonUniformQuadSwap with Direction=0 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 0x1` | QuadReadAcrossX |
-| `quadSwapY` | OpGroupNonUniformQuadSwap with Direction=1 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 0x10` | QuadReadAcrossY |
-| `quadSwapDiagonal` | OpGroupNonUniformQuadSwap with Direction=2 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 0x11` | QuadReadAcrossDiagonal |
+| `quadSwapX` | OpGroupNonUniformQuadSwap with Direction=0 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 1` (xor bits `01`) | QuadReadAcrossX |
+| `quadSwapY` | OpGroupNonUniformQuadSwap with Direction=1 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 2` (xor bits `10`) | QuadReadAcrossY |
+| `quadSwapDiagonal` | OpGroupNonUniformQuadSwap with Direction=2 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 3` (xor bits `11`)  | QuadReadAcrossDiagonal |
 
 
 1. All group non-uniform instructions use the `Subgroup` scope.
