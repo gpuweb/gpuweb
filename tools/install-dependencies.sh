@@ -12,7 +12,7 @@ for opt in "$@"; do
             code=0
             ;;
         wgsl)
-            python3 -m pip install tree_sitter==$PIP_TREE_SITTER_VERSION
+            python3 -m pip install --upgrade build==$PIP_BUILD_VERSION tree_sitter==$PIP_TREE_SITTER_VERSION
             code=0
             ;;
         diagrams)
