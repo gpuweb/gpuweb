@@ -13955,6 +13955,15 @@ interface GPUCanvasContext {
         [$Expire the current texture$] sets the currentTexture to `null`.
         It is called by {{GPUCanvasContext/configure()}}, resizing the canvas,
         presentation, {{OffscreenCanvas/transferToImageBitmap()}}, and others.
+
+    : <dfn>\[[lastPresentedImage]]</dfn>, of type `(readonly image)?`, initially `null`
+    ::
+        The image most recently presented for this canvas in "[$updating the rendering of a WebGPU canvas$]".
+        If the device is lost or destroyed, this image **may** be used as a fallback in
+        "[$get a copy of the image contents of a context$]" in order to prevent the canvas from going blank.
+
+        Note:
+        This property only needs to exist in implementations which implement the fallback, which is optional.
 </dl>
 
 {{GPUCanvasContext}} has the following methods:
@@ -13988,8 +13997,7 @@ interface GPUCanvasContext {
                     [$GPUTextureDescriptor for the canvas and configuration$](|this|.{{GPUCanvasContext/canvas}}, |configuration|).
                 1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to |configuration|.
                 1. Set |this|.{{GPUCanvasContext/[[textureDescriptor]]}} to |descriptor|.
-                1. [$Replace the drawing buffer$] of |this|, which resets
-                    |this|.{{GPUCanvasContext/[[drawingBuffer]]}} with a bitmap with the new format and tags.
+                1. [$Replace the drawing buffer$] of |this|.
                 1. Issue the subsequent steps on the [=Device timeline=] of |device|.
             </div>
             <div data-timeline=device>
@@ -14070,7 +14078,7 @@ interface GPUCanvasContext {
             (see [=automatic expiry task source=]).
             Expiry is only guaranteed when a visible canvas is displayed
             ([$updating the rendering of a WebGPU canvas$]) and in other
-            callers of [$Replace the drawing buffer$].
+            callers of "[$Expire the current texture$]".
         </div>
 
         <div algorithm=GPUCanvasContext.getCurrentTexture>
@@ -14125,17 +14133,31 @@ interface GPUCanvasContext {
 
     [=Content timeline=] steps:
 
-    1. If |context|.{{GPUCanvasContext/[[configuration]]}} is `null`:
-        1. Return a transparent black image of the same size as |context|.{{GPUCanvasContext/canvas}}.
+    1. Let |snapshot| be a transparent black image of the same size as |context|.{{GPUCanvasContext/canvas}}.
+    1. Let |configuration| be |context|.{{GPUCanvasContext/[[configuration]]}}.
+    1. If |configuration| is `null`:
+        1. Return |snapshot|.
 
-        Note: The {{GPUCanvasContext/[[configuration]]}} will be `null` if the context has not been
+        Note: The configuration will be `null` if the context has not been
         configured or has been {{GPUCanvasContext/unconfigure()|unconfigured}}. This is identical to
         the behavior when the canvas has no context.
 
     1. Ensure that all submitted work items (e.g. queue submissions) have
         completed writing to the image (via |context|.{{GPUCanvasContext/[[currentTexture]]}}).
-    1. Let |snapshot| be a copy of |context|.{{GPUCanvasContext/[[drawingBuffer]]}}.
-    1. Let |alphaMode| be |context|.{{GPUCanvasContext/[[configuration]]}}.{{GPUCanvasConfiguration/alphaMode}}.
+    1. If |configuration|.{{GPUCanvasConfiguration/device}} is found to be [=valid=]:
+
+        1. Set |snapshot| to a copy of the |context|.{{GPUCanvasContext/[[drawingBuffer]]}}.
+
+        Else, if |context|.{{GPUCanvasContext/[[lastPresentedImage]]}} is not `null`:
+
+        1. **Optionally**, set |snapshot| to a copy of |context|.{{GPUCanvasContext/[[lastPresentedImage]]}}.
+
+            Note:
+            This is optional because the {{GPUCanvasContext/[[lastPresentedImage]]}} may no longer exist,
+            depending on what caused device loss.
+            Implementations may choose to skip it even if do they still have access to that image.
+
+    1. Let |alphaMode| be |configuration|.{{GPUCanvasConfiguration/alphaMode}}.
     1.
         <dl class=switch>
             : If |alphaMode| is {{GPUCanvasAlphaMode/"opaque"}}:
@@ -14145,13 +14167,14 @@ interface GPUCanvasContext {
 
                 Note:
                 If the {{GPUCanvasContext/[[currentTexture]]}}, if any, has been destroyed
-                (for example in [$Replace the drawing buffer$]), the alpha channel is unobservable,
+                (for example in "[$Expire the current texture$]"), the alpha channel is unobservable,
                 and implementations may clear the alpha channel in-place.
 
             : Otherwise:
             :: Tag |snapshot| with |alphaMode|.
         </dl>
-
+    1. Tag |snapshot| with the {{GPUCanvasConfiguration/colorSpace}} and
+        {{GPUCanvasConfiguration/toneMapping}} of |configuration|.
     1. Return |snapshot|.
 
     <!-- POSTV1(desynchronized): If a "desynchronized" option is added, explicitly describe its behavior here. -->
@@ -14171,7 +14194,8 @@ interface GPUCanvasContext {
             In this case, the drawing buffer will remain blank until the context is configured.
         - If not, the drawing buffer has the specified
             |configuration|.{{GPUCanvasConfiguration/format}} and is tagged with the specified
-            |configuration|.{{GPUCanvasConfiguration/colorSpace}}.
+            |configuration|.{{GPUCanvasConfiguration/colorSpace}} and
+            |configuration|.{{GPUCanvasConfiguration/toneMapping}}.
 
         Note: |configuration|.{{GPUCanvasConfiguration/alphaMode}} is ignored until
         "[$get a copy of the image contents of a context$]".
@@ -14213,8 +14237,9 @@ specified points.
         This occurs in many places, including:
 
         - When an {{HTMLCanvasElement}} has its rendering updated.
-        - When an {{OffscreenCanvas}} with a [=placeholder canvas element=] has its rendering updated.
+            - Including when the canvas is the [=placeholder canvas element=] of an {{OffscreenCanvas}}.
         - When {{OffscreenCanvas/transferToImageBitmap()}} creates an {{ImageBitmap}} from the bitmap.
+            (See also [$transferToImageBitmap from WebGPU$].)
         - When WebGPU canvas contents are read using other Web APIs, like
             {{CanvasDrawImage/drawImage()}}, `texImage2D()`, `texSubImage2D()`,
             {{HTMLCanvasElement/toDataURL()}}, {{HTMLCanvasElement/toBlob()}}, and so on.
@@ -14231,8 +14256,8 @@ specified points.
 <div algorithm data-timeline=content>
     When <dfn abstract-op>updating the rendering of a WebGPU canvas</dfn>
     (an {{HTMLCanvasElement}} or an {{OffscreenCanvas}} with a [=placeholder canvas element=])
-    with a {{GPUCanvasContext}} |context|, which occurs in the following sub-steps of the
-    [=event loop processing model=], run the following [=content timeline=] steps:
+    with a {{GPUCanvasContext}} |context|, which occurs before getting the canvas's image contents,
+    in the following sub-steps of the [=event loop processing model=]:
 
     - "update the rendering or user interface of that `Document`"
     - "update the rendering of that dedicated worker"
@@ -14245,27 +14270,37 @@ specified points.
     {{OffscreenCanvas}}es from {{HTMLCanvasElement/transferControlToOffscreen()}}
     [cannot be sent to these workers](https://github.com/whatwg/html/issues/10112).
 
-    Run the following steps:
+    Run the following [=content timeline=] steps:
 
     1. [$Expire the current texture$] of |context|.
 
         Note: If this already happened in the task queued by
         {{GPUCanvasContext/getCurrentTexture()}}, it has no effect.
+    1. Set |context|.{{GPUCanvasContext/[[lastPresentedImage]]}} to
+        |context|.{{GPUCanvasContext/[[drawingBuffer]]}}.
+
+        Note: This is just a reference, not a copy; the drawing buffer's contents can't change
+        in-place after the current texture has expired.
 
     Note:
     This does not happen for standalone {{OffscreenCanvas}}es (created by `new OffscreenCanvas()`).
 </div>
 
-<div algorithm="transferToImageBitmap from WebGPU" data-timeline=content>
+<div algorithm data-timeline=content>
+    <dfn abstract-op>transferToImageBitmap from WebGPU</dfn>:
+
     When {{OffscreenCanvas/transferToImageBitmap()}} is called on a canvas with
     {{GPUCanvasContext}} |context|, after creating an {{ImageBitmap}} from the canvas's bitmap,
     run the following [=content timeline=] steps:
 
     1. [$Replace the drawing buffer$] of |context|.
 
-    Note: This is equivalent to "moving" the (possibly alpha-cleared) image contents into the
+    Note: This makes {{OffscreenCanvas/transferToImageBitmap()}}
+    equivalent to "moving" (and possibly alpha-clearing) the image contents into the
     ImageBitmap, without a copy.
 </div>
+
+- The [$update the canvas size$] algorithm. <!-- TODO: Move it here for clarity. -->
 
 ## GPUCanvasConfiguration ## {#canvas-configuration}
 
