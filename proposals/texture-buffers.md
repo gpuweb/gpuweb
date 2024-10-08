@@ -45,15 +45,6 @@ For a `textureStore` operation, the inverse of the conversion function is used t
 Writes to texture buffers are visible to the same invocation, and can be synchronized with other invocations from the same workgroup using a `textureBarrier`.
 
 
-## Private vs Non-private
-
-[[Add new paragraphs]]
-
-All non-atomic read accesses in the handle address space are considered non-private and correspond to read operations with `NonPrivateTexel | MakeTexelVisible` memory operands with the Workgroup scope.
-
-All non-atomic write accesses in the handle address space are considered non-private and correspond to write operations with `NonPrivateTexel | MakeTexelAvailable` memory operands with the Workgroup scope.
-
-
 ## Restrictions on Functions
 
 Add `texture_buffer` to the list of valid function parameter types.
