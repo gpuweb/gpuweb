@@ -36,20 +36,20 @@ For each case study we'll look at how a piece of code behaves in several cases g
 
 - *Available (5)*: a browser which implements `"foo"`, on a device with support with `maxFoo: 5`.
   - `a.features.has("foo")` is `true`
-  - `'maxFoo' in a.requiredLimits` is `true`
-  - `a.requiredLimits.maxFoo` is `7`
+  - `'maxFoo' in a.limits` is `true`
+  - `a.limits.maxFoo` is `7`
 - *Available (7)*: a browser which implements `"foo"`, on a device with support with `maxFoo: 7`.
   - `a.features.has("foo")` is `true`
-  - `'maxFoo' in a.requiredLimits` is `true`
-  - `a.requiredLimits.maxFoo` is `7`
+  - `'maxFoo' in a.limits` is `true`
+  - `a.limits.maxFoo` is `7`
 - *Unavailable*: a browser which implements `"foo"`, on a device without support.
   - `a.features.has("foo")` is `false`
-  - `'maxFoo' in a.requiredLimits` is `true`
-  - `a.requiredLimits.maxFoo` is `undefined`
+  - `'maxFoo' in a.limits` is `true`
+  - `a.limits.maxFoo` is `undefined`
 - *Unimplemented*: a browser which hasn't implemented `"foo"` **but does implement the new rules allowing unknown limits set to `undefined`**
   - `a.features.has("foo")` is `false`
-  - `'maxFoo' in a.requiredLimits` is `false`
-  - `a.requiredLimits.maxFoo` is `undefined`
+  - `'maxFoo' in a.limits` is `false`
+  - `a.limits.maxFoo` is `undefined`
 
 In all cases `requiredFeatures: []` is the same as not specifying it,
 `requiredLimits: {}` is the same as not specifying it, and
