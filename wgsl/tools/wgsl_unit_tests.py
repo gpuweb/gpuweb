@@ -92,8 +92,7 @@ def GetCases():
     return cases
 
 class Options:
-    def __init__(self,shared_lib):
-        self.shared_lib = shared_lib
+    def __init__(self):
         self.verbose = False
 
 def run_tests(options):
@@ -131,12 +130,9 @@ def main():
     argparser.add_argument("--verbose","-v",
                            action='store_true',
                            help="be verbose")
-    argparser.add_argument("--parser",
-                           help="path the shared library for the WGSL tree-sitter parser",
-                           default="grammar/build/wgsl.so")
 
     args = argparser.parse_args()
-    options = Options(args.parser)
+    options = Options()
     options.verbose = args.verbose
 
     if not run_tests(options):
