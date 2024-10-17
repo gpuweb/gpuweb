@@ -28,7 +28,7 @@ class Options():
     A class to store various options including file paths and verbosity.
     """
     def __init__(self,bs_filename, tree_sitter_dir, scanner_cc_filename, syntax_filename, syntax_dir):
-        self.script = 'extract-grammar.py'
+        self.script = os.path.basename(__file__)
         self.bs_filename = bs_filename
         self.grammar_dir = tree_sitter_dir
         self.scanner_cc_filename = scanner_cc_filename
@@ -760,7 +760,7 @@ def read_spec(options):
                                     last_value)
                             if scanner_span.name() == scanner_token.name():
                                 result[scanner_span.name()][last_key] = last_value
-                    scanner_i += scanner_parse[-1]  # Advance line index 
+                    scanner_i += scanner_parse[-1]  # Advance line index
         for j in scanner_spans:
             if scanner_span == j:
                 # Check if we should stop using this scanner.
@@ -925,7 +925,7 @@ def read_spec(options):
         print("ERROR: Syntax source should match reproduction for styling and language")
         print("\n".join(difflib.unified_diff(syntax_source.splitlines(), syntax_target.splitlines())))
         sys.exit(1)
-    
+
     result[scanner_rule.name()] = syntax_dict
     return result
 
@@ -1146,16 +1146,25 @@ def flow_build(options):
     os.makedirs(os.path.join(options.grammar_dir, "src"), exist_ok=True)
     scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.c")
 
+    if os.path.exists("grammar/src/tree_sitter/parser.h"):
+        print("{}: skipping tree-sitter generate: grammar/src/tree_sitter/parser.h already exists".format(options.script))
+    else:
+        cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
+        print("{}: {}".format(options.script, " ".join(cmd)))
+        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
+
     # Use "npm install" to create the tree-sitter CLI that has WGSL
     # support.  But "npm install" fetches data over the network.
     # That can be flaky, so only invoke it when needed.
     if os.path.exists("grammar/node_modules/tree-sitter-cli"):
         # "npm install" has been run already.
+        print("{}: skipping npm install: grammar/node_modules/tree-sitter-cli already exists".format(options.script))
         pass
     else:
-        subprocess.run(["npm", "install"], cwd=options.grammar_dir, check=True)
-    subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"],
-                   cwd=options.grammar_dir, check=True)
+        cmd = ["npm", "install"]
+        print("{}: {}".format(options.script, " ".join(cmd)))
+        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
+
     # Following are commented for future reference to expose playground
     # Remove "--docker" if local environment matches with the container
     # subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "build-wasm", "--docker"],
@@ -1163,12 +1172,16 @@ def flow_build(options):
 
     def build_library(output_path, input_files):
         """
-        Run `python3 -m pip install -e . --user --break-system-packages`
-        in grammar_dir to install the tree-sitter language package
+        Build and install the tree-sitter language package
         """
         try:
+            if "VIRTUAL_ENV" in os.environ:
+                cmd = ["python3", "-m", "pip", "install", "-e", "."]
+            else:
+                cmd = ["python3", "-m", "pip", "install", "-e", ".", "--user", "--break-system-packages"]
+            print("{}: {}".format(options.script, " ".join(cmd)))
             subprocess.run(
-                ["python3", "-m", "pip", "install", "-e", ".", "--user", "--break-system-packages"],
+                cmd,
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
