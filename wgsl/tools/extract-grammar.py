@@ -1150,12 +1150,9 @@ def flow_build(options):
     scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.c")
 
 
-    if os.path.exists("grammar/src/tree_sitter/parser.h"):
-        print("{}: skipping tree-sitter generate: grammar/src/tree_sitter/parser.h already exists".format(options.script))
-    else:
-        cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
-        print("{}: {}".format(options.script, " ".join(cmd)))
-        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
+    cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
+    print("{}: {}".format(options.script, " ".join(cmd)))
+    subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
     # Use "npm install" to create the tree-sitter CLI that has WGSL
     # support.  But "npm install" fetches data over the network.
