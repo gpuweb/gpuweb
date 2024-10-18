@@ -13,8 +13,6 @@ import sys
 import string
 import shutil
 
-import wgsl_unit_tests
-
 from distutils.ccompiler import new_compiler
 from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
@@ -30,11 +28,11 @@ class Options():
     A class to store various options including file paths and verbosity.
     """
     def __init__(self,bs_filename, tree_sitter_dir, scanner_cc_filename, syntax_filename, syntax_dir):
-        self.script = 'extract-grammar.py'
+        self.script = os.path.basename(__file__)
         self.bs_filename = bs_filename
         self.grammar_dir = tree_sitter_dir
         self.scanner_cc_filename = scanner_cc_filename
-        self.wgsl_shared_lib = os.path.join(self.grammar_dir,"build","wgsl.so")
+        self.wgsl_shared_lib = os.path.join(self.grammar_dir,"dist","tree_sitter_wgsl-0.0.7.tar.gz")
         self.grammar_filename = os.path.join(self.grammar_dir,"grammar.js")
         self.syntax_filename = syntax_filename
         self.syntax_dir = syntax_dir
@@ -762,7 +760,7 @@ def read_spec(options):
                                     last_value)
                             if scanner_span.name() == scanner_token.name():
                                 result[scanner_span.name()][last_key] = last_value
-                    scanner_i += scanner_parse[-1]  # Advance line index 
+                    scanner_i += scanner_parse[-1]  # Advance line index
         for j in scanner_spans:
             if scanner_span == j:
                 # Check if we should stop using this scanner.
@@ -927,7 +925,7 @@ def read_spec(options):
         print("ERROR: Syntax source should match reproduction for styling and language")
         print("\n".join(difflib.unified_diff(syntax_source.splitlines(), syntax_target.splitlines())))
         sys.exit(1)
-    
+
     result[scanner_rule.name()] = syntax_dict
     return result
 
@@ -1129,18 +1127,6 @@ def flow_extract(options, scan_result):
             for line in scan_result['raw']:
                 previous_file.write(line)
 
-    with open(os.path.join(options.grammar_dir,"package.json"), "w") as grammar_package:
-        grammar_package.write('{\n')
-        grammar_package.write('    "name": "tree-sitter-wgsl",\n')
-        grammar_package.write('    "dependencies": {\n')
-        grammar_package.write('        "nan": "' + value_from_dotenv("NPM_NAN_VERSION") + '"\n')
-        grammar_package.write('    },\n')
-        grammar_package.write('    "devDependencies": {\n')
-        grammar_package.write('        "tree-sitter-cli": "' + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION") + '"\n')
-        grammar_package.write('    },\n')
-        grammar_package.write('    "main": "bindings/node"\n')
-        grammar_package.write('}\n')
-
     return True
 
 def flow_build(options):
@@ -1153,86 +1139,71 @@ def flow_build(options):
         print("missing grammar file: {}")
         return False
 
+    # The 'build.stamp' file is touched when the parser is successfully installed.
+    stampfile = os.path.join(options.grammar_dir, 'build.stamp')
+
     # External scanner for nested block comments
     # For the API, see https://tree-sitter.github.io/tree-sitter/creating-parsers#external-scanners
     # See: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
 
     os.makedirs(os.path.join(options.grammar_dir, "src"), exist_ok=True)
+    scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.c")
 
-    # Remove the old custom scanner, if it exists.
-    scanner_c_staging = os.path.join(options.grammar_dir, "src", "scanner.c")
-    if os.path.exists(scanner_c_staging):
-        os.remove(scanner_c_staging)
-    # Copy the new scanner into place, if newer
-    scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.cc")
-    if newer_than(options.scanner_cc_filename, scanner_cc_staging):
-        shutil.copyfile(options.scanner_cc_filename, scanner_cc_staging)
 
+    cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
+    print("{}: {}".format(options.script, " ".join(cmd)))
+    subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
     # Use "npm install" to create the tree-sitter CLI that has WGSL
     # support.  But "npm install" fetches data over the network.
     # That can be flaky, so only invoke it when needed.
-    if os.path.exists("grammar/node_modules/tree-sitter-cli") and os.path.exists("grammar/node_modules/nan"):
+    if os.path.exists("grammar/node_modules/tree-sitter-cli"):
         # "npm install" has been run already.
+        print("{}: skipping npm install: grammar/node_modules/tree-sitter-cli already exists".format(options.script))
         pass
     else:
-        subprocess.run(["npm", "install"], cwd=options.grammar_dir, check=True)
-    subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"],
-                   cwd=options.grammar_dir, check=True)
+        cmd = ["npm", "install"]
+        print("{}: {}".format(options.script, " ".join(cmd)))
+        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
+
     # Following are commented for future reference to expose playground
     # Remove "--docker" if local environment matches with the container
     # subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "build-wasm", "--docker"],
     #                cwd=options.grammar_dir, check=True)
 
-    def build_library(output_path, input_files):
-        # The py-tree-sitter build_library method with C++17 flags
+    def build_library(input_files):
         """
-        Build a dynamic library at the given path, based on the parser
-        repositories at the given paths.
-
-        Returns `True` if the dynamic library was compiled and `False` if
-        the library already existed and was modified more recently than
-        any of the source files.
+        Build and install the tree-sitter language package
         """
-
-        cpp = False
-        source_paths = []
-        for input_file in input_files:
-            source_paths.append(input_file)
-            if input_file.endswith(".cc"):
-                cpp = True
-
-        compiler = new_compiler()
-        if isinstance(compiler, UnixCCompiler):
-            compiler.set_executables(compiler_cxx="c++")
-
-        with TemporaryDirectory(suffix="tree_sitter_language") as out_dir:
-            object_paths = []
-            for source_path in source_paths:
-                flags = ["-fPIC"]
-                if source_path.endswith(".c"):
-                    flags.append("-std=c99")
-                else:
-                    flags.append("-std=c++17")
-                object_paths.append(
-                    compiler.compile(
-                        [source_path],
-                        output_dir=out_dir,
-                        include_dirs=[os.path.dirname(source_path)],
-                        extra_preargs=flags,
-                    )[0]
-                )
-            compiler.link_shared_object(
-                object_paths,
-                output_path,
-                target_lang="c++" if cpp else "c",
+        try:
+            if "VIRTUAL_ENV" in os.environ:
+                cmd = ["python3", "-m", "pip", "install", "-e", "."]
+            else:
+                cmd = ["python3", "-m", "pip", "install", "-e", ".", "--user", "--break-system-packages"]
+            print("{}: {}".format(options.script, " ".join(cmd)))
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=options.grammar_dir
             )
-            
-    if newer_than(scanner_cc_staging, options.wgsl_shared_lib) or newer_than(options.grammar_filename,options.wgsl_shared_lib):
-        print("{}: ...Building custom scanner: {}".format(options.script,options.wgsl_shared_lib))
-        build_library(options.wgsl_shared_lib,
-                      [scanner_cc_staging,
-                       os.path.join(options.grammar_dir,"src","parser.c")])
+
+            with open(stampfile, 'w') as f:
+                print("created file:  {}".format(stampfile))
+            print("Tree-sitter language package installed successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error installing tree-sitter language package: {e}")
+            print(f"stdout: {e.stdout}")
+            print(f"stderr: {e.stderr}")
+            return False
+
+    if newer_than(scanner_cc_staging, stampfile) or newer_than(options.grammar_filename,stampfile):
+        print("{}: ...Building custom scanner".format(options.script))
+        build_library([scanner_cc_staging, os.path.join(options.grammar_dir,"src","parser.c")])
+    else:
+        print("{}: ...Skip building tree_sitter_wgsl: grammar/build.stamp is fresh".format(options.script))
     return True
 
 def flow_examples(options,scan_result):
@@ -1246,10 +1217,10 @@ def flow_examples(options,scan_result):
     print("{}: Examples...".format(options.script))
 
     examples = scan_result['example']
-    WGSL_LANGUAGE = Language(options.wgsl_shared_lib, "wgsl")
+    import tree_sitter_wgsl
+    WGSL_LANGUAGE = Language(tree_sitter_wgsl.language())
 
-    parser = Parser()
-    parser.set_language(WGSL_LANGUAGE)
+    parser = Parser(WGSL_LANGUAGE)
 
     errors = 0
     for key, value in examples.items():
@@ -1374,7 +1345,8 @@ def main():
         if not flow_examples(options,scan_result):
             return 1
     if 't' in args.flow:
-        test_options = wgsl_unit_tests.Options(options.wgsl_shared_lib)
+        import wgsl_unit_tests
+        test_options = wgsl_unit_tests.Options()
         if not wgsl_unit_tests.run_tests(test_options):
             return 1
     return 0

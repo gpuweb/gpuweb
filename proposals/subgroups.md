@@ -90,28 +90,30 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupElect() -> bool` | | Returns true if this invocation has the lowest subgroup_invocation_id among active invocations in the subgroup |
 | `fn subgroupAll(e : bool) -> bool` | | Returns true if `e` is true for all active invocations in the subgroup |
 | `fn subgroupAny(e : bool) -> bool` | | Returns true if `e` is true for any active invocation in the subgroup |
-| `fn subgroupBroadcast(e : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be i32 or u32 | Broadcasts `e` from subgroup_invocation_id `id` to all active invocations. `id` must be dynamically uniform<sup>1</sup> |
+| `fn subgroupBroadcast(e : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be i32 or u32 | Broadcasts `e` from the invocation whose subgroup_invocation_id matches `id`, to all active invocations. <br>`id` must be a constant-expression. Use `subgroupShuffle` if you need a non-constant `id`. |
 | `fn subgroupBroadcastFirst(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Broadcasts `e` from the active invocation with the lowest subgroup_invocation_id in the subgroup  to all other active invocations |
 | `fn subgroupBallot(pred : bool) -> vec4<u32>` | | Returns a set of bitfields where the bit corresponding to subgroup_invocation_id is 1 if `pred` is true for that active invocation and 0 otherwise. |
 | `fn subgroupShuffle(v : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Returns `v` from the active invocation whose subgroup_invocation_id matches `id` |
-| `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask`.<br>`mask` must be dynamically uniform. |
+| `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask`.<br>`mask` must be dynamically uniform<sup>1</sup> |
 | `fn subgroupShuffleUp(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id - delta` |
 | `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta` |
 | `fn subgroupAdd(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Adds `e` among all active invocations and returns that result |
 | `fn subgroupExclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than this invocation |
+| `fn subgroupInclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Inclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than or equal to this invocation |
 | `fn subgroupMul(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Multiplies `e` among all active invocations and returns that result |
 | `fn subgroupExclusiveMul(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than this invocation |
+| `fn subgroupInclusiveMul(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Inclusive scan<br>Returns the product of `e` for all active invocations with subgroup_invocation_id less than or equal to this invocation |
 | `fn subgroupAnd(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise and of `e` among all active invocations and returns that result |
 | `fn subgroupOr(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise or of `e` among all active invocations and returns that result |
 | `fn subgroupXor(e : T) -> T` | `T` must be u32, i32, or a vector of those types | Reduction<br>Performs a bitwise xor of `e` among all active invocations and returns that result |
 | `fn subgroupMin(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a min of `e` among all active invocations and returns that result |
 | `fn subgroupMax(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Reduction<br>Performs a max of `e` among all active invocations and returns that result |
 | `fn quadBroadcast(e : T, id : I)` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Broadcasts `e` from the quad invocation with id equal to `id`<br>`id` must be a constant-expression<sup>2</sup> |
-| `fn quadSwapX(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the X direction |
-| `fn quadSwapY(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the Y direction |
-| `fn quadSwapDiagonal(e : T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad diagnoally |
+| `fn quadSwapX(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the X direction |
+| `fn quadSwapY(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad in the Y direction |
+| `fn quadSwapDiagonal(e : T) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Swaps `e` between invocations in the quad diagnoally |
 1. This is the first instance of dynamic uniformity. See the portability and uniformity section for more details.
-2. Unlike `subgroupBroadcast`, SPIR-V does not have a shuffle operation to fall back on, so this requirement must be surfaced.
+2. Unlike `subgroupBroadcast`, there is no alternative if the author wants a non-constant `id`: SPIR-V does not have a quad shuffle operation to fall back on.
 
 **TODO**: Are quad operations worth it?
 Quad operations present even less portability than subgroup operations due to
@@ -233,17 +235,19 @@ D3D12 would have to be proven empricially.
 | `subgroupShuffleDown` | OpGroupNonUniformShuffleDown | simd_shuffle_down | WaveReadLaneAt with index equal `subgroup_invocation_id + delta` |
 | `subgroupAdd` | OpGroupNonUniform[IF]Add with Reduce operation | simd_sum | WaveActiveSum |
 | `subgroupExclusiveAdd` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_sum | WavePrefixSum |
+| `subgroupInclusiveAdd` | OpGroupNonUniform[IF]Add with InclusiveScan operation | simd_prefix_inclusive_sum | WavePrefixSum(x) + x |
 | `subgroupMul` | OpGroupNonUniform[IF]Mul with Reduce operation | simd_product | WaveActiveProduct |
 | `subgroupExclusiveMul` | OpGroupNonUniform[IF]Add with ExclusiveScan operation | simd_prefix_exclusive_product | WavePrefixProduct |
+| `subgroupInclusiveMul` | OpGroupNonUniform[IF]Add with InclusiveScan operation | simd_prefix_inclusive_product | WavePrefixProduct(x) * x |
 | `subgroupAnd` | OpGroupNonUniformBitwiseAnd with Reduce operation | simd_and | WaveActiveBitAnd |
 | `subgroupOr` | OpGroupNonUniformBitwiseOr with Reduce operation | simd_or | WaveActiveBitOr |
 | `subgroupXor` | OpGroupNonUniformBitwiseXor with Reduce operation | simd_xor | WaveActiveBitXor |
 | `subgroupMin` | OpGroupNonUniform[SUF]Min with Reduce operation | simd_min | WaveActiveMin |
 | `subgroupMax` | OpGroupNonUniform[SUF]Max with Reduce operation | simd_max | WaveActiveMax |
 | `quadBroadcast` | OpGroupNonUniformQuadBroadcast | quad_broadcast | QuadReadLaneAt |
-| `quadSwapX` | OpGroupNonUniformQuadSwap with Direction=0 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 0x1` | QuadReadAcrossX |
-| `quadSwapY` | OpGroupNonUniformQuadSwap with Direction=1 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 0x10` | QuadReadAcrossY |
-| `quadSwapDiagonal` | OpGroupNonUniformQuadSwap with Direction=2 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 0x11` | QuadReadAcrossDiagonal |
+| `quadSwapX` | OpGroupNonUniformQuadSwap with Direction=0 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 1` (xor bits `01`) | QuadReadAcrossX |
+| `quadSwapY` | OpGroupNonUniformQuadSwap with Direction=1 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 2` (xor bits `10`) | QuadReadAcrossY |
+| `quadSwapDiagonal` | OpGroupNonUniformQuadSwap with Direction=2 | quad_shuffle with `quad_lane_id=thread_index_in_quad_group ^ 3` (xor bits `11`)  | QuadReadAcrossDiagonal |
 
 
 1. All group non-uniform instructions use the `Subgroup` scope.
