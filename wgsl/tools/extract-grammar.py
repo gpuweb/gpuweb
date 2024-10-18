@@ -1139,6 +1139,9 @@ def flow_build(options):
         print("missing grammar file: {}")
         return False
 
+    # The 'build.stamp' file is touched when the parser is successfully installed.
+    stampfile = os.path.join(options.grammar_dir, 'build.stamp')
+
     # External scanner for nested block comments
     # For the API, see https://tree-sitter.github.io/tree-sitter/creating-parsers#external-scanners
     # See: https://github.com/tree-sitter/tree-sitter-rust/blob/master/src/scanner.c
@@ -1146,12 +1149,10 @@ def flow_build(options):
     os.makedirs(os.path.join(options.grammar_dir, "src"), exist_ok=True)
     scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.c")
 
-    if os.path.exists("grammar/src/tree_sitter/parser.h"):
-        print("{}: skipping tree-sitter generate: grammar/src/tree_sitter/parser.h already exists".format(options.script))
-    else:
-        cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
-        print("{}: {}".format(options.script, " ".join(cmd)))
-        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
+
+    cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
+    print("{}: {}".format(options.script, " ".join(cmd)))
+    subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
     # Use "npm install" to create the tree-sitter CLI that has WGSL
     # support.  But "npm install" fetches data over the network.
@@ -1170,7 +1171,7 @@ def flow_build(options):
     # subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "build-wasm", "--docker"],
     #                cwd=options.grammar_dir, check=True)
 
-    def build_library(output_path, input_files):
+    def build_library(input_files):
         """
         Build and install the tree-sitter language package
         """
@@ -1188,6 +1189,9 @@ def flow_build(options):
                 text=True,
                 cwd=options.grammar_dir
             )
+
+            with open(stampfile, 'w') as f:
+                print("created file:  {}".format(stampfile))
             print("Tree-sitter language package installed successfully.")
         except subprocess.CalledProcessError as e:
             print(f"Error installing tree-sitter language package: {e}")
@@ -1195,11 +1199,11 @@ def flow_build(options):
             print(f"stderr: {e.stderr}")
             return False
 
-    if newer_than(scanner_cc_staging, options.wgsl_shared_lib) or newer_than(options.grammar_filename,options.wgsl_shared_lib):
-        print("{}: ...Building custom scanner: {}".format(options.script,options.wgsl_shared_lib))
-        build_library(options.wgsl_shared_lib,
-                      [scanner_cc_staging,
-                       os.path.join(options.grammar_dir,"src","parser.c")])
+    if newer_than(scanner_cc_staging, stampfile) or newer_than(options.grammar_filename,stampfile):
+        print("{}: ...Building custom scanner".format(options.script))
+        build_library([scanner_cc_staging, os.path.join(options.grammar_dir,"src","parser.c")])
+    else:
+        print("{}: ...Skip building tree_sitter_wgsl: grammar/build.stamp is fresh".format(options.script))
     return True
 
 def flow_examples(options,scan_result):
@@ -1342,7 +1346,7 @@ def main():
             return 1
     if 't' in args.flow:
         import wgsl_unit_tests
-        test_options = wgsl_unit_tests.Options(options.wgsl_shared_lib)
+        test_options = wgsl_unit_tests.Options()
         if not wgsl_unit_tests.run_tests(test_options):
             return 1
     return 0
