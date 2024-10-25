@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: all clean diagrams
 
 all: index.html webgpu.idl diagrams
@@ -18,7 +20,7 @@ index.html: index.pre.html
 MERMAID_OUTPUTS := $(patsubst diagrams/%.mmd,img/%.mmd.svg,$(wildcard diagrams/*.mmd))
 diagrams: $(MERMAID_OUTPUTS)
 img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
-	sh ../tools/invoke-mermaid.sh -i $< -o $@
+	bash ../tools/invoke-mermaid.sh -i $< -o $@
 
 # Extract webgpu.idl from the spec.
 webgpu.idl: index.html ../tools/extract-idl-index.py

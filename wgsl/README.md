@@ -1,5 +1,7 @@
 # WebGPU Shading Language Specification
 
+**For general instructions on building, see [CONTRIBUTING.md](../CONTRIBUTING.md).**
+
 ## Dependencies
 
 The following tools are used:
