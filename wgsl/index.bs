@@ -2748,6 +2748,13 @@ The <dfn noexport>numeric scalar</dfn> types are [=AbstractInt=],
 The <dfn noexport>integer scalar</dfn> types are [=AbstractInt=], [=i32=], and
 [=u32=].
 
+A <dfn>scalar conversion</dfn> maps a value in one scalar type to a value in a different scalar type.
+Generally the result value is close to the original value, within the limitations of the destination type.
+Scalar conversions occur either:
+* By explicitly invoking a [[#value-constructor-builtin-function|value constructor]], or
+* When converting a [=const-expression=] in an [=abstract numeric type=] to another type,
+    via a [=feasible automatic conversion=].
+
 ### Vector Types ### {#vector-types}
 
 A <dfn noexport>vector</dfn> is a grouped sequence of 2, 3, or 4 [=scalar=]
@@ -12231,7 +12238,7 @@ An [[!IEEE-754|IEEE-754]] binary floating point type approximates the [=extended
         See [[#differences-from-ieee754]].
 * The type supports operations including:
     * Basic arithmetic such as: addition (`+`), subtraction (`-`), mutiplication (`*`), and division (`/`).
-    * Conversion to and from other numeric types.
+    * [=Scalar conversion=] to and from other numeric types.
     * Built-in functions such as: [[#max-float-builtin|max]], [[#sqrt-builtin|sqrt]], [[#cos-builtin|cos]]
     * <div class=note>Note: Infinities are ordinary participants in most operations. For example adding [PINF] to 5 produces [PINF].</div>
 * The type has a bit representation characterized by:
@@ -12256,13 +12263,13 @@ The IEEE-754 floating point types of interest are:
     * [=ieee754/trailing significand field=] width 23
     * [=ieee754/exponent bias=] 127
     * [=finite range=]:  [ &minus; (2 &minus; 2<sup>−23</sup>) &times; 2<sup>127</sup>, (2 &minus; 2<sup>−23</sup>) &times; 2<sup>127</sup> ],
-         or approximately [ &minus;3.4028235 &times; 10<sup>38</sup>, 3.4028235 &times; 10<sup>38</sup> ].
+         or approximately [ &minus; 3.4028235 &times; 10<sup>38</sup>, 3.4028235 &times; 10<sup>38</sup> ].
 * <dfn dfn-for="ieee754" noexport>binary64</dfn>:
     * [=ieee754/exponent field=] width 11
     * [=ieee754/trailing significand field=] width 52
     * [=ieee754/exponent bias=] 1023
     * [=finite range=]:  [ &minus; (2 &minus; 2<sup>−52</sup>) &times; 2<sup>1023</sup>, (2 &minus; 2<sup>−52</sup>) &times; 2<sup>1023</sup> ],
-         or approximately [ &minus; 1.7976931348623157 &times; 10<sup>308</sup>, 1.7976931348623157 &times; 10<sup>308</sup> ].
+         or approximately [ &minus; 1.798 &times; 10<sup>308</sup>, 1.798 &times; 10<sup>308</sup> ].
 
 The following algorithm maps a bit representation of a floating point value to its corresponding [=extended real=] value, or NaN:
 <blockquote algorithm="floating point interpretation of bits">
@@ -12300,9 +12307,9 @@ The following algorithm maps a bit representation of a floating point value to i
 The <dfn>domain</dfn> of a floating point operation is the set of [=extended real=] number inputs for which the operation is well defined.
 
 * For example, the domain of the mathematical function &radic; is the interval [0,[PINF]]: &radic; is not well defined for inputs less than zero.
-* When applied to an input *inside* its [=domain=], an operation is defined in terms of an infinitely precise [=extended real=] <dfn>intermediate result</dfn>,
+* When evaluated *inside* its [=domain=], an operation is defined in terms of an infinitely precise [=extended real=] <dfn>intermediate result</dfn>,
     which is then converted to a floating point result, via [=rounding=].
-* When an operation is evaluated *outside* its [=domain=],
+* When evaluated *outside* its [=domain=],
     the default exception handling rules of IEEE-754 require an implementation to generate an [=ieee754/exception=] and yield a [=NaN=] value.
     In contrast, WGSL does not mandate floating point exceptions, and may instead yield an [=indeterminate value=]. See [[#differences-from-ieee754]].
 
@@ -12327,7 +12334,7 @@ IEEE-754 defines five kinds of <dfn dfn-for="ieee754">exceptions</dfn>:
 * <dfn dfn-for="ieee754">Division by zero</dfn>.
     This occurs when an operation on finite operands is defined as having an exact infinite result.
     Examples are 1 &divide; 0, and log(0).
-* <dfn dfn-for="ieee754">Overflow</dfn>. This occurs when an [=intermediate result=] exceeds the [=finite range=] of the type. See [[#floating-point-overflow]].
+* <dfn dfn-for="ieee754">Overflow</dfn>. This occurs when an [=intermediate result=] exceeds the [=finite range=] of the type. See [[#floating-point-rounding-and-overflow]].
 * <dfn dfn-for="ieee754" noexport>Underflow</dfn>. This occurs when the [=intermediate result=] or the rounded result is [=ieee754/subnormal=].
 * <dfn dfn-for="ieee754" noexport>Inexact</dfn>. This occurs when the rounded result is different from the [=intermediate result=],
     or when overflow occurs.
@@ -12336,34 +12343,38 @@ IEEE-754 defines five kinds of <dfn dfn-for="ieee754">exceptions</dfn>:
 
 WGSL follows the [[!IEEE-754|IEEE-754]] standard, but with the following differences:
 * No [=ieee754/rounding mode=] is specified. An implementation may round an [=intermediate result=] up or down.
+* When [=scalar conversion|converting=] a floating point value |x| to an integer type,
+    |x| is first clamped to the value range of the target type. See [[#floating-point-conversion]].
 * No floating point [=ieee754/exceptions=] are generated.
     * A floating point operation in WGSL [=behavioral requirement|will=] produce an [=intermediate result=]
         according to IEEE-754 rules, but exceptions mandated by IEEE-754 will map to different
         behaviors depending on whether the expression is
         a [=const-expression=], an [=override-expression=], or a [=runtime expression=].
     * Consider an operation on finite operands.
-        The operation produces overflow, infinity, or a NaN if and only if IEEE-754 would require the
+        The [=intermediate result=] for an operation produces overflow, infinity, or a NaN if and only if IEEE-754 would require the
         operation to signal an [=ieee754/overflow=], [=ieee754/invalid operation=], or [=ieee754/division by zero=] exception.
+        Behavior is further modified by the [=Finite Math Assumption=].
 * Signaling NaNs may not be generated.
-    Any signaling NaN may be converted to a quiet NaN.
-* Overflow, infinities, and NaNs generated before [=shader execution start|runtime=] [=behavioral requirement|will=] generate errors.
-    * [=Const-expressions=] and [=override-expressions=] over finite values
-        [=behavioral requirement|will=] generate overflow, infinities, and NaNs
-        as [=intermediate result=] values, following IEEE-754 rules.
-        * Note: This rule requires implementations to reliably detect overflow, infinities, and NaNs
-            to within accuracy limits for these kinds of expressions, so that errors can be generated consistently.
-    * A [=shader-creation error=] results if any [=const-expression=] of
-        floating-point type overflows or evaluates to NaN or infinity.
-    * A [=pipeline-creation error=] results if any [=override-expression=] of
-        floating-point type overflows or evaluates to NaN or infinity.
-* Implementations may assume that overflow, infinities, and NaNs are not present at runtime.
-    * In such an implementation, if the [=intermediate result=] of evaluating a [=runtime expression=] overflows,
-        or yields infinity or a NaN, the final result [=behavioral requirement|will=] be
-        an [=indeterminate value=] of the target type.
-    * Note: This means some functions (e.g. `min` and `max`)
-        may not return the expected result due to optimizations about the presence
-        of NaNs and infinities.
-* Implementations may ignore the [=ieee754/sign field=] of a zero.
+    In an intermediate calculation, any signaling NaN may be converted to a quiet NaN.
+* <dfn noexport>Finite Math Assumption</dfn>:
+    * [=ieee754/Overflow=], infinities, and NaNs generated before [=shader execution start|shader execution=] [=behavioral requirement|will=] generate errors.
+        * [=Const-expressions=] and [=override-expressions=] over finite values
+            [=behavioral requirement|will=] generate overflow, infinities, and NaNs
+            as [=intermediate result=] values, following IEEE-754 rules.
+            * Note: This rule requires implementations to reliably detect overflow, infinities, and NaNs
+                to within accuracy limits for these kinds of expressions, so that errors can be generated consistently.
+        * A [=shader-creation error=] results if any [=const-expression=] of
+            floating-point type overflows or evaluates to NaN or infinity.
+        * A [=pipeline-creation error=] results if any [=override-expression=] of
+            floating-point type overflows or evaluates to NaN or infinity.
+    * Implementations may assume that overflow, infinities, and NaNs are not present during [=shader execution start|shader execution=].
+        * In such an implementation, if the [=intermediate result=] of evaluating a [=runtime expression=] overflows,
+            or yields an infinity or a NaN, the final result [=behavioral requirement|will=] be
+            an [=indeterminate value=] of the target type.
+        * Note: This means some functions (e.g. `min` and `max`)
+            may not return the expected result due to optimizations about the presence
+            of NaNs and infinities.
+* Implementations may ignore the [=ieee754/sign field=] of a floating point zero value.
     That is, a zero with a positive sign may behave like a zero a with a negative sign, and vice versa.
 * To <dfn noexport title="flushed to zero">flush to zero</dfn> is to replace a [=ieee754/subnormal=] value for a floating point type
     with a zero value of that type.
@@ -12379,12 +12390,12 @@ WGSL follows the [[!IEEE-754|IEEE-754]] standard, but with the following differe
     For example the WGSL [[#fma-builtin]] function may expand to an ordinary multiply (including a rounding step) and an add (and another rounding step),
     while the IEEE-754 `fusedMultiplyAdd` operation requires that only final rounding step occurs.
 
-### Floating Point Overflow ### {#floating-point-overflow}
+### Floating Point Rounding and Overflow ### {#floating-point-rounding-and-overflow}
 
 Overflowing computations can round to infinity or to the
 nearest finite value.
-The outcome depends on the magnitude of the overflowing value and on whether
-evaluation occurs during shader execution.
+The outcome depends on the magnitude of the overflowing [=intermediate result=] value and on whether
+evaluation occurs during [=shader module creation=], [=pipeline creation=], or during [=shader execution start|shader execution=].
 
 For a floating point type *T*, define *MAX(T)* as the largest positive finite value of *T*,
 and 2<sup>*EMAX(T)*</sup> as the largest power of 2 representable by *T*.
@@ -12398,13 +12409,13 @@ From *X*, compute *X'* in *T* by rounding:
 * If *X* is NaN, then *X'* is NaN.
 * If *MAX(T)* &lt; *X* &lt; 2<sup>*EMAX(T)+1*</sup>, then either rounding direction is used: *X'* is *MAX(T)* or [PINF].
 * If 2<sup>*EMAX(T)+1*</sup> &le; *X*, then *X'* = [PINF].
-    * Note: This matches the [[!IEEE-754|IEEE-754]] rule.
+    * Note: This clause matches the [[!IEEE-754|IEEE-754]] rule.
 * If &minus;*MAX(T)* &gt; *X* &gt; &minus;2<sup>*EMAX(T)+1*</sup>, then either rounding direction is used: *X'* is &minus;*MAX(T)* or [NINF].
 * If &minus;2<sup>*EMAX(T)+1*</sup> &ge; *X*, then *X'* = [NINF].
-    * Note: This matches the IEEE-754 rule.
+    * Note: This clause matches the IEEE-754 rule.
 
 From *X'*, compute the final value of the expression, *X''*, or detect a program error:
-* If *X'* is infinity or NaN, then:
+* If *X'* is an infinity or NaN, then by the [=Finite Math Assumption=]:
     * If the expression is a [=const-expression=], generate a [=shader-creation error=].
     * If the expression is a [=override-expression=], generate a [=pipeline-creation error=].
     * Otherwise the expression is a [=runtime expression=] and *X''* is an [=indeterminate value=].
@@ -12464,7 +12475,7 @@ When the accuracy for an operation is specified over an input range,
 the accuracy is undefined for input values outside that range.
 
 If an allowed result is outside the [=finite range=] of the result type, then
-the rules in [[#floating-point-overflow]] apply.
+the rules in [[#floating-point-rounding-and-overflow]] apply.
 
 #### Accuracy of Concrete Floating Point Expressions #### {#concrete-float-accuracy}
 
@@ -12691,6 +12702,8 @@ than performing a multiply followed by an addition.
 
 ### Floating Point Conversion ### {#floating-point-conversion}
 
+This section describes the details of a [=scalar conversion=] where either the source or destination is a floating point type.
+
 In this section, a floating point type may be any of:
 * The [=f32=], [=f16=], and [=AbstractFloat=] types in WGSL.
 * A hypothetical type corresponding to a binary format defined by the [[!IEEE-754|IEEE-754]]
@@ -12701,7 +12714,8 @@ Note: Recall that the [=f32=] WGSL type corresponds to the IEEE-754 [=ieee754/bi
 The <dfn noexport>scalar floating point to integral conversion</dfn> algorithm is:
 <blockquote algorithm="convert a float value to an integral value">
 To convert a floating point scalar value |X| to an [=integer scalar=] type |T|:
-* If the original value of |X| is exactly representable in the target type |T|, then the result is that value.
+* If |X| is a [=NaN=], the result is an [=indeterminate value=] in |T|.
+* If |X| is exactly representable in the target type |T|, then the result is that value.
 * Otherwise, the result is the value in |T| that is closest to [=truncate=](|X|).
 
 </blockquote>
@@ -12720,27 +12734,36 @@ but where [[!IEEE-754|IEEE-754]] mandates an invalid operation exception and a N
 
 </div>
 
+
 The <dfn noexport>numeric scalar conversion to floating point</dfn> algorithm is:
-<blockquote>
-When converting a [=numeric scalar=] value to a floating point type:
-* If the original value is exactly representable in the destination type, then the result is that value.
-    * Additionally, if the original value is zero and of [=integer scalar=] type, then the resulting value has a zero sign bit.
-* If the original value is a NaN for the source type, then the result is a NaN in the destination type.
-* Otherwise, the original value is not exactly representable.
-    * If the original value is different from but lies between two adjacent finite values representable in the destination type,
-         then the result is one of those two values.
-         WGSL does not specify whether the larger or smaller representable
+<blockquote algorithm="numeric conversion to floating point">
+**Algorithm:** Numeric [=scalar conversion=] to floating point
+
+**Inputs:**
+* |X|, a [=numeric scalar=] value of type |S|
+* |T|, a destination floating point type.
+
+**Output:** <var>XOut</var>, the result of converting |X| to type |T|, or generate an error.
+
+**Procedure:**
+* If |X| is a NaN for the source type |S|, then <var>XOut</var> is a NaN in type |T|.
+* If |X| is exactly representable in the destination type |T|, then <var>XOut</var> is the value in |T| equal to |X|.
+    * Additionally, if |X| is zero and of [=integer scalar=] type, then <var>XOut</var> has a zero [=ieee754/sign field|sign bit=].
+* Otherwise, |X| is not exactly representable in |T|:
+    * If |X| lies between two adjacent finite values in |T|,
+         then <var>XOut</var> is one of those two values.
+         WGSL does not specify whether the higher or lower representable
          value is chosen, and different instances of such a conversion may choose differently.
-    * Otherwise, the original value lies outside the [=finite range=] of the destination type:
-         * A [=shader-creation error=] results if the original expression is a [=const-expression=].
-         * A [=pipeline-creation error=] results if the original expression is an [=override-expression=].
+    * Otherwise, |X| lies outside the [=finite range=] of the destination type:
+         * A [=shader-creation error=] results if the expression for |X| is a [=const-expression=].
+         * A [=pipeline-creation error=] results if the expression for |X| is an [=override-expression=].
          * Otherwise the conversion proceeds as follows:
-             1. Set |X| to the original value.
-             2. If the source type is a floating point type with more significand bits than the destination type,
-                 the extra significand bits of the source value *may* be discarded (i.e. treated as if they are 0).
-                 Update |X| accordingly.
-             3. If |X| is the most-positive or most-negative normal value of the destination type, then the result is |X|.
-             4. Otherwise, the result is the infinity value of the destination type, with the same sign as |X|.
+             1. Set <var>X'</var> to the original value |X|.
+             2. If source type |S| is a floating point type with more significand bits than the destination type |T|,
+                 the extra significand bits of the source value |X| *may* be discarded (i.e. treated as if they are 0).
+                 Update <var>X'</var> accordingly.
+             3. If <var>X'</var> is the most-positive or most-negative finite value of the destination type |T|, then set <var>XOut</var> &equals; <var>X'</var>.
+             4. Otherwise, set <var>XOut</var> to the infinity value of destination type |T|, with the same sign as <var>X'</var>.
 
 </blockquote>
 
