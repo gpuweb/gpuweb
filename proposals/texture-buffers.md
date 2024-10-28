@@ -4,14 +4,14 @@
 
 Last modified: 2024-10-07
 
-Issue: #162
+Issue: [#162](https://github.com/gpuweb/gpuweb/issues/162)
 
 # WGSL
 
 
 ## Extension Names
 
-Add `'texture_buffers'` as a new extension name.
+Add `'texture_buffer'` as a new extension name.
 
 
 ## Enable Extensions
@@ -20,7 +20,7 @@ Add `'texture_buffers'` as a new extension name.
 
 | WGSL enable-extension | WebGPU GPUFeatureName | Description |
 | --------------------- | --------------------- | ----------- |
-| **texture_buffers**   | `"texture-buffers"`   | The `texture_buffer` type is valid to use in the WGSL module. Otherwise, using `texture_buffer` will result in a shader-creation error. |
+| **texture_buffer**   | `"texture-buffer"`   | The `texture_buffer` type is valid to use in the WGSL module. Otherwise, using `texture_buffer` will result in a shader-creation error. |
 
 
 ## Texture Buffer Types
@@ -29,6 +29,9 @@ Add `'texture_buffers'` as a new extension name.
 
 A **texture buffer** supports accessing texels stored in a 1D buffer using texture load and store functions.
 Use of this type requires enabling the `texture_buffer` extension.
+
+Unlike other WGSL texture types, the texels of a texture buffer are stored in a `GPUBuffer`, and bound to the pipeline via a `GPUTextureBufferView`.
+Additionally, the maximum number of texels in a texture buffer is often much larger than for storage textures. See https://gpuweb.github.io/gpuweb/#supported-limits
 
 A texture buffer type must be parameterized by one of the [texel formats](https://w3.org/TR/WGSL/#texel-formats) for storage textures.
 The texel format determines the conversion function as specified in [Texel Formats](https://w3.org/TR/WGSL/#texel-formats).
@@ -78,7 +81,7 @@ Add "`maxTextureBufferSize` must be <= `maxBufferSize`".
 
 ## GPUFeatureName
 
-Add `"texture-buffers"` as a new enum entry.
+Add `"texture-buffer"` as a new enum entry.
 
 
 ## Resource Usages
@@ -260,14 +263,14 @@ The required format of texture buffer views bound to this binding.
 
 ## Feature Index
 
-#### `"texture-buffers"`
+#### `"texture-buffer"`
 
 Allows the use of the `texture_buffer` type in WGSL, and the creation of `GPUTextureBufferView` objects.
 
 This feature adds the following optional API surfaces:
 
 - New WGSL extensions:
-  - `texture_buffers`
+  - `texture_buffer`
 
 
 ## Plain color formats
@@ -376,7 +379,7 @@ The maximum texture buffer size is 64MB for the Apple2 GPU family, and 256MB for
 
 In D3D12, a texture buffer can map to an Unordered Access View (UAV) for a buffer with a `DXGI_FORMAT`, and that UAV can be accessed in the shader with 32-bit result types.
 See [Typed unordered access view (UAV) loads](https://docs.microsoft.com/en-us/windows/win32/direct3d12/typed-unordered-access-view-loads).
-The `RWByteAddressBuffer` should be prefixed with `globallycoherent`.
+The `RWBuffer` should be prefixed with `globallycoherent`, and the element type needs to be prefixed with `unorm` or `snorm` if a normalized format is being used.
 
 Format support for typed UAV loads and stores in D3D12 can be checked [here](https://docs.microsoft.com/en-us/windows/win32/direct3ddxgi/hardware-support-for-direct3d-12-0-formats).
 The set of required formats includes:
@@ -387,15 +390,18 @@ R8G8B8A8_UINT
 R8G8B8A8_SINT
 R16G16B16A16_UINT
 R16G16B16A16_SINT
-R16G16B16A16_SFLOAT
+R16G16B16A16_FLOAT
 R8_UINT
 R8_SINT
+R16_UINT
+R16_SINT
+R16_FLOAT
 R32_UINT
 R32_SINT
 R32_SFLOAT
 R32G32B32A32_UINT
 R32G32B32A32_SINT
-R32G32B32A32_SFLOAT
+R32G32B32A32_FLOAT
 ```
 
 
