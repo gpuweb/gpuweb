@@ -11,16 +11,16 @@ Issue: [#162](https://github.com/gpuweb/gpuweb/issues/162)
 
 ## Extension Names
 
-Add `'texture_buffer'` as a new extension name.
+Add `'texture_buffer'` as a new language extension name.
 
 
-## Enable Extensions
+## Language Extensions
 
-[[Add new table entry to *Enable-extensions*]]
+[[Add new table entry to *Language-extensions*]]
 
-| WGSL enable-extension | WebGPU GPUFeatureName | Description |
-| --------------------- | --------------------- | ----------- |
-| **texture_buffer**   | `"texture-buffer"`   | The `texture_buffer` type is valid to use in the WGSL module. Otherwise, using `texture_buffer` will result in a shader-creation error. |
+| WGSL language extension | Description                                                                |
+| ----------------------- | -------------------------------------------------------------------------- |
+| **texture_buffer**      | Allows the use of the `texture_buffer` type and related builtin functions. |
 
 
 ## Texture Buffer Types
@@ -28,7 +28,6 @@ Add `'texture_buffer'` as a new extension name.
 [[New subsection of **Texture and Sampler Types**]]
 
 A **texture buffer** supports accessing texels stored in a 1D buffer using texture load and store functions.
-Use of this type requires enabling the `texture_buffer` extension.
 
 Unlike other WGSL texture types, the texels of a texture buffer are stored in a `GPUBuffer`, and bound to the pipeline via a `GPUTextureBufferView`.
 Additionally, the maximum number of texels in a texture buffer is often much larger than for storage textures. See https://gpuweb.github.io/gpuweb/#supported-limits
@@ -77,11 +76,6 @@ Add `texture_buffer` to the list of valid function parameter types.
 ## Adapter Capability Guarantees
 
 Add "`maxTextureBufferSize` must be <= `maxBufferSize`".
-
-
-## GPUFeatureName
-
-Add `"texture-buffer"` as a new enum entry.
 
 
 ## Resource Usages
@@ -259,18 +253,6 @@ The required format of texture buffer views bound to this binding.
 **Replace:** “writable buffer binding range” with “writable buffer binding range or texture buffer view”
 
 **Replace:** “of the same buffer” with “of the same buffer or texture buffer view”
-
-
-## Feature Index
-
-#### `"texture-buffer"`
-
-Allows the use of the `texture_buffer` type in WGSL, and the creation of `GPUTextureBufferView` objects.
-
-This feature adds the following optional API surfaces:
-
-- New WGSL extensions:
-  - `texture_buffer`
 
 
 ## Plain color formats
