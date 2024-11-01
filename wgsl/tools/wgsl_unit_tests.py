@@ -36,6 +36,7 @@ import argparse
 import os
 import sys
 from tree_sitter import Language, Parser
+import tree_sitter_wgsl
 from TSPath import TSPath
 
 SCRIPT='wgsl_unit_tests.py'
@@ -91,8 +92,7 @@ def GetCases():
     return cases
 
 class Options:
-    def __init__(self,shared_lib):
-        self.shared_lib = shared_lib
+    def __init__(self):
         self.verbose = False
 
 def run_tests(options):
@@ -100,12 +100,9 @@ def run_tests(options):
     Returns True if all tests passed
     """
     global cases
-    if not os.path.exists(options.shared_lib):
-        raise RuntimeException("missing shared library {}",options.shared_lib)
 
-    language = Language(options.shared_lib, "wgsl")
-    parser = Parser()
-    parser.set_language(language)
+    language = Language(tree_sitter_wgsl.language())
+    parser = Parser(language)
 
     print("{}: ".format(SCRIPT),flush=True,end='')
 
@@ -133,12 +130,9 @@ def main():
     argparser.add_argument("--verbose","-v",
                            action='store_true',
                            help="be verbose")
-    argparser.add_argument("--parser",
-                           help="path the shared library for the WGSL tree-sitter parser",
-                           default="grammar/build/wgsl.so")
 
     args = argparser.parse_args()
-    options = Options(args.parser)
+    options = Options()
     options.verbose = args.verbose
 
     if not run_tests(options):

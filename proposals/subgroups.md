@@ -2,9 +2,9 @@
 
 Status: **Draft**
 
-Last modified: 2023-11-07
+Last modified: 2024-10-16
 
-Issue: #4306
+Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
 
 # Requirements
 
@@ -95,8 +95,8 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupBallot(pred : bool) -> vec4<u32>` | | Returns a set of bitfields where the bit corresponding to subgroup_invocation_id is 1 if `pred` is true for that active invocation and 0 otherwise. |
 | `fn subgroupShuffle(v : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Returns `v` from the active invocation whose subgroup_invocation_id matches `id` |
 | `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask`.<br>`mask` must be dynamically uniform<sup>1</sup> |
-| `fn subgroupShuffleUp(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id - delta` |
-| `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta` |
+| `fn subgroupShuffleUp(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id - delta`<br>`delta` must be dynamically uniform<sup>1</sup> |
+| `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta`<br>`delta` must be dynamically uniform<sup>1</sup> |
 | `fn subgroupAdd(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Adds `e` among all active invocations and returns that result |
 | `fn subgroupExclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than this invocation |
 | `fn subgroupInclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Inclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than or equal to this invocation |
@@ -252,3 +252,46 @@ D3D12 would have to be proven empricially.
 
 1. All group non-uniform instructions use the `Subgroup` scope.
 2. To avoid constant-expression requirement, use SPIR-V 1.5 or OpGroupNonUniformShuffle.
+
+# Appendix C: CTS Status
+
+Last updated: 2024-10-16
+
+| Built-in value | Validation | Compute | Fragment |
+| --- | --- | --- | --- |
+| `subgroup_invocation_id` | &check; | &check; | &check; |
+| `subgroup_size` | &check; | &check; | &check; |
+
+| Built-in function | Validation | Compute | Fragment |
+| --- | --- | --- | --- |
+| `subgroupElect` | &check; | &cross; | &cross; |
+| `subgroupAll` | &check; | &check; | &check; |
+| `subgroupAny` | &check; | &check; | &check; |
+| `subgroupBroadcast` | &check; | &check; | &cross; |
+| `subgroupBroadcastFirst`<sup>1</sup> | &check; | &cross; | &cross; |
+| `subgroupBallot` | &check; | &check; | &cross; |
+| `subgroupShuffle` | &check; | &cross; | &cross; |
+| `subgroupShuffleXor` | &check; | &cross; | &cross; |
+| `subgroupShuffleUp` | &check; | &cross; | &cross; |
+| `subgroupShuffleDown` | &check; | &cross; | &cross; |
+| `subgroupAdd` | &check; | &check; | &cross; |
+| `subgroupExclusiveAdd` | &check; | &check; | &cross; |
+| `subgroupInclusiveAdd` | &check; | &check; | &cross; |
+| `subgroupMul` | &check; | &check; | &cross; |
+| `subgroupExclusiveMul` | &check; | &check; | &cross; |
+| `subgroupInclusiveMul` | &check; | &check; | &cross; |
+| `subgroupAnd` | &check; | &check; | &check; |
+| `subgroupOr` | &check; | &check; | &check; |
+| `subgroupXor` | &check; | &check; | &check; |
+| `subgroupMin` | &check; | &cross; | &cross; |
+| `subgroupMax` | &check; | &cross; | &cross; |
+| `quadBroadcast` | &check; | &check; | &check; |
+| `quadSwapX` | &check; | &check; | &check; |
+| `quadSwapY` | &check; | &check; | &check; |
+| `quadSwapDiagonal` | &check; | &check; | &check; |
+1. Indirectly tested via other built-in functions.
+
+| Diagnostic | Validation |
+| --- | --- |
+| `subgroup_uniformity` | &cross; |
+| `subgroup_branching` | &cross; |

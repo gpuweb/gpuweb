@@ -11,7 +11,7 @@ clean:
 
 
 # Generate spec HTML from Bikeshed source.
-WGSL_SOURCES:=index.bs ./tools/scanner.cc wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include) $(wildcard img/*.svg)
+WGSL_SOURCES:=index.bs ./grammar/src/scanner.c wgsl.recursive.bs.include wgsl.reserved.bs.include $(wildcard syntax/*.syntax.bs.include) $(wildcard img/*.svg)
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
@@ -27,18 +27,21 @@ img/%.mmd.svg: diagrams/%.mmd ../tools/invoke-mermaid.sh ../tools/mermaid.json
 	bash ../tools/invoke-mermaid.sh -i $< -o $@
 
 TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
-TREESITTER_PARSER := grammar/build/wgsl.so
+
+# A file used to signal the WGSL parser was successfully installed.
+TREESITTER_PARSER_STAMP := grammar/build.stamp
+
 # Extract WGSL grammar from the spec
-$(TREESITTER_GRAMMAR_INPUT): index.bs ./tools/scanner.cc ./tools/extract-grammar.py
-	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./tools/scanner.cc --tree-sitter-dir grammar --flow x
+$(TREESITTER_GRAMMAR_INPUT): index.bs ./grammar/src/scanner.c ./tools/extract-grammar.py
+	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./grammar/src/scanner.c --tree-sitter-dir grammar --flow x
 
 # Build a Treesitter parser to validate grammar extract and later examples in spec
-$(TREESITTER_PARSER): $(TREESITTER_GRAMMAR_INPUT)
-	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./tools/scanner.cc --tree-sitter-dir grammar --flow b
+$(TREESITTER_PARSER_STAMP): $(TREESITTER_GRAMMAR_INPUT)
+	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./grammar/src/scanner.c --tree-sitter-dir grammar --flow b
 
 .PHONY: validate-examples
 # Use Treesitter to parse many code examples in the spec.
-validate-examples: $(TREESITTER_PARSER)
+validate-examples: $(TREESITTER_PARSER_STAMP)
 	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --flow e
 
 .PHONY: tspath_tests
@@ -47,12 +50,12 @@ tspath_tests: ./tools/TSPath.py
 
 .PHONY: unit_tests
 # Use Treesitter to parse code samples
-unit_tests: $(TREESITTER_PARSER) ./tools/wgsl_unit_tests.py
-	python3 ./tools/wgsl_unit_tests.py --parser $(TREESITTER_PARSER)
+unit_tests: $(TREESITTER_PARSER_STAMP) ./tools/wgsl_unit_tests.py
+	python3 ./tools/wgsl_unit_tests.py
 
 # The grammar in JSON form, emitted by Treesitter.
 WGSL_GRAMMAR=grammar/src/grammar.json
-$(WGSL_GRAMMAR) : $(TREESITTER_PARSER)
+$(WGSL_GRAMMAR) : $(TREESITTER_PARSER_STAMP)
 
 .PHONY: nfkc
 nfkc:
