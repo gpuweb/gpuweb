@@ -391,3 +391,7 @@ R32G32B32A32_FLOAT
 
 1. Should this be an extension, or a core feature?
    - To make it core, implementations would need to polyfill for Metal <2.1. We would also need to drop the formats that are not required everywhere (e.g. `R8_UINT`), or make them optional.
+   - Decision at F2F:
+       - Make it core.
+       - Drop the formats that are not widespread (leaving them for a [future texture format tier extension](https://github.com/gpuweb/gpuweb/issues/3837)).
+       - We do not need to support Metal <2.1 (Metal 2.2 is our minimum requirement now).
