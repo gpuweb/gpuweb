@@ -264,8 +264,8 @@ The required format of texel buffer views bound to this binding.
 | **8-bit per component**   |                |
 | `r8unorm`                 |                |
 | `r8snorm`                 |                |
-| `r8uint`                  | ✔              |
-| `r8sint`                  | ✔              |
+| `r8uint`                  |                |
+| `r8sint`                  |                |
 | `rg8unorm`                |                |
 | `rg8snorm`                |                |
 | `rg8uint`                 |                |
@@ -278,9 +278,9 @@ The required format of texel buffer views bound to this binding.
 | `bgra8unorm`              |                |
 | `bgra8unorm-srgb`         |                |
 | **16-bit per component**  |                |
-| `r16uint`                 | ✔              |
-| `r16sint`                 | ✔              |
-| `r16float`                | ✔              |
+| `r16uint`                 |                |
+| `r16sint`                 |                |
+| `r16float`                |                |
 | `rg16uint`                |                |
 | `rg16sint`                |                |
 | `rg16float`               |                |
