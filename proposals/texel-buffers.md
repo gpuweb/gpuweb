@@ -217,6 +217,10 @@ Indicates the access mode that will be used for texel buffer views bound to this
 **format, of type GPUTextureFormat**<br/>
 The required format of texel buffer views bound to this binding.
 
+[[Add new validation when *entry*.`visibility` includes `VERTEX` ]]
+
+* If *entry*.`texelBuffer` is provided, *entry*.`texelBuffer`.`access` must be `"read-only"`.
+
 
 ## Bind Group Creation
 
