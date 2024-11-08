@@ -197,6 +197,18 @@ generate a validation error.
 other APIs only support the first vertex so only `@interpolation(flat, either)` is supported in
 compatibility mode.
 
+## 18. Introduce new `maxStorageBuffersInVertexStage` and `maxStorageTexturesInVertexStage` limits.
+
+If the number of shader variables of type `storage_buffer` in a vertex shader exceeds the `maxStorageBuffersInVertexStage` limit, a validation error will occur at pipeline creation time.
+
+If the number of shader variables of type `texture_storage_1d`, `texture_storage_2d`, `texture_storage_2d_array` and `texture_storage_3d` in a vertex shader exceeds the `maxStorageTexturesInVertexStage` limit, a validation error will occur at pipeline creation time.
+
+In Compatibility mode, these new limits will have a default of zero. In Core mode, they will default to the maximum value of a GPUSize32.
+
+In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the vertex stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInVertexStage)`.
+
+**Justification**: OpenGL ES 3.1 allows `MAX_VERTEX_SHADER_STORAGE_BLOCKS` and `MAX_VERTEX_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
