@@ -209,14 +209,26 @@ In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` an
 
 **Justification**: OpenGL ES 3.1 allows `MAX_VERTEX_SHADER_STORAGE_BLOCKS` and `MAX_VERTEX_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
 
-## 19. Disallow using a depth texture with a non-comparison sampler
+## 19. Introduce new `maxStorageBuffersInFragmentStage` and `maxStorageTexturesInFragmentStage` limits.
+
+If the number of shader variables of type `storage_buffer` in a fragment shader exceeds the `maxStorageBuffersInFragmentStage` limit, a validation error will occur at pipeline creation time.
+
+If the number of shader variables of type `texture_storage_1d`, `texture_storage_2d`, `texture_storage_2d_array` and `texture_storage_3d` in a fragment shader exceeds the `maxStorageTexturesInFragmentStage` limit, a validation error will occur at pipeline creation time.
+
+In Compatibility mode, these new limits will have a default of zero. In Core mode, they will default to the maximum value of a GPUSize32.
+
+In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the fragment stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInFragmentStage)`.
+
+**Justification**: OpenGL ES 3.1 allows `MAX_FRAGMENT_SHADER_STORAGE_BLOCKS` and `MAX_FRAGMENT_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
+
+## 20. Disallow using a depth texture with a non-comparison sampler
 
 Using a depth texture `texture_depth_2d`, `texture_depth_cube`, `texture_depth_2d_array` with a non-comparison
 sampler in a shader will generate a validation error at pipeline creation time.
 
 **Justification**: OpenGL ES 3.1 says such usage has undefined behavior.
 
-## 20. Limit the number of texture+sampler combinations in a stage.
+## 21. Limit the number of texture+sampler combinations in a stage.
 
 If the number of texture+sampler combinations used a in single stage in a pipeline exceeds
 `min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)` a validation error is generated.
@@ -238,7 +250,7 @@ for each stage of the pipeline:
 
 **Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
 
-## 21. Introduce new `float16-renderable` and `float32-renderable` features.
+## 22. Introduce new `float16-renderable` and `float32-renderable` features.
 
 When supported, `float16-renderable` allows the `RENDER_ATTACHMENT` usage on textures with format `"r16float"`, `"rg16float"`, and `"rgba16float"`.
 
