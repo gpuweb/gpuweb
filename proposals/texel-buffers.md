@@ -394,7 +394,7 @@ R32G32B32A32_FLOAT
 ```
 
 
-# Open Questions
+# Open and Resolved Questions
 
 1. Should this be an extension, or a core feature?
    - To make it core, implementations would need to polyfill for Metal <2.1. We would also need to drop the formats that are not required everywhere (e.g. `R8_UINT`), or make them optional.
@@ -407,3 +407,9 @@ R32G32B32A32_FLOAT
 
    - Is it worth adding uniform texel buffers? Besides wider format support, are they faster?
    - If the answer is yes or not sure, we should probably use "storage texture/texel buffer" for this proposal instead.
+   - Decision at F2F:
+       - Implementations may map read-only texel buffer to uniform texel buffers in the underlying API.
+         This unifies things on the WebGPU side.
+         The texture format table can then enable usage of more formats for read-only texel buffers.
+3. Do we need the new createView method on the buffer? Implementations could create the view at bind time, assuming they are light weight.
+   - Corentin Wallez raised this at the F2F.
