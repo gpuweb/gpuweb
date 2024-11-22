@@ -209,6 +209,13 @@ In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` an
 
 **Justification**: OpenGL ES 3.1 allows `MAX_VERTEX_SHADER_STORAGE_BLOCKS` and `MAX_VERTEX_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
 
+## 19. Disallow using a depth texture with a non-comparison sampler
+
+Using a depth texture `texture_depth_2d`, `texture_depth_cube`, `texture_depth_2d_array` with a non-comparison
+sampler in a shader will generate a validation error at pipeline creation time.
+
+**Justification**: OpenGL ES 3.1 says such usage has undefined behavior.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
