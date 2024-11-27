@@ -221,9 +221,20 @@ sampler in a shader will generate a validation error at pipeline creation time.
 If the number of texture+sampler combinations used a in single stage in a pipeline exceeds
 `min(maxSampledTexturesPerShaderStage, maxSamplerPerShaderStage)` a validation error is generated.
 
-The number of texture+sampler combinations is computed as the number of texture+sampler combinations
-used by the entry point + the number of textures used without a sampler if the texture has not
-already been counted in a texture+sampler combination.
+The validation occurs as follows:
+
+```
+maxCombinationsPerStage = min(maxSampledTexturesPerShaderStage, maxSamplerPerShaderStage)
+for each stage of the pipeline:
+  sum = 0
+  for each texture binding in the pipeline layout which is visible to that stage:
+    sum += max(1, number of texture sampler combos for that texture binding)
+  for each external texture binding in the pipeline layout which is visible to that stage:
+    sum += 1 // for LUT texture + LUT sampler
+    sum += 3 * max(1, number of external_texture sampler combos) // for Y+U+V
+  if sum > maxCombinationsPerStage
+    generate a validation error.
+```
 
 **Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
 
