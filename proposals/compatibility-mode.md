@@ -219,12 +219,12 @@ sampler in a shader will generate a validation error at pipeline creation time.
 ## 20. Limit the number of texture+sampler combinations in a stage.
 
 If the number of texture+sampler combinations used a in single stage in a pipeline exceeds
-`min(maxSampledTexturesPerShaderStage, maxSamplerPerShaderStage)` a validation error is generated.
+`min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)` a validation error is generated.
 
 The validation occurs as follows:
 
 ```
-maxCombinationsPerStage = min(maxSampledTexturesPerShaderStage, maxSamplerPerShaderStage)
+maxCombinationsPerStage = min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)
 for each stage of the pipeline:
   sum = 0
   for each texture binding in the pipeline layout which is visible to that stage:
