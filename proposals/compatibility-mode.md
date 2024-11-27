@@ -216,6 +216,28 @@ sampler in a shader will generate a validation error at pipeline creation time.
 
 **Justification**: OpenGL ES 3.1 says such usage has undefined behavior.
 
+## 20. Limit the number of texture+sampler combinations in a stage.
+
+If the number of texture+sampler combinations used a in single stage in a pipeline exceeds
+`min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)` a validation error is generated.
+
+The validation occurs as follows:
+
+```
+maxCombinationsPerStage = min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)
+for each stage of the pipeline:
+  sum = 0
+  for each texture binding in the pipeline layout which is visible to that stage:
+    sum += max(1, number of texture sampler combos for that texture binding)
+  for each external texture binding in the pipeline layout which is visible to that stage:
+    sum += 1 // for LUT texture + LUT sampler
+    sum += 3 * max(1, number of external_texture sampler combos) // for Y+U+V
+  if sum > maxCombinationsPerStage
+    generate a validation error.
+```
+
+**Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
