@@ -2,7 +2,7 @@
 
 Status: **Draft**
 
-Last modified: 2024-11-15
+Last modified: 2024-12-02
 
 Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
 
@@ -264,7 +264,7 @@ D3D12 would have to be proven empricially.
 
 # Appendix C: CTS Status
 
-Last updated: 2024-10-16
+Last updated: 2024-12-02
 
 | Built-in value | Validation | Compute | Fragment |
 | --- | --- | --- | --- |
@@ -276,13 +276,13 @@ Last updated: 2024-10-16
 | `subgroupElect` | &check; | &cross; | &cross; |
 | `subgroupAll` | &check; | &check; | &check; |
 | `subgroupAny` | &check; | &check; | &check; |
-| `subgroupBroadcast` | &check; | &check; | &cross; |
-| `subgroupBroadcastFirst`<sup>1</sup> | &check; | &cross; | &cross; |
-| `subgroupBallot` | &check; | &check; | &cross; |
-| `subgroupShuffle` | &check; | &cross; | &cross; |
-| `subgroupShuffleXor` | &check; | &cross; | &cross; |
-| `subgroupShuffleUp` | &check; | &cross; | &cross; |
-| `subgroupShuffleDown` | &check; | &cross; | &cross; |
+| `subgroupBroadcast` | &check; | &check; | &check; |
+| `subgroupBroadcastFirst` | &check; | &check; | &check; |
+| `subgroupBallot` | &check; | &check; | &check; |
+| `subgroupShuffle` | &check; | &check; | &check; |
+| `subgroupShuffleXor` | &check; | &check; | &check; |
+| `subgroupShuffleUp` | &check; | &check; | &check; |
+| `subgroupShuffleDown` | &check; | &check; | &check; |
 | `subgroupAdd` | &check; | &check; | &cross; |
 | `subgroupExclusiveAdd` | &check; | &check; | &cross; |
 | `subgroupInclusiveAdd` | &check; | &check; | &cross; |
@@ -298,9 +298,13 @@ Last updated: 2024-10-16
 | `quadSwapX` | &check; | &check; | &check; |
 | `quadSwapY` | &check; | &check; | &check; |
 | `quadSwapDiagonal` | &check; | &check; | &check; |
-1. Indirectly tested via other built-in functions.
 
 | Diagnostic | Validation |
 | --- | --- |
-| `subgroup_uniformity` | &cross; |
-| `subgroup_branching` | &cross; |
+| `subgroup_uniformity` | &check; |
+
+| Uniformity analysis | Validation |
+| --- | --- |
+| `subgroup_size` uniform in compute | &check; |
+| Built-in functions require uniformity | &check; |
+| Shuffle delta/mask params require uniformity | &check; |
