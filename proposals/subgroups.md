@@ -86,7 +86,7 @@ Note: HLSL does not expose a subgroup_id or num_subgroups equivalent.
 ## Built-in Functions
 
 All built-in function can only be used in `compute` or `fragment` shader stages.
-Using f16 as a parameter in any of these functions requires `subgroups_f16` to be enabled.
+Using f16 as a parameter in any of these functions is valid if and only if ~subgroups_f16~ `f16` enabled.
 
 | Function | Preconditions | Description |
 | --- | --- | --- |
@@ -181,6 +181,9 @@ New GPU features:
 | --- | --- |
 | **subgroups** | Allows the WGSL feature and adds new limits |
 | ~subgroups-f16~ | Allows WGSL feature. Requires **subgroups** and **shader-f16** |
+
+Note: An adapter supporting both `shader-f16` and `subgroups` GPU features must support using
+f16 in subgroups operations if and only if `subgroups` and `f16` WGSL extensions enabled.
 
 **TODO**: Can we expose a feature to require a specific subgroup size?
 No facility exists in Metal so it would have to be a separate feature.
