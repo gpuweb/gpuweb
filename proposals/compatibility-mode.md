@@ -16,24 +16,17 @@ Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility m
 
 ## WebGPU Spec Changes
 
-```webidl
-partial dictionary GPURequestAdapterOptions {
-    boolean compatibilityMode = false;
-}
-```
+When calling `GPU.requestAdapter()`, passing `featureLevel = "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
 
-When calling `GPU.RequestAdapter()`, passing `compatibilityMode = true` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
-
-Note that a supporting User Agent may return a `compatibilityMode = true` Adapter which is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, so long as it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
+Note that a supporting User Agent may return a `featureLevel = "compatibility"` Adapter which is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, so long as it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
 
 ```webidl
 partial interface GPUAdapter {
-    readonly attribute boolean isCompatibilityMode;
+    readonly attribute DOMstring featureLevel;
 }
 ```
 
-As a convenience to the developer, the Adapter returned will have the `isCompatibilityMode` property set to `true`.
-
+As a convenience to the developer, the Adapter returned will have the `featureLevel` property set to `"compatibility"`.
 
 ```webidl
 partial dictionary GPUTextureDescriptor {
