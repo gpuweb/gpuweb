@@ -60,6 +60,8 @@ if desc.dimension is "3d":
   set textureBindingViewDimension to "3d"
 ```
 
+Feature: `flexible-texture-views`.
+
 **Justification**: OpenGL ES 3.1 does not support texture views.
 
 ### 2. Color blending state may not differ between color attachments in a `GPUFragmentState`.
@@ -68,14 +70,22 @@ Each `GPUColorTargetState` in a `GPUFragmentState` must have the same `blend.alp
 
 **Justification**: OpenGL ES 3.1 does not support indexed draw buffer state.
 
+Feature: `per-color-target-fragment-state`. Supported via `GL_EXT_draw_buffers_indexed`, `GL_OES_draw_buffers_indexed`, or OpenGL ES 3.2.
+
 ### 3. Disallow `CommandEncoder.copyTextureToBuffer()` and `CommandEncoder.copyTextureToTexture()` for compressed texture formats
 `CommandEncoder.copyTextureToBuffer()` and `CommandEncoder.copyTextureToTexture()` of a compressed texture are disallowed, and will result in a validation error.
 
 **Justification**: Compressed texture formats are non-renderable in OpenGL ES, and `glReadPixels()` requires a framebuffer-complete FBO, preventing `copyTextureToBuffer()`. Additionally, because ES 3.1 does not support `glCopyImageSubData()`, texture-to-texture copies must be worked around with `glBlitFramebuffer()`. Since compressed textures are not renderable, they cannot use the `glBlitFramebuffer()` workaround, preventing implementation of `copyTextureToTexture()`.
 
+Feature: `copy-compressed-texture-to-buffer`.
+
+Feature: `copy-compressed-texture-to-texture`. Supported via `GL_EXT_copy_image` or OpenGL ES 3.2.
+
 ### 4. Disallow `GPUTextureViewDimension` `"CubeArray"` via validation
 
-**Justification**: OpenGL ES does not support Cube Array textures.
+**Justification**: OpenGL ES 3.1 does not support Cube Array textures.
+
+Feature: `cube-map-array`. Supported via `GL_EXT_texture_cube_map_array` or OpenGL ES 3.2.
 
 ### 5. Views of the same texture used in a single draw may not differ in aspect or mip levels.
 
@@ -83,17 +93,23 @@ A draw call may not bind two views of the same texture differing in `aspect`, `b
 
 **Justification**: OpenGL ES does not support texture views, but one set of these parameters per texture is supported via glTexParameteri(). In particular, one depth/stencil aspect may be specified via `GL_DEPTH_STENCIL_TEXTURE_MODE`, and one mip level subset via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
 
+Feature: `flexible-texture-views`.
+
 ### 6. Array texture views used in bind groups must consist of the entire array. That is, `baseArrayLayer` must be zero, and `arrayLayerCount` must be equal to the size of the texture array.
 
 A bind group may not reference a subset of array layers. Only views of the entire array are supported for sampling or storage bindings. This is enforced via validation at bind group creation time.
 
 **Justification**: OpenGL ES does not support texture views.
 
+Feature: `flexible-texture-views`.
+
 ### 7. Disallow `sample_mask` and `sample_index` builtins in WGSL.
 
 Use of the `sample_mask` or `sample_index` builtins would cause a validation error at shader module creation time.
 
 **Justification**: OpenGL ES 3.1 does not support `gl_SampleMask`, `gl_SampleMaskIn`, or `gl_SampleID`.
+
+Feature: `sample-variables`. Supported via `GL_OES_sample_variables` or OpenGL ES 3.2.
 
 ### 8. Disallow two-component (RG) texture formats in storage texture bindings.
 
@@ -103,11 +119,15 @@ Calls to `createTexture()` or `createBindGroupLayout()` with this combination ca
 
 **Justification**: GLSL ES 3.1 (section 4.4.7, "Format Layout Qualifiers") does not permit any two-component (RG) texture formats in a format layout qualifier.
 
+Feature: `rg32-storage-texture`.
+
 ### 9. Depth bias clamp must be zero.
 
 During `createRenderPipeline()` and `createRenderPipelineAsync()`, `GPUDepthStencilState.depthBiasClamp` must be zero, or a validation error occurs.
 
 **Justification**: GLSL ES 3.1 does not support `glPolygonOffsetClamp()`.
+
+Feature: `depth-bias-clamp`. Supported via `GL_EXT_polygon_offset_clamp`.
 
 ### 10. Lower limits.
 
@@ -152,17 +172,25 @@ If either are used in the code passed to `createShaderModule` a validation error
 
 **Justification**: OpenGL ES 3.1 does not support `linear` interpolation nor `sample` sampling.
 
+Feature: `interpolation-type-linear`. Supported via `GL_NV_shader_noperspective_interpolation` and desktop GLSL.
+
+Feature: `interpolation-mode-sample`. supported via `GL_OES_shader_multisample_interpolation` or OpenGL ES 3.2.
+
 ### 12. Disallow copying multisample textures.
 
 `copyTextureToTexture` will generate a validation error if the sampleCount of the textures is not 1.
 
 **Justification**: OpenGL ES 3.1 does not support copying of multisample textures.
 
+Feature: `copy-multisampled-texture-to-texture`. Supported in OpenGL ES 3.2.
+
 ### 13. Disallow texture format reinterpretation
 
 When calling `createTexture`, the `viewFormats`, if specified, must be the same format as the texture.
 
 **Justification**: OpenGL ES 3.1 does not support texture format reinterpretation.
+
+Feature: `texture-format-reinterpretation`.
 
 ### 14. Require `depthOrArrayLayers` to be compatible with `textureBindingViewDimension` in `createTexture`.
 
@@ -175,9 +203,13 @@ When creating a texture you can pass in a `textureBindingViewDimension`.
 **Justification**: OpenGL ES 3.1 cannot create 2d textures with more than 1 layer nor can it
 create cube maps that are not exactly 6 layers.
 
+Feature: `flexible-texture-views`.
+
 ## 15. Disallow bgra8unorm-srgb textures
 
 **Justification**: OpenGL ES 3.1 does not support bgra8unorm-srgb textures.
+
+Feature: `bgra8unorm-srgb`.
 
 ## 16. Disallow `textureLoad` with `texture_depth?` textures
 
@@ -188,6 +220,8 @@ in code passed to `createShaderModule` a validation error is generated.
 
 Note: this does not affect textures made with depth formats bound to `texture_2d<f32>`.
 
+Feature: `depth-texture-load`.
+
 ## 17. Disallow `@interpolation(flat)` and `@interpolation(flat, first)`
 
 If code is passed to `createShaderModule` that uses `@interpolation(flat)` or `@interpolation(flat, first)`
@@ -196,6 +230,8 @@ generate a validation error.
 **Justification**: OpenGL ES 3.1 only supports the last vertex as the provoking vertex where as 
 other APIs only support the first vertex so only `@interpolation(flat, either)` is supported in
 compatibility mode.
+
+Feature: `provoking-vertex-first`.
 
 ## 18. Introduce new `maxStorageBuffersInVertexStage` and `maxStorageTexturesInVertexStage` limits.
 
@@ -227,6 +263,8 @@ Using a depth texture `texture_depth_2d`, `texture_depth_cube`, `texture_depth_2
 sampler in a shader will generate a validation error at pipeline creation time.
 
 **Justification**: OpenGL ES 3.1 says such usage has undefined behavior.
+
+Feature: `depth-texture-sample`.
 
 ## 21. Limit the number of texture+sampler combinations in a stage.
 
