@@ -134,7 +134,7 @@ class ObjectRegistry:
             assert registerable.reg_info.obj is not None
             return registerable.reg_info.obj
 
-        
+
         key = registerable.key
         if key in self.key_to_object:
             return self.key_to_object[key]

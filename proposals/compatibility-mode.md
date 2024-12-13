@@ -45,7 +45,7 @@ See "Texture view dimension may be specified", below.
 
 ## Compatibility mode restrictions
 
-### 1. Texture view dimension may be specified 
+### 1. Texture view dimension may be specified
 
 When specifying a texture, a `textureBindingViewDimension` property determines the views which can be bound from that texture for sampling (see "Proposed IDL changes", above). Binding a view of a different dimension for sampling than specified at texture creation time will cause a validation error. If `textureBindingViewDimension` is unspecified, use [the same algorithm as `createView()`](https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureviewdescriptor-defaults):
 ```
@@ -193,7 +193,7 @@ Note: this does not affect textures made with depth formats bound to `texture_2d
 If code is passed to `createShaderModule` that uses `@interpolation(flat)` or `@interpolation(flat, first)`
 generate a validation error.
 
-**Justification**: OpenGL ES 3.1 only supports the last vertex as the provoking vertex where as 
+**Justification**: OpenGL ES 3.1 only supports the last vertex as the provoking vertex where as
 other APIs only support the first vertex so only `@interpolation(flat, either)` is supported in
 compatibility mode.
 
