@@ -3023,4 +3023,3 @@ class Grammar:
 
         item_sets = self.LALR1(max_item_sets=max_item_sets).states
         return item_sets
-

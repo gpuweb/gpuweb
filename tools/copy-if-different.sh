@@ -21,4 +21,3 @@ fi
 if [ ! -f "$output" ] || ! diff "$input" "$output" >/dev/null; then
   cp "$input" "$output"
 fi
-
