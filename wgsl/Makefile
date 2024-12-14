@@ -145,4 +145,3 @@ lalr_star: $(ANALYZER) analyze/test/star.json
 .PHONY: lalr_442
 lalr_442: $(ANALYZER) analyze/test/ex442.json
 	python3 $(ANALYZE_SCRIPT) -lalr analyze/test/ex442.json
-
