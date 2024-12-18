@@ -358,7 +358,10 @@ A `mem_texture` fence would be needed to make texel buffer writes visible within
 To get coverage on older Metal versions, it would be possible to polyfill by using a regular device buffer and doing the format conversions inside the shader.
 This requires that the storage format is specified inside the shader.
 
-The maximum texel buffer size is 64MB for the Apple2 GPU family, and 256MB for Apple3 and above.
+The maximum texel buffer size is 64 M pixels for the Apple2 GPU family, and 256 M pixels for Apple3 and above.
+The texel buffer size is also bounded above by the generic buffer size constraint.
+
+**TODO**: Get data for non-Apple GPUs.
 
 
 ### D3D12
@@ -391,7 +394,7 @@ R32G32B32A32_FLOAT
 ```
 
 
-# Open Questions
+# Open and Resolved Questions
 
 1. Should this be an extension, or a core feature?
    - To make it core, implementations would need to polyfill for Metal <2.1. We would also need to drop the formats that are not required everywhere (e.g. `R8_UINT`), or make them optional.
@@ -399,3 +402,14 @@ R32G32B32A32_FLOAT
        - Make it core.
        - Drop the formats that are not widespread (leaving them for a [future texture format tier extension](https://github.com/gpuweb/gpuweb/issues/3837)).
        - We do not need to support Metal <2.1 (Metal 2.2 is our minimum requirement now).
+2. In the original issue it was mentioned [#162 (comment)](https://github.com/gpuweb/gpuweb/issues/162#issuecomment-452771668)
+   that uniform texel buffers support more formats. This proposal is only for storage texel buffers but uses the name "texture buffer" throughout.
+
+   - Is it worth adding uniform texel buffers? Besides wider format support, are they faster?
+   - If the answer is yes or not sure, we should probably use "storage texture/texel buffer" for this proposal instead.
+   - Decision at F2F:
+       - Implementations may map read-only texel buffer to uniform texel buffers in the underlying API.
+         This unifies things on the WebGPU side.
+         The texture format table can then enable usage of more formats for read-only texel buffers.
+3. Do we need the new createView method on the buffer? Implementations could create the view at bind time, assuming they are light weight.
+   - Corentin Wallez raised this at the F2F.
