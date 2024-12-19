@@ -264,7 +264,7 @@ D3D12 would have to be proven empricially.
 
 # Appendix C: CTS Status
 
-Last updated: 2024-12-12
+Last updated: 2024-12-18
 
 | Built-in value | Validation | Compute | Fragment |
 | --- | --- | --- | --- |
@@ -283,12 +283,12 @@ Last updated: 2024-12-12
 | `subgroupShuffleXor` | &check; | &check; | &check; |
 | `subgroupShuffleUp` | &check; | &check; | &check; |
 | `subgroupShuffleDown` | &check; | &check; | &check; |
-| `subgroupAdd` | &check; | &check; | &cross; |
-| `subgroupExclusiveAdd` | &check; | &check; | &cross; |
-| `subgroupInclusiveAdd` | &check; | &check; | &cross; |
-| `subgroupMul` | &check; | &check; | &cross; |
-| `subgroupExclusiveMul` | &check; | &check; | &cross; |
-| `subgroupInclusiveMul` | &check; | &check; | &cross; |
+| `subgroupAdd` | &check; | &check; | &check; |
+| `subgroupExclusiveAdd` | &check; | &check; | &check; |
+| `subgroupInclusiveAdd` | &check; | &check; | &check; |
+| `subgroupMul` | &check; | &check; | &check; |
+| `subgroupExclusiveMul` | &check; | &check; | &check; |
+| `subgroupInclusiveMul` | &check; | &check; | &check; |
 | `subgroupAnd` | &check; | &check; | &check; |
 | `subgroupOr` | &check; | &check; | &check; |
 | `subgroupXor` | &check; | &check; | &check; |
