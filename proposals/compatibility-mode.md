@@ -117,8 +117,8 @@ are as follows
 | `maxStorageBuffersPerShaderStage`   |       4 |         8 | min(MAX_SHADER_STORAGE_BUFFER_BINDINGS, MAX_COMPUTE_SHADER_STORAGE_BLOCKS) |
 | `maxStorageBuffersInVertexStage`    |       0 | (ignored) | min(MAX_SHADER_STORAGE_BUFFER_BINDINGS, MAX_VERTEX_SHADER_STORAGE_BLOCKS) (see restriction 18) |
 | `maxStorageBuffersInFragmentStage`  |       0 | (ignored) | min(MAX_SHADER_STORAGE_BUFFER_BINDINGS, MAX_FRAGMENT_SHADER_STORAGE_BLOCKS) (see restriction 19) |
-| `maxStorageTexturesInVertexStage`   |       0 | (ignored) | TODO (see restriction 18) |
-| `maxStorageTexturesInFragmentStage` |       0 | (ignored) | TODO (see restriction 19) |
+| `maxStorageTexturesInVertexStage`   |       0 | (ignored) | MAX_VERTEX_IMAGE_UNIFORMS (see restriction 18) |
+| `maxStorageTexturesInFragmentStage` |       0 | (ignored) | MAX_FRAGMENT_IMAGE_UNIFORMS (see restriction 19) |
 | `maxTextureDimension1D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
 | `maxTextureDimension2D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
 | `maxUniformBufferBindingSize`       |   16384 |     65536 | MAX_UNIFORM_BLOCK_SIZE                       |
