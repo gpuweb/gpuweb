@@ -27,6 +27,9 @@ Requesting `requiredFeatures: ["webgpu-core"]` increases all capabilities to at 
 
 The spec is modified so that *all* Core-capable Adapters (including Core-defaulting Adapters) list `"webgpu-core"` as a feature, and all device requests to Core-defaulting Adapters automatically enable the `"webgpu-core"` feature.
 
+To check whether a Device has a capability not supported by default in Compatibility Mode,
+simply check for the specific feature or limit, or check `device.features.has("webgpu-core")` if none exists.
+
 ```webidl
 partial interface GPUAdapter {
     readonly attribute DOMstring featureLevel;
