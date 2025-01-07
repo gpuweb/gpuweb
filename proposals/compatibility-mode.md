@@ -30,13 +30,8 @@ The spec is modified so that *all* Core-capable Adapters (including Core-default
 To check whether a Device has a capability not supported by default in Compatibility Mode,
 simply check for the specific feature or limit, or check `device.features.has("webgpu-core")` if none exists.
 
-```webidl
-partial interface GPUAdapter {
-    readonly attribute DOMstring featureLevel;
-}
-```
-
-As a convenience to the developer, `GPUAdapter.featureLevel` is set to `"core"` on Core-defaulting Adapters, and `"compatibility"` on Compatibility-defaulting Adapters.
+There is no way to check whether an Adapter is Core-defaulting or Compatibility-defaulting.
+Applications should always use the usual pattern of checking for the individual features/limits they can use, and then requesting them. (This includes checking for and requesting the `"webgpu-core"` feature if that is the best way to detect the capability in question.)
 
 ### Devices
 
