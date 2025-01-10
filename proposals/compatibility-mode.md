@@ -198,7 +198,7 @@ In `createBindGroupLayout`, `createPipelineLayout` and at pipeline creation time
 
 In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the vertex stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInVertexStage)`.
 
-In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInVertexStage` will default to the same value as ``maxStorageBuffersPerShaderStage` and `maxStorageBuffersInVertexStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
+In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInVertexStage` will default to the same value as `maxStorageBuffersPerShaderStage` and `maxStorageBuffersInVertexStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
 
 In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInVertexStage` exceeds the effective limit for `maxStorageBuffersPerShaderStage` or if the requested limit for `maxStorageTexturesInVertexStage` exceeds the effective limit for `maxStorageTexturesPerShaderStage` an `OperationError` is thrown.
 
