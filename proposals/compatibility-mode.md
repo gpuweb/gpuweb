@@ -30,13 +30,38 @@ The spec is modified so that *all* Core-capable Adapters (including Core-default
 To check whether a Device has a capability not supported by default in Compatibility Mode,
 simply check for the specific feature or limit, or check `device.features.has("webgpu-core")` if none exists.
 
+Applications should `requestAdapter()` with the feature level that is below or equal to their minimum requirements (`"core"` by default; `"compatibility"` if they can support anything lower than Core).
+Then they can inspect the available features and enable features they may use, including `"webgpu-core"` if they can optionally take advantage of Core features. Example:
+
+```js
+const adapter = await navigator.gpu.requestAdapter({ featureLevel: 'compatibility' });
+
+const kSomeAlwaysRequiredFeature = 'texture-compression-etc2';
+if (!adapter.features.has(kSomeAlwaysRequiredFeature)) {
+  switchToFallback();
+  return;
+}
+const requiredFeatures = [kSomeAlwaysRequiredFeature];
+
+const hasCore = adapter.features.has('webgpu-core');
+if (hasCore) {
+   requiredFeatures.push('webgpu-core');
+}
+
+const device = await adapter.requestDevice({ requiredFeatures });
+
+...
+
+// enable fancier rendering if `hasCore` is true.
+```
+
+As a convenience to the developer, `GPUAdapter.featureLevel` is set to `"core"` on Core-defaulting Adapters, and `"compatibility"` on Compatibility-defaulting Adapters:
+
 ```webidl
 partial interface GPUAdapter {
     readonly attribute DOMstring featureLevel;
 }
 ```
-
-As a convenience to the developer, `GPUAdapter.featureLevel` is set to `"core"` on Core-defaulting Adapters, and `"compatibility"` on Compatibility-defaulting Adapters.
 
 ### Devices
 
