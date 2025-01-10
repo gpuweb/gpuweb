@@ -16,17 +16,30 @@ Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility m
 
 ## WebGPU Spec Changes
 
-When calling `GPU.requestAdapter()`, passing `featureLevel = "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
+### Adapters
 
-Note that a supporting User Agent may return a `featureLevel = "compatibility"` Adapter which is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, so long as it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
+When calling `GPU.requestAdapter()`, passing `featureLevel: "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent a request to select the Compatibility subset of WebGPU. If the request is honored by the UA, the resulting adapter will be a "Compatibility-defaulting" Adapter. When calling `adapter.requestDevice()` on a Compatibility-defaulting Adapter, the default set of capabilities (features and limits) is more restrictive than on a Core-defaulting Adapter.
 
-```webidl
-partial interface GPUAdapter {
-    readonly attribute DOMstring featureLevel;
-}
-```
+A Compatibility-defaulting Adapter may be able to create devices with more capabilities than the default Compatibility subset (as requested via `requiredFeatures`/`requiredLimits`).
 
-As a convenience to the developer, the Adapter returned will have the `featureLevel` property set to `"compatibility"`.
+A Compatibility-defaulting Adapter may even be "Core-capable"; if it is, it lists `"webgpu-core"` as a supported feature.
+Requesting `requiredFeatures: ["webgpu-core"]` increases all capabilities to at least the Core defaults (ignoring any limit requests which are worse than Core).
+
+The spec is modified so that *all* Core-capable Adapters (including Core-defaulting Adapters) list `"webgpu-core"` as a feature, and all device requests to Core-defaulting Adapters automatically enable the `"webgpu-core"` feature.
+
+To check whether a Device has a capability not supported by default in Compatibility Mode,
+simply check for the specific feature or limit, or check `device.features.has("webgpu-core")` if none exists.
+
+There is no way to check whether an Adapter is Core-defaulting or Compatibility-defaulting.
+Applications should always use the usual pattern of checking for the individual features/limits they can use, and then requesting them. (This includes checking for and requesting the `"webgpu-core"` feature if that is the best way to detect the capability in question.)
+
+### Devices
+
+No change.
+As always, API calls which are unsupported by a Device will result in validation errors.
+Even if a Device is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
+
+### Textures
 
 ```webidl
 partial dictionary GPUTextureDescriptor {
