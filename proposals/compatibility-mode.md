@@ -194,15 +194,17 @@ compatibility mode.
 
 In `createBindGroupLayout` and `createPipelineLayout` (including `"auto"` layout creation), if the number of bindings of type `storage_buffer` with visibility `VERTEX` bit true, exceeds the `maxStorageBuffersInVertexStage` limit a validation error will occur.
 
-In `createBindGroupLayout`, `createPipelineLayout` and at pipeline creation time, if the number of bindings of type `texture_storage_1d`, `texture_storage_2d`, `texture_storage_2d_array` and `texture_storage_3d` with visibility `VERTEX` bit true, exceeds the `maxStorageTexturesInVertexStage` limit, a validation error will occur.
+In `createBindGroupLayout`, `createPipelineLayout` (including "auto" layout creation), if the number of bindings of type `texture_storage_1d`, `texture_storage_2d`, `texture_storage_2d_array` and `texture_storage_3d` with visibility `VERTEX` bit true, exceeds the `maxStorageTexturesInVertexStage` limit, a validation error will occur.
 
 In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the vertex stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInVertexStage)`.
 
 In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInVertexStage` will default to the same value as `maxStorageBuffersPerShaderStage` and `maxStorageTexturesInVertexStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
 
-In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInVertexStage` exceeds the effective limit for `maxStorageBuffersPerShaderStage` or if the requested limit for `maxStorageTexturesInVertexStage` exceeds the effective limit for `maxStorageTexturesPerShaderStage` an `OperationError` is thrown.
+In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInVertexStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage` then the requested limit for `maxStorageBuffersPerShaderStage` is raised to the
+value requested for `maxStorageBuffersInVertexStage`. If the requested limit for `maxStorageTexturesInVertexStage` exceeds the effective requested limit for `maxStorageTexturesPerShaderStage` then the requested limit for `maxStorageTexturesPerShaderStage` is raised to the
+value requested for `maxStorageTexturesInVertexStage`.
 
-In Core mode, at device creation, `maxStorageBuffersInVertexStage` is set to the effective limit for `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInVertexStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
+In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInVertexStage` is set to the effective requested limit for `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInVertexStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
 
 **Justification**: OpenGL ES 3.1 allows `MAX_VERTEX_SHADER_STORAGE_BLOCKS` and `MAX_VERTEX_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
 
@@ -212,13 +214,15 @@ In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout cr
 
 In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of bindings of type `texture_storage_1d`, `texture_storage_2d`, `texture_storage_2d_array` and `texture_storage_3d` with visibility `FRAGMENT` bit true, exceeds the `maxStorageTexturesInFragmentStage` limit, a validation error will occur.
 
-In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInFragmentStage` will default to the same value as `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInFragmentStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
-
 In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the fragment stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInFragmentStage)`.
 
-In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInFragmentStage` exceeds the effective limit for `maxStorageBuffersPerShaderStage` or if the requested limit for `maxStorageTexturesInFragmentStage` exceeds the effective limit for `maxStorageTexturePerShaderStage`  an `OperationError` is thrown.
+In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInFragmentStage` will default to the same value as `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInFragmentStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
 
-In Core mode, at device creation, both `maxStorageBuffersInFragmentStage` is set to the effective limit for `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInFragmentStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
+In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInFragmentStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage` then the requested limit for `maxStorageBuffersPerShaderStage` will be raised to the
+value requested for `maxStorageBuffersInFragmentStage`. If the requested limit for `maxStorageTexturesInFragmentStage` exceeds the effective limit for `maxStorageTexturePerShaderStage`  then the requested limit for `maxStorageTexturesPerShaderStage` will be raised to the
+value requested for `macStorageTexturesInFragmentStage`.
+
+In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInFragmentStage` is set to the effective limit for `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInFragmentStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
 
 **Justification**: OpenGL ES 3.1 allows `MAX_FRAGMENT_SHADER_STORAGE_BLOCKS` and `MAX_FRAGMENT_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
 
