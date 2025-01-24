@@ -6,8 +6,9 @@ code=1
 for opt in "$@"; do
     case "$opt" in
         bikeshed)
-            # Always use the latest bikeshed because that's what spec-prod uses.
-            python3 -m pip install --upgrade bikeshed
+            # Note we pin a version of Bikeshed so that `build-validate-publish` will be stable,
+            # but spec-prod (used in `publish-TR-webgpu`) always uses the latest.
+            python3 -m pip install --upgrade bikeshed==$PIP_BIKESHED_VERSION
             bikeshed update
             code=0
             ;;
