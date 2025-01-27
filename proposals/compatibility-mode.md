@@ -204,7 +204,7 @@ In both Compatibility Mode and Core, at device creation time, if the requested l
 value requested for `maxStorageBuffersInVertexStage`. If the requested limit for `maxStorageTexturesInVertexStage` exceeds the effective requested limit for `maxStorageTexturesPerShaderStage` then the requested limit for `maxStorageTexturesPerShaderStage` is raised to the
 value requested for `maxStorageTexturesInVertexStage`.
 
-In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInVertexStage` is set to the effective requested limit for `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInVertexStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
+In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInVertexStage` is set to the effective requested limit for `maxStorageBuffersPerShaderStage`, and `maxStorageTexturesInVertexStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
 
 **Justification**: OpenGL ES 3.1 allows `MAX_VERTEX_SHADER_STORAGE_BLOCKS` and `MAX_VERTEX_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
 
