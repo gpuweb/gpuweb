@@ -192,7 +192,7 @@ compatibility mode.
 
 ## 18. Introduce new `maxStorageBuffersInVertexStage` and `maxStorageTexturesInVertexStage` limits.
 
-In `createBindGroupLayout` and `createPipelineLayout` (including `"auto"` layout creation), if the number of bindings of type `storage_buffer` with visibility `VERTEX` bit true, exceeds the `maxStorageBuffersInVertexStage` limit a validation error will occur.
+In `createBindGroupLayout` and `createPipelineLayout` (including `"auto"` layout creation), if the number of `"storage"`/`"read-only-storage"` buffer bindings with visibility bit `VERTEX` exceeds the `maxStorageBuffersInVertexStage` limit, a validation error will occur.
 
 In `createBindGroupLayout`, `createPipelineLayout` (including "auto" layout creation), if the number of `storageTexture` bindings with visibility bit `VERTEX` exceeds the `maxStorageTexturesInVertexStage` limit, a validation error will occur.
 
