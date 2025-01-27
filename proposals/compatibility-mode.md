@@ -210,7 +210,7 @@ In Core mode, at device creation time, and after application of the previous rul
 
 ## 19. Introduce new `maxStorageBuffersInFragmentStage` and `maxStorageTexturesInFragmentStage` limits.
 
-In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of bindings of type `storage_buffer` with visibility `FRAGMENT` bit true, exceeds the `maxStorageBuffersInFragmentStage` limit, a validation error will occur.
+In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of `"storage"`/`"read-only-storage"` buffer bindings with visibility bit `FRAGMENT` exceeds the `maxStorageBuffersInFragmentStage` limit, a validation error will occur.
 
 In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of bindings of type `texture_storage_1d`, `texture_storage_2d`, `texture_storage_2d_array` and `texture_storage_3d` with visibility `FRAGMENT` bit true, exceeds the `maxStorageTexturesInFragmentStage` limit, a validation error will occur.
 
