@@ -218,8 +218,8 @@ In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` an
 
 In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInFragmentStage` will default to the same value as `maxStorageBuffersPerShaderStage`, and `maxStorageTexturesInFragmentStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
 
-In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInFragmentStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage` then the requested limit for `maxStorageBuffersPerShaderStage` will be raised to the
-value requested for `maxStorageBuffersInFragmentStage`. If the requested limit for `maxStorageTexturesInFragmentStage` exceeds the effective limit for `maxStorageTexturePerShaderStage`  then the requested limit for `maxStorageTexturesPerShaderStage` will be raised to the
+In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInFragmentStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage`, then the requested limit for `maxStorageBuffersPerShaderStage` will be raised to the
+value requested for `maxStorageBuffersInFragmentStage`. If the requested limit for `maxStorageTexturesInFragmentStage` exceeds the effective limit for `maxStorageTexturePerShaderStage`, then the requested limit for `maxStorageTexturesPerShaderStage` will be raised to the
 value requested for `macStorageTexturesInFragmentStage`.
 
 In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInFragmentStage` is set to the effective limit for `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInFragmentStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
