@@ -200,8 +200,8 @@ In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` an
 
 In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInVertexStage` will default to the same value as `maxStorageBuffersPerShaderStage` and `maxStorageTexturesInVertexStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
 
-In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInVertexStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage` then the requested limit for `maxStorageBuffersPerShaderStage` is raised to the
-value requested for `maxStorageBuffersInVertexStage`. If the requested limit for `maxStorageTexturesInVertexStage` exceeds the effective requested limit for `maxStorageTexturesPerShaderStage` then the requested limit for `maxStorageTexturesPerShaderStage` is raised to the
+In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInVertexStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage`, then the requested limit for `maxStorageBuffersPerShaderStage` is raised to the
+value requested for `maxStorageBuffersInVertexStage`. If the requested limit for `maxStorageTexturesInVertexStage` exceeds the effective requested limit for `maxStorageTexturesPerShaderStage`, then the requested limit for `maxStorageTexturesPerShaderStage` is raised to the
 value requested for `maxStorageTexturesInVertexStage`.
 
 In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInVertexStage` is set to the effective requested limit for `maxStorageBuffersPerShaderStage`, and `maxStorageTexturesInVertexStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
