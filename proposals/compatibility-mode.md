@@ -250,10 +250,18 @@ When supported, `float16-renderable` allows the `RENDER_ATTACHMENT` usage on tex
 When supported, `float32-renderable` allows the `RENDER_ATTACHMENT` usage on textures with format `"r32float"`, `"rg32float"`, and `"rgba32float"`.
 
 Without support, an error will occur at texture creation time as described in section 6.1.3.
+**Note these features do _not_ allow creating multisample textures with these formats.**
 
 Support for both features is mandatory in core WebGPU.
 
 **Justification**: OpenGL ES 3.1 does not require the relevant f16- or f32-based texture formats (`R16F`, `RG16F`, `RGBA16F`, `R32F`, `RG32F`, and `RGBA32F`) to be color-renderable. While there exist OpenGL ES extensions to enable renderability (`GL_EXT_COLOR_BUFFER_HALF_FLOAT` and `GL_EXT_COLOR_BUFFER_FLOAT`), there are a significant number of devices which lack support for these extensions.
+
+### 23. Disallow multisampled `*16float` and `*32float` textures
+
+Creating a texture with format `*16float` or `*32float` and `sampleCount > 1` produces a validation error.
+
+**Justification**: OpenGL ES 3.1 does not require the relevant formats to have multisample support.
+`GL_EXT_COLOR_BUFFER_HALF_FLOAT` and `GL_EXT_COLOR_BUFFER_FLOAT` make them renderable, but do not guarantee multisample support.
 
 ## Issues
 
