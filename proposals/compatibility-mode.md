@@ -212,7 +212,7 @@ In Core mode, at device creation time, and after application of the previous rul
 
 In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of `"storage"`/`"read-only-storage"` buffer bindings with visibility bit `FRAGMENT` exceeds the `maxStorageBuffersInFragmentStage` limit, a validation error will occur.
 
-In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of bindings of type `texture_storage_1d`, `texture_storage_2d`, `texture_storage_2d_array` and `texture_storage_3d` with visibility `FRAGMENT` bit true, exceeds the `maxStorageTexturesInFragmentStage` limit, a validation error will occur.
+In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of `storageTexture` bindings with visibility bit `FRAGMENT` exceeds the `maxStorageTexturesInFragmentStage` limit, a validation error will occur.
 
 In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the fragment stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInFragmentStage)`.
 
