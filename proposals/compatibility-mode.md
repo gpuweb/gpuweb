@@ -243,25 +243,52 @@ for each stage of the pipeline:
 
 **Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
 
-## 22. Introduce new `float16-renderable` and `float32-renderable` features.
+### 22. Restrictions on `*16float` and `*32float` renderability and multisampling
 
-When supported, `float16-renderable` allows the `RENDER_ATTACHMENT` usage on textures with format `"r16float"`, `"rg16float"`, and `"rgba16float"`.
+- The float texture formats (`*16float` and `*32float`) do not support multisampling, and do not support rendering by default. A validation error is produced by `createTexture()` for unsupported combinations.
+- `float16-renderable` enables the `RENDER_ATTACHMENT` usage with `"r16float"`, `"rg16float"`, and `"rgba16float"`.
+- `float32-renderable` enables the `RENDER_ATTACHMENT` usage with `"r32float"`, `"rg32float"`, and `"rgba32float"`.
 
-When supported, `float32-renderable` allows the `RENDER_ATTACHMENT` usage on textures with format `"r32float"`, `"rg32float"`, and `"rgba32float"`.
+Comparison with WebGPU Core and OpenGL ES 3.1 (***scroll right!***):
 
-Without support, an error will occur at texture creation time as described in section 6.1.3.
-**Note these features do _not_ allow creating multisample textures with these formats.**
+<table>
+  <tr><th style=text-align:right>Format
+    <th>Core <br>sampleCount=1
+    <th>Core <br>sampleCount&gt;1
+    <th>OpenGL ES 3.1 <br>sampleCount=1
+    <th>OpenGL ES 3.1 <br>sampleCount&gt;1
+    <th>Compatibility <br>sampleCount=1
+    <th>Compatibility <br>sampleCount&gt;1
+  <tr><td style=text-align:right>r16float
+    <td>always <td>always
+    <td rowspan=3>GL_EXT_color_buffer_half_float or GL_EXT_color_buffer_float
+    <td rowspan=2>GL_EXT_color_buffer_float
+    <td rowspan=3>float16-renderable
+    <td>-
+  <tr><td style=text-align:right>rg16float
+    <td>always <td>always
+    <td>-
+  <tr><td style=text-align:right>rgba16float
+    <td>always <td>always
+    <td>-
+    <td>-
+  <tr><td style=text-align:right>r32float
+    <td>always <td>always
+    <td rowspan=3>GL_EXT_color_buffer_float
+    <td>-
+    <td rowspan=3>float32-renderable
+    <td>-
+  <tr><td style=text-align:right>rg32float
+    <td>always <td>-
+    <td>-
+    <td>-
+  <tr><td style=text-align:right>rgba32float
+    <td>always <td>-
+    <td>-
+    <td>-
+</table>
 
-Support for both features is mandatory in core WebGPU.
-
-**Justification**: OpenGL ES 3.1 does not require the relevant f16- or f32-based texture formats (`R16F`, `RG16F`, `RGBA16F`, `R32F`, `RG32F`, and `RGBA32F`) to be color-renderable. While there exist OpenGL ES extensions to enable renderability (`GL_EXT_COLOR_BUFFER_HALF_FLOAT` and `GL_EXT_COLOR_BUFFER_FLOAT`), there are a significant number of devices which lack support for these extensions.
-
-### 23. Disallow multisampled `*16float` and `*32float` textures
-
-Creating a texture with format `*16float` or `*32float` and `sampleCount > 1` produces a validation error.
-
-**Justification**: OpenGL ES 3.1 does not require the relevant formats to have multisample support.
-`GL_EXT_COLOR_BUFFER_HALF_FLOAT` and `GL_EXT_COLOR_BUFFER_FLOAT` make them renderable, but do not guarantee multisample support.
+**Justification**: See OpenGL ES 3.1 column. There are a significant number of OpenGL ES 3.1 devices which lack support for these extensions.
 
 ## Issues
 
