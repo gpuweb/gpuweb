@@ -90,6 +90,9 @@ To be confirmed:
  - Vulkan uniform indexing of texel buffers is added in Vulkan 1.2, but very prevalent there (apart from some Intel devices?)
  - Vulkan non-uniform indexing of all kinds of bindings is very prevalent but not ubiquitous.
 
+Note that both HLSL and SPIR-V require annotations for non-uniform accesses (or non-uniform are UB).
+WGSL compilers could use the uniformity analysis to deduce when annotations need to be added or can be removed.
+
 Given that a reasonable workaround exists to support uniform and non-uniform indexing on devices that don't support it, and that the workaround has been used with great success in WebGL, the proposal is to allow non-uniform indexing of all kinds of bindings.
 The workaround looks like the following:
 
@@ -112,3 +115,9 @@ fn indexMyBindingArray(i) -> T {
 ```
 
 This also lets us support all kinds of bindings in fixed-size arrays.
+
+On D3D12 for buffers (and GL?) it may require inlining a switch with the memory access hoisted into it (ugly but workable).
+
+To be confirmed: do all the members of `GPUBindGroupLayoutEntry` need to match for the same array?
+It seems that mostly yes except maybe `hasDynamicOffset` and `sampleType`.
+TBD
