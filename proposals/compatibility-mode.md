@@ -280,26 +280,26 @@ Comparison with WebGPU Core and OpenGL ES 3.1:
   <tr><td rowspan=6>4 <td style=text-align:right>r16float
     <td>always
     <td rowspan=2>GL_EXT_color_buffer_float
-    <td>-
+    <td>&cross;
   <tr><td style=text-align:right>rg16float
     <td>always
-    <td>-
+    <td>&cross;
   <tr><td style=text-align:right>rgba16float
     <td>always
-    <td>-
-    <td>-
+    <td>&cross;
+    <td>&cross;
   <tr><td style=text-align:right>r32float
     <td>always
-    <td>-
-    <td>-
+    <td>&cross;
+    <td>&cross;
   <tr><td style=text-align:right>rg32float
-    <td>-
-    <td>-
-    <td>-
+    <td>&cross;
+    <td>&cross;
+    <td>&cross;
   <tr><td style=text-align:right>rgba32float
-    <td>-
-    <td>-
-    <td>-
+    <td>&cross;
+    <td>&cross;
+    <td>&cross;
 
   <tr><th>sampleCount <th style=text-align:right>Format
     <th>Core
