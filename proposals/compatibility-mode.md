@@ -256,7 +256,7 @@ Comparison with WebGPU Core and OpenGL ES 3.1:
     <th>Core
     <th>OpenGL ES 3.1
     <th>Compatibility
-  <tr><td rowspan=6>= 1 <td style=text-align:right>r16float
+  <tr><td rowspan=6>1 <td style=text-align:right>r16float
     <td>always
     <td rowspan=3>GL_EXT_color_buffer_half_float<br>or GL_EXT_color_buffer_float
     <td rowspan=3>float16-renderable
@@ -272,11 +272,12 @@ Comparison with WebGPU Core and OpenGL ES 3.1:
     <td>always
   <tr><td style=text-align:right>rgba32float
     <td>always
+
   <tr><th>sampleCount <th style=text-align:right>Format
     <th>Core
     <th>OpenGL ES 3.1
     <th>Compatibility
-  <tr><td rowspan=6>&gt; 1 <td style=text-align:right>r16float
+  <tr><td rowspan=6>4 <td style=text-align:right>r16float
     <td>always
     <td rowspan=2>GL_EXT_color_buffer_float
     <td>-
@@ -299,45 +300,15 @@ Comparison with WebGPU Core and OpenGL ES 3.1:
     <td>-
     <td>-
     <td>-
-</table>
 
-Alternate version of the same table (***scroll right!***):
-
-<table>
-  <tr><th style=text-align:right>Format
-    <th>Core <br>sampleCount=1
-    <th>Core <br>sampleCount&gt;1
-    <th>OpenGL ES 3.1 <br>sampleCount=1
-    <th>OpenGL ES 3.1 <br>sampleCount&gt;1
-    <th>Compatibility <br>sampleCount=1
-    <th>Compatibility <br>sampleCount&gt;1
-  <tr><td style=text-align:right>r16float
-    <td>always <td>always
-    <td rowspan=3>GL_EXT_color_buffer_half_float or GL_EXT_color_buffer_float
-    <td rowspan=2>GL_EXT_color_buffer_float
-    <td rowspan=3>float16-renderable
-    <td>-
-  <tr><td style=text-align:right>rg16float
-    <td>always <td>always
-    <td>-
-  <tr><td style=text-align:right>rgba16float
-    <td>always <td>always
-    <td>-
-    <td>-
-  <tr><td style=text-align:right>r32float
-    <td>always <td>always
-    <td rowspan=3>GL_EXT_color_buffer_float
-    <td>-
-    <td rowspan=3>float32-renderable
-    <td>-
-  <tr><td style=text-align:right>rg32float
-    <td>always <td>-
-    <td>-
-    <td>-
-  <tr><td style=text-align:right>rgba32float
-    <td>always <td>-
-    <td>-
-    <td>-
+  <tr><th>sampleCount <th style=text-align:right>Format
+    <th>Core
+    <th>OpenGL ES 3.1
+    <th>Compatibility
+  <tr><td>1 or 4 <td style=text-align:right>rg11b10ufloat
+    <td>rg11b10ufloat-renderable
+    <td>GL_EXT_color_buffer_float
+    <td>rg11b10ufloat-renderable
 </table>
 
 **Justification**: See OpenGL ES 3.1 column. There are a significant number of OpenGL ES 3.1 devices which lack support for these extensions.
