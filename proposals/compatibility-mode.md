@@ -249,7 +249,59 @@ for each stage of the pipeline:
 - `float16-renderable` enables the `RENDER_ATTACHMENT` usage with `"r16float"`, `"rg16float"`, and `"rgba16float"`.
 - `float32-renderable` enables the `RENDER_ATTACHMENT` usage with `"r32float"`, `"rg32float"`, and `"rgba32float"`.
 
-Comparison with WebGPU Core and OpenGL ES 3.1 (***scroll right!***):
+Comparison with WebGPU Core and OpenGL ES 3.1:
+
+<table>
+  <tr><th>sampleCount <th style=text-align:right>Format
+    <th>Core
+    <th>OpenGL ES 3.1
+    <th>Compatibility
+  <tr><td rowspan=6>= 1 <td style=text-align:right>r16float
+    <td>always
+    <td rowspan=3>GL_EXT_color_buffer_half_float<br>or GL_EXT_color_buffer_float
+    <td rowspan=3>float16-renderable
+  <tr><td style=text-align:right>rg16float
+    <td>always
+  <tr><td style=text-align:right>rgba16float
+    <td>always
+  <tr><td style=text-align:right>r32float
+    <td>always
+    <td rowspan=3>GL_EXT_color_buffer_float
+    <td rowspan=3>float32-renderable
+  <tr><td style=text-align:right>rg32float
+    <td>always
+  <tr><td style=text-align:right>rgba32float
+    <td>always
+  <tr><th>sampleCount <th style=text-align:right>Format
+    <th>Core
+    <th>OpenGL ES 3.1
+    <th>Compatibility
+  <tr><td rowspan=6>&gt; 1 <td style=text-align:right>r16float
+    <td>always
+    <td rowspan=2>GL_EXT_color_buffer_float
+    <td>-
+  <tr><td style=text-align:right>rg16float
+    <td>always
+    <td>-
+  <tr><td style=text-align:right>rgba16float
+    <td>always
+    <td>-
+    <td>-
+  <tr><td style=text-align:right>r32float
+    <td>always
+    <td>-
+    <td>-
+  <tr><td style=text-align:right>rg32float
+    <td>-
+    <td>-
+    <td>-
+  <tr><td style=text-align:right>rgba32float
+    <td>-
+    <td>-
+    <td>-
+</table>
+
+Alternate version of the same table (***scroll right!***):
 
 <table>
   <tr><th style=text-align:right>Format
