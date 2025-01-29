@@ -255,16 +255,10 @@ Support for both features is mandatory in core WebGPU.
 
 **Justification**: OpenGL ES 3.1 does not require the relevant f16- or f32-based texture formats (`R16F`, `RG16F`, `RGBA16F`, `R32F`, `RG32F`, and `RGBA32F`) to be color-renderable. While there exist OpenGL ES extensions to enable renderability (`GL_EXT_COLOR_BUFFER_HALF_FLOAT` and `GL_EXT_COLOR_BUFFER_FLOAT`), there are a significant number of devices which lack support for these extensions.
 
-### 23. Disallow multisampled integer textures.
+### 23. Disallow all multisampled integer textures.
 
-The following integer formats allow multisampling in Core, but not in Compatibility mode:
-`r8uint`, `r8sint`,
-`rg8uint`, `rg8sint`,
-`rgba8uint`, `rgba8sint`,
-`r16uint`, `r16sint`,
-`rg16uint`, `rg16sint`,
-`rgba16uint`, `rgba16sint`,
-`rgb10a2uint`.
+Integer texture formats allow multisampling in Core, but not in Compatibility mode.
+(The formats are `r8uint`, `r8sint`, `rg8uint`, `rg8sint`, `rgba8uint`, `rgba8sint`, `r16uint`, `r16sint`, `rg16uint`, `rg16sint`, `rgba16uint`, `rgba16sint`, `rgb10a2uint`.)
 
 If `createTexture()` is called with any of these formats and `sampleCount > 1`, a validation error is produced.
 
