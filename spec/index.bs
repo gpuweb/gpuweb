@@ -8,6 +8,7 @@ ED: https://gpuweb.github.io/gpuweb/
 TR: https://www.w3.org/TR/webgpu/
 Repository: gpuweb/gpuweb
 !Participate: <a href="https://github.com/gpuweb/gpuweb/issues/new">File an issue</a> (<a href="https://github.com/gpuweb/gpuweb/issues">open issues</a>)
+!Test Suite: <a href="https://github.com/gpuweb/cts">WebGPU CTS</a>
 
 Editor: Kai Ninomiya, Google https://www.google.com, kainino@google.com, w3cid 99487
 Editor: Brandon Jones, Google https://www.google.com, bajones@google.com, w3cid 87824
@@ -21,6 +22,7 @@ Markup Shorthands: dfn yes
 Markup Shorthands: idl yes
 Markup Shorthands: css no
 Assume Explicit For: yes
+Deadline: 2025-02-28
 </pre>
 
 <pre class=link-defaults>
@@ -134,9 +136,12 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
             text: f16; url: extension-f16
             text: clip_distances; url: extension-clip_distances
             text: dual_source_blending; url: extension-dual_source_blending
+            text: subgroup; url: extension-subgroups
         for: type
             text: sampled texture; url: type-sampled-texture
             text: depth texture; url: type-depth-texture
+        for: builtin-value
+            text: subgroup size; url: subgroup-size
     type: abstract-op
         text: SizeOf; url: sizeof
 spec: Internationalization Glossary; urlPrefix: https://www.w3.org/TR/i18n-glossary/#
@@ -1455,7 +1460,7 @@ A <dfn dfn>feature</dfn> is a set of optional WebGPU functionality that is not s
 on all implementations, typically due to hardware or system software constraints.
 
 All [=features=] are optional, but [=adapters=] make some guarantees about their availability
-(see [[#adapter capability guarantees]].
+(see [[#adapter-capability-guarantees]]).
 
 A [=device=] supports the exact set of features determined at creation (see [[#optional-capabilities]]).
 API calls perform validation according to these features (not the [=adapter=]'s features):
@@ -1493,7 +1498,7 @@ generally only request better limits if they may actually require them.
 Each limit has a <dfn dfn for=limit>default</dfn> value.
 
 [=Adapters=] are always guaranteed to support the defaults or [=limit/better=]
-(see [[#adapter capability guarantees]].
+(see [[#adapter-capability-guarantees]]).
 
 A [=device=] supports the exact set of limits determined at creation (see [[#optional-capabilities]]).
 API calls perform validation according to these limits (not the [=adapter=]'s limits),
@@ -1896,6 +1901,8 @@ interface GPUAdapterInfo {
     readonly attribute DOMString architecture;
     readonly attribute DOMString device;
     readonly attribute DOMString description;
+    readonly attribute unsigned long subgroupMinSize;
+    readonly attribute unsigned long subgroupMaxSize;
 };
 </script>
 
@@ -1928,6 +1935,16 @@ interface GPUAdapterInfo {
         this value is not recommended. Applications which change their behavior based on the
         {{GPUAdapterInfo}}, such as applying workarounds for known driver issues, should rely on the
         other fields when possible.
+
+    : <dfn>subgroupMinSize</dfn>
+    ::
+        If the {{GPUFeatureName/"subgroups"}} feature is supported, the minimum
+        supported [=builtin-value/subgroup size=] for the [=adapter=].
+
+    : <dfn>subgroupMaxSize</dfn>
+    ::
+        If the {{GPUFeatureName/"subgroups"}} feature is supported, the maximum
+        supported [=builtin-value/subgroup size=] for the [=adapter=].
 </dl>
 
 <div algorithm data-timeline=content>
@@ -1957,6 +1974,20 @@ interface GPUAdapterInfo {
         of the |adapter| as reported by the driver. To preserve privacy, the user agent may
         instead set |adapterInfo|.{{GPUAdapterInfo/description}} to the empty string or a
         reasonable approximation of a description.
+
+    1. If {{GPUFeatureName/"subgroups"}} is supported, set {{GPUAdapterInfo/subgroupMinSize}}
+        to the smallest supported subgroup size. Otherwise, set this value to 4.
+
+        Note: To preserve privacy, the user agent may choose to not support some features or provide values
+        for the property which do not distinguish different devices, but are still usable
+        (e.g. use the default value of 4 for all devices).
+
+    1. If {{GPUFeatureName/"subgroups"}} is supported, set {{GPUAdapterInfo/subgroupMaxSize}}
+        to the largest supported subgroup size. Otherwise, set this value to 128.
+
+        Note: To preserve privacy, the user agent may choose to not support some features or provide values
+        for the property which do not distinguish different devices, but are still usable
+        (e.g. use the default value of 128 for all devices).
 
     1. Return |adapterInfo|.
 </div>
@@ -2343,6 +2374,7 @@ interface GPU {
                 1. Return either {{GPUTextureFormat/"rgba8unorm"}} or
                     {{GPUTextureFormat/"bgra8unorm"}}, depending on which format is optimal for
                     displaying WebGPU canvases on this system.
+            </div>
         </div>
 </dl>
 
@@ -2846,6 +2878,7 @@ enum GPUFeatureName {
     "float32-blendable",
     "clip-distances",
     "dual-source-blending",
+    "subgroups",
 };
 </script>
 
@@ -4321,6 +4354,7 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
 
     [=Device timeline=] steps:
 
+    1. Let |limits| be |this|.{{device/[[limits]]}}.
     1. Return `true` if all of the following requirements are met, and `false` otherwise:
 
         <div class=validusage>
@@ -4338,7 +4372,7 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
                     : {{GPUTextureDimension/"1d"}}
                     ::
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=] must be &le;
-                            |this|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension1D}}.
+                            |limits|.{{supported limits/maxTextureDimension1D}}.
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=] must be 1.
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be 1.
                         - |descriptor|.{{GPUTextureDescriptor/sampleCount}} must be 1.
@@ -4347,20 +4381,20 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
                     : {{GPUTextureDimension/"2d"}}
                     ::
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=] must be &le;
-                            |this|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension2D}}.
+                            |limits|.{{supported limits/maxTextureDimension2D}}.
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=] must be &le;
-                            |this|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension2D}}.
+                            |limits|.{{supported limits/maxTextureDimension2D}}.
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be &le;
-                            |this|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureArrayLayers}}.
+                            |limits|.{{supported limits/maxTextureArrayLayers}}.
 
                     : {{GPUTextureDimension/"3d"}}
                     ::
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=] must be &le;
-                            |this|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension3D}}.
+                            |limits|.{{supported limits/maxTextureDimension3D}}.
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=] must be &le;
-                            |this|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension3D}}.
+                            |limits|.{{supported limits/maxTextureDimension3D}}.
                         - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be &le;
-                            |this|.{{GPUDevice/limits}}.{{GPUSupportedLimits/maxTextureDimension3D}}.
+                            |limits|.{{supported limits/maxTextureDimension3D}}.
                         - |descriptor|.{{GPUTextureDescriptor/sampleCount}} must be 1.
                         - |descriptor|.{{GPUTextureDescriptor/format}} must support {{GPUTextureDimension/"3d"}}
                             textures according to [[#texture-format-caps]].
@@ -6587,11 +6621,13 @@ pipeline, and have the following members:
                 [=Device timeline=] |initialization steps|:
 
                 1. Let |limits| be |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.
-                1. Let |bindGroupLayouts| be a copy of |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}.
-                1. For each |i| in the [=list/get the indices|indices=] of |bindGroupLayouts|:
-                    1. If |bindGroupLayouts|[|i|] is not `null` and
-                        |bindGroupLayouts|[|i|].{{GPUBindGroupLayout/[[descriptor]]}}.{{GPUBindGroupLayoutDescriptor/entries}}
-                        is [=list/empty=], set |bindGroupLayouts|[|i|] to `null`.
+                1. Let |bindGroupLayouts| be a [=list=] of `null` {{GPUBindGroupLayout}}s with [=list/size=]
+                     equal to |limits|.{{supported limits/maxBindGroups}}.
+                1. [=list/For each=] |bindGroupLayout| at index |i| in |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}:
+                    1. If |bindGroupLayout| is not `null` and
+                        |bindGroupLayout|.{{GPUBindGroupLayout/[[descriptor]]}}.{{GPUBindGroupLayoutDescriptor/entries}}
+                        is not [=list/empty=]:
+                        1. Set |bindGroupLayouts|[|i|] to |bindGroupLayout|.
                 1. Let |allEntries| be the result of concatenating
                     |bgl|.{{GPUBindGroupLayout/[[descriptor]]}}.{{GPUBindGroupLayoutDescriptor/entries}}
                     for all non-`null` |bgl| in |bindGroupLayouts|.
@@ -7222,13 +7258,13 @@ interface mixin GPUPipelineBase {
             <div data-timeline=device>
                 [=Device timeline=] |initialization steps|:
 
+                1. Let |limits| be |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.
                 1. If any of the following conditions are unsatisfied
                     [$generate a validation error$], [$invalidate$] |layout| and return.
 
                     <div class=validusage>
                         - |this| must be [$valid$].
-                        - |index| &lt; the [=list/size=] of
-                            |this|.{{GPUPipelineBase/[[layout]]}}.{{GPUPipelineLayout/[[bindGroupLayouts]]}}
+                        - |index| &lt; |limits|.{{supported limits/maxBindGroups}}.
                     </div>
 
                 1. Initialize |layout| so it is a copy of
@@ -8763,27 +8799,27 @@ location:
 <table class=data>
     <tbody>
         <tr>
-            <td><b><code>RGBA<sub>src</src></code></b>
+            <td><b><code>RGBA<sub>src</sub></code></b>
             <td>Color output by the fragment shader for the color attachment.
                 If the shader doesn't return an alpha channel, src-alpha blend factors cannot be used.
         <tr>
-            <td><b><code>RGBA<sub>src1</src></code></b>
+            <td><b><code>RGBA<sub>src1</sub></code></b>
             <td>Color output by the fragment shader for the color attachment with
                 <a href="https://gpuweb.github.io/gpuweb/wgsl/#input-output-locations">"@blend_src" attribute</a>
                 equal to `1`.
                 If the shader doesn't return an alpha channel, src1-alpha blend factors cannot be used.
         <tr>
-            <td><b><code>RGBA<sub>dst</src></code></b>
+            <td><b><code>RGBA<sub>dst</sub></code></b>
             <td>Color currently in the color attachment.
                 Missing green/blue/alpha channels default to `0, 0, 1`, respectively.
         <tr>
-            <td><b><code>RGBA<sub>const</src></code></b>
+            <td><b><code>RGBA<sub>const</sub></code></b>
             <td>The current {{RenderState/[[blendConstant]]}}.
         <tr>
-            <td><b><code>RGBA<sub>srcFactor</src></code></b>
+            <td><b><code>RGBA<sub>srcFactor</sub></code></b>
             <td>The source blend factor components, as defined by {{GPUBlendComponent/srcFactor}}.
         <tr>
-            <td><b><code>RGBA<sub>dstFactor</src></code></b>
+            <td><b><code>RGBA<sub>dstFactor</sub></code></b>
             <td>The destination blend factor components, as defined by {{GPUBlendComponent/dstFactor}}.
     </tbody>
 </table>
@@ -12217,7 +12253,6 @@ called the render pass encoder can no longer be used.
                 operation, but since their content is unchanged during the render pass implementations don't need to
                 update the attachment. Validation that requires the store op to not be provided for read-only attachments
                 is done in [$GPURenderPassDepthStencilAttachment/GPURenderPassDepthStencilAttachment Valid Usage$].
-            </div>
             </div>
         </div>
 </dl>
@@ -16609,6 +16644,20 @@ This feature adds the following [=optional API surfaces=]:
 
 - New WGSL extensions:
     - [=extension/dual_source_blending=]
+
+<h3 id=subgroups data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"subgroups"`
+<span id=dom-gpufeaturename-subgroups></span>
+</h3>
+
+Allows the use of the subgroup and quad operations in WGSL.
+
+This feature adds no [=optional API surfaces=], but the following entries of {{GPUAdapterInfo}}
+expose real values whenever the feature is available on the adapter:
+- {{GPUAdapterInfo/subgroupMinSize}}
+- {{GPUAdapterInfo/subgroupMaxSize}}
+
+- New WGSL extensions:
+    - [=extension/subgroups=]
 
 # Appendices # {#appendices}
 

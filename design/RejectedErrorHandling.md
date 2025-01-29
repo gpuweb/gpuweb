@@ -30,7 +30,7 @@ interface GPUDeviceLostEvent : Event {
 };
 ```
 
-If `GPUAdapter`'s `isReady` attribute is false, `createDevice` will fail. 
+If `GPUAdapter`'s `isReady` attribute is false, `createDevice` will fail.
 `isReady` may be set to `false` when a `"gpu-device-lost"` event fires.
 It will always be set to `true` when a `"gpu-adapter-ready"` event fires.
 

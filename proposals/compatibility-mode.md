@@ -16,24 +16,17 @@ Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility m
 
 ## WebGPU Spec Changes
 
-```webidl
-partial dictionary GPURequestAdapterOptions {
-    boolean compatibilityMode = false;
-}
-```
+When calling `GPU.requestAdapter()`, passing `featureLevel = "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
 
-When calling `GPU.RequestAdapter()`, passing `compatibilityMode = true` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
-
-Note that a supporting User Agent may return a `compatibilityMode = true` Adapter which is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, so long as it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
+Note that a supporting User Agent may return a `featureLevel = "compatibility"` Adapter which is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, so long as it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
 
 ```webidl
 partial interface GPUAdapter {
-    readonly attribute boolean isCompatibilityMode;
+    readonly attribute DOMstring featureLevel;
 }
 ```
 
-As a convenience to the developer, the Adapter returned will have the `isCompatibilityMode` property set to `true`.
-
+As a convenience to the developer, the Adapter returned will have the `featureLevel` property set to `"compatibility"`.
 
 ```webidl
 partial dictionary GPUTextureDescriptor {
@@ -45,7 +38,7 @@ See "Texture view dimension may be specified", below.
 
 ## Compatibility mode restrictions
 
-### 1. Texture view dimension may be specified 
+### 1. Texture view dimension may be specified
 
 When specifying a texture, a `textureBindingViewDimension` property determines the views which can be bound from that texture for sampling (see "Proposed IDL changes", above). Binding a view of a different dimension for sampling than specified at texture creation time will cause a validation error. If `textureBindingViewDimension` is unspecified, use [the same algorithm as `createView()`](https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureviewdescriptor-defaults):
 ```
@@ -193,30 +186,54 @@ Note: this does not affect textures made with depth formats bound to `texture_2d
 If code is passed to `createShaderModule` that uses `@interpolation(flat)` or `@interpolation(flat, first)`
 generate a validation error.
 
-**Justification**: OpenGL ES 3.1 only supports the last vertex as the provoking vertex where as 
+**Justification**: OpenGL ES 3.1 only supports the last vertex as the provoking vertex where as
 other APIs only support the first vertex so only `@interpolation(flat, either)` is supported in
 compatibility mode.
 
 ## 18. Introduce new `maxStorageBuffersInVertexStage` and `maxStorageTexturesInVertexStage` limits.
 
-If the number of shader variables of type `storage_buffer` in a vertex shader exceeds the `maxStorageBuffersInVertexStage` limit, a validation error will occur at pipeline creation time.
+In `createBindGroupLayout` and `createPipelineLayout` (including `"auto"` layout creation), if the number of `"storage"`/`"read-only-storage"` buffer bindings with visibility bit `VERTEX` exceeds the `maxStorageBuffersInVertexStage` limit, a validation error will occur.
 
-If the number of shader variables of type `texture_storage_1d`, `texture_storage_2d`, `texture_storage_2d_array` and `texture_storage_3d` in a vertex shader exceeds the `maxStorageTexturesInVertexStage` limit, a validation error will occur at pipeline creation time.
-
-In Compatibility mode, these new limits will have a default of zero. In Core mode, they will default to the maximum value of a GPUSize32.
+In `createBindGroupLayout`, `createPipelineLayout` (including "auto" layout creation), if the number of `storageTexture` bindings with visibility bit `VERTEX` exceeds the `maxStorageTexturesInVertexStage` limit, a validation error will occur.
 
 In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the vertex stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInVertexStage)`.
 
+In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInVertexStage` will default to the same value as `maxStorageBuffersPerShaderStage` and `maxStorageTexturesInVertexStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
+
+In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInVertexStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage`, then the requested limit for `maxStorageBuffersPerShaderStage` is raised to the
+value requested for `maxStorageBuffersInVertexStage`. If the requested limit for `maxStorageTexturesInVertexStage` exceeds the effective requested limit for `maxStorageTexturesPerShaderStage`, then the requested limit for `maxStorageTexturesPerShaderStage` is raised to the
+value requested for `maxStorageTexturesInVertexStage`.
+
+In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInVertexStage` is set to the effective requested limit for `maxStorageBuffersPerShaderStage`, and `maxStorageTexturesInVertexStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
+
 **Justification**: OpenGL ES 3.1 allows `MAX_VERTEX_SHADER_STORAGE_BLOCKS` and `MAX_VERTEX_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
 
-## 19. Disallow using a depth texture with a non-comparison sampler
+## 19. Introduce new `maxStorageBuffersInFragmentStage` and `maxStorageTexturesInFragmentStage` limits.
+
+In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of `"storage"`/`"read-only-storage"` buffer bindings with visibility bit `FRAGMENT` exceeds the `maxStorageBuffersInFragmentStage` limit, a validation error will occur.
+
+In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of `storageTexture` bindings with visibility bit `FRAGMENT` exceeds the `maxStorageTexturesInFragmentStage` limit, a validation error will occur.
+
+In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the fragment stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInFragmentStage)`.
+
+In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInFragmentStage` will default to the same value as `maxStorageBuffersPerShaderStage`, and `maxStorageTexturesInFragmentStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
+
+In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInFragmentStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage`, then the requested limit for `maxStorageBuffersPerShaderStage` will be raised to the
+value requested for `maxStorageBuffersInFragmentStage`. If the requested limit for `maxStorageTexturesInFragmentStage` exceeds the effective limit for `maxStorageTexturePerShaderStage`, then the requested limit for `maxStorageTexturesPerShaderStage` will be raised to the
+value requested for `macStorageTexturesInFragmentStage`.
+
+In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInFragmentStage` is set to the effective limit for `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInFragmentStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
+
+**Justification**: OpenGL ES 3.1 allows `MAX_FRAGMENT_SHADER_STORAGE_BLOCKS` and `MAX_FRAGMENT_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
+
+## 20. Disallow using a depth texture with a non-comparison sampler
 
 Using a depth texture `texture_depth_2d`, `texture_depth_cube`, `texture_depth_2d_array` with a non-comparison
 sampler in a shader will generate a validation error at pipeline creation time.
 
 **Justification**: OpenGL ES 3.1 says such usage has undefined behavior.
 
-## 20. Limit the number of texture+sampler combinations in a stage.
+## 21. Limit the number of texture+sampler combinations in a stage.
 
 If the number of texture+sampler combinations used a in single stage in a pipeline exceeds
 `min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)` a validation error is generated.
@@ -237,6 +254,18 @@ for each stage of the pipeline:
 ```
 
 **Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
+
+## 22. Introduce new `float16-renderable` and `float32-renderable` features.
+
+When supported, `float16-renderable` allows the `RENDER_ATTACHMENT` usage on textures with format `"r16float"`, `"rg16float"`, and `"rgba16float"`.
+
+When supported, `float32-renderable` allows the `RENDER_ATTACHMENT` usage on textures with format `"r32float"`, `"rg32float"`, and `"rgba32float"`.
+
+Without support, an error will occur at texture creation time as described in section 6.1.3.
+
+Support for both features is mandatory in core WebGPU.
+
+**Justification**: OpenGL ES 3.1 does not require the relevant f16- or f32-based texture formats (`R16F`, `RG16F`, `RGBA16F`, `R32F`, `RG32F`, and `RGBA32F`) to be color-renderable. While there exist OpenGL ES extensions to enable renderability (`GL_EXT_COLOR_BUFFER_HALF_FLOAT` and `GL_EXT_COLOR_BUFFER_FLOAT`), there are a significant number of devices which lack support for these extensions.
 
 ## Issues
 
