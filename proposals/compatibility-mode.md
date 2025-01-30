@@ -18,19 +18,75 @@ Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility m
 
 Spec changes are described in the following subsections.
 
+## Validation
+
+As always, API calls which are unsupported by a Device will result in validation errors.
+Even if a Device is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, it validates all subsequent API calls made on the Adapter and the objects it vends according the set of features enabled on the device, including Compatibility mode validation when `"webgpu-core"` is not enabled.
+
+Note there are currently no "Compatibility features", features that would provide incremental capabilities _between_ Compatibility and Core modes.
+See [discussion](https://github.com/gpuweb/gpuweb/issues/4987#issuecomment-2625791411).
+
+## `"webgpu-core"` Feature
+
+A new feature `"webgpu-core"`, when enabled on a device, lifts all Compatibility mode restrictions (features and limits). See below for details.
+
+TODO: Bikeshed the name and replace all instances.
+
+- `"webgpu-core"` (kinda redundant)
+- `"core"` (possibly slightly confusing with `featureLevel: "core"`)
+- `"core-features-and-limits"` (clear but verbose)
+- ?
+
 ## Initialization
 
-When calling `GPU.requestAdapter()`, passing `featureLevel = "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
+When calling `GPU.requestAdapter()`, passing `featureLevel: "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent a request to select the Compatibility subset of WebGPU, which is detailed in later sections.
 
-Note that a supporting User Agent may return a `featureLevel = "compatibility"` Adapter which is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, so long as it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
+- If the request is honored by the User Agent, the resulting adapter will be a "Compatibility-defaulting" Adapter.
 
-```webidl
-partial interface GPUAdapter {
-    readonly attribute DOMstring featureLevel;
+  If not, the resulting adapter will be "Core-defaulting" (the same as what you would get from `featureLevel: "core"` if the system supports it).
+
+- `adapter.requestDevice()` with no arguments requests a device that has `adapter`'s default capabilities.
+
+  `adapter.requestDevice(desc)` can request additional capabilities over the `adapter`'s defaults.
+
+- Core-defaulting adapters *always* support the `"webgpu-core"` feature. It is *automatically enabled* on devices created from such adapters.
+
+  Compatibility-defaulting adapters *may* support the `"webgpu-core"` feature. It *may be requested* on devices created from such adapters.
+
+  Both *may* support features like `"float32-blendable"`, which is optional in both modes.
+
+### Usage
+
+Applications should `requestAdapter()` with a `featureLevel` that is below or equal to their minimum requirements.
+Then they can inspect the available features and enable features, including `"webgpu-core"` if they can optionally take advantage of Core features.
+
+Example code for an application which:
+
+- Requires `"float32-blendable"`
+- Supports using Core features if available
+- Supports using only Compatibility features otherwise
+- Supports fallback if WebGPU is not available at all
+
+```js
+const adapter = await navigator.gpu.requestAdapter({ featureLevel: "compatibility" });
+if (adapter === null || !adapter.features.has("float32-blendable")) {
+  return app.init_fallback_no_webgpu();
 }
+
+const requiredFeatures = [];
+if (adapter.features.has("webgpu-core")) {
+  requiredFeatures.push("webgpu-core");
+}
+
+const device = await adapter.requestDevice({ requiredFeatures });
+return app.init(device);
 ```
 
-As a convenience to the developer, the Adapter returned will have the `featureLevel` property set to `"compatibility"`.
+The capabilities of a device can be determined from the device alone, allowing the device to be passed into other parts of the code (or into libraries) without sidecar information:
+
+```js
+const haveCore = device.features.has("webgpu-core");
+```
 
 ## Compatibility mode restrictions
 
