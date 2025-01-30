@@ -255,17 +255,84 @@ for each stage of the pipeline:
 
 **Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
 
-## 22. Introduce new `float16-renderable` and `float32-renderable` features.
+### 22. Restrictions on `*16float` and `*32float` renderability and multisampling
 
-When supported, `float16-renderable` allows the `RENDER_ATTACHMENT` usage on textures with format `"r16float"`, `"rg16float"`, and `"rgba16float"`.
+- The float texture formats (`*16float` and `*32float`) do not support multisampling, and do not support rendering by default. A validation error is produced by `createTexture()` for unsupported combinations.
+- `float16-renderable` enables the `RENDER_ATTACHMENT` usage with `"r16float"`, `"rg16float"`, and `"rgba16float"`.
+- `float32-renderable` enables the `RENDER_ATTACHMENT` usage with `"r32float"`, `"rg32float"`, and `"rgba32float"`.
 
-When supported, `float32-renderable` allows the `RENDER_ATTACHMENT` usage on textures with format `"r32float"`, `"rg32float"`, and `"rgba32float"`.
+Comparison with WebGPU Core and OpenGL ES 3.1:
 
-Without support, an error will occur at texture creation time as described in section 6.1.3.
+<table>
+  <tr><th>sampleCount <th style=text-align:right>Format
+    <th>Core
+    <th>OpenGL ES 3.1
+    <th>Compatibility
+  <tr><td rowspan=6>1 <td style=text-align:right>r16float
+    <td>always
+    <td rowspan=3>GL_EXT_color_buffer_half_float<br>or GL_EXT_color_buffer_float
+    <td rowspan=3>float16-renderable
+  <tr><td style=text-align:right>rg16float
+    <td>always
+  <tr><td style=text-align:right>rgba16float
+    <td>always
+  <tr><td style=text-align:right>r32float
+    <td>always
+    <td rowspan=3>GL_EXT_color_buffer_float
+    <td rowspan=3>float32-renderable
+  <tr><td style=text-align:right>rg32float
+    <td>always
+  <tr><td style=text-align:right>rgba32float
+    <td>always
 
-Support for both features is mandatory in core WebGPU.
+  <tr><th>sampleCount <th style=text-align:right>Format
+    <th>Core
+    <th>OpenGL ES 3.1
+    <th>Compatibility
+  <tr><td rowspan=6>4 <td style=text-align:right>r16float
+    <td>always
+    <td rowspan=2>GL_EXT_color_buffer_float
+    <td>&cross;
+  <tr><td style=text-align:right>rg16float
+    <td>always
+    <td>&cross;
+  <tr><td style=text-align:right>rgba16float
+    <td>always
+    <td>&cross;
+    <td>&cross;
+  <tr><td style=text-align:right>r32float
+    <td>always
+    <td>&cross;
+    <td>&cross;
+  <tr><td style=text-align:right>rg32float
+    <td>&cross;
+    <td>&cross;
+    <td>&cross;
+  <tr><td style=text-align:right>rgba32float
+    <td>&cross;
+    <td>&cross;
+    <td>&cross;
 
-**Justification**: OpenGL ES 3.1 does not require the relevant f16- or f32-based texture formats (`R16F`, `RG16F`, `RGBA16F`, `R32F`, `RG32F`, and `RGBA32F`) to be color-renderable. While there exist OpenGL ES extensions to enable renderability (`GL_EXT_COLOR_BUFFER_HALF_FLOAT` and `GL_EXT_COLOR_BUFFER_FLOAT`), there are a significant number of devices which lack support for these extensions.
+  <tr><th>sampleCount <th style=text-align:right>Format
+    <th>Core
+    <th>OpenGL ES 3.1
+    <th>Compatibility
+  <tr><td>1 or 4 <td style=text-align:right>rg11b10ufloat
+    <td>rg11b10ufloat-renderable
+    <td>GL_EXT_color_buffer_float
+    <td>rg11b10ufloat-renderable
+</table>
+
+**Justification**: See OpenGL ES 3.1 column. There are a significant number of OpenGL ES 3.1 devices which lack support for these extensions.
+
+### 23. Disallow all multisampled integer textures.
+
+Integer texture formats allow multisampling in Core, but not in Compatibility mode.
+(The formats are `r8uint`, `r8sint`, `rg8uint`, `rg8sint`, `rgba8uint`, `rgba8sint`, `r16uint`, `r16sint`, `rg16uint`, `rg16sint`, `rgba16uint`, `rgba16sint`, `rgb10a2uint`.)
+
+If `createTexture()` is called with any of these formats and `sampleCount > 1`, a validation error is produced.
+
+**Justification**: OpenGL ES 3.1 does not require multisampling to be supported on integer texture formats. The minimum value for GL_MAX_INTEGER_SAMPLES is 1, and [94.7% of reports on gpuinfo have that value](https://opengles.gpuinfo.org/displaycapability.php?name=GL_MAX_INTEGER_SAMPLES&esversion=31).
 
 ## Issues
 
