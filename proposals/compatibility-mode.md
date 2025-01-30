@@ -14,7 +14,11 @@ The primary goal of WebGPU Compatibility mode is to increase the reach of WebGPU
 
 Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility mode applications are also valid WebGPU applications. Consequently, Compatibility mode applications will also run on user agents which do not support Compatibility mode. Such user agents will simply ignore the option requesting a Compatibility mode Adapter and return a Core WebGPU Adapter instead.
 
-## WebGPU Spec Changes
+# WebGPU Spec Changes
+
+Spec changes are described in the following subsections.
+
+## Initialization
 
 When calling `GPU.requestAdapter()`, passing `featureLevel = "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
 
@@ -28,19 +32,12 @@ partial interface GPUAdapter {
 
 As a convenience to the developer, the Adapter returned will have the `featureLevel` property set to `"compatibility"`.
 
-```webidl
-partial dictionary GPUTextureDescriptor {
-    GPUTextureViewDimension textureBindingViewDimension;
-}
-```
-
-See "Texture view dimension may be specified", below.
-
 ## Compatibility mode restrictions
 
 ### 1. Texture view dimension may be specified
 
 When specifying a texture, a `textureBindingViewDimension` property determines the views which can be bound from that texture for sampling (see "Proposed IDL changes", above). Binding a view of a different dimension for sampling than specified at texture creation time will cause a validation error. If `textureBindingViewDimension` is unspecified, use [the same algorithm as `createView()`](https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureviewdescriptor-defaults):
+
 ```
 if desc.dimension is "1d":
     set textureBindingViewDimension to "1d"
@@ -51,6 +48,14 @@ if desc.dimension is "2d":
     set textureBindingViewDimension to "2d-array"
 if desc.dimension is "3d":
   set textureBindingViewDimension to "3d"
+```
+
+The WebIDL change:
+
+```webidl
+partial dictionary GPUTextureDescriptor {
+    GPUTextureViewDimension textureBindingViewDimension;
+}
 ```
 
 **Justification**: OpenGL ES 3.1 does not support texture views.
