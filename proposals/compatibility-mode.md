@@ -310,11 +310,11 @@ Comparison with WebGPU Core and OpenGL ES 3.1:
   <tr><td style=text-align:right>rg32float
     <td>&cross;
     <td>&cross;
-    <td>&cross;
+    <td>same as core
   <tr><td style=text-align:right>rgba32float
     <td>&cross;
     <td>&cross;
-    <td>&cross;
+    <td>same as core
 
   <tr><th>sampleCount <th style=text-align:right>Format
     <th>Core
