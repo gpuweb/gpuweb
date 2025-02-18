@@ -260,11 +260,10 @@ for each stage of the pipeline:
 
 **Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
 
-### 22. Restrictions on `*16float` and `*32float` renderability and multisampling
+### 22. Disallow multisampled `rgba16float` and `r32float` textures.
 
-- The float texture formats (`*16float` and `*32float`) do not support multisampling, and do not support rendering by default. A validation error is produced by `createTexture()` for unsupported combinations.
-- `float16-renderable` enables the `RENDER_ATTACHMENT` usage with `"r16float"`, `"rg16float"`, and `"rgba16float"`.
-- `float32-renderable` enables the `RENDER_ATTACHMENT` usage with `"r32float"`, `"rg32float"`, and `"rgba32float"`.
+`rgba16float` and `r32float` support multisampling in Core, but not in Compatibility mode.
+A validation error is produced by `createTexture()` for unsupported combinations.
 
 Comparison with WebGPU Core and OpenGL ES 3.1:
 
@@ -274,61 +273,67 @@ Comparison with WebGPU Core and OpenGL ES 3.1:
     <th>OpenGL ES 3.1
     <th>Compatibility
   <tr><td rowspan=6>1 <td style=text-align:right>r16float
-    <td>always
-    <td rowspan=3>GL_EXT_color_buffer_half_float<br>or GL_EXT_color_buffer_float
-    <td rowspan=3>float16-renderable
+    <td>render/blend
+    <td rowspan=3>(render/blend with (GL_EXT_color_buffer_half_float or GL_EXT_color_buffer_float))
+    <td>same as core
   <tr><td style=text-align:right>rg16float
-    <td>always
+    <td>render/blend
+    <td>same as core
   <tr><td style=text-align:right>rgba16float
-    <td>always
+    <td>render/blend
+    <td>same as core
   <tr><td style=text-align:right>r32float
-    <td>always
-    <td rowspan=3>GL_EXT_color_buffer_float
-    <td rowspan=3>float32-renderable
+    <td>render,<br>(blend with float32-blendable)
+    <td rowspan=3>(render with GL_EXT_color_buffer_float),<br>(blend with EXT_float_blend)
+    <td>same as core
   <tr><td style=text-align:right>rg32float
-    <td>always
+    <td>render,<br>(blend with float32-blendable)
+    <td>same as core
   <tr><td style=text-align:right>rgba32float
-    <td>always
+    <td>render,<br>(blend with float32-blendable)
+    <td>same as core
 
   <tr><th>sampleCount <th style=text-align:right>Format
     <th>Core
     <th>OpenGL ES 3.1
     <th>Compatibility
   <tr><td rowspan=6>4 <td style=text-align:right>r16float
-    <td>always
-    <td rowspan=2>GL_EXT_color_buffer_float
-    <td>&cross;
+    <td>render/resolve/blend
+    <td rowspan=2>(render/resolve/blend with GL_EXT_color_buffer_float)
+    <td>same as core
   <tr><td style=text-align:right>rg16float
-    <td>always
-    <td>&cross;
+    <td>render/resolve/blend
+    <td>same as core
   <tr><td style=text-align:right>rgba16float
-    <td>always
+    <td>render/resolve/blend
     <td>&cross;
     <td>&cross;
   <tr><td style=text-align:right>r32float
-    <td>always
+    <td>render,<br>(blend with float32-blendable)
     <td>&cross;
     <td>&cross;
   <tr><td style=text-align:right>rg32float
     <td>&cross;
     <td>&cross;
-    <td>&cross;
+    <td>same as core
   <tr><td style=text-align:right>rgba32float
     <td>&cross;
     <td>&cross;
-    <td>&cross;
+    <td>same as core
 
   <tr><th>sampleCount <th style=text-align:right>Format
     <th>Core
     <th>OpenGL ES 3.1
     <th>Compatibility
   <tr><td>1 or 4 <td style=text-align:right>rg11b10ufloat
-    <td>rg11b10ufloat-renderable
-    <td>GL_EXT_color_buffer_float
-    <td>rg11b10ufloat-renderable
+    <td>(render/resolve/blend with rg11b10ufloat-renderable)
+    <td>(render/resolve/blend with GL_EXT_color_buffer_float)
+    <td>same as core
 </table>
 
-**Justification**: See OpenGL ES 3.1 column. There are a significant number of OpenGL ES 3.1 devices which lack support for these extensions.
+**Justification**: See OpenGL ES 3.1 column.
+Implementing Compatibility mode on OpenGL ES 3.1 requires `GL_EXT_color_buffer_float`.
+Only a small number of devices (most recently produced in 2018) lack support for this extension.
 
 ### 23. Disallow all multisampled integer textures.
 
