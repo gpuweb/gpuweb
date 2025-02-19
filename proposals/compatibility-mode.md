@@ -21,21 +21,14 @@ Spec changes are described in the following subsections.
 ## Validation
 
 As always, API calls which are unsupported by a Device will result in validation errors.
-Even if a Device is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, it validates all subsequent API calls made on the Adapter and the objects it vends according the set of features enabled on the device, including Compatibility mode validation when `"webgpu-core"` is not enabled.
+Even if a Device is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, it validates all subsequent API calls made on the Adapter and the objects it vends according the set of features enabled on the device, including Compatibility mode validation when `"core-features-and-limits"` is not enabled.
 
 Note there are currently no "Compatibility features", features that would provide incremental capabilities _between_ Compatibility and Core modes.
 See [discussion](https://github.com/gpuweb/gpuweb/issues/4987#issuecomment-2625791411).
 
-## `"webgpu-core"` Feature
+## `"core-features-and-limits"` Feature
 
-A new feature `"webgpu-core"`, when enabled on a device, lifts all Compatibility mode restrictions (features and limits). See below for details.
-
-TODO: Bikeshed the name and replace all instances.
-
-- `"webgpu-core"` (kinda redundant)
-- `"core"` (possibly slightly confusing with `featureLevel: "core"`)
-- `"core-features-and-limits"` (clear but verbose)
-- ?
+A new feature `"core-features-and-limits"`, when enabled on a device, lifts all Compatibility mode restrictions (features and limits). See below for details.
 
 ## Initialization
 
@@ -49,16 +42,16 @@ When calling `GPU.requestAdapter()`, passing `featureLevel: "compatibility"` in 
 
   `adapter.requestDevice(desc)` can request additional capabilities over the `adapter`'s defaults.
 
-- Core-defaulting adapters *always* support the `"webgpu-core"` feature. It is *automatically enabled* on devices created from such adapters.
+- Core-defaulting adapters *always* support the `"core-features-and-limits"` feature. It is *automatically enabled* on devices created from such adapters.
 
-  Compatibility-defaulting adapters *may* support the `"webgpu-core"` feature. It *may be requested* on devices created from such adapters.
+  Compatibility-defaulting adapters *may* support the `"core-features-and-limits"` feature. It *may be requested* on devices created from such adapters.
 
   Both *may* support features like `"float32-blendable"`, which is optional in both modes.
 
 ### Usage
 
 Applications should `requestAdapter()` with a `featureLevel` that is below or equal to their minimum requirements.
-Then they can inspect the available features and enable features, including `"webgpu-core"` if they can optionally take advantage of Core features.
+Then they can inspect the available features and enable features, including `"core-features-and-limits"` if they can optionally take advantage of Core features.
 
 Example code for an application which:
 
@@ -74,8 +67,8 @@ if (adapter === null || !adapter.features.has("float32-blendable")) {
 }
 
 const requiredFeatures = [];
-if (adapter.features.has("webgpu-core")) {
-  requiredFeatures.push("webgpu-core");
+if (adapter.features.has("core-features-and-limits")) {
+  requiredFeatures.push("core-features-and-limits");
 }
 
 const device = await adapter.requestDevice({ requiredFeatures });
@@ -85,7 +78,7 @@ return app.init(device);
 The capabilities of a device can be determined from the device alone, allowing the device to be passed into other parts of the code (or into libraries) without sidecar information:
 
 ```js
-const haveCore = device.features.has("webgpu-core");
+const haveCore = device.features.has("core-features-and-limits");
 ```
 
 ## Compatibility mode restrictions
