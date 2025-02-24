@@ -18,19 +18,68 @@ Since WebGPU Compatibility mode is a subset of WebGPU, all valid Compatibility m
 
 Spec changes are described in the following subsections.
 
+## Validation
+
+As always, API calls which are unsupported by a Device will result in validation errors.
+Even if a Device is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, it validates all subsequent API calls made on the Adapter and the objects it vends according the set of features enabled on the device, including Compatibility mode validation when `"core-features-and-limits"` is not enabled.
+
+Note there are currently no "Compatibility features", features that would provide incremental capabilities _between_ Compatibility and Core modes.
+See [discussion](https://github.com/gpuweb/gpuweb/issues/4987#issuecomment-2625791411).
+
+## `"core-features-and-limits"` Feature
+
+A new feature `"core-features-and-limits"`, when enabled on a device, lifts all Compatibility mode restrictions (features and limits). See below for details.
+
 ## Initialization
 
-When calling `GPU.requestAdapter()`, passing `featureLevel = "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent to select the Compatibility subset of WebGPU. Any Devices created from the resulting Adapter on supporting UAs will support only Compatibility mode. Calls to APIs unsupported by Compatibility mode will result in validation errors.
+When calling `GPU.requestAdapter()`, passing `featureLevel: "compatibility"` in the `GPURequestAdapterOptions` will indicate to the User Agent a request to select the Compatibility subset of WebGPU, which is detailed in later sections.
 
-Note that a supporting User Agent may return a `featureLevel = "compatibility"` Adapter which is backed by a fully WebGPU-capable hardware adapter, such as D3D12, Metal or Vulkan, so long as it validates all subsequent API calls made on the Adapter and the objects it vends against the Compatibility subset.
+- If the request is honored by the User Agent, the resulting adapter will be a "Compatibility-defaulting" Adapter.
 
-```webidl
-partial interface GPUAdapter {
-    readonly attribute DOMstring featureLevel;
+  If not, the resulting adapter will be "Core-defaulting" (the same as what you would get from `featureLevel: "core"` if the system supports it).
+
+- `adapter.requestDevice()` with no arguments requests a device that has `adapter`'s default capabilities.
+
+  `adapter.requestDevice(desc)` can request additional capabilities over the `adapter`'s defaults.
+
+- Core-defaulting adapters *always* support the `"core-features-and-limits"` feature. It is *automatically enabled* on devices created from such adapters.
+
+  Compatibility-defaulting adapters *may* support the `"core-features-and-limits"` feature. It *may be requested* on devices created from such adapters.
+
+  Both *may* support features like `"float32-blendable"`, which is optional in both modes.
+
+### Usage
+
+Applications should `requestAdapter()` with a `featureLevel` that is below or equal to their minimum requirements.
+Then they can inspect the available features and enable features, including `"core-features-and-limits"` if they can optionally take advantage of Core features.
+
+Example code for an application which:
+
+- Requires `"float32-blendable"`
+- Supports using Core features if available
+- Supports using only Compatibility features otherwise
+- Supports fallback if WebGPU is not available at all
+
+```js
+const adapter = await navigator.gpu.requestAdapter({ featureLevel: "compatibility" });
+if (adapter === null || !adapter.features.has("float32-blendable")) {
+  return app.init_fallback_no_webgpu();
 }
+
+const requiredFeatures = [];
+if (adapter.features.has("core-features-and-limits")) {
+  requiredFeatures.push("core-features-and-limits");
+}
+
+const device = await adapter.requestDevice({ requiredFeatures });
+return app.init(device);
 ```
 
-As a convenience to the developer, the Adapter returned will have the `featureLevel` property set to `"compatibility"`.
+The capabilities of a device can be determined from the device alone, allowing the device to be passed into other parts of the code (or into libraries) without sidecar information:
+
+```js
+const haveCore = device.features.has("core-features-and-limits");
+```
 
 ## Compatibility mode restrictions
 
@@ -260,11 +309,10 @@ for each stage of the pipeline:
 
 **Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
 
-### 22. Restrictions on `*16float` and `*32float` renderability and multisampling
+### 22. Disallow multisampled `rgba16float` and `r32float` textures.
 
-- The float texture formats (`*16float` and `*32float`) do not support multisampling, and do not support rendering by default. A validation error is produced by `createTexture()` for unsupported combinations.
-- `float16-renderable` enables the `RENDER_ATTACHMENT` usage with `"r16float"`, `"rg16float"`, and `"rgba16float"`.
-- `float32-renderable` enables the `RENDER_ATTACHMENT` usage with `"r32float"`, `"rg32float"`, and `"rgba32float"`.
+`rgba16float` and `r32float` support multisampling in Core, but not in Compatibility mode.
+A validation error is produced by `createTexture()` for unsupported combinations.
 
 Comparison with WebGPU Core and OpenGL ES 3.1:
 
@@ -274,61 +322,67 @@ Comparison with WebGPU Core and OpenGL ES 3.1:
     <th>OpenGL ES 3.1
     <th>Compatibility
   <tr><td rowspan=6>1 <td style=text-align:right>r16float
-    <td>always
-    <td rowspan=3>GL_EXT_color_buffer_half_float<br>or GL_EXT_color_buffer_float
-    <td rowspan=3>float16-renderable
+    <td>render/blend
+    <td rowspan=3>(render/blend with (GL_EXT_color_buffer_half_float or GL_EXT_color_buffer_float))
+    <td>same as core
   <tr><td style=text-align:right>rg16float
-    <td>always
+    <td>render/blend
+    <td>same as core
   <tr><td style=text-align:right>rgba16float
-    <td>always
+    <td>render/blend
+    <td>same as core
   <tr><td style=text-align:right>r32float
-    <td>always
-    <td rowspan=3>GL_EXT_color_buffer_float
-    <td rowspan=3>float32-renderable
+    <td>render,<br>(blend with float32-blendable)
+    <td rowspan=3>(render with GL_EXT_color_buffer_float),<br>(blend with EXT_float_blend)
+    <td>same as core
   <tr><td style=text-align:right>rg32float
-    <td>always
+    <td>render,<br>(blend with float32-blendable)
+    <td>same as core
   <tr><td style=text-align:right>rgba32float
-    <td>always
+    <td>render,<br>(blend with float32-blendable)
+    <td>same as core
 
   <tr><th>sampleCount <th style=text-align:right>Format
     <th>Core
     <th>OpenGL ES 3.1
     <th>Compatibility
   <tr><td rowspan=6>4 <td style=text-align:right>r16float
-    <td>always
-    <td rowspan=2>GL_EXT_color_buffer_float
-    <td>&cross;
+    <td>render/resolve/blend
+    <td rowspan=2>(render/resolve/blend with GL_EXT_color_buffer_float)
+    <td>same as core
   <tr><td style=text-align:right>rg16float
-    <td>always
-    <td>&cross;
+    <td>render/resolve/blend
+    <td>same as core
   <tr><td style=text-align:right>rgba16float
-    <td>always
+    <td>render/resolve/blend
     <td>&cross;
     <td>&cross;
   <tr><td style=text-align:right>r32float
-    <td>always
+    <td>render,<br>(blend with float32-blendable)
     <td>&cross;
     <td>&cross;
   <tr><td style=text-align:right>rg32float
     <td>&cross;
     <td>&cross;
-    <td>&cross;
+    <td>same as core
   <tr><td style=text-align:right>rgba32float
     <td>&cross;
     <td>&cross;
-    <td>&cross;
+    <td>same as core
 
   <tr><th>sampleCount <th style=text-align:right>Format
     <th>Core
     <th>OpenGL ES 3.1
     <th>Compatibility
   <tr><td>1 or 4 <td style=text-align:right>rg11b10ufloat
-    <td>rg11b10ufloat-renderable
-    <td>GL_EXT_color_buffer_float
-    <td>rg11b10ufloat-renderable
+    <td>(render/resolve/blend with rg11b10ufloat-renderable)
+    <td>(render/resolve/blend with GL_EXT_color_buffer_float)
+    <td>same as core
 </table>
 
-**Justification**: See OpenGL ES 3.1 column. There are a significant number of OpenGL ES 3.1 devices which lack support for these extensions.
+**Justification**: See OpenGL ES 3.1 column.
+Implementing Compatibility mode on OpenGL ES 3.1 requires `GL_EXT_color_buffer_float`.
+Only a small number of devices (most recently produced in 2018) lack support for this extension.
 
 ### 23. Disallow all multisampled integer textures.
 
