@@ -2,16 +2,27 @@
 
 Status: **Draft**
 
-Last modified: 2025-02-14
+Last modified: 2025-03-10
 
-Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/5071)
+Issue: [#5071](https://github.com/gpuweb/gpuweb/issues/5071)
+
+**The 64 bit question**:
+The WGSL spec does not have a 64 bit integer type and there are no near term plans to do support it. If we want to support 64 bit atomic operations we must use a surrogate type.
+
+The alignment and size  of vec2u (vec2<u32>) is specified (https://www.w3.org/TR/WGSL/#alignment-and-size) as 8 bytes. This allows us to use the vec2< u32 > as a composite type for the unsigned 64 bit integer. 
+
+Since all atomic operations in WGSL [operate only on atomic types](https://www.w3.org/TR/WGSL/#atomic-types) the declaration Atomic< vec2u > will actually map to a u64 in all backends.
+
+*msl
+Typed resources used in 64-bit integer operations must be declared with HLSL type int64_t or uint64_t and have format R32G32_UINT.
+
 
 # Requirements
 
 **Vulkan**:
 * VK_KHR_shader_atomic_int64  (device extension) or Vulkan 1.2 with support bits.
-* (https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_shader_atomic_int64.html)
-* (https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#spirvenv-capabilities-table-Int64Atomics)
+* [VK_KHR_shader_atomic_int64](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_shader_atomic_int64.html)
+* [Spirv Enviroment for 64 bit integers ](https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#spirvenv-capabilities-table-Int64Atomics)
 
 According to [this query](https://vulkan.gpuinfo.org/listfeaturescore12.php),
 The 1.2 feature "shaderBufferInt64Atomics" has 87.7% support on Linux and 31% support on Android.
@@ -19,7 +30,7 @@ As an extension  [this query](https://vulkan.gpuinfo.org/displayextensiondetail.
 has 69% support on Linux but only 4.66% support on android.
 
 
-" The supported operations include OpAtomicMin, OpAtomicMax, OpAtomicAnd, OpAtomicOr, OpAtomicXor, OpAtomicAdd, OpAtomicExchange, and OpAtomicCompareExchange." on signed/unsigned integer
+"The supported operations include OpAtomicMin, OpAtomicMax, OpAtomicAnd, OpAtomicOr, OpAtomicXor, OpAtomicAdd, OpAtomicExchange, and OpAtomicCompareExchange." on signed/unsigned integer
 
 
 **Metal**:
@@ -31,7 +42,8 @@ includes the following families: Apple 9
 
 https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf p251
 
-We only get min/max but min/max is useful if you are doing software (compute) GPU rendering.
+We only get min/max but min/max is useful if one is doing software (compute) GPU rendering.
+See the [requirement for atomic 64 bit support](https://jms55.github.io/posts/2024-11-14-virtual-geometry-bevy-0-15/#hardware-rasterization-and-atomicmax) for software rendering of virtual geometry.
 
 
 **D3D12**:
@@ -53,21 +65,15 @@ Add two new enable extensions.
 | Enable | Description |
 | --- | --- |
 | **atomic_64_min_max** | Adds functions for only min and max ops 64 bit atomics |
-| **atomic_64_ops** | Adds functions a broader set of 64 bit atomics |
+| **atomic_64_ops** | Adds functions with broader set of 64 bit atomics |
 
-**TODO**: The atomic_64_min_max should be limited to storage buffers.
-**TODO**: Can we include 64 bit atomics for workgroups and probably should for the atomic_64_ops
+**NOTE**: The atomic_64_min_max should be limited to storage buffers. 
 
-## Usage
-
-
-* The alignment and size  of vec2<u32> is specified (https://www.w3.org/TR/WGSL/#alignment-and-size) as 8 bytes. This allows us to use the vec2<u32> as a surragate for the u64.
-
+**NOTE**: The atomic_64_ops should be limited to workgroup and storage buffers.
 
 
 ## Built-in Functions
 
-### `atomicCompareExchangeWeak` ### {#atomic-compare-exchange-weak}
 
 Functions made availible via **atomic_64_min_max** 
 
@@ -77,7 +83,9 @@ All built-in function can only be used in `compute` or `fragment` shader stages.
 | `fn atomicStoreMax(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T)` | | Atomically stores the value v in the atomic object pointed to by atomic_ptr.|
 | `fn atomicStoreMin(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T)` | | Atomically stores the value v in the atomic object pointed to by atomic_ptr. |
 
-Functions made availible via **atomic_64_ops** 
+Functions additional functions made availible via **atomic_64_ops** 
+
+Atomic sub is not available in HLSL. 
 
 All built-in function can only be used in `compute` or `fragment` shader stages. `T` as uvec2
 | Function | Preconditions | Description |
@@ -85,7 +93,6 @@ All built-in function can only be used in `compute` or `fragment` shader stages.
 | `fn atomicLoad(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Returns the atomically loaded the value pointed to by atomic_ptr. It does not modify the object. |
 | `fn atomicStore(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically stores the value v in the atomic object pointed to by atomic_ptr. |
 | `fn atomicAdd(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs an addition operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
-| `fn atomicSub(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a subtraction operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
 | `fn atomicMax(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a maximum operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
 | `fn atomicMin(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a minimum operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
 | `fn atomicAnd(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a bitwise AND operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
@@ -96,6 +103,7 @@ All built-in function can only be used in `compute` or `fragment` shader stages.
 | `fn atomicExchange(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically stores the value v in the atomic object pointed to by atomic_ptr and returns the original value stored in the atomic object before the operation. |
 | `fn atomicCompareExchangeWeak(atomic_ptr: ptr<AS, atomic<T>, read_write>, cmp: T, v: T) ->  __atomic_compare_exchange_result<T>` | | Performs a compare and exchange of value v for atomic object pointed to by atomic_ptr if cmp is equal. Returns compare and exchange result. |
 
+### `atomicCompareExchangeWeak` ### {#atomic-compare-exchange-weak}
 
 
 ```wgsl
@@ -117,38 +125,38 @@ struct __atomic_compare_exchange_result<T> {
 New GPU features:
 | Feature | Description |
 | --- | --- |
-| **subgroups** | Allows the WGSL feature and adds new limits |
+| **atomic_64_min_max** | Allows the WGSL feature|
+| **atomic_64_ops** | Allows the WGSL feature |
 
 
-**TODO**: I have been unable to find a more accurate query for Metal subgroup
-sizes before pipeline compilation.
 
-**TODO**: More testing is required to verify the reliability of D3D12 WaveLaneCountMin.
+**TODO**: 
 
-**TODO**: We could consider adding a limit for which stages support subgroup
-operations for future expansion, but it is not necessary now.
+# Appendix A: WGSL Built-in Function Mappings
 
-# Pipelines
-
-Note: Vulkan backends should either pass
-VkShaderRequiredSubgroupSizeCreateInfoEXT or the ALLOW_VARYING flag to pipeline
-creation to ensure the subgroup size built-in value works correctly.
-
-**TODO**: Can we add a pipeline parameter to require full subgroups in compute shaders?
-Validate that workgroup size x dimension is a multiple of max subgroup size.
-For Vulkan, this would set the FULL_SUBGROUPS pipeline creation bit.
-For Metal, this would use threadExecutionWidth.
-D3D12 would have to be proven empricially.
+| Built-in | SPIR-V |  HLSL| MSL|
+| --- | --- | --- | --- |
+| `atomicStoreMin` | OpAtomicUMin | InterlockedMax | atomic_min_explicit |
+| `atomicStoreMax` | OpAtomicUMax | InterlockedMin | atomic_max_explicit |
 
 
 # Appendix B: WGSL Built-in Function Mappings
 
-| Built-in | SPIR-V<sup>1</sup> | HLSL | MSL |
+| Built-in | SPIR-V | HLSL| MSL |
 | --- | --- | --- | --- |
-| `atomicStoreMin` | OpAtomicSMin | atomic_min_explicit | WaveIsFirstInterlockedMinLane |
-| `atomicStoreMax` | OpAtomicSMax | atomic_max_explicit | WaveIsFirstInterlockedMaxLane |
+| `atomicLoad` | OpAtomicUMin | InterlockedMax |  NA <sup>1</sup> |
+| `atomicStore` | OpAtomicUMax | InterlockedMin |   NA <sup>1</sup> |
+| `atomicAdd` | OpAtomicUMin | InterlockedAdd |  NA <sup>1</sup>  |
+| `atomicMin` | OpAtomicUMin | InterlockedMin | NA <sup>1</sup>   |
+| `atomicMax` | OpAtomicUMax | InterlockedMax |  NA <sup>1</sup>  |
+| `atomicAnd` | OpAtomicUAnd | InterlockedMin |   NA <sup>1</sup> |
+| `atomicOr` | OpAtomicUOr | InterlockedMax |  NA <sup>1</sup>  |
+| `atomicXor` | OpAtomicUXor | InterlockedMax |  NA <sup>1</sup>  |
+| `atomicExchange` | OpAtomicUExchange | InterlockedMax |  NA <sup>1</sup>  |
+| `atomicCompareExchangeWeak` | OpAtomicUMax | InterlockedMax |  NA <sup>1</sup>  |
 
 
 
-1. All group non-uniform instructions use the `Subgroup` scope.
-2. To avoid constant-expression requirement, use SPIR-V 1.5 or OpGroupNonUniformShuffle.
+
+
+1. No known msl function for these extended atomic 64 opts.
