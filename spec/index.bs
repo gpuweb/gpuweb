@@ -2906,6 +2906,7 @@ interface GPUDevice : EventTarget {
     [SameObject] readonly attribute GPUQueue queue;
 
     undefined destroy();
+    undefined simulateLoss();
 
     GPUBuffer createBuffer(GPUBufferDescriptor descriptor);
     GPUTexture createTexture(GPUTextureDescriptor descriptor);
@@ -2967,6 +2968,16 @@ GPUDevice includes GPUObjectBase;
         </div>
 </dl>
 
+{{GPUDevice}} has the following [=content-timeline properties=]:
+
+<dl dfn-type=attribute dfn-for=GPUDevice data-timeline=content>
+    : <dfn>[[wrapper destroyed]]</dfn>, of type boolean, initially `false`
+    ::
+        A boolean indicating that this {{GPUDevice}} content-timeline "wrapper" object has been
+        destroyed. This prevents any {{GPUBuffer}}s from being mapped by creating them with
+        {{GPUBufferDescriptor/mappedAtCreation}}.
+</dl>
+
 The {{GPUObjectBase/[[device]]}} for a {{GPUDevice}} is the [=device=] that the {{GPUDevice}} refers
 to.
 
@@ -2975,10 +2986,15 @@ to.
 <dl dfn-type=method dfn-for=GPUDevice>
     : <dfn>destroy()</dfn>
     ::
-        Destroys the [=device=], preventing further operations on it.
-        Outstanding asynchronous operations will fail.
+        Destroys the {{GPUDevice}} "wrapper". Loses the [=device=], preventing further operations on it.
 
-        Note: It is valid to destroy a device multiple times.
+        This also unmaps all {{GPUBuffer}}s from this device, and aborts any outstanding
+        {{GPUBuffer/mapAsync()}} operations. (This contrasts with {{GPUDevice/loseDevice()}}.)
+        <!-- POSTV1(multithreading): make it clear that this only applies to the calling thread. -->
+
+        Other asynchronous operations are cancelled by [=lose the device=] (when the device [=becomes lost=]).
+
+        Note: It is valid to destroy a {{GPUDevice}} wrapper multiple times. Calls after the first have no effect.
 
         <div algorithm=GPUDevice.destroy()>
             <div data-timeline=content>
@@ -2996,6 +3012,32 @@ to.
                     another call to {{GPUDevice/destroy()|GPUDevice.destroy()}}, or by
                     {{GPUBuffer/destroy()|GPUBuffer.destroy()}} or {{GPUBuffer/unmap()|GPUBuffer.unmap()}}.
                     -->
+                1. Set |this|.{{GPUDevice/[[wrapper destroyed]]}} to `true`.
+                1. Call |this|.{{GPUDevice/simulateLoss()}}.
+            </div>
+        </div>
+
+        Note: Since no further operations can be enqueued on this device, implementations can abort
+        outstanding asynchronous operations immediately and free resource allocations, including
+        mapped memory that was just unmapped.
+
+    : <dfn>simulateLoss()</dfn>
+    ::
+        Simulates loss of the [=device=] [=internal object=], preventing further operations on it.
+
+        All asynchronous operations are cancelled by [=lose the device=] (when the device [=becomes lost=]).
+
+        Unlike {{GPUDevice/destroy()}}, this does not unmap {{GPUBuffer}}s. Outstanding
+        {{GPUBuffer/mapAsync()}} operations race with device loss, so may or may not be aborted.
+
+        Note: It is valid to simulate loss on a [=device=] multiple times. Calls after the first have no effect.
+
+        <div algorithm=GPUDevice.simulateLoss()>
+            <div data-timeline=content>
+                **Called on:** {{GPUDevice}} |this|.
+
+                [=Content timeline=] steps:
+
                 1. Issue the subsequent steps on the [=Device timeline=] of |this|.
             </div>
             <div data-timeline=device>
@@ -3003,10 +3045,6 @@ to.
                     {{GPUDeviceLostReason/"destroyed"}}).
             </div>
         </div>
-
-        Note: Since no further operations can be enqueued on this device, implementations can abort
-        outstanding asynchronous operations immediately and free resource allocations, including
-        mapped memory that was just unmapped.
 </dl>
 
 <div algorithm data-timeline=const>
@@ -3434,6 +3472,7 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 1. Set |b|.{{GPUBuffer/size}} to |descriptor|.{{GPUBufferDescriptor/size}}.
                 1. Set |b|.{{GPUBuffer/usage}} to |descriptor|.{{GPUBufferDescriptor/usage}}.
                 1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
+                    1. If |this|.{{GPUDevice/[[wrapper destroyed]]}} is `true`, throw an {{AbortError}}.
                     1. Set |b|.{{GPUBuffer/[[mapping]]}} to
                         [=?=] [$initialize an active buffer mapping$] with mode {{GPUMapMode/WRITE}}
                         and range <code>[0, |descriptor|.{{GPUBufferDescriptor/size}}]</code>.
