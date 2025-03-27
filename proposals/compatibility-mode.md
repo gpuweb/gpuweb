@@ -159,8 +159,7 @@ During `createRenderPipeline()` and `createRenderPipelineAsync()`, `GPUDepthSten
 ### 10. Lower limits.
 
 The differences in limits between compatibility mode and standard WebGPU
-are as follows
-
+are as follows:
 
 | limit                               | compat  | standard  | gl limit                                     |
 | :---------------------------------- | ------: | --------: | :------------------------------------------- |
@@ -169,7 +168,6 @@ are as follows
 | `maxComputeWorkgroupSizeX`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
 | `maxComputeWorkgroupSizeY`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
 | `maxInterStageShaderVariables`      |      15 |        16 | MAX_VARYING_VECTORS                          |
-| `maxStorageBuffersPerShaderStage`   |       4 |         8 | min(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS, GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS) |
 | `maxTextureDimension1D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
 | `maxTextureDimension2D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
 | `maxUniformBufferBindingSize`       |   16384 |     65536 | MAX_UNIFORM_BLOCK_SIZE                       |
@@ -180,14 +178,14 @@ and/or `@builtin(instance_index)` each count as an
 attribute.
 
 Note: Some of the limits are derived from a survey of OpenGL ES 3.1 devices
-and are higher than the limit specified in the OpenGL ES 3.1 spec.
+and are higher than the limit specified in the OpenGL ES 3.1 spec. For example:
 
-For example, in OpenGL ES 3.1, GL_MAX_FRAGMENT_IMAGE_UNIFORMS and GL_MAX_VERTEX_IMAGE_UNIFORMS can be
-zero but `maxStorageTexturesPerShaderStage` is 4 above as all 3.1 devices support at
-least 4 of each.
-
-Similar limits include GL_MAX_TEXTURE_SIZE (2048) and GL_MAX_3D_TEXTURE_SIZE (256) but actual
-devices support the values above.
+- `MAX_COMPUTE_SHADER_STORAGE_BLOCKS` can be 4, but all devices support at least 8.
+  `maxStorageBuffersPerShaderStage` is not lowered.
+- `MAX_TEXTURE_SIZE` can be 2048, but all ES3.1+ devices support at least 4096.
+  `maxTextureDimension1D` and `maxTextureDimension2D` are lowered accordingly.
+- `MAX_3D_TEXTURE_SIZE` can be 256, but all ES3.1+ devices support at least 2048.
+  `maxTextureDimension3D` is not lowered.
 
 ### 11. Disallow `linear` and `sample` interpolation options.
 
