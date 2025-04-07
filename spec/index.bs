@@ -1903,6 +1903,7 @@ interface GPUAdapterInfo {
     readonly attribute DOMString description;
     readonly attribute unsigned long subgroupMinSize;
     readonly attribute unsigned long subgroupMaxSize;
+    readonly attribute boolean isFallbackAdapter;
 };
 </script>
 
@@ -1945,6 +1946,10 @@ interface GPUAdapterInfo {
     ::
         If the {{GPUFeatureName/"subgroups"}} feature is supported, the maximum
         supported [=builtin-value/subgroup size=] for the [=adapter=].
+
+    : <dfn>isFallbackAdapter</dfn>
+    ::
+        Whether the [=adapter=] is a [=fallback adapter=].
 </dl>
 
 <div algorithm data-timeline=content>
@@ -1988,6 +1993,8 @@ interface GPUAdapterInfo {
         Note: To preserve privacy, the user agent may choose to not support some features or provide values
         for the property which do not distinguish different devices, but are still usable
         (e.g. use the default value of 128 for all devices).
+
+    1. Set |adapterInfo|.{{GPUAdapterInfo/isFallbackAdapter}} to |adapter|.{{adapter/[[fallback]]}}.
 
     1. Return |adapterInfo|.
 </div>
@@ -2559,8 +2566,9 @@ enum GPUPowerPreference {
         {{GPURequestAdapterOptions/forceFallbackAdapter}} is set to `false` and either no
         other appropriate [=adapter=] is available or the user agent chooses to return a
         [=fallback adapter=]. Developers that wish to prevent their applications from running on
-        [=fallback adapters=] should check the {{GPUAdapter}}.{{GPUAdapter/isFallbackAdapter}}
-        attribute prior to requesting a {{GPUDevice}}.
+        [=fallback adapters=] should check the
+        {{GPUAdapter/info}}.{{GPUAdapterInfo/isFallbackAdapter}} attribute prior
+        to requesting a {{GPUDevice}}.
 
     : <dfn>xrCompatible</dfn>
     ::
@@ -2599,7 +2607,6 @@ interface GPUAdapter {
     [SameObject] readonly attribute GPUSupportedFeatures features;
     [SameObject] readonly attribute GPUSupportedLimits limits;
     [SameObject] readonly attribute GPUAdapterInfo info;
-    readonly attribute boolean isFallbackAdapter;
 
     Promise<GPUDevice> requestDevice(optional GPUDeviceDescriptor descriptor = {});
 };
@@ -2635,10 +2642,6 @@ interface GPUAdapter {
                 1. Return a [$new adapter info$] for |this|.{{GPUAdapter/[[adapter]]}}.
             </div>
         </div>
-
-    : <dfn>isFallbackAdapter</dfn>
-    ::
-        Returns the value of {{GPUAdapter/[[adapter]]}}.{{adapter/[[fallback]]}}.
 
     : <dfn>\[[adapter]]</dfn>, of type [=adapter=], readonly
     ::
@@ -3374,13 +3377,13 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
     : <dfn>COPY_SRC</dfn>
     ::
         The buffer can be used as the source of a copy operation. (Examples: as the `source`
-        argument of a {{GPUCommandEncoder/copyBufferToBuffer()}} or
+        argument of a [=GPUCommandEncoder/copyBufferToBuffer()=] or
         {{GPUCommandEncoder/copyBufferToTexture()}} call.)
 
     : <dfn>COPY_DST</dfn>
     ::
         The buffer can be used as the destination of a copy or write operation. (Examples: as the
-        `destination` argument of a {{GPUCommandEncoder/copyBufferToBuffer()}} or
+        `destination` argument of a [=GPUCommandEncoder/copyBufferToBuffer()=] or
         {{GPUCommandEncoder/copyTextureToBuffer()}} call, or as the target of a
         {{GPUQueue/writeBuffer()}} call.)
 
@@ -3445,6 +3448,8 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                 1. Set |b|.{{GPUBuffer/size}} to |descriptor|.{{GPUBufferDescriptor/size}}.
                 1. Set |b|.{{GPUBuffer/usage}} to |descriptor|.{{GPUBufferDescriptor/usage}}.
                 1. If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
+                    1. If |descriptor|.{{GPUBufferDescriptor/size}} is not a multiple of 4,
+                        throw a {{RangeError}}.
                     1. Set |b|.{{GPUBuffer/[[mapping]]}} to
                         [=?=] [$initialize an active buffer mapping$] with mode {{GPUMapMode/WRITE}}
                         and range <code>[0, |descriptor|.{{GPUBufferDescriptor/size}}]</code>.
@@ -3471,8 +3476,6 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                                     except {{GPUBufferUsage/COPY_SRC}}.
                         - If |descriptor|.{{GPUBufferDescriptor/size}} must be &le;
                             |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBufferSize}}.
-                        - If |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `true`:
-                            - |descriptor|.{{GPUBufferDescriptor/size}} must be a multiple of 4.
                     </div>
 
                 Note: If buffer creation fails, and |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `false`,
@@ -3699,6 +3702,16 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     <div class=validusage>
                         - |this| must be [$valid$].
+                    </div>
+
+                    1. Set |deviceLost| to `true`.
+                    1. Issue the <var data-timeline=content>map failure steps</var> on
+                        <var data-timeline=content>contentTimeline</var>.
+                    1. Return.
+
+                1. If any of the following conditions are unsatisfied:
+
+                    <div class=validusage>
                         - |this|.{{GPUBuffer/[[internal state]]}} is "[=GPUBuffer/[[internal state]]/available=]".
                         - |offset| is a multiple of 8.
                         - |rangeSize| is a multiple of 4.
@@ -3712,6 +3725,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                     Then:
 
+                    1. Set |deviceLost| to `false`.
                     1. Issue the <var data-timeline=content>map failure steps</var> on
                         <var data-timeline=content>contentTimeline</var>.
                     1. [$Generate a validation error$].
@@ -3740,6 +3754,8 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 
                 1. Set |deviceLost| to `true` if |this|.{{GPUObjectBase/[[device]]}} is [$invalid|lost$],
                     and `false` otherwise.
+
+                    Note: The device could have been lost between the previous block of steps and this one.
                 1. If |deviceLost|:
 
                     1. Issue the <var data-timeline=content>map failure steps</var> on
@@ -5184,29 +5200,29 @@ See [[#texture-format-caps]] for information about which {{GPUTextureFormat}}s r
 <span id=gpu-external-texture></span>
 </h3>
 
-A {{GPUExternalTexture}} is a sampleable 2D texture wrapping an external video object.
-The contents of a {{GPUExternalTexture}} object are a snapshot and may not change, either from inside WebGPU
+A {{GPUExternalTexture}} is a sampleable 2D texture wrapping an external video frame.
+It is an immutable snapshot; its contents may not change over time, either from inside WebGPU
 (it is only sampleable) or from outside WebGPU (e.g. due to video frame advancement).
 
-They are bound into bind group layouts using the {{GPUBindGroupLayoutEntry/externalTexture}}
-bind group layout entry member.
-External textures use several binding slots: see [=Exceeds the binding slot limits=].
+{{GPUExternalTexture}}s can be bound into bind groups via the
+{{GPUBindGroupLayoutEntry/externalTexture}} bind group layout entry member.
+Note that member uses several binding slots, as defined there.
 
 <div class=note heading>
-    External textures *can* be implemented without creating a copy of the imported source,
+    {{GPUExternalTexture}} *can* be implemented without creating a copy of the imported source,
     but this depends [=implementation-defined=] factors.
     Ownership of the underlying representation may either be exclusive or shared with other
     owners (such as a video decoder), but this is not visible to the application.
 
     The underlying representation of an external texture is unobservable
-    (except for sampling behavior) but typically may include
+    (except for precise sampling behavior), but typically may include:
 
     - Up to three 2D planes of data (e.g. RGBA, Y+UV, Y+U+V).
     - Metadata for converting coordinates before reading from those planes (crop and rotation).
     - Metadata for converting values into the specified output color space (matrices, gammas, 3D LUT).
 
-    The configuration used may not be stable across time, systems, user agents, media sources,
-    or frames within a single video source.
+    The configuration used internally by an implementation may not be consistent across time,
+    systems, user agents, media sources, or even frames within a single video source.
     In order to account for many possible representations,
     the binding conservatively uses the following, for *each* external texture:
 
@@ -5425,13 +5441,22 @@ dictionary GPUExternalTextureDescriptor
     </pre>
 </div>
 
-### Sampling External Textures ### {#external-texture-sampling}
+## Sampling External Texture Bindings ## {#external-texture-sampling}
+
+The {{GPUBindGroupLayoutEntry/externalTexture}} binding point allows binding {{GPUExternalTexture}}
+objects (from dynamic image sources like videos). It also supports {{GPUTextureView}}.
+
+Note:
+When a {{GPUTextureView}} is bound to an {{GPUBindGroupLayoutEntry/externalTexture}} binding, it is
+like a {{GPUExternalTexture}} with a single RGBA plane and no crop, rotation, or color conversion.
 
 External textures are represented in WGSL with `texture_external` and may be read using
 `textureLoad` and `textureSampleBaseClampToEdge`.
 
 The `sampler` provided to `textureSampleBaseClampToEdge` is used to sample the underlying textures.
-The result is in the color space set by {{GPUExternalTextureDescriptor/colorSpace}}.
+
+When the [=binding resource type=] is a {{GPUExternalTexture}}, the result is in the color space set
+by {{GPUExternalTextureDescriptor/colorSpace}}.
 It is implementation-dependent whether, for any given external texture, the sampler (and filtering)
 is applied before or after conversion from underlying values into the specified color space.
 
@@ -5831,7 +5856,9 @@ dictionary GPUBindGroupLayoutEntry {
     : <dfn>externalTexture</dfn>
     ::
         When [=map/exist|provided=], indicates the [=binding resource type=] for this {{GPUBindGroupLayoutEntry}}
-        is {{GPUExternalTexture}}.
+        is either {{GPUExternalTexture}} or {{GPUTextureView}}.
+
+        External textures use several binding slots: see [=Exceeds the binding slot limits=].
 </dl>
 
 <script type=idl>
@@ -5926,10 +5953,12 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
         <td>[=internal usage/storage-read=]
 
     <tr>
-        <td>{{GPUBindGroupLayoutEntry/externalTexture}}
+        <td rowspan=2>{{GPUBindGroupLayoutEntry/externalTexture}}
         <td>{{GPUExternalTexture}}
-        <td>
-        <td>[=internal usage/constant=]
+        <td rowspan=2>
+        <td rowspan=2>[=internal usage/constant=]
+    <tr>
+        <td>{{GPUTextureView}}
 </table>
 
 <div algorithm data-timeline=device>
@@ -5976,6 +6005,8 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
                     1 {{supported limits/maxSamplersPerShaderStage}} slot, and
                     1 {{supported limits/maxUniformBuffersPerShaderStage}} slot
                     to be used.
+
+                    Note: See {{GPUExternalTexture}} for an explanation of this behavior.
             </dl>
 </div>
 
@@ -6510,8 +6541,25 @@ following members:
 
                                     :  {{GPUBindGroupLayoutEntry/externalTexture}}
                                     ::
-                                        - |resource| is a {{GPUExternalTexture}}.
+                                        - |resource| is either a {{GPUExternalTexture}} or a {{GPUTextureView}}.
                                         - |resource| is [$valid to use with$] |this|.
+                                        - If |resource| is a:
+                                            <dl class=switch>
+                                                : {{GPUTextureView}}
+                                                ::
+                                                    - |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/usage}}
+                                                        must include {{GPUTextureUsage/TEXTURE_BINDING}}.
+                                                    - |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/dimension}}
+                                                        must be {{GPUTextureViewDimension/"2d"}}.
+                                                    - |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/mipLevelCount}}
+                                                        must be 1.
+                                                    - |resource|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}
+                                                        must be {{GPUTextureFormat/"rgba8unorm"}},
+                                                        {{GPUTextureFormat/"bgra8unorm"}}, or
+                                                        {{GPUTextureFormat/"rgba16float"}}.
+                                                    - |resource|.{{GPUTextureView/[[texture]]}}.{{GPUTexture/sampleCount}}
+                                                        must be 1.
+                                            </dl>
                                 </dl>
                     </div>
 
@@ -9942,10 +9990,14 @@ interface GPUCommandEncoder {
 
     undefined copyBufferToBuffer(
         GPUBuffer source,
+        GPUBuffer destination,
+        optional GPUSize64 size);
+    undefined copyBufferToBuffer(
+        GPUBuffer source,
         GPUSize64 sourceOffset,
         GPUBuffer destination,
         GPUSize64 destinationOffset,
-        GPUSize64 size);
+        optional GPUSize64 size);
 
     undefined copyBufferToTexture(
         GPUTexelCopyBufferInfo source,
@@ -10289,7 +10341,13 @@ dictionary GPUCommandEncoderDescriptor
 
 ## Buffer Copy Commands ## {#commands-buffer-copies}
 
+<dfn dfn for=GPUCommandEncoder>copyBufferToBuffer()</dfn> has two overloads:
+
 <dl dfn-type=method dfn-for=GPUCommandEncoder>
+    : <dfn>copyBufferToBuffer(source, destination, size)</dfn>
+    ::
+        Shorthand, equivalent to {{GPUCommandEncoder/copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size)|copyBufferToBuffer(source, 0, destination, 0, size)}}.
+
     : <dfn>copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size)</dfn>
     ::
         Encode a command into the {{GPUCommandEncoder}} that copies data from a sub-region of a
@@ -10320,6 +10378,7 @@ dictionary GPUCommandEncoderDescriptor
                 [=Device timeline=] steps:
 
                 1. [$Validate the encoder state$] of |this|. If it returns false, return.
+                1. If |size| is `undefined`, set it to |source|.{{GPUBuffer/size}} &minus; |sourceOffset|.
                 1. If any of the following conditions are unsatisfied, [$invalidate$] |this| and return.
 
                     <div class=validusage>
@@ -10345,7 +10404,9 @@ dictionary GPUCommandEncoderDescriptor
                     beginning at |destinationOffset|.
             </div>
         </div>
+</dl>
 
+<dl dfn-type=method dfn-for=GPUCommandEncoder>
     : <dfn>clearBuffer(buffer, offset, size)</dfn>
     ::
         Encode a command into the {{GPUCommandEncoder}} that fills a sub-region of a
