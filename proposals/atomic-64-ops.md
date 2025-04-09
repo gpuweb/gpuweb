@@ -61,12 +61,15 @@ typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS9 {
 
 ## Enable Extension
 
-Add a single new enable extension
+Add two new enable extensions.
 | Enable | Description |
 | --- | --- |
 | **atomic_64_min_max** | Adds functions for only min and max ops 64 bit atomics |
+| **atomic_64_ops** | Adds functions with broader set of 64 bit atomics |
 
-**NOTE**: The atomic_64_min_max should be limited to storage buffers. This does not include textures/images.
+**NOTE**: The atomic_64_min_max should be limited to storage buffers. 
+
+**NOTE**: The atomic_64_ops should be limited to workgroup and storage buffers.
 
 
 ## Built-in Functions
@@ -89,7 +92,31 @@ All built-in function can only be used in `compute` or `fragment` shader stages.
 | --- | --- | --- |
 | `fn atomicLoad(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Returns the atomically loaded the value pointed to by atomic_ptr. It does not modify the object. |
 | `fn atomicStore(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically stores the value v in the atomic object pointed to by atomic_ptr. |
+| `fn atomicAdd(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs an addition operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
+| `fn atomicMax(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a maximum operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
+| `fn atomicMin(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a minimum operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
+| `fn atomicAnd(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a bitwise AND operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
+| `fn atomicOr(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a bitwise OR operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
+| `fn atomicXor(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically performs a bitwise XOR operation on the atomic object pointed to by atomic_ptr with the value v, and returns the original value stored in the atomic object before the operation. |
 
+
+| `fn atomicExchange(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` | | Atomically stores the value v in the atomic object pointed to by atomic_ptr and returns the original value stored in the atomic object before the operation. |
+| `fn atomicCompareExchangeWeak(atomic_ptr: ptr<AS, atomic<T>, read_write>, cmp: T, v: T) ->  __atomic_compare_exchange_result<T>` | | Performs a compare and exchange of value v for atomic object pointed to by atomic_ptr if cmp is equal. Returns compare and exchange result. |
+
+### `atomicCompareExchangeWeak` ### {#atomic-compare-exchange-weak}
+
+
+```wgsl
+fn atomicCompareExchangeWeak(
+      atomic_ptr: ptr<AS, atomic<T>, read_write>,
+      cmp: T,
+      v: T) -> __atomic_compare_exchange_result<T>
+
+struct __atomic_compare_exchange_result<T> {
+  old_value : T,   // old value stored in the atomic
+  exchanged : bool // true if the exchange was done
+}
+```
 
 # API
 
@@ -98,7 +125,9 @@ All built-in function can only be used in `compute` or `fragment` shader stages.
 New GPU features:
 | Feature | Description |
 | --- | --- |
-| **atomic_64_min_max** | Allows the WGSL feature predicated on support for these 64 bit operations |
+| **atomic_64_min_max** | Allows the WGSL feature|
+| **atomic_64_ops** | Allows the WGSL feature |
+
 
 
 **TODO**: 
@@ -117,5 +146,17 @@ New GPU features:
 | --- | --- | --- | --- |
 | `atomicLoad` | OpAtomicUMin | InterlockedMax |  NA <sup>1</sup> |
 | `atomicStore` | OpAtomicUMax | InterlockedMin |   NA <sup>1</sup> |
+| `atomicAdd` | OpAtomicUMin | InterlockedAdd |  NA <sup>1</sup>  |
+| `atomicMin` | OpAtomicUMin | InterlockedMin | NA <sup>1</sup>   |
+| `atomicMax` | OpAtomicUMax | InterlockedMax |  NA <sup>1</sup>  |
+| `atomicAnd` | OpAtomicUAnd | InterlockedMin |   NA <sup>1</sup> |
+| `atomicOr` | OpAtomicUOr | InterlockedMax |  NA <sup>1</sup>  |
+| `atomicXor` | OpAtomicUXor | InterlockedMax |  NA <sup>1</sup>  |
+| `atomicExchange` | OpAtomicUExchange | InterlockedMax |  NA <sup>1</sup>  |
+| `atomicCompareExchangeWeak` | OpAtomicUMax | InterlockedMax |  NA <sup>1</sup>  |
+
+
+
+
 
 1. No known msl function for these extended atomic 64 opts.
