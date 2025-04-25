@@ -2,7 +2,7 @@
 
 Status: **Draft**
 
-Last modified: 2024-12-04
+Last modified: 2025-04-24
 
 Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
 
@@ -267,7 +267,7 @@ D3D12 would have to be proven empricially.
 
 # Appendix C: CTS Status
 
-Last updated: 2024-12-02
+Last updated: 2024-12-18
 
 | Built-in value | Validation | Compute | Fragment |
 | --- | --- | --- | --- |
@@ -276,7 +276,7 @@ Last updated: 2024-12-02
 
 | Built-in function | Validation | Compute | Fragment |
 | --- | --- | --- | --- |
-| `subgroupElect` | &check; | &cross; | &cross; |
+| `subgroupElect` | &check; | &check; | &check; |
 | `subgroupAll` | &check; | &check; | &check; |
 | `subgroupAny` | &check; | &check; | &check; |
 | `subgroupBroadcast` | &check; | &check; | &check; |
@@ -286,17 +286,17 @@ Last updated: 2024-12-02
 | `subgroupShuffleXor` | &check; | &check; | &check; |
 | `subgroupShuffleUp` | &check; | &check; | &check; |
 | `subgroupShuffleDown` | &check; | &check; | &check; |
-| `subgroupAdd` | &check; | &check; | &cross; |
-| `subgroupExclusiveAdd` | &check; | &check; | &cross; |
-| `subgroupInclusiveAdd` | &check; | &check; | &cross; |
-| `subgroupMul` | &check; | &check; | &cross; |
-| `subgroupExclusiveMul` | &check; | &check; | &cross; |
-| `subgroupInclusiveMul` | &check; | &check; | &cross; |
+| `subgroupAdd` | &check; | &check; | &check; |
+| `subgroupExclusiveAdd` | &check; | &check; | &check; |
+| `subgroupInclusiveAdd` | &check; | &check; | &check; |
+| `subgroupMul` | &check; | &check; | &check; |
+| `subgroupExclusiveMul` | &check; | &check; | &check; |
+| `subgroupInclusiveMul` | &check; | &check; | &check; |
 | `subgroupAnd` | &check; | &check; | &check; |
 | `subgroupOr` | &check; | &check; | &check; |
 | `subgroupXor` | &check; | &check; | &check; |
-| `subgroupMin` | &check; | &cross; | &cross; |
-| `subgroupMax` | &check; | &cross; | &cross; |
+| `subgroupMin` | &check; | &check; | &check; |
+| `subgroupMax` | &check; | &check; | &check; |
 | `quadBroadcast` | &check; | &check; | &check; |
 | `quadSwapX` | &check; | &check; | &check; |
 | `quadSwapY` | &check; | &check; | &check; |
