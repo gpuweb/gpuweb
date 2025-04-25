@@ -2,7 +2,7 @@
 
 Status: **Draft**
 
-Last modified: 2024-12-12
+Last modified: 2025-04-24
 
 Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
 
@@ -205,6 +205,9 @@ built-in value is less than `subgroupMinSize` or greater than
 sizes before pipeline compilation.
 
 **TODO**: More testing is required to verify the reliability of D3D12 WaveLaneCountMin.
+**Note**: Some D3D12 devices are known possible to run fragment shader with
+`WaveLaneCount` less than `WaveLaneCountMin`, e.g. `WaveLaneCount == 8` for some fragments
+while `WaveLaneCountMin == 16`. `subgroupMinSize` should be corrected for these devices.
 
 **TODO**: We could consider adding a limit for which stages support subgroup
 operations for future expansion, but it is not necessary now.
