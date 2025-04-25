@@ -80,7 +80,7 @@ One new limits:
 
 | Limit name | Description | Type | Limit class | Default |
 | --- | --- | --- | --- | --- |
-| immediateDataRangeMaxByteSize | The maximum bytes allowed value for the immediateDataRangeMaxSize | [GPUSize32](https://www.w3.org/TR/webgpu/#typedefdef-gpusize32) | [maximum](https://www.w3.org/TR/webgpu/#limit-class-maximum) | 64 |
+| maxImmediateDataRangeByteSize | The maximum bytes allowed value for the immediateDataRangeByteSize | [GPUSize32](https://www.w3.org/TR/webgpu/#typedefdef-gpusize32) | [maximum](https://www.w3.org/TR/webgpu/#limit-class-maximum) | 64 |
 
 NOTE: 64 bytes is the sizeof(mat4x4).
 
