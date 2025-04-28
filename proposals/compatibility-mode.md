@@ -392,6 +392,12 @@ If `createTexture()` is called with any of these formats and `sampleCount > 1`, 
 
 **Justification**: OpenGL ES 3.1 does not require multisampling to be supported on integer texture formats. The minimum value for GL_MAX_INTEGER_SAMPLES is 1, and [94.7% of reports on gpuinfo have that value](https://opengles.gpuinfo.org/displaycapability.php?name=GL_MAX_INTEGER_SAMPLES&esversion=31).
 
+## 24. Support for `"texture-compression-bc"` may not imply support for `"texture-compression-bc-sliced-3d"` feature.
+
+If `"texture-compression-bc-sliced-3d"` is supported, then `"texture-compression-bc"` must be supported. `"texture-compression-bc"` does not guarantee `"texture-compression-bc-sliced-3d"` feature.
+
+**Justification:** Desktop OpenGL with NVIDIA has further constraints for BC1-5 Sliced 3D due to [GL_NV_texture_compression_vtc](https://registry.khronos.org/OpenGL/extensions/NV/NV_texture_compression_vtc.txt), which is [widely present for NVIDIA GPUs](https://opengl.gpuinfo.org/listreports.php?extension=GL_NV_texture_compression_vtc), causing issues with texture API-side texture operations.
+
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
