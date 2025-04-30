@@ -394,7 +394,9 @@ If `createTexture()` is called with any of these formats and `sampleCount > 1`, 
 
 ## 24. Support for `"texture-compression-bc"` may not imply support for `"texture-compression-bc-sliced-3d"` feature.
 
-If `"texture-compression-bc-sliced-3d"` is supported, then `"texture-compression-bc"` must be supported. `"texture-compression-bc"` does not guarantee `"texture-compression-bc-sliced-3d"` feature.
+Like in Core, adapters with `"texture-compression-bc-sliced-3d"` must also support `"texture-compression-bc"`.
+
+Unlike in Core, `"texture-compression-bc"` can be supported without `"texture-compression-bc-sliced-3d"`.
 
 **Justification:** Desktop OpenGL with NVIDIA has further constraints for BC1-5 Sliced 3D due to [GL_NV_texture_compression_vtc](https://registry.khronos.org/OpenGL/extensions/NV/NV_texture_compression_vtc.txt), which is [widely present for NVIDIA GPUs](https://opengl.gpuinfo.org/listreports.php?extension=GL_NV_texture_compression_vtc), causing issues with texture API-side texture operations.
 
