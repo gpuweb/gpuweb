@@ -15,7 +15,7 @@ The addition of arrays of bindings would let shaders perform more dynamic use of
 Note that this is *not* the addition of "bindless" which would allow dynamically indexing an unbounded amount of resources.
 Bindless requires hardware support that's missing in many devices that WebGPU supports.
 Fixed-sized binding arrays are more limited, but enjoy ubiquitous hardware support.
-However this proposal is a stepping stone towards bindless as the `bindingCount`, `binding_array` and other concept can be extended for bindless in the future.
+However this proposal is a stepping stone towards bindless as the `bindingArraySize`, `binding_array` and other concept can be extended for bindless in the future.
 
 Hardware may have constraints around what kind of indexing is allowed in binding arrays: const-expression, uniform, or non-uniform indexing.
 The choice done for indexing uniformity influences what level of emulation will need to happen in implementations.
@@ -25,30 +25,26 @@ WebGPU needs to choose what resources can be dynamically indexed, and what level
 
 ## API changes
 
-On the API side, `GPUBindGroupLayoutEntry` gains a new `bindingCount` property that gives the number of elements of the array for this entry.
-The elements for the entry are the ones with binding number between (inclusively) `entry.binding` and `entry.binding + entry.bindingCount - 1`.
-Arrays of size 1 and single bindings are equivalent between shader and bind group layout matching, such that all current WebGPU code is as if it had the `bindingCount` value of 1.
-For that reason, `bindingCount` is defaulted to 1.
+On the API side, `GPUBindGroupLayoutEntry` gains a new `bindingArraySize` property that gives the number of elements of the array for this entry.
+The elements for the entry are the ones with binding number between (inclusively) `entry.binding` and `entry.binding + entry.bindingArraySize - 1`.
+Arrays of size 1 and single bindings are equivalent between shader and bind group layout matching, such that all current WebGPU code is as if it had the `bindingArraySize` value of 1.
+For that reason, `bindingArraySize` is defaulted to 1.
 
-```diff
- dictionary GPUBindGroupLayoutEntry {
-     required GPUIndex32 binding;
-+    GPUSize32 bindingCount = 1;
-     required GPUShaderStageFlags visibility;
-
-     // ...
- };
+```webidl
+partial dictionary GPUBindGroupLayoutEntry {
+    GPUSize32 bindingArraySize = 1;
+};
 ```
 
 Changes to validation are done:
 
- - An `bindingCount` value of 0 is invalid and produces an error `GPUBindGroupLayout`.
- - When counting limits, the counts towards limits are multiplied by the `bindingCount`.
- - Checks that bindings numbers in a `GPUBindGroupLayout` don't conflict is updated to take into account the ranges for the `bindingCount`.
- - Checks that `GPUBindGroup` creation specifies all require bindings is updated to take into account the ranges for the `bindingCount`.
- - (Optionally) Checks that bindings with `bindingCount > 1` are in the allow-list of bindings for fixed-size arrays.
+ - An `bindingArraySize` value of 0 is invalid and produces an error `GPUBindGroupLayout`.
+ - When counting limits, the counts towards limits are multiplied by the `bindingArraySize`.
+ - Checks that bindings numbers in a `GPUBindGroupLayout` don't conflict is updated to take into account the ranges for the `bindingArraySize`.
+ - Checks that `GPUBindGroup` creation specifies all require bindings is updated to take into account the ranges for the `bindingArraySize`.
+ - (Optionally) Checks that bindings with `bindingArraySize > 1` are in the allow-list of bindings for fixed-size arrays.
 
-Pipeline layout defaulting is also updated to reflect and set an `bindingCount` in the `GPUBindGroupLayouts` it creates.
+Pipeline layout defaulting is also updated to reflect and set an `bindingArraySize` in the `GPUBindGroupLayouts` it creates.
 
 ## WGSL
 
@@ -58,7 +54,7 @@ It can be used for feature detection of both the API-side support and the WGSL-s
 A new `binding_array<T, N>` type is added that can only be used as a binding and not created directly in shaders.
 
  - `N` is the size of the array and must be a compile-time constant value or (optionally) an override constant.
-   It is validated to less than or equal to the `bindingCount` of the respective `GPUBindGroupLayoutEntry`.
+   It is validated to less than or equal to the `bindingArraySize` of the respective `GPUBindGroupLayoutEntry`.
  - `T` is the type of the binding this array is used for, which is validated against the rest of the contents of the `GPUBindGroupLayoutEntry`.
 
 (TODO for WGSL, can `binding_array` be passed around in function parameters?)
