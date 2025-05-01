@@ -2885,6 +2885,7 @@ enum GPUFeatureName {
     "clip-distances",
     "dual-source-blending",
     "subgroups",
+    "interited-bundle-bind-groups",
 };
 </script>
 
@@ -10804,6 +10805,12 @@ It must only be included by interfaces which also include those mixins.
     : <dfn>\[[dynamic_offsets]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, [=list=]&lt;{{GPUBufferDynamicOffset}}&gt;&gt;, initally empty
     ::
         The current dynamic offsets for each {{GPUBindingCommandsMixin/[[bind_groups]]}} entry.
+
+    : <dfn>\[[inheritedBindGroups]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, {{GPUBindGroupLayout}}&gt;, initially empty
+    ::
+        Which bind groups will be inherited from an executing encoder, making them immutable.
+        
+        Note: This will only have entries in {{GPURenderBundleEncoder}} instances.
 </dl>
 
 ## Bind Groups ## {#programmable-passes-bind-groups}
@@ -10863,6 +10870,7 @@ It must only be included by interfaces which also include those mixins.
                         - |index| must be &lt;
                             |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBindGroups}}.
                         - |dynamicOffsets|.[=list/size=] must equal |dynamicOffsetCount|.
+                        - |this|.{{GPUBindingCommandsMixin/[[inheritedBindGroups]]}} must not [=map/contain=] |index|.
                     </div>
                 1. If |bindGroup| is `null`:
                     1. [=map/Remove=] |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|].
@@ -13185,10 +13193,11 @@ attachments used by this encoder.
         Executes the commands previously recorded into the given {{GPURenderBundle}}s as part of
         this render pass.
 
-        When a {{GPURenderBundle}} is executed, it does not inherit the render pass's pipeline, bind
-        groups, or vertex and index buffers. After a {{GPURenderBundle}} has executed, the render
-        pass's pipeline, bind group, and vertex/index buffer state is cleared
-        (to the initial, empty values).
+        When a {{GPURenderBundle}} is executed, it does not inherit the render pass's pipeline or
+        vertex and index buffers. Bind groups are not inherited unless explicitly indicated at
+        bundle creation time. See [=inherited bundle state=] After a {{GPURenderBundle}} has
+        executed, the render pass's pipeline, vertex/index buffer, and non-inherited bind group
+        state is cleared (to the initial, empty values).
 
         Note: The state is cleared, not restored to the previous state.
         This occurs even if zero {{GPURenderBundle|GPURenderBundles}} are executed.
@@ -13222,6 +13231,11 @@ attachments used by this encoder.
                             - |this|.{{GPURenderCommandsMixin/[[layout]]}} must equal |bundle|.{{GPURenderBundle/[[layout]]}}.
                             - If |this|.{{GPURenderCommandsMixin/[[depthReadOnly]]}} is true, |bundle|.{{GPURenderBundle/[[depthReadOnly]]}} must be true.
                             - If |this|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} is true, |bundle|.{{GPURenderBundle/[[stencilReadOnly]]}} must be true.
+                            - For each ({{GPUIndex32}} |group|, {{GPUBindGroupLayout}} |layout|) in |this|.{{GPUBindingCommandsMixin/[[inheritedBindGroups]]}}:
+                                - |bundle|.{{GPURenderBundle/[[inheritedBindGroups]]}}[|group|] must [=map/exist=] and be [=group-equivalent=] with |layout|.
+                            - For each ({{GPUIndex32}} |group|, {{GPUBindGroupLayout}} |layout|) in |bundle|.{{GPURenderBundle/[[inheritedBindGroups]]}}:
+                                - Let |bindGroup| be |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|group|].
+                                - |bindGroup|.{{GPUBindGroup/[[layout]]}} must be [=group-equivalent=] with |layout|.
                     </div>
 
                 1. For each |bundle| in |bundles|:
@@ -13233,6 +13247,10 @@ attachments used by this encoder.
 
                         <div data-timeline=queue>
                             [=Queue timeline=] steps:
+
+                            1. For each ({{GPUIndex32}} |group|, {{GPUBindGroupLayout}} |layout|) in |bundle|.{{GPURenderBundle/[[inheritedBindGroups]]}}:
+                                1. Substitue the [=placeholder bind group=] at index |group| used when encoding |bundle|
+                                    with |this|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|group|].
 
                             1. Execute each command in |bundle|.{{GPURenderBundle/[[command_list]]}}
                                 with |renderState|.
@@ -13247,10 +13265,12 @@ attachments used by this encoder.
 </dl>
 
 <div algorithm data-timeline=device>
-    To <dfn abstract-op>Reset the render pass binding state</dfn> of {{GPURenderPassEncoder}} |encoder| run
-    the following [=device timeline=] steps:
+    To <dfn abstract-op>Reset the render pass binding state</dfn> of {{GPURenderPassEncoder}} |encoder| with
+    {{GPURenderBundle}} |bundle| run the following [=device timeline=] steps:
 
-        1. [=map/Clear=] |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+        1. For each {{GPUBindGroup}} group at |index| in |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+            1. If |bundle|.{{GPURenderBundle/[[inheritedBindGroups]]}} does not [=map/contain=] |index|:
+                1. [=map/Remove=] |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index|]
         1. Set |encoder|.{{GPURenderCommandsMixin/[[pipeline]]}} to `null`.
         1. Set |encoder|.{{GPURenderCommandsMixin/[[index_buffer]]}} to `null`.
         1. [=map/Clear=] |encoder|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
@@ -13301,6 +13321,10 @@ GPURenderBundle includes GPUObjectBase;
     : <dfn>\[[drawCount]]</dfn>, of type {{GPUSize64}}
     ::
         The number of draw commands in this {{GPURenderBundle}}.
+
+    : <dfn>\[[inheritedBindGroups]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, {{GPUBindGroupLayout}}&gt;, initially empty
+    ::
+        The bind groups this render bundle will inherit from the render pass when executing.
 </dl>
 
 ### Render Bundle Creation ### {#render-bundle-creation}
@@ -13372,12 +13396,20 @@ GPURenderBundleEncoder includes GPURenderCommandsMixin;
                             - A non-`null` value in
                                 |descriptor|.{{GPURenderPassLayout/colorFormats}}, or
                             - A |descriptor|.{{GPURenderPassLayout/depthStencilFormat}}.
+                        - If |descriptor|.{{GPURenderBundleEncoderDescriptor/inheritedBindGroups}} is not [=list/is empty|empty=]:
+                            - {{GPUFeatureName/"interited-bundle-bind-groups"}} must be [=enabled for=] |this|.
                     </div>
                 1. Set |e|.{{GPURenderCommandsMixin/[[layout]]}} to a copy of |descriptor|'s included {{GPURenderPassLayout}} interface.
                 1. Set |e|.{{GPURenderCommandsMixin/[[depthReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/depthReadOnly}}.
                 1. Set |e|.{{GPURenderCommandsMixin/[[stencilReadOnly]]}} to |descriptor|.{{GPURenderBundleEncoderDescriptor/stencilReadOnly}}.
                 1. Set |e|.{{GPUCommandsMixin/[[state]]}} to "[=encoder state/open=]".
                 1. Set |e|.{{GPURenderCommandsMixin/[[drawCount]]}} to 0.
+                1. For each {{GPURenderBundleInheritedBindGroupEntry}} |inheritedBindGroup| in
+                    |descriptor|.{{GPURenderBundleEncoderDescriptor/inheritedBindGroups}}:
+                    1. Let |group| be |inheritedBindGroup|.{{GPURenderBundleInheritedBindGroupEntry/group}}.
+                    1. Let |layout| be |inheritedBindGroup|.{{GPURenderBundleInheritedBindGroupEntry/layout}}.
+                    1. Set |e|.{{GPUBindingCommandsMixin/[[inheritedBindGroups]]}}[|group|] to be |layout|.
+                    1. Set |e|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|group|] to be a new [=placeholder bind group=] that satisfies |layout|.
             </div>
         </div>
 </dl>
@@ -13389,6 +13421,9 @@ dictionary GPURenderBundleEncoderDescriptor
          : GPURenderPassLayout {
     boolean depthReadOnly = false;
     boolean stencilReadOnly = false;
+
+    // Requires "interited-bundle-bind-groups" feature.
+    sequence<GPURenderBundleInheritedBindGroupEntry> inheritedBindGroups = [];
 };
 </script>
 
@@ -13408,7 +13443,64 @@ dictionary GPURenderBundleEncoderDescriptor
         in.
 
         See [=read-only depth-stencil=].
+
+    : <dfn>inheritedBindGroups</dfn>
+    ::
+        An list of entries describing which bind groups, if any, should be inherited from the
+        render pass the render bundle is executed in.
+
+        See [=inherited bundle state=].
+
+        Requires the {{GPUFeatureName/"interited-bundle-bind-groups"}} feature to be enabled.
 </dl>
+
+### Inherited Bundle State ### {#render-bundle-inherited-state}
+
+By default render bundles [$Reset the render pass binding state|reset the binding state$] when
+executing to ensure that the bundle will operate the same way regardless of the context in which
+it's executed. Render bundles can explicitly request, however, that some bindings be
+<dfn>inherited bundle state</dfn> from the executing render pass. [=Inherited bundle state=] is
+defined at bundle creation time and prevents the identified bindings from being reset before and
+after the bundle execution. This allows bundles to be used in more flexible situations. For example:
+Inheriting a bind group containing view information to more easily render the bundle content from
+multiple viewports in a single frame.
+
+At this time only {{GPUBindGroup}}s may be inhertited from the render pass.
+
+<script type=idl>
+dictionary GPURenderBundleInheritedBindGroupEntry {
+    required GPUIndex32 group;
+    required GPUBindGroupLayout layout;
+};
+</script>
+
+<dl dfn-type=dict-member dfn-for=GPURenderBundleInheritedBindGroupEntry>
+    : <dfn>group</dfn>
+    ::
+        The index of a bind group to be inherited from the render pass the render bundle is executed
+        in. Must be &lt; {{supported limits/maxBindGroups}}.
+
+    : <dfn>layout</dfn>
+    ::
+        The layout of the {{GPUBindGroup}} that must be set at index {{GPURenderBundleInheritedBindGroupEntry/group}}
+        when the render bundle is executed in order for the bundle execution to be valid.
+</dl>
+
+<div class=note heading>
+    Render bundles that make use of inherited bind groups have the following behavior differences:
+
+    - Bind groups indices marked as inherited cannot be changed by the render bundle.
+    - Render bundles executed as part of a render bundle with inherited bind groups must inherit the
+        same bind groups with [=group-equivalent=] layouts. They may inherit additional bind groups
+        on top of that. (In other words: nested render bundles must inherit a superset of bind groups.)
+    - Inherited bind groups are not [$Reset the render pass binding state|reset$]
+        when the render bundle is finished executing. All other bind groups continue to be reset as
+        usual.
+</div>
+
+A <dfn>placeholder bind group</dfn> is a {{GPUBindGroup}} that satisfies a given {{GPUBindGroupLayout}}
+for purposes of validation but does not contain any actual resources. They are a conceptual mechanism
+intended to simplify spec prose regarding [=inherited bundle state=].
 
 ### Finalization ### {#render-bundle-finalization}
 
@@ -13457,6 +13549,8 @@ dictionary GPURenderBundleEncoderDescriptor
                     |this|.{{GPURenderCommandsMixin/[[usage scope]]}}.
                 1. Set |renderBundle|.{{GPURenderBundle/[[drawCount]]}} to
                     |this|.{{GPURenderCommandsMixin/[[drawCount]]}}.
+                1. Set |renderBundle|.{{GPURenderBundle/[[inheritedBindGroups]]}} to
+                    |this|.{{GPUBindingCommandsMixin/[[inheritedBindGroups]]}}
             </div>
         </div>
 </dl>
@@ -16731,6 +16825,17 @@ expose real values whenever the feature is available on the adapter:
 
 - New WGSL extensions:
     - [=extension/subgroups=]
+
+<h3 id=interited-bundle-bind-groups data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"interited-bundle-bind-groups"`
+<span id=dom-gpufeaturename-interited-bundle-bind-groups></span>
+</h3>
+
+Allows {{GPUBindGroup}}s to be [=inherited bundle state=] for {{GPURenderBundle}}s.
+
+This feature adds the following [=optional API surfaces=]:
+
+- New {{GPURenderBundleEncoderDescriptor}} dictionary members:
+    - {{GPURenderBundleEncoderDescriptor/inheritedBindGroups}}
 
 # Appendices # {#appendices}
 
