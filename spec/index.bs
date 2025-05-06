@@ -2885,6 +2885,9 @@ enum GPUFeatureName {
     "clip-distances",
     "dual-source-blending",
     "subgroups",
+    "buffer-map-write-with-extended-usages",
+    "buffer-map-write-with-extended-usages-and-gpu-data",
+    "buffer-map-read-with-extended-usages",
 };
 </script>
 
@@ -3354,14 +3357,21 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
         The buffer can be mapped for reading. (Example: calling {{GPUBuffer/mapAsync()}} with
         {{GPUMapMode/READ|GPUMapMode.READ}})
 
-        May only be combined with {{GPUBufferUsage/COPY_DST}}.
+        Unless {{GPUFeatureName/buffer-map-read-with-extended-usages}} is enabled, this may only be
+        combined with {{GPUBufferUsage/COPY_DST}}.
 
     : <dfn>MAP_WRITE</dfn>
     ::
         The buffer can be mapped for writing. (Example: calling {{GPUBuffer/mapAsync()}} with
         {{GPUMapMode/WRITE|GPUMapMode.WRITE}})
 
-        May only be combined with {{GPUBufferUsage/COPY_SRC}}.
+        Unless {{GPUFeatureName/buffer-map-write-with-extended-usages}} is enabled, this may only be
+        combined with {{GPUBufferUsage/COPY_SRC}}.
+
+        When {{GPUFeatureName/buffer-map-write-with-extended-usages}} is enabled:
+        - This cannot be combined with {{GPUBufferUsage/INDEX}} or {{GPUBufferUsage/INDIRECT}}.
+        - This cannot be combined with {{GPUBufferUsage/MAP_READ}} unless
+            {{GPUFeatureName/buffer-map-read-with-extended-usages}} is enabled.
 
     : <dfn>COPY_SRC</dfn>
     ::
@@ -3456,15 +3466,30 @@ The {{GPUBufferUsage}} flags determine how a {{GPUBuffer}} may be used after its
                         - |descriptor|.{{GPUBufferDescriptor/usage}} must not be 0.
                         - |descriptor|.{{GPUBufferDescriptor/usage}} must be a subset of the
                             [=allowed buffer usages=] for |this|.
-                        - If |descriptor|.{{GPUBufferDescriptor/usage}} contains {{GPUBufferUsage/MAP_READ}}:
-                            - |descriptor|.{{GPUBufferDescriptor/usage}} must contain no other flags
-                                except {{GPUBufferUsage/COPY_DST}}.
-                        - If |descriptor|.{{GPUBufferDescriptor/usage}} contains {{GPUBufferUsage/MAP_WRITE}}:
-                            - |descriptor|.{{GPUBufferDescriptor/usage}} must contain no other flags
-                                except {{GPUBufferUsage/COPY_SRC}}.
+                        - If |descriptor|.{{GPUBufferDescriptor/usage}} contains
+                            {{GPUBufferUsage/MAP_WRITE}}:
+                            - If {{GPUFeatureName/buffer-map-write-with-extended-usages}} is not
+                                enabled on |this|:
+                                - |descriptor|.{{GPUBufferDescriptor/usage}} must contain no other
+                                    flags except {{GPUBufferUsage/COPY_SRC}}.
+                            - Else:
+                                - |descriptor|.{{GPUBufferDescriptor/usage}} must not contain
+                                    {{GPUBufferUsage/INDEX}} or {{GPUBufferUsage/INDIRECT}}.
+                        - If |descriptor|.{{GPUBufferDescriptor/usage}} contains
+                            {{GPUBufferUsage/MAP_READ}}:
+                            - If {{GPUFeatureName/buffer-map-read-with-extended-usages}} is not
+                                enabled on |this|:
+                                - |descriptor|.{{GPUBufferDescriptor/usage}} must contain no other
+                                    flags except {{GPUBufferUsage/COPY_DST}}.
                         - If |descriptor|.{{GPUBufferDescriptor/size}} must be &le;
                             |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxBufferSize}}.
                     </div>
+
+                Note: {{GPUBufferUsage/MAP_WRITE}} is not allowed to work with
+                {{GPUBufferUsage/INDEX}} or {{GPUBufferUsage/INDIRECT}} because the data in the
+                buffers with {{GPUBufferUsage/INDEX}} or {{GPUBufferUsage/INDIRECT}} usage may be
+                validated on the GPU, and allowing updating such buffer on the CPU side may cause
+                potential TOCTOU attacks in a compromised JavaScript process.
 
                 Note: If buffer creation fails, and |descriptor|.{{GPUBufferDescriptor/mappedAtCreation}} is `false`,
                 any calls to {{GPUBuffer/mapAsync()}} will reject, so any resources allocated to enable mapping can
@@ -3585,24 +3610,33 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
 <dl dfn-type=const dfn-for=GPUMapMode>
     : <dfn>READ</dfn>
     ::
-        Only valid with buffers created with the {{GPUBufferUsage/MAP_READ}} usage.
+        Only valid with {{GPUBuffer}}s created with the {{GPUBufferUsage/MAP_READ}} usage.
 
-        Once the buffer is mapped, calls to {{GPUBuffer/getMappedRange()}} will return an
-        {{ArrayBuffer}} containing the buffer's current values. Changes to the returned
-        {{ArrayBuffer}} will be discarded after {{GPUBuffer/unmap()}} is called.
+        Once the {{GPUBuffer}} is mapped, calls to {{GPUBuffer/getMappedRange()}} will return an
+        {{ArrayBuffer}} containing the {{GPUBuffer}}'s current values.
+
+        Changes to the returned {{ArrayBuffer}} will be discarded after {{GPUBuffer/unmap()}} is
+        called.
 
     : <dfn>WRITE</dfn>
     ::
-        Only valid with buffers created with the {{GPUBufferUsage/MAP_WRITE}} usage.
+        Only valid with {{GPUBuffer}}s created with the {{GPUBufferUsage/MAP_WRITE}} usage.
 
-        Once the buffer is mapped, calls to {{GPUBuffer/getMappedRange()}} will return an
-        {{ArrayBuffer}} containing the buffer's current values. Changes to the returned
-        {{ArrayBuffer}} will be stored in the {{GPUBuffer}} after {{GPUBuffer/unmap()}} is called.
+        Once the buffer is mapped:
+        - If {{GPUFeatureName/buffer-map-write-with-extended-usages-and-GPU-data}} is enabled:
+            - Calls to {{GPUBuffer/getMappedRange()}} will return an {{ArrayBuffer}} containing the
+                {{GPUBuffer}}'s current values.
+        - Else:
+            - Calls to {{GPUBuffer/getMappedRange()}} will return an {{ArrayBuffer}} containing
+                the default initialized data (zeros) or data written by the webpage during a
+                previous mapping.
 
-        Note: Since the {{GPUBufferUsage/MAP_WRITE}} buffer usage may only be combined with the
-        {{GPUBufferUsage/COPY_SRC}} buffer usage, mapping for writing can never return values
-        produced by the GPU, and the returned {{ArrayBuffer}} will only ever contain the default
-        initialized data (zeros) or data written by the webpage during a previous mapping.
+        Changes to the returned {{ArrayBuffer}} will be stored in the {{GPUBuffer}} after
+        {{GPUBuffer/unmap()}} is called.
+
+        Note: Write-only mapping will never return values produced by the GPU unless
+        {{GPUFeatureName/buffer-map-write-with-extended-usages-and-GPU-data}} is enabled.
+
 </dl>
 
 {{GPUBuffer}} has the following methods:
@@ -16731,6 +16765,46 @@ expose real values whenever the feature is available on the adapter:
 
 - New WGSL extensions:
     - [=extension/subgroups=]
+
+<h3 id=dom-gpufeaturename-buffer-map-write-with-extended-usages data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"buffer-map-write-with-extended-usages"`
+</h3>
+
+Allows the creation of {{GPUBuffer}}s with {{GPUBufferUsage/MAP_WRITE}} combined with more
+{{GPUBufferUsage}} flags besides {{GPUBufferUsage/COPY_SRC}} on the GPUs that support uploading data
+to GPU without a staging buffer.
+
+This feature adds the following [=optional API surfaces=]:
+- Allows the use of {{GPUBufferUsage/MAP_WRITE}} with any other {{GPUBufferUsage}}s listed below as
+    |descriptor|.{{GPUBufferDescriptor/usage}} in the creation of {{GPUBuffer}}s:
+    - {{GPUBufferUsage/COPY_DST}}
+    - {{GPUBufferUsage/VERTEX}}
+    - {{GPUBufferUsage/UNIFORM}}
+    - {{GPUBufferUsage/STORAGE}}
+    - {{GPUBufferUsage/QUERY_RESOLVE}}
+
+<h3 id=dom-gpufeaturename-buffer-map-write-with-extended-usages-and-GPU-data data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"buffer-map-write-with-extended-usages-and-GPU-data"`
+</h3>
+
+Allows the creation of {{GPUBuffer}}s with {{GPUBufferUsage/MAP_WRITE}} combined with more
+{{GPUBufferUsage}} flags besides {{GPUBufferUsage/COPY_SRC}}, and directly reading the data on the
+GPU with {{GPUBuffer/getMappedRange()}} on the GPUs that support uploading data to GPU without a
+staging buffer and take advantage of CPU-cached memory.
+
+This feature adds the following [=optional API surfaces=]:
+- Enable {{GPUFeatureName/buffer-map-write-with-extended-usages}}
+- Calls to {{GPUBuffer/getMappedRange()}} will return an {{ArrayBuffer}} containing the
+    {{GPUBuffer}}'s current values.
+
+<h3 id=dom-gpufeaturename-buffer-map-read-with-extended-usages data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"buffer-map-read-with-extended-usages"`
+</h3>
+
+Allows the creation of {{GPUBuffer}}s with {{GPUBufferUsage/MAP_READ}} combined with
+{{GPUBufferUsage}} flags besides {{GPUBufferUsage/COPY_DST}} on the GPUs that take advantage of
+CPU-cached memory.
+
+This feature adds the following [=optional API surfaces=]:
+- Allows the use of {{GPUBufferUsage/MAP_READ}} with any other {{GPUBufferUsage}} flags as
+    |descriptor|.{{GPUBufferDescriptor/usage}} in the creation of {{GPUBuffer}}s.
 
 # Appendices # {#appendices}
 
