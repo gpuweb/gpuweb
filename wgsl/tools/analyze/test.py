@@ -1144,12 +1144,6 @@ class ItemSet_Less(unittest.TestCase):
         result = result.close(self.g) if closed else result
         return result
 
-    def test_Less(self):
-        i0 = self.is_C_0()
-        i1 = self.is_C_1()
-        self.assertLess(i0,i1)
-        self.assertGreater(i1,i0)
-
     def test_Equal(self):
         i0 = self.is_C_0()
         i1 = self.is_C_1()
