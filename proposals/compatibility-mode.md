@@ -392,18 +392,6 @@ If `createTexture()` is called with any of these formats and `sampleCount > 1`, 
 
 **Justification**: OpenGL ES 3.1 does not require multisampling to be supported on integer texture formats. The minimum value for GL_MAX_INTEGER_SAMPLES is 1, and [94.7% of reports on gpuinfo have that value](https://opengles.gpuinfo.org/displaycapability.php?name=GL_MAX_INTEGER_SAMPLES&esversion=31).
 
-### 24. Disallow creating a storage texture with `r8unorm`, `r8uint`, `r8sint`, `r16uint`, `r16sint` or `r16float` formats
-
-When the extension `rw-storage-texture-formats-1` is enabled, it is allowed to create a texture with `STORAGE_BINDING` usage and one of the below formats, but not in Compatibility mode:
-- `r8unorm`
-- `r8uint`
-- `r8sint`
-- `r16uint`
-- `r16sint`
-- `r16float`
-
-**Justification**: OpenGL ES 3.1 does not support above formats as image unit formats.
-
 ## Issues
 
 Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
