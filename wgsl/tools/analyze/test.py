@@ -1152,14 +1152,14 @@ class ItemSet_Less(unittest.TestCase):
         self.assertFalse(i0==i1)
         self.assertFalse(i1==i0)
 
-    def test_Less(self):
+    def test_Ordering(self):
         i0 = self.is_C_0()
         i1 = self.is_C_1()
         # The "dot" character is higher than '
         self.assertLess(i1,i0)
         self.assertGreater(i0,i1)
 
-    def test_Less_Lookahead(self):
+    def test_Ordering_Lookahead(self):
         i0c = self.is_C_0(la=Grammar.LookaheadSet({self.c}))
         i0d = self.is_C_0(la=Grammar.LookaheadSet({self.d}))
         self.assertLess(i0c,i0d)
@@ -1173,7 +1173,7 @@ class ItemSet_Less(unittest.TestCase):
         self.assertFalse(i0c==i0d)
         self.assertFalse(i0d==i0c)
 
-    def test_Less_Lookahead_Unclosed(self):
+    def test_Ordering_Lookahead_Unclosed(self):
         i0c = self.is_C_0(closed=False,la=Grammar.LookaheadSet({self.c}))
         i0d = self.is_C_0(closed=False,la=Grammar.LookaheadSet({self.d}))
         self.assertLess(i0c,i0d)
@@ -1187,7 +1187,7 @@ class ItemSet_Less(unittest.TestCase):
         self.assertFalse(i0c==i0d)
         self.assertFalse(i0d==i0c)
 
-    def test_Less_Lookahead_ClosedFT(self):
+    def test_Ordering_Lookahead_ClosedFT(self):
         i0c = self.is_C_0(closed=False,la=Grammar.LookaheadSet({self.c}))
         i0d = self.is_C_0(closed=True,la=Grammar.LookaheadSet({self.d}))
         self.assertLess(i0c,i0d)
@@ -1201,7 +1201,7 @@ class ItemSet_Less(unittest.TestCase):
         self.assertFalse(i0c==i0d)
         self.assertFalse(i0d==i0c)
 
-    def test_Less_Lookahead_ClosedTF(self):
+    def test_Ordering_Lookahead_ClosedTF(self):
         i0c = self.is_C_0(closed=True,la=Grammar.LookaheadSet({self.c}))
         i0d = self.is_C_0(closed=False,la=Grammar.LookaheadSet({self.d}))
         # We only compare on content, never by the index. So closure
