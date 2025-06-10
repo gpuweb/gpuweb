@@ -54,7 +54,7 @@ To install all tools, run:
 ```
 
 (Alternatively, you can invoke `pip3`/`npx` directly, using the commands in
-[that script](../tools/install-dependencies.sh).) More details:
+[that script](tools/install-dependencies.sh).) More details:
 
 The specifications are written using [Bikeshed](https://tabatkins.github.io/bikeshed).
 Installing Bikeshed is optional; if Bikeshed is not installed locally,
