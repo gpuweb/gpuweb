@@ -85,9 +85,11 @@ const textureView = myTexture.createView({
 ## Open Questions
 
 - Are there new validation rules needed if the view is depth-stencil or multisampled?
+- In Compatibility Mode, this could count against the [texture and sampler combination limit](https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#21-limit-the-number-of-texturesampler-combinations-in-a-stage), or it might not be exposed at all.
 
 ## Resources
 
 - [Vkswizzle(3) Vulkan Manual Page](https://registry.khronos.org/vulkan/specs/latest/man/html/VkComponentMapping.html)
 - [D3D12_SHADER_RESOURCE_VIEW_DESC structure (d3d12.h)](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_shader_resource_view_desc)
 - [MTLTextureSwizzleChannels | Apple Developer Documentation](https://developer.apple.com/documentation/metal/mtltextureswizzlechannels)
+- [OpenGL ES 3.1 section 14.2.1](https://registry.khronos.org/OpenGL/specs/es/3.1/es_spec_3.1.pdf#page=331)
