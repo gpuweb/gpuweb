@@ -30,15 +30,14 @@ partial dictionary GPUTextureViewDescriptor {
 
 // Structure specifying a custom color component mapping for a texture view.
 dictionary GPUTextureComponentSwizzle {
-    GPUComponentSwizzle r = "identity";
-    GPUComponentSwizzle g = "identity";
-    GPUComponentSwizzle b = "identity";
-    GPUComponentSwizzle a = "identity";
+    GPUComponentSwizzle r = "r";
+    GPUComponentSwizzle g = "g";
+    GPUComponentSwizzle b = "b";
+    GPUComponentSwizzle a = "a";
 };
 
 // A set of options to choose from when specifying a component swizzle.
 enum GPUComponentSwizzle {
-    "identity", // Set to the identity swizzle.
     "zero",     // Force its value to 0.
     "one",      // Force its value to 1.
     "r",        // Take its value from the red channel of the texture.
@@ -51,10 +50,10 @@ enum GPUComponentSwizzle {
 The `GPUTexture.createView(descriptor)` algorithm is extended with the following validation rules changes:
 
 - If `descriptor.usage` includes the `RENDER_ATTACHMENT` or `STORAGE_BINDING` bit:
-  - `descriptor.swizzle.r` must be `"identity"`.
-  - `descriptor.swizzle.g` must be `"identity"`.
-  - `descriptor.swizzle.b` must be `"identity"`.
-  - `descriptor.swizzle.a` must be `"identity"`.
+  - `descriptor.swizzle.r` must be `"r"`.
+  - `descriptor.swizzle.g` must be `"g"`.
+  - `descriptor.swizzle.b` must be `"b"`.
+  - `descriptor.swizzle.a` must be `"a"`.
 
 ## Javascript example
 
