@@ -12,4 +12,3 @@ python3 -m pip install --break-system-packages  --ignore-installed --upgrade \
   bikeshed==$PIP_BIKESHED_VERSION
 export PATH="$(python3 -m site --user-base)/bin:${PATH}"
 bikeshed update
-node "/usr/local/lib/node_modules/puppeteer/install.mjs"

@@ -1,6 +1,8 @@
 FROM ubuntu:25.04
 
 ENV LANG=en_US.UTF-8
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD true
+ENV PUPPETEER_EXECUTABLE_PATH=/root/.cache/ms-playwright/chromium_headless_shell-1179/chrome-linux/headless_shell
 
 RUN \
   export DEBIAN_FRONTEND=noninteractive && \
@@ -40,15 +42,16 @@ ENV CXX=clang++
 RUN \
   chmod +x /entrypoint.sh /prepare.sh /dependency-versions.sh && \
   source /dependency-versions.sh && \
-  npm install -g puppeteer@$NPM_PUPPETEER_VERSION && \
+  npm install -g playwright@$NPM_PLAYWRIGHT_VERSION && \
+  playwright install chromium --with-deps --only-shell && \
   python3 -m pip install --break-system-packages \
     build==$PIP_BUILD_VERSION \
     tree_sitter==$PIP_TREE_SITTER_VERSION && \
   npm install -g @mermaid-js/mermaid-cli@$NPM_MERMAID_CLI_VERSION && \
   npm install -g tree-sitter-cli@$NPM_TREE_SITTER_CLI_VERSION && \
-  node "/usr/local/lib/node_modules/puppeteer/install.mjs" && \
   cd /grammar && \
   tree-sitter generate && \
-  npm install
+  npm install && \
+  python3 -m pip install -e . --break-system-packages
 
 ENTRYPOINT [ "/entrypoint.sh" ]
