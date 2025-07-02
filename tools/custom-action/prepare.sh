@@ -5,8 +5,8 @@ source /dependency-versions.sh # Source dependency versions
 if [ -d "./wgsl/grammar" ]; then
   rm -rf "./wgsl/grammar"
 fi
-if [ -d "/grammar" ]; then
-  cp -r "/grammar" "./wgsl/"
+if [ -d "/wgsl/grammar" ]; then
+  cp -r "/wgsl/grammar" "./wgsl/"
 fi
 python3 -m pip install --break-system-packages  --ignore-installed --upgrade \
   bikeshed==$PIP_BIKESHED_VERSION

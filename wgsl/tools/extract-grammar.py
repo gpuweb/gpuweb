@@ -13,8 +13,6 @@ import sys
 import string
 import shutil
 
-from distutils.ccompiler import new_compiler
-from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
 
 # TODO: Source from spec
