@@ -146,7 +146,7 @@ Use of the `sample_mask` or `sample_index` builtins would cause a validation err
 
 The `rg32uint`, `rg32sint`, and `rg32float` texture formats no longer support the `"write-only" or "read-only" STORAGE_BINDING` capability by default.
 
-Calls to `createTexture()` or `createBindGroupLayout()` with this combination cause a validation error. Calls to `createShaderModule()` will fail if these formats are referenced as storage textures.
+Calls to `createTexture()` or `createBindGroupLayout()` with this combination cause a validation error.
 
 **Justification**: GLSL ES 3.1 (section 4.4.7, "Format Layout Qualifiers") does not permit any two-component (RG) texture formats in a format layout qualifier.
 
