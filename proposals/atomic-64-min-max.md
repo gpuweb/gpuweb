@@ -1,8 +1,8 @@
-# 64 Bit atomics
+# 64 Bit atomics (storage buffers)
 
 Status: **Draft**
 
-Last modified: 2025-03-10
+Last modified: 2025-07-112
 
 Issue: [#5071](https://github.com/gpuweb/gpuweb/issues/5071)
 
@@ -34,7 +34,9 @@ has 69% support on Linux but only 4.66% support on android.
 
 
 **Metal**:
-* Metal 2.4 for all OS
+* Metal 2.4 for all OSx
+
+Metal is very restrictive on support for atomic 64. It restricts all operations to simply max/min of the c++ uint64_t. For a complete summary see 6.15.4.6 Atomic Modify Functions (64 Bits).
 
 According to the Metal
 [feature table](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf), this
@@ -42,7 +44,9 @@ includes the following families: Apple 9
 
 https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf p251
 
-We only get min/max but min/max is useful if one is doing software (compute) GPU rendering.
+
+
+While we only get min/max but min/max is useful if one is doing software (compute) GPU rendering.
 See the [requirement for atomic 64 bit support](https://jms55.github.io/posts/2024-11-14-virtual-geometry-bevy-0-15/#hardware-rasterization-and-atomicmax) for software rendering of virtual geometry.
 
 
@@ -66,7 +70,7 @@ Add a single new enable extension
 | --- | --- |
 | **atomic_64_min_max** | Adds functions for only min and max ops 64 bit atomics |
 
-**NOTE**: The atomic_64_min_max should be limited to storage buffers. This does not include textures/images.
+**NOTE**: The atomic_64_min_max should be limited to storage buffers. This does not include textures/images .
 
 
 ## Built-in Functions
@@ -101,7 +105,7 @@ New GPU features:
 | **atomic_64_min_max** | Allows the WGSL feature predicated on support for these 64 bit operations |
 
 
-**TODO**: 
+**Appendix**: 
 
 # Appendix A: WGSL Built-in Function Mappings
 
