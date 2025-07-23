@@ -1,3 +1,10 @@
+Contributions to specifications in this repository are intended to become part of
+Recommendation-track documents governed by the [W3C Patent
+Policy](https://www.w3.org/policies/patent-policy/) and [Software and Document
+License](https://www.w3.org/copyright/software-license-2023/). To contribute to the specifications,
+you must either participate in the relevant W3C Working Group or make a non-member patent licensing
+commitment.
+
 # Building the WebGPU/WGSL specs
 
 **See [README.md](README.md) for procedural information about contributing.**
@@ -47,7 +54,7 @@ To install all tools, run:
 ```
 
 (Alternatively, you can invoke `pip3`/`npx` directly, using the commands in
-[that script](../tools/install-dependencies.sh).) More details:
+[that script](tools/install-dependencies.sh).) More details:
 
 The specifications are written using [Bikeshed](https://tabatkins.github.io/bikeshed).
 Installing Bikeshed is optional; if Bikeshed is not installed locally,

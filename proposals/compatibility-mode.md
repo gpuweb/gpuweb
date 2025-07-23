@@ -159,8 +159,7 @@ During `createRenderPipeline()` and `createRenderPipelineAsync()`, `GPUDepthSten
 ### 10. Lower limits.
 
 The differences in limits between compatibility mode and standard WebGPU
-are as follows
-
+are as follows:
 
 | limit                               | compat  | standard  | gl limit                                     |
 | :---------------------------------- | ------: | --------: | :------------------------------------------- |
@@ -169,7 +168,6 @@ are as follows
 | `maxComputeWorkgroupSizeX`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
 | `maxComputeWorkgroupSizeY`          |     128 |       256 | MAX_COMPUTE_WORK_GROUP_SIZE                  |
 | `maxInterStageShaderVariables`      |      15 |        16 | MAX_VARYING_VECTORS                          |
-| `maxStorageBuffersPerShaderStage`   |       4 |         8 | min(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS, GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS) |
 | `maxTextureDimension1D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
 | `maxTextureDimension2D`             |    4096 |      8192 | MAX_TEXTURE_SIZE                             |
 | `maxUniformBufferBindingSize`       |   16384 |     65536 | MAX_UNIFORM_BLOCK_SIZE                       |
@@ -180,14 +178,14 @@ and/or `@builtin(instance_index)` each count as an
 attribute.
 
 Note: Some of the limits are derived from a survey of OpenGL ES 3.1 devices
-and are higher than the limit specified in the OpenGL ES 3.1 spec.
+and are higher than the limit specified in the OpenGL ES 3.1 spec. For example:
 
-For example, in OpenGL ES 3.1, GL_MAX_FRAGMENT_IMAGE_UNIFORMS and GL_MAX_VERTEX_IMAGE_UNIFORMS can be
-zero but `maxStorageTexturesPerShaderStage` is 4 above as all 3.1 devices support at
-least 4 of each.
-
-Similar limits include GL_MAX_TEXTURE_SIZE (2048) and GL_MAX_3D_TEXTURE_SIZE (256) but actual
-devices support the values above.
+- `MAX_COMPUTE_SHADER_STORAGE_BLOCKS` can be 4, but all devices support at least 8.
+  `maxStorageBuffersPerShaderStage` is not lowered.
+- `MAX_TEXTURE_SIZE` can be 2048, but all ES3.1+ devices support at least 4096.
+  `maxTextureDimension1D` and `maxTextureDimension2D` are lowered accordingly.
+- `MAX_3D_TEXTURE_SIZE` can be 256, but all ES3.1+ devices support at least 2048.
+  `maxTextureDimension3D` is not lowered.
 
 ### 11. Disallow `linear` and `sample` interpolation options.
 
@@ -270,7 +268,7 @@ In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout cr
 
 In addition to the new limits, the existing `maxStorageBuffersPerShaderStage` and `maxStorageTexturesPerShaderStage` limits continue to apply to all stages. E.g., the effective storage buffer limit in the fragment stage is `min(maxStorageBuffersPerShaderStage, maxStorageBuffersInFragmentStage)`.
 
-In Compatibility mode, these new limits will have a default of zero. In Core mode, `maxStorageBuffersInFragmentStage` will default to the same value as `maxStorageBuffersPerShaderStage`, and `maxStorageTexturesInFragmentStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
+In Compatibility mode, these new limits will have a default of four. In Core mode, `maxStorageBuffersInFragmentStage` will default to the same value as `maxStorageBuffersPerShaderStage`, and `maxStorageTexturesInFragmentStage` will default to the same value as `maxStorageTexturesPerShaderStage`.
 
 In both Compatibility Mode and Core, at device creation time, if the requested limit for `maxStorageBuffersInFragmentStage` exceeds the effective requested limit for `maxStorageBuffersPerShaderStage`, then the requested limit for `maxStorageBuffersPerShaderStage` will be raised to the
 value requested for `maxStorageBuffersInFragmentStage`. If the requested limit for `maxStorageTexturesInFragmentStage` exceeds the effective limit for `maxStorageTexturePerShaderStage`, then the requested limit for `maxStorageTexturesPerShaderStage` will be raised to the
@@ -278,7 +276,8 @@ value requested for `macStorageTexturesInFragmentStage`.
 
 In Core mode, at device creation time, and after application of the previous rule, `maxStorageBuffersInFragmentStage` is set to the effective limit for `maxStorageBuffersPerShaderStage` and, `maxStorageTexturesInFragmentStage` is set to the effective limit for `maxStorageTexturesPerShaderStage`.
 
-**Justification**: OpenGL ES 3.1 allows `MAX_FRAGMENT_SHADER_STORAGE_BLOCKS` and `MAX_FRAGMENT_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
+**Justification**: Although OpenGL ES 3.1 allows `MAX_FRAGMENT_SHADER_STORAGE_BLOCKS` and `MAX_FRAGMENT_IMAGE_UNIFORMS` to be zero the
+population of devices with less than 4 of each limit is around 5% and falling. The remaining devices support 4 or more of each.
 
 ## 20. Disallow using a depth texture with a non-comparison sampler
 

@@ -80,7 +80,7 @@ One new limits:
 
 | Limit name | Description | Type | Limit class | Default |
 | --- | --- | --- | --- | --- |
-| immediateDataRangeMaxByteSize | The maximum bytes allowed value for the immediateDataRangeMaxSize | [GPUSize32](https://www.w3.org/TR/webgpu/#typedefdef-gpusize32) | [maximum](https://www.w3.org/TR/webgpu/#limit-class-maximum) | 64 |
+| maxImmediateSize | The maximum bytes allowed value for the immediateSize | [GPUSize32](https://www.w3.org/TR/webgpu/#typedefdef-gpusize32) | [maximum](https://www.w3.org/TR/webgpu/#limit-class-maximum) | 64 |
 
 NOTE: 64 bytes is the sizeof(mat4x4).
 
@@ -91,12 +91,12 @@ One new member in `GPUPipelineLayoutDescriptor`.
 dictionary GPUPipelineLayoutDescriptor
          : GPUObjectDescriptorBase {
     required sequence<GPUBindGroupLayout> bindGroupLayouts;
-    uint32_t immediateDataRangeByteSize = 0;
+    uint32_t immediateSize = 0;
 };
 ```
-`immediateDataRangeByteSize`: Size of immediate data range used in pipeline, type is bytes.
+`immediateSize`: Size of immediate data range used in pipeline, type is bytes.
 
-NOTE: `immediateDataRangeByteSize` = sizeof(variables) + sizeof(paddings). Follow [ Aligment rules ](https://www.w3.org/TR/WGSL/#alignment-and-size) in wgsl spec.
+NOTE: `immediateSize` = sizeof(variables) + sizeof(paddings). Follow [ Aligment rules ](https://www.w3.org/TR/WGSL/#alignment-and-size) in wgsl spec.
 
 NOTE: two pipeline layouts are defined to be “compatible for immediate data” if they were created with identical immediate data byte size. It means immediate data values can share between pipeline layouts that are compatible for immediate data.
 
