@@ -56,6 +56,7 @@ RUN \
   cd /wgsl && \
   make grammar/grammar.js SHELL=/bin/bash && \
   cd /wgsl/grammar && \
+  tree-sitter init --update && \
   tree-sitter generate && \
   python3 -m pip install -e . --break-system-packages
 

@@ -1162,6 +1162,11 @@ def flow_build(options):
     os.makedirs(os.path.join(options.grammar_dir, "src"), exist_ok=True)
     scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.c")
 
+    # If binding.c does not exist, run npx tree-sitter-cli init --update
+    if not os.path.exists(os.path.join(options.grammar_dir, "bindings", "python", "tree_sitter_wgsl", "binding.c")):
+        cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "init", "--update"]
+        print("{}:     {}".format(options.script, " ".join(cmd)))
+        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
     cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
     print("{}:     {}".format(options.script, " ".join(cmd)))
