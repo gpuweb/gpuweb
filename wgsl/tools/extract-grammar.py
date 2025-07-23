@@ -1167,18 +1167,6 @@ def flow_build(options):
     print("{}:     {}".format(options.script, " ".join(cmd)))
     subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
-    # Use "npm install" to create the tree-sitter CLI that has WGSL
-    # support.  But "npm install" fetches data over the network.
-    # That can be flaky, so only invoke it when needed.
-    if os.path.exists("grammar/node_modules/tree-sitter-cli"):
-        # "npm install" has been run already.
-        print("{}:    skipping npm install: grammar/node_modules/tree-sitter-cli already exists".format(options.script))
-        pass
-    else:
-        cmd = ["npm", "install"]
-        print("{}:    {}".format(options.script, " ".join(cmd)))
-        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
-
     # Following are commented for future reference to expose playground
     # Remove "--docker" if local environment matches with the container
     # subprocess.run(["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "build-wasm", "--docker"],

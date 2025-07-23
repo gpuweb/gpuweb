@@ -57,7 +57,6 @@ RUN \
   make grammar/grammar.js SHELL=/bin/bash && \
   cd /wgsl/grammar && \
   tree-sitter generate && \
-  npm install && \
   python3 -m pip install -e . --break-system-packages
 
 ENTRYPOINT [ "/entrypoint.sh" ]
