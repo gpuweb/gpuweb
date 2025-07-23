@@ -24,7 +24,8 @@ RUN \
     python3-full \
     python3-pip \
     python3-setuptools \
-    rsync && \
+    rsync \
+    util-linux && \
   chsh -s /bin/bash
 
 SHELL ["/bin/bash", "-c"]
@@ -54,9 +55,9 @@ COPY wgsl /wgsl
 RUN \
   source /dependency-versions.sh && \
   cd /wgsl && \
-  make grammar/grammar.js SHELL=/bin/bash && \
+  script -q -c "make grammar/grammar.js SHELL=/bin/bash" /dev/null && \
   cd /wgsl/grammar && \
-  tree-sitter init --update && \
+  script -q -c "tree-sitter init --update" /dev/null && \
   tree-sitter generate && \
   python3 -m pip install -e . --break-system-packages
 
