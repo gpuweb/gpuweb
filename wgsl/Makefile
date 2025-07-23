@@ -33,7 +33,13 @@ TREESITTER_PARSER_STAMP := grammar/build.stamp
 
 # Extract WGSL grammar from the spec
 $(TREESITTER_GRAMMAR_INPUT): index.bs ./grammar/src/scanner.c ./tools/extract-grammar.py
-	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./grammar/src/scanner.c --tree-sitter-dir grammar --flow x
+	bash -c ' \
+	  if [ -f ../tools/custom-action/dependency-versions.sh ]; then \
+	    source ../tools/custom-action/dependency-versions.sh; \
+	  else \
+	    source /dependency-versions.sh; \
+	  fi && \
+	  python3 ./tools/extract-grammar.py --flow x'
 
 # Build a Treesitter parser to validate grammar extract and later examples in spec
 $(TREESITTER_PARSER_STAMP): $(TREESITTER_GRAMMAR_INPUT)
@@ -145,4 +151,3 @@ lalr_star: $(ANALYZER) analyze/test/star.json
 .PHONY: lalr_442
 lalr_442: $(ANALYZER) analyze/test/ex442.json
 	python3 $(ANALYZE_SCRIPT) -lalr analyze/test/ex442.json
-

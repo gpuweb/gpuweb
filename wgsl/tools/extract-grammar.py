@@ -13,8 +13,6 @@ import sys
 import string
 import shutil
 
-from distutils.ccompiler import new_compiler
-from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
 
 # TODO: Source from spec
@@ -1131,13 +1129,28 @@ def flow_extract(options, scan_result):
 
 def flow_build(options):
     """
-    Build the shared library for the custom tree-sitter scanner.
+    Build and install the tree_sitter_wgsl Python module, including the custom scanner
     """
 
-    print("{}: Build...".format(options.script))
+    print("{}: Build tree_sitter_wgsl...".format(options.script))
     if not os.path.exists(options.grammar_filename):
         print("missing grammar file: {}")
         return False
+
+    # Only rebuild if the grammar has changed.
+    grammar_is_fresh = True
+    with open(options.grammar_filename,"r") as current_file:
+        current_lines = current_file.readlines()
+    previously_scanned_grammar_file = options.grammar_filename + ".pre"
+    if os.path.exists(previously_scanned_grammar_file):
+        # Check against previously scanned text
+        with open(previously_scanned_grammar_file,"r") as previous_file:
+            previous_lines = previous_file.readlines()
+            grammar_is_fresh = current_lines != previous_lines
+
+    if not grammar_is_fresh:
+        print("{}: ...Skip rebuilding because the grammar has not changed".format(options.script))
+        return True
 
     # The 'build.stamp' file is touched when the parser is successfully installed.
     stampfile = os.path.join(options.grammar_dir, 'build.stamp')
@@ -1151,7 +1164,7 @@ def flow_build(options):
 
 
     cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
-    print("{}: {}".format(options.script, " ".join(cmd)))
+    print("{}:     {}".format(options.script, " ".join(cmd)))
     subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
     # Use "npm install" to create the tree-sitter CLI that has WGSL
@@ -1159,11 +1172,11 @@ def flow_build(options):
     # That can be flaky, so only invoke it when needed.
     if os.path.exists("grammar/node_modules/tree-sitter-cli"):
         # "npm install" has been run already.
-        print("{}: skipping npm install: grammar/node_modules/tree-sitter-cli already exists".format(options.script))
+        print("{}:    skipping npm install: grammar/node_modules/tree-sitter-cli already exists".format(options.script))
         pass
     else:
         cmd = ["npm", "install"]
-        print("{}: {}".format(options.script, " ".join(cmd)))
+        print("{}:    {}".format(options.script, " ".join(cmd)))
         subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
     # Following are commented for future reference to expose playground
@@ -1180,7 +1193,7 @@ def flow_build(options):
                 cmd = ["python3", "-m", "pip", "install", "-e", "."]
             else:
                 cmd = ["python3", "-m", "pip", "install", "-e", ".", "--user", "--break-system-packages"]
-            print("{}: {}".format(options.script, " ".join(cmd)))
+            print("{}:    {}".format(options.script, " ".join(cmd)))
             subprocess.run(
                 cmd,
                 check=True,
@@ -1190,11 +1203,16 @@ def flow_build(options):
                 cwd=options.grammar_dir
             )
 
+            # Save the grammar contents for comparing against next time.
+            with open(previously_scanned_grammar_file,"w") as previous_file:
+                for line in current_lines:
+                    previous_file.write(line)
+                previous_file.close()
             with open(stampfile, 'w') as f:
                 print("created file:  {}".format(stampfile))
-            print("Tree-sitter language package installed successfully.")
+            print("{}: ...Successfully built and installed tree_sitter_wgsl.".format(options.script))
         except subprocess.CalledProcessError as e:
-            print(f"Error installing tree-sitter language package: {e}")
+            print(f"Error installing tree_sitter_wgsl language package: {e}")
             print(f"stdout: {e.stdout}")
             print(f"stderr: {e.stderr}")
             return False

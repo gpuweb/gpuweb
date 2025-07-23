@@ -2,9 +2,11 @@
 
 Status: **Draft**
 
-Last modified: 2023-11-07
+Last modified: 2025-04-24
 
-Issue: #4306
+Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
+
+Spec PR: [#4963](https://github.com/gpuweb/gpuweb/pulls/4963)
 
 # Requirements
 
@@ -42,7 +44,7 @@ Add two new enable extensions.
 | Enable | Description |
 | --- | --- |
 | **subgroups** | Adds built-in values and functions for subgroups |
-| **subgroups_f16** | Allows f16 to be used in subgroups operations |
+| ~subgroups_f16~ | Allows f16 to be used in subgroups operations |
 
 Note: Metal can always provide subgroups_f16, Vulkan requires
 VK_KHR_shader_subgroup_extended_types
@@ -53,6 +55,7 @@ of devices), and D3D12 requires SM6.2.
 According to this [analysis](https://github.com/teoxoy/gpuinfo-vulkan-query/blob/8681e0074ece1b251177865203d18b018e05d67a/subgroups.txt#L1071-L1466)
 Only 4% of devices that support both f16 and subgroups could not support
 subgroup extended types.
+**RESOLVED** at F2F: remove subgroups_f16
 
 **TODO**: Should this feature be broken down further?
 According to [gpuinfo.org](https://vulkan.gpuinfo.org/displaycoreproperty.php?core=1.1&name=subgroupSupportedOperations&platform=all),
@@ -95,8 +98,8 @@ Using f16 as a parameter in any of these functions requires `subgroups_f16` to b
 | `fn subgroupBallot(pred : bool) -> vec4<u32>` | | Returns a set of bitfields where the bit corresponding to subgroup_invocation_id is 1 if `pred` is true for that active invocation and 0 otherwise. |
 | `fn subgroupShuffle(v : T, id : I) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types<br>`I` must be u32 or i32 | Returns `v` from the active invocation whose subgroup_invocation_id matches `id` |
 | `fn subgroupShuffleXor(v : T, mask : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id ^ mask`.<br>`mask` must be dynamically uniform<sup>1</sup> |
-| `fn subgroupShuffleUp(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id - delta` |
-| `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta` |
+| `fn subgroupShuffleUp(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id - delta`<br>`delta` must be dynamically uniform<sup>1</sup> |
+| `fn subgroupShuffleDown(v : T, delta : u32) -> T` | `T` must be u32, i32, f32, f16 or a vector of those types | Returns `v` from the active invocation whose subgroup_invocation_id matches `subgroup_invocation_id + delta`<br>`delta` must be dynamically uniform<sup>1</sup> |
 | `fn subgroupAdd(e : T) -> T` | `T` must be u32, i32, f32, or a vector of those types | Reduction<br>Adds `e` among all active invocations and returns that result |
 | `fn subgroupExclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Exclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than this invocation |
 | `fn subgroupInclusiveAdd(e : T) -> T)` | `T` must be u32, i32, f32, f16 or a vector of those types | Inclusive scan<br>Returns the sum of `e` for all active invocations with subgroup_invocation_id less than or equal to this invocation |
@@ -157,11 +160,17 @@ Add new diagnostic controls:
 | Filterable Triggering Rule | Default Severity | Triggering Location | Description |
 | --- | --- | --- | --- |
 | **subgroup_uniformity** | Error | Call site of a subgroup builtin function | A call to a subgroup builtin that the uniformity analysis cannot prove occurs in uniform control flow (or with uniform parameter values in some cases) |
-| **subgroup_branching** | Error | Call site of a subgroup builtin function | A call to a subgroup builtin that uniformity analysis cannot prove is preceeded only by uniform branches |
+| ~subgroup_branching~ | Error | Call site of a subgroup builtin function | A call to a subgroup builtin that uniformity analysis cannot prove is preceeded only by uniform branches |
 
 **TODO**: Are these defaults appropriate?
 They attempt to default to the most portable behavior, but that means it would
 be an error to have a subgroup operation preceeded by divergent control flow.
+
+Issue: after internal testing, we found subgroup_branching to be very onerous.
+Disabling subgroup_uniformity on a builtin would require also disabling subgroup_branching in
+almost all cases.
+Additionally, simple, extremely common patterns would be rejected by the diagnostic
+(e.g. initializing a workgroup variable with a subset of invocations).
 
 # API
 
@@ -171,7 +180,7 @@ New GPU features:
 | Feature | Description |
 | --- | --- |
 | **subgroups** | Allows the WGSL feature and adds new limits |
-| **subgroups-f16** | Allows WGSL feature. Requires **subgroups** and **shader-f16** |
+| ~subgroups-f16~ | Allows WGSL feature. Requires **subgroups** and **shader-f16** |
 
 **TODO**: Can we expose a feature to require a specific subgroup size?
 No facility exists in Metal so it would have to be a separate feature.
@@ -180,9 +189,9 @@ In Vulkan, pipelines can specify a required size between min and max using
 subgroup size control.
 This is a requested feature (see #3950).
 
-## Limits
+## Adapter Info
 
-Two new limits:
+Two new entries in GPUAdapterInfo:
 | Limit | Description | Vulkan | Metal | D3D12
 | --- | --- | --- | --- | --- |
 | subgroupMinSize | Minimum subgroup size | minSubgroupSize from VkPhysicalDeviceSubgroupSizeProperties[EXT] | 4 | WaveLaneCountMin from D3D12_FEATURE_DATA_D3D12_OPTIONS1 |
@@ -196,6 +205,9 @@ built-in value is less than `subgroupMinSize` or greater than
 sizes before pipeline compilation.
 
 **TODO**: More testing is required to verify the reliability of D3D12 WaveLaneCountMin.
+**Note**: Some D3D12 devices are known possible to run fragment shader with
+`WaveLaneCount` less than `WaveLaneCountMin`, e.g. `WaveLaneCount == 8` for some fragments
+while `WaveLaneCountMin == 16`. `subgroupMinSize` should be corrected for these devices.
 
 **TODO**: We could consider adding a limit for which stages support subgroup
 operations for future expansion, but it is not necessary now.
@@ -252,3 +264,50 @@ D3D12 would have to be proven empricially.
 
 1. All group non-uniform instructions use the `Subgroup` scope.
 2. To avoid constant-expression requirement, use SPIR-V 1.5 or OpGroupNonUniformShuffle.
+
+# Appendix C: CTS Status
+
+Last updated: 2024-12-18
+
+| Built-in value | Validation | Compute | Fragment |
+| --- | --- | --- | --- |
+| `subgroup_invocation_id` | &check; | &check; | &check; |
+| `subgroup_size` | &check; | &check; | &check; |
+
+| Built-in function | Validation | Compute | Fragment |
+| --- | --- | --- | --- |
+| `subgroupElect` | &check; | &check; | &check; |
+| `subgroupAll` | &check; | &check; | &check; |
+| `subgroupAny` | &check; | &check; | &check; |
+| `subgroupBroadcast` | &check; | &check; | &check; |
+| `subgroupBroadcastFirst` | &check; | &check; | &check; |
+| `subgroupBallot` | &check; | &check; | &check; |
+| `subgroupShuffle` | &check; | &check; | &check; |
+| `subgroupShuffleXor` | &check; | &check; | &check; |
+| `subgroupShuffleUp` | &check; | &check; | &check; |
+| `subgroupShuffleDown` | &check; | &check; | &check; |
+| `subgroupAdd` | &check; | &check; | &check; |
+| `subgroupExclusiveAdd` | &check; | &check; | &check; |
+| `subgroupInclusiveAdd` | &check; | &check; | &check; |
+| `subgroupMul` | &check; | &check; | &check; |
+| `subgroupExclusiveMul` | &check; | &check; | &check; |
+| `subgroupInclusiveMul` | &check; | &check; | &check; |
+| `subgroupAnd` | &check; | &check; | &check; |
+| `subgroupOr` | &check; | &check; | &check; |
+| `subgroupXor` | &check; | &check; | &check; |
+| `subgroupMin` | &check; | &check; | &check; |
+| `subgroupMax` | &check; | &check; | &check; |
+| `quadBroadcast` | &check; | &check; | &check; |
+| `quadSwapX` | &check; | &check; | &check; |
+| `quadSwapY` | &check; | &check; | &check; |
+| `quadSwapDiagonal` | &check; | &check; | &check; |
+
+| Diagnostic | Validation |
+| --- | --- |
+| `subgroup_uniformity` | &check; |
+
+| Uniformity analysis | Validation |
+| --- | --- |
+| `subgroup_size` uniform in compute | &check; |
+| Built-in functions require uniformity | &check; |
+| Shuffle delta/mask params require uniformity | &check; |

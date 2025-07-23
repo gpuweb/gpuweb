@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-# 
+#
 # Copyright 2022 Google LLC
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
 # are met:
-# 
+#
 # 1. Redistributions of works must retain the original copyright
 # notice, this list of conditions and the following disclaimer.
-# 
+#
 # 2. Redistributions in binary form must reproduce the original
 # copyright notice, this list of conditions and the following disclaimer
 # in the documentation and/or other materials provided with the
 # distribution.
-# 
+#
 # 3. Neither the name of the W3C nor the names of its contributors
 # may be used to endorse or promote products derived from this work
 # without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
@@ -1144,12 +1144,6 @@ class ItemSet_Less(unittest.TestCase):
         result = result.close(self.g) if closed else result
         return result
 
-    def test_Less(self):
-        i0 = self.is_C_0()
-        i1 = self.is_C_1()
-        self.assertLess(i0,i1)
-        self.assertGreater(i1,i0)
-
     def test_Equal(self):
         i0 = self.is_C_0()
         i1 = self.is_C_1()
@@ -1158,14 +1152,14 @@ class ItemSet_Less(unittest.TestCase):
         self.assertFalse(i0==i1)
         self.assertFalse(i1==i0)
 
-    def test_Less(self):
+    def test_Ordering(self):
         i0 = self.is_C_0()
         i1 = self.is_C_1()
         # The "dot" character is higher than '
         self.assertLess(i1,i0)
         self.assertGreater(i0,i1)
 
-    def test_Less_Lookahead(self):
+    def test_Ordering_Lookahead(self):
         i0c = self.is_C_0(la=Grammar.LookaheadSet({self.c}))
         i0d = self.is_C_0(la=Grammar.LookaheadSet({self.d}))
         self.assertLess(i0c,i0d)
@@ -1179,7 +1173,7 @@ class ItemSet_Less(unittest.TestCase):
         self.assertFalse(i0c==i0d)
         self.assertFalse(i0d==i0c)
 
-    def test_Less_Lookahead_Unclosed(self):
+    def test_Ordering_Lookahead_Unclosed(self):
         i0c = self.is_C_0(closed=False,la=Grammar.LookaheadSet({self.c}))
         i0d = self.is_C_0(closed=False,la=Grammar.LookaheadSet({self.d}))
         self.assertLess(i0c,i0d)
@@ -1193,7 +1187,7 @@ class ItemSet_Less(unittest.TestCase):
         self.assertFalse(i0c==i0d)
         self.assertFalse(i0d==i0c)
 
-    def test_Less_Lookahead_ClosedFT(self):
+    def test_Ordering_Lookahead_ClosedFT(self):
         i0c = self.is_C_0(closed=False,la=Grammar.LookaheadSet({self.c}))
         i0d = self.is_C_0(closed=True,la=Grammar.LookaheadSet({self.d}))
         self.assertLess(i0c,i0d)
@@ -1207,7 +1201,7 @@ class ItemSet_Less(unittest.TestCase):
         self.assertFalse(i0c==i0d)
         self.assertFalse(i0d==i0c)
 
-    def test_Less_Lookahead_ClosedTF(self):
+    def test_Ordering_Lookahead_ClosedTF(self):
         i0c = self.is_C_0(closed=True,la=Grammar.LookaheadSet({self.c}))
         i0d = self.is_C_0(closed=False,la=Grammar.LookaheadSet({self.d}))
         # We only compare on content, never by the index. So closure
