@@ -5,6 +5,8 @@ set -euo pipefail
 
 mkdir -p out/{wgsl,wgsl/grammar,explainer,correspondence}
 
+cp LICENSE.md out/
+
 cp -r spec/{index.html,webgpu.idl,img} out/
 cp spec/webgpu.idl out/webgpu.idl.txt
 

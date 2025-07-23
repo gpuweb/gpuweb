@@ -37,15 +37,6 @@ You are not required to be a member of the Community Group or Working Group in o
 [file issues](https://github.com/gpuweb/gpuweb/issues), errors, fixes or make suggestions.
 Anyone with a GitHub account can do so.
 
-In order to assure that WebGPU specifications can be implemented on a Royalty-Free
-(RF) basis, all significant contributions need to be made with RF commitments.
-Members of the Working Group, and members of the Community Group who have signed the
-[Final Specification Agreement](https://www.w3.org/community/about/process/fsa-deed/)
-have already committed to the terms of the
-[W3C Patent Policy](https://www.w3.org/Consortium/Patent-Policy-20200915/).
-Non-members will be requested to provide an RF commitment under terms similar to
-the W3C Patent Policy.
-
 All contributions must comply with the group's
 [contribution guidelines](https://github.com/gpuweb/admin/blob/master/CONTRIBUTING.md).
 
