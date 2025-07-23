@@ -1496,6 +1496,7 @@ The [=language extension=] names are:
 * <a for=language_extension lt=subgroup_uniformity>`'subgroup_uniformity'`</a>
 * <a for=language_extension lt=texture_and_sampler_let>`'texture_and_sampler_let'`</a>
 * <a for=language_extension lt=texture_formats_tier1>`'texture_formats_tier1'`</a>
+* <a for=language_extension lt=swizzle_assignment>`'swizzle_assignment'`</a>
 
 ### Interpolation Type Names ### {#interpolation-type-names}
 
@@ -1992,6 +1993,19 @@ Extension names are not [=identifiers=]: they do not [=resolves|resolve=] to [=d
       [=texel format/r16sint=], [=texel format/r16float=], [=texel format/rgb10a2unorm=],
       [=texel format/rgb10a2uint=], [=texel format/rg11b10ufloat=]
 
+  <tr><td><dfn for="language_extension">swizzle_assignment</dfn>
+      <td>
+      Supports [=swizzle view=] types.
+
+      This enables [=swizzle assignments=]:
+      a single assignment statement can update multiple components of a vector without
+      having to update the entire vector.
+
+      For example, if variable `v` is a 4-element vector, then `v.xz = vec2(1,2);` is
+      a shorthand way of writing `v.x = 1; v.z = 2;`, while performing one read and one write.
+
+      This also works on pointers.  If `p` is a pointer to a vector of at least 3 elements, then
+      `p.xz = vec2(1,2);` is shorthand for `p.x = 1; p.xy;`.
 </table>
 
 Note: The intent is that, over time, WGSL will define language extensions embodying all functionality in language extensions commonly supported at that time.
@@ -2540,6 +2554,12 @@ Note: When no conversion is performed, the conversion rank is zero.
       <td>__modf_result_vecN_f16
       <td>2
       <td>
+  <tr algorithm="conversion rank for swizzle view to vector">
+      <td>swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;<br>
+      where |AM| is [=access/read=] or [=access/read_write=].
+      <td>vec|K|&lt;|S|&gt;
+      <td>0
+      <td>Apply the [=Swizzle View Load Rule=] to load a vector value from a [=swizzle view=].
   <tr algorithm="conversion rank for non-convertible cases">
       <td><var ignore>S</var>
       <td><var ignore>T</var><br>where above cases don't apply
@@ -3616,6 +3636,209 @@ and vice versa,
 where |p| and |r| describe the same memory view.
 </blockquote>
 
+### Swizzle View Types ### {#swizzle-view-types}
+
+[=Swizzle views=] can be used to access a subset of the components of a vector in memory,
+permuting them when reading, and scattering them when writing.
+
+Swizzle views are enabled by the [=language_extension/swizzle_assignment=] language extension.
+
+<div algorithm="swizzle view">
+A <dfn noexport>swizzle view</dfn> is a pair (|p|,|IndexSeq|) where:
+* |p| is a pointer to a vector of type vec|N|&lt;|S|&gt;
+* |IndexSeq| = |Idx|<sub>0</sub>...|Idx|<sub>|K|&minus;1</sub>, a sequence of indices where:
+    * Each |Idx|<sub>|i|</sub> is in [0,|N|&minus;1].
+    * vec|K|&lt;|S|&gt; is a valid [=vector=] type. That is, |K| is in {2,3,4}.
+
+<blockquote algorithm="reading a swizzle view">
+
+**Algorithm:** <dfn lt="swizzle view read">SwizzleViewRead</dfn>
+
+Yield a vector formed by selecting and optionally permuting the components of a vector read via pointer |p|.
+
+Note: Reading via a swizzle view reads the entire vector from memory, even if some
+vector components do not appear in the result.
+
+**Input**: [=Swizzle view=] (|p|, |IndexSeq|)
+
+**Output**: Vector value |v|, the result of reading (|p|, |IndexSeq|).
+
+**Procedure:**
+
+1. Read vector |u| from memory referenced by |p|.  |u| has type type vec|N|&lt;|S|&gt;.
+
+2. Form value |v| of type vec<var ignore>K</var>&lt;|S|&gt; where:
+    * Component |i| of |v| equals the value of
+        component |Idx|<sub>|i|</sub> of |u|.
+        Using [[#vector-single-component|indexing syntax]]:
+        |v|[|i|] &equals; |u|[|Idx|<sub>|i|</sub>]
+
+</blockquote>
+
+<blockquote algorithm="writing via a swizzle view">
+
+**Algorithm:** <dfn lt="swizzle view write">SwizzleViewWrite</dfn>(|p|, |IndexSeq|, |old_contents|, |update|)
+
+Write components of an |update| vector into specified components the vector in memory referenced by pointer |p|.
+
+Note: Writing via a swizzle view writes the entire vector in memory,
+even if component values are unchanged by the process.
+
+**Input**:
+* [=Swizzle view=] (|p|, |IndexSeq|) of type swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;
+* Vector |old_contents| of type vec|N|&lt;|S|&gt;
+    * |old_contents| is intended to be the vector stored in the memory referenced by |p| at some point in the past.
+* Vector |update| of type vec|K|&lt;|S|&gt;
+
+Assumption: All indices in |IndexSeq| are distinct from each other. This assumption implies |K| &le; |N|.
+
+**Variables:**
+
+* |new| of type vec|N|&lt;|S|&gt;
+
+**Procedure:**
+
+1. By convention |IndexSeq| = |Idx|<sub>0</sub>...|Idx|<sub>|K|&minus;1</sub>
+
+3. Initialize variable |new| to |old_contents|.
+
+4. For each |i| in 0..|K|-1:
+    * Set component |Idx|<sub>|i|</sub> of |new| to the value of component |i| of |update|.
+        Using [[#vector-single-component|indexing syntax]]:
+        |new|[|Idx|<sub>|i|</sub>] = |update|[|i|].
+
+4. Write |new| to the memory referenced by |p|.
+
+
+Note: Requiring |Idx|<sub>i</sub> to all be distinct
+guarantees that Step 3 updates each component of |new| at most once.
+
+<div class=note>
+<span class=marker>Note:</span> Steps 2 and 3 can be replaced with the following declarative rule:
+
+Form |new|, a vector of type vec|N|&lt;|S|&gt;, where component |i| of |new| is:
+    * Component |j| of |update|, if |i| &equals; |Idx|<sub>j</sub> for some |j| in 0...|K|&minus;1.
+    * Component |i| of |old_contents|, otherwise.
+</div>
+</blockquote>
+
+Swizzle views have swizzle view types:
+
+<table class='data'>
+  <thead>
+    <tr><th>Constraint<th>Type<th>Description
+  </thead>
+  <tr algorithm="swizzle view type">
+    <td style="width:25%">
+        |S| is a [=type/concrete=] [=scalar=] type,<br>
+        |N| and |K| are integers
+        such that both vec|N|&lt;|S|&gt;
+        and vec|K|&lt;|S|&gt; are valid [=vector=] types.<br>
+        ptr&lt;|AS|,vec|N|&lt;|S|&gt;,|AM|&gt; is a valid pointer type.<br>
+        If |AM| is [=access/write=] or [=access/read_write=], then additionally |K| &le; |N|.
+    <td>swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;
+    <td>The <dfn noexport>swizzle view type</dfn>
+        identified with the set of [=swizzle views=] (|p|, |IndexSeq|) where:
+        * |p| is of type ptr&lt;|AS|,vec|N|&lt;|S|&gt;,|AM|&gt;
+        * |IndexSeq| &equals; |Idx|<sub>0</sub>...|Idx|<sub>|K|&minus;1</sub>
+        * (|p|,|IndexSeq|) supports a [=swizzle view read=] operation,
+            yielding a vector of type vec|K|&lt;|S|&gt;,
+            if |AM| is [=access/read=] or [=access/read_write=].
+        * (|p|,|IndexSeq|) supports a [=swizzle view write=] operation
+            that writes a vector of type vec|K|&lt;|S|&gt;,
+            if |AM| is [=access/read_write=] or [=access/write=].
+
+        Swizzle view types are not written in WGSL source;
+        instead they are used to analyze a WGSL module.
+
+</table>
+
+A [=swizzle view=] is formed by:
+* Applying a [=swizzle=] name to a reference or pointer value whose store type is a vector, or
+* Applying a [=swizzle=] name to a swizzle view.
+
+By these rules, the |IndexSeq| part of a swizzle view is fully determined at
+[=shader module creation|shader creation=] time.
+
+See [[#swizzle-view-expr]] for details.
+
+<div class='example wgsl' heading='Reading and writing via swizzle views'>
+<span id="example-swizzle-reads-writes"></span>
+  <xmp highlight=wgsl>
+    fn swizzle_read_and_write() {
+      var v: vec4u;
+
+      // Same as:  v.y = 1; v.z = 2;
+      // However, the vector is read from memory and written to memory exactly once.
+      v.yz = vec2u(1,2);
+
+      // Same as: let u = vec3(v.a, v.g, v.b);
+      // Expression v.agb is a swizzle view of type swizzle<function,u32,read_write,4,3>.
+      // The effective-value-type of a let declaration must be concrete constructible
+      // or a pointer type.  So the swizzle view is automatically converted to vec3u
+      // by invoking the Swizzle View Load Rule.
+      let u = v.agb;
+
+      // Swizzles can be chained.
+      // Same as: v.zy = vec2(99,100);
+      v.yz.yx = vec2(99,100);
+
+      // Swizzles convert to a reference to a scalar component.
+      // Same as: v.z = 99;
+      v.yz.y = 99;
+    }
+
+    fn swizzle_read_and_write_via_pointer(p: ptr<function,vec4u>) {
+      // Same as:  p.y = 1; p.z = 2;
+      p.yz = vec2u(1,2);
+
+      // Same as: let u = vec3(p.a, p.g, p.b);
+      let u = p.agb;
+
+      // Swizzles can be chained.
+      // Same as: p.zy = vec2(99,100);
+      p.yz.yx = vec2(99,100);
+
+      // Swizzles convert to a pointer to a scalar component.
+      // Same as: p.z = 99;
+      p.yz.y = 99;
+    }
+  </xmp>
+</div>
+
+<div class='example wgsl errors' heading='Invalid swizzle views'>
+<span id="example-invalid-swizzle-views"></span>
+  <xmp highlight=wgsl>
+    fn invalid_swizzle_cases() {
+      var v: vec2u;
+
+      // Invalid: Must not repeat the target component
+      v.xx = vec2u(1,2);
+
+      // Invalid: 'z' is out of bounds for the target vector.
+      v.xz = vec2u(1,2);
+      let u = v.xz;
+
+      // Invalid: Must not mix letter schemes xyzw vs. rgba
+      v.xr = vec2u(1,2);
+
+      // It is not possible to take the address of a swizzle view.
+      // Here, v.xy is a swizzle view (&v,`01`)
+      // The & operator does not apply to swizzle views, so type checking fails.
+      let p = &v.xy;
+
+      // Indexing a swizzle view does not yield a swizzle view.
+      // Here v.xy is a swizzle value. There is no array-indexing expression on
+      // swizzle views, so the Swizzle Load Rule applies, yielding v.xy as a value
+      // of type vec2u. Then the indexed expression v.xy[0] results in a scalar value
+      // of type u32.  That cannot be the left hand side of an assignment, so
+      // type checking fails.
+      v.xy[0] = 1; // Fails type checking.
+    }
+  </xmp>
+</div>
+
+
 ### Valid and Invalid Memory References ### {#valid-invalid-memory-references}
 
 A [=reference type|reference=] value is either [=valid reference|valid=] or [=invalid memory reference|invalid=].
@@ -3637,6 +3860,9 @@ Generally, an <dfn noexport>invalid memory reference</dfn> is formed by:
 A <dfn noexport>valid pointer</dfn> is a pointer that corresponds to a [=valid reference=].
 An <dfn noexport>invalid pointer</dfn> is a pointer that corresponds to an [=invalid memory reference=].
 
+A <dfn noexport>valid swizzle view</dfn> is a [=swizzle view=] whose pointer value is [=valid pointer|valid=].
+An <dfn noexport>invalid swizzle view</dfn> is a [=swizzle view=] whose pointer value is [=invalid pointer|invalid=].
+
 ### Originating Variable ### {#originating-variable-section}
 
 <div algorithm="defining orginating variable">
@@ -3649,12 +3875,17 @@ The <dfn noexport>originating variable</dfn> for a reference value |R| is define
 
 The [=originating variable=] of a pointer value is defined as the originating variable of the corresponding reference value.
 
+The [=originating variable=] of a [=swizzle view=] is defined as the originating variable of the swizzle view's
+pointer.
+
 Note: The originating variable is a dynamic concept.
 The originating variable for a formal parameter of a function depends on the
 [=call site|call sites=] for the function.
 Different call sites may supply pointers into different originating variables.
 
 A [=valid reference=] always corresponds to a non-empty memory view for some or all of the memory locations for some variable.
+
+A [=valid swizzle view=] always corresponds to the memory locations of a vector inside some variable.
 
 <div class=note>
 <span class=marker>Note:</span> A reference can correspond to memory locations inside a variable, and still be invalid.
@@ -3686,7 +3917,7 @@ the memory locations for `the_particle.color_index`.
 ### Out-of-Bounds Access ### {#out-of-bounds-access-sec}
 
 An operation that [=memory access|accesses=] an
-[=invalid memory reference=] is an <dfn noexport>out-of-bounds access</dfn>.
+[=invalid memory reference=] or an [=invalid swizzle view=] is an <dfn noexport>out-of-bounds access</dfn>.
 
 An out-of-bounds access is a program defect, because if it *were* performed as written, it would typically:
 * read or write [=memory locations=] outside of a variable, or
@@ -3767,6 +3998,17 @@ References and pointers are distinguished by how they are used:
     * The result of evaluating |r| in that context is the value (of type |T|) stored in the memory locations
         referenced by |r| at the time of evaluation.
         That is, a [=read access=] is performed to produce the result value.
+* Similarly there is a <dfn noexport>Swizzle View Load Rule</dfn>:
+    Inside a function, a [=swizzle view read=] is performed to satisfy type rules:
+    * In a function, when a [=swizzle view=] |sv| is used in a statement or an expression, where:
+    * |sv| is (|p|, |IndexSeq|) and of type swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;, and
+    * Access mode |AM| is [=access/read=] or [=access/read_write=], and
+    * The only potentially matching type rules require |sv| to have a value of type vec|K|&lt;|S|&gt;, then
+    * That type rule requirement is considered to have been met, and
+    * The result of evaluating |sv| in that context is the result
+        of performing a [=swizzle view read=] on |sv| at that time.
+        * The result value has type vec|K|&lt;|S|&gt;.
+        * This operation performs one [=read access=] of the whole vector referenced by |p|.
 
 Defining references in this way enables simple idiomatic use of variables:
 
@@ -5899,15 +6141,16 @@ but a multi-letter swizzle expression always yields a value of [=vector=] type.
 
 Note: In the table above, [=reference types=] are implicitly handled via the [=load rule=].
 
-#### Component Reference from Vector Memory View #### {#component-reference-from-vector-memory-view}
+#### Component Reference from Vector Memory View or Swizzle View #### {#component-reference-from-vector-memory-view}
 
 The expressions in this section form a [=memory view=] of a single component of a [=vector=] from
-the memory view of the whole vector.
+the memory view of the whole vector or from a [=swizzle view=].
 
 The WGSL [=type rules=] imply that such expressions can appear:
 * on the left-hand side of an [=statement/assignment=], to write to that component in memory, or
 * any place where a value of the vector component type can appear.
-    In this case the [=Load Rule=] applies, loading the vector component from memory and yielding that component as the result.
+    In this case the [=Load Rule=] or [=Swizzle View Load Rule=] applies,
+    loading the vector component from memory and yielding that component as the result.
 
 A [=write access=] to component of a vector **may** access all of the [=memory
 location|memory locations=] associated with that vector.
@@ -5974,6 +6217,55 @@ See [[#sync-builtin-functions]].
 
            The [=originating variable=] of the resulting reference is
            the same as the originating variable of |r|.
+</table>
+
+<table class='data'>
+  <caption>Getting a reference to a component from a swizzle view</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="first component reference from swizzle view">
+       <td>
+          |sv| : swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;<br>
+       <td class="nowrap">
+          |sv|.`x`&nbsp;: ref&lt;|AS|,|S|,|AM|&gt;<br>
+          |sv|.`r`&nbsp;: ref&lt;|AS|,|S|,|AM|&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, <var ignore>Idx<sub>0</sub></var>...<var ignore>Idx<sub>|K|&minus;1</sub></var>).
+
+          The result is a reference to component with index <var ignore>Idx<sub>0</sub></var> inside the memory view for
+          pointer |p|.
+  <tr algorithm="second component reference from swizzle view">
+       <td>
+          |sv| : swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;<br>
+       <td class="nowrap">
+          |sv|.`y`&nbsp;: ref&lt;|AS|,|S|,|AM|&gt;<br>
+          |sv|.`g`&nbsp;: ref&lt;|AS|,|S|,|AM|&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, <var ignore>Idx<sub>0</sub></var>...<var ignore>Idx<sub>|K|&minus;1</sub></var>).
+
+          The result is a reference to component with index <var ignore>Idx<sub>1</sub></var> inside the memory view for
+          pointer |p|.
+  <tr algorithm="third component reference from swizzle view">
+       <td>
+          |sv| : swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;<br>
+          where |K| &ge; 3
+       <td class="nowrap">
+          |sv|.`z`&nbsp;: ref&lt;|AS|,|S|,|AM|&gt;<br>
+          |sv|.`b`&nbsp;: ref&lt;|AS|,|S|,|AM|&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, <var ignore>Idx<sub>0</sub></var>...<var ignore>Idx<sub>|K|&minus;1</sub></var>).
+
+          The result is a reference to component with index <var ignore>Idx<sub>2</sub></var> inside the memory view for
+          pointer |p|.
+  <tr algorithm="fourth component reference from swizzle view">
+       <td>
+          |sv| : swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;<br>
+          where |K| &equals; 4
+       <td class="nowrap">
+          |sv|.`w`&nbsp;: ref&lt;|AS|,|S|,|AM|&gt;<br>
+          |sv|.`a`&nbsp;: ref&lt;|AS|,|S|,|AM|&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, <var ignore>Idx<sub>0</sub></var>...<var ignore>Idx<sub>|K|&minus;1</sub></var>).
+
+          The result is a reference to component with index <var ignore>Idx<sub>3</sub></var> inside the memory view for
+          pointer |p|.
 </table>
 
 ### Matrix Access Expression ### {#matrix-access-expr}
@@ -6720,6 +7012,359 @@ The <dfn noexport>indirection</dfn> operator converts a pointer to its correspon
 
 </table>
 
+## Swizzle View Expression ## {#swizzle-view-expr}
+
+A [=swizzle view=] is formed by:
+* Applying a [=swizzle=] name to a reference or pointer value whose store type is a vector, or
+* Applying a [=swizzle=] name to a swizzle view.
+
+By these rules, the index sequence part of a swizzle view is fully determined at
+[=shader module creation|shader-creation=] time.
+
+In this section the <dfn noexport>swizzle index function</dfn> SI is defined as:
+* SI(`x`) &equals; 0
+* SI(`y`) &equals; 1
+* SI(`z`) &equals; 2
+* SI(`w`) &equals; 3
+* SI(`r`) &equals; 0
+* SI(`g`) &equals; 1
+* SI(`b`) &equals; 2
+* SI(`a`) &equals; 3
+
+<table class='data'>
+  <caption>Forming a swizzle view from a reference</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="swizzle view from reference expression dimension size 2">
+       <td>
+          |r|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |r|.|I||J|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,2&gt;
+       <td>Result is the [=swizzle view=] (&|r|, SI(|I|)SI(|J|))<br>
+          If letter `z` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |r| is an [=invalid memory reference=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from reference expression color size 2">
+       <td>
+          |r|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |r|.|I||J|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,2&gt;
+       <td>Result is the [=swizzle view=] (&|r|, SI(|I|)SI(|J|))<br>
+          If letter `b` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |r| is an [=invalid memory reference=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from reference expression dimension size 3">
+       <td>
+          |r|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+          |K| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |r|.|I||J||K|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,3&gt;
+       <td>Result is the [=swizzle view=] (&|r|, SI(|I|)SI(|J|)SI(|K|))<br>
+          If letter `z` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |r| is an [=invalid memory reference=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from reference expression color size 3">
+       <td>
+          |r|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+          |K| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |r|.|I||J||K|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,3&gt;
+       <td>Result is the [=swizzle view=] (&|r|, SI(|I|)SI(|J|)SI(|K|))<br>
+          If letter `b` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |r| is an [=invalid memory reference=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from reference expression dim size 4">
+       <td>
+          |r|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+          |K| is the letter `x`, `y`, `z`, or `w`<br>
+          |L| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |r|.|I||J||K||L|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,4&gt;
+       <td>Result is the [=swizzle view=] (&|r|, SI(|I|)SI(|J|)SI(|K|)SI(L))<br>
+          If letter `z` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |r| is an [=invalid memory reference=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from reference expression color size 4">
+       <td>
+          |r|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+          |K| is the letter `r`, `g`, `b`, or `a`<br>
+          |L| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |r|.|I||J||K||L|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,4&gt;
+       <td>Result is the [=swizzle view=] (&|r|, SI(|I|)SI(|J|)SI(|K|)SI(|L|))<br>
+          If letter `b` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |r| is an [=invalid memory reference=], then the result is an [=invalid swizzle view=].
+
+</table>
+
+<table class='data'>
+  <caption>Forming a swizzle view from a pointer</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="swizzle view from pointer expression dimension size 2">
+       <td>
+          |p|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |p|.|I||J|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,2&gt;
+       <td>Result is the [=swizzle view=] (|p|, SI(|I|)SI(|J|))<br>
+          If letter `z` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |p| is an [=invalid pointer=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from pointer expression color size 2">
+       <td>
+          |p|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |p|.|I||J|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,2&gt;
+       <td>Result is the [=swizzle view=] (|p|, SI(|I|)SI(|J|))<br>
+          If letter `b` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |p| is an [=invalid pointer=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from pointer expression dimension size 3">
+       <td>
+          |p|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+          |K| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |p|.|I||J||K|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,3&gt;
+       <td>Result is the [=swizzle view=] (|p|, SI(|I|)SI(|J|)SI(|K|))<br>
+          If letter `z` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |p| is an [=invalid pointer=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from pointer expression color size 3">
+       <td>
+          |p|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+          |K| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |p|.|I||J||K|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,3&gt;
+       <td>Result is the [=swizzle view=] (|p|, SI(|I|)SI(|J|)SI(|K|))<br>
+          If letter `b` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |p| is an [=invalid pointer=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from pointer expression dim size 4">
+       <td>
+          |p|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+          |K| is the letter `x`, `y`, `z`, or `w`<br>
+          |L| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |p|.|I||J||K||L|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,4&gt;
+       <td>Result is the [=swizzle view=] (|p|, SI(|I|)SI(|J|)SI(|K|)SI(|L|))<br>
+          If letter `z` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |p| is an [=invalid pointer=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from pointer expression color size 4">
+       <td>
+          |p|: ref&lt;|AS|,|T|,|AM|&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+          |K| is the letter `r`, `g`, `b`, or `a`<br>
+          |L| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |p|.|I||J||K||L|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,4&gt;
+       <td>Result is the [=swizzle view=] (|p|, SI(|I|)SI(|J|)SI(|K|)SI(|L|))<br>
+          If letter `b` is used, |N| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |N| [=shader-creation error|must=] be 4.<br>
+
+          If |p| is an [=invalid pointer=], then the result is an [=invalid swizzle view=].
+
+</table>
+
+<table class='data'>
+  <caption>Forming a swizzle view from a swizzle view</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="swizzle view from swizzle view dimension size 2">
+       <td>
+          |sv|: swizzle&lt;|AS|,|S|,|AM|,|N|,|InputK|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |sv|.|I||J|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,2&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, |IndexSeq|).
+
+          The expression result is the [=swizzle view=] (|p|,
+          <var>Idx<sub>0</sub></var><var>Idx<sub>1</sub></var>), where:
+
+          * <var>Idx<sub>0</sub></var> is element SI(|I|) of |IndexSeq|
+          * <var>Idx<sub>1</sub></var> is element SI(|J|) of |IndexSeq|
+
+          If letter `z` is used, |InputK| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |InputK| [=shader-creation error|must=] be 4.<br>
+
+          If |sv| is an [=invalid swizzle view=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from swizzle view color size 2">
+       <td>
+          |sv|: swizzle&lt;|AS|,|S|,|AM|,|N|,|InputK|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |sv|.|I||J|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,2&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, |IndexSeq|).
+
+          The expression result is the [=swizzle view=] (|p|,
+          <var>Idx<sub>0</sub></var><var>Idx<sub>1</sub></var>), where:
+
+          * <var>Idx<sub>0</sub></var> is element SI(|I|) of |IndexSeq|
+          * <var>Idx<sub>1</sub></var> is element SI(|J|) of |IndexSeq|
+
+          If letter `b` is used, |InputK| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |InputK| [=shader-creation error|must=] be 4.<br>
+
+          If |sv| is an [=invalid swizzle view=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from swizzle view dimension size 3">
+       <td>
+          |sv|: swizzle&lt;|AS|,|S|,|AM|,|N|,|InputK|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+          |K| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |sv|.|I||J||K|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,3&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, |IndexSeq|).
+
+          The expression result is the [=swizzle view=] (|p|,
+          <var>Idx<sub>0</sub></var><var>Idx<sub>1</sub></var><var>Idx<sub>2</sub></var>), where:
+
+          * <var>Idx<sub>0</sub></var> is element SI(|I|) of |IndexSeq|
+          * <var>Idx<sub>1</sub></var> is element SI(|J|) of |IndexSeq|
+          * <var>Idx<sub>2</sub></var> is element SI(|K|) of |IndexSeq|
+
+          If letter `z` is used, |InputK| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |InputK| [=shader-creation error|must=] be 4.<br>
+
+          If |sv| is an [=invalid swizzle view=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from swizzle view color size 3">
+       <td>
+          |sv|: swizzle&lt;|AS|,|S|,|AM|,|N|,|InputK|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+          |K| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |sv|.|I||J||K|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,3&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, |IndexSeq|).
+
+          The expression result is the [=swizzle view=] (|p|,
+          <var>Idx<sub>0</sub></var><var>Idx<sub>1</sub></var>), where:
+          <var>Idx<sub>0</sub></var><var>Idx<sub>1</sub></var><var>Idx<sub>2</sub></var>), where:
+
+          * <var>Idx<sub>0</sub></var> is element SI(|I|) of |IndexSeq|
+          * <var>Idx<sub>1</sub></var> is element SI(|J|) of |IndexSeq|
+          * <var>Idx<sub>2</sub></var> is element SI(|K|) of |IndexSeq|
+
+          If letter `b` is used, |InputK| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |InputK| [=shader-creation error|must=] be 4.<br>
+
+          If |sv| is an [=invalid swizzle view=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from swizzle view dimension size 4">
+       <td>
+          |sv|: swizzle&lt;|AS|,|S|,|AM|,|N|,|InputK|&gt;<br>
+          |I| is the letter `x`, `y`, `z`, or `w`<br>
+          |J| is the letter `x`, `y`, `z`, or `w`<br>
+          |K| is the letter `x`, `y`, `z`, or `w`<br>
+          |L| is the letter `x`, `y`, `z`, or `w`<br>
+       <td class="nowrap">
+          |sv|.|I||J||K||L|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,4&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, |IndexSeq|).
+
+          The expression result is the [=swizzle view=] (|p|,
+          <var>Idx<sub>0</sub></var><var>Idx<sub>1</sub></var><var>Idx<sub>2</sub></var><var>Idx<sub>3</sub></var>), where:
+
+          * <var>Idx<sub>0</sub></var> is element SI(|I|) of |IndexSeq|
+          * <var>Idx<sub>1</sub></var> is element SI(|J|) of |IndexSeq|
+          * <var>Idx<sub>2</sub></var> is element SI(|K|) of |IndexSeq|
+          * <var>Idx<sub>3</sub></var> is element SI(|L|) of |IndexSeq|
+
+          If letter `z` is used, |InputK| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `w` is used, |InputK| [=shader-creation error|must=] be 4.<br>
+
+          If |sv| is an [=invalid swizzle view=], then the result is an [=invalid swizzle view=].
+
+  <tr algorithm="swizzle view from swizzle view color size 4">
+       <td>
+          |sv|: swizzle&lt;|AS|,|S|,|AM|,|N|,|InputK|&gt;<br>
+          |I| is the letter `r`, `g`, `b`, or `a`<br>
+          |J| is the letter `r`, `g`, `b`, or `a`<br>
+          |K| is the letter `r`, `g`, `b`, or `a`<br>
+          |L| is the letter `r`, `g`, `b`, or `a`<br>
+       <td class="nowrap">
+          |sv|.|I||J||K||L|&nbsp;: swizzle&lt;|AS|,|S|,|AM|,|N|,4&gt;
+       <td>Let |sv| be the [=swizzle view=] (|p|, |IndexSeq|).
+
+          The expression result is the [=swizzle view=] (|p|,
+          <var>Idx<sub>0</sub></var><var>Idx<sub>1</sub></var>), where:
+          <var>Idx<sub>0</sub></var><var>Idx<sub>1</sub></var><var>Idx<sub>2</sub></var><var>Idx<sub>3</sub></var>), where:
+
+          * <var>Idx<sub>0</sub></var> is element SI(|I|) of |IndexSeq|
+          * <var>Idx<sub>1</sub></var> is element SI(|J|) of |IndexSeq|
+          * <var>Idx<sub>2</sub></var> is element SI(|K|) of |IndexSeq|
+          * <var>Idx<sub>3</sub></var> is element SI(|L|) of |IndexSeq|
+
+          If letter `b` is used, |InputK| [=shader-creation error|must=] be 3 or 4.<br>
+          If letter `a` is used, |InputK| [=shader-creation error|must=] be 4.<br>
+
+          If |sv| is an [=invalid swizzle view=], then the result is an [=invalid swizzle view=].
+</table>
+
 ## Identifier Expressions for Value Declarations  ## {#value-identifier-expr}
 
 <table class='data'>
@@ -7050,7 +7695,7 @@ the end.
 ## Assignment Statement ## {#assignment}
 
 An <dfn noexport dfn-for="statement">assignment</dfn> evaluates an expression,
-and optionally stores it in memory (thus updating the contents of a variable).
+and optionally stores the result in memory (thus updating the contents of a variable).
 
 
 <pre class=include>
@@ -7065,7 +7710,8 @@ expression to the right of the operator token is the <dfn noexport>right-hand si
 ### Simple Assignment ### {#simple-assignment-section}
 
 An [=statement/assignment=] is a <dfn noexport>simple assignment</dfn> when the
-[=left-hand side=] is an expression, and the operator is the equal (<a for=syntax_sym lt=equal>`'='`</a>) token.
+[=left-hand side=] is a [=reference type|reference=] expression,
+and the operator is the equal (<a for=syntax_sym lt=equal>`'='`</a>) token.
 In this case the value of the [=right-hand side=] is written to the memory referenced by the left-hand side.
 
 <table class='data'>
@@ -7116,6 +7762,87 @@ See [[#forming-references-and-pointers]] for other cases.
         }
       </xmp>
     </div>
+
+### Swizzle Assignment ### {#swizzle-assignment-section}
+
+An [=statement/assignment=] is a <dfn noexport>swizzle assignment</dfn> when the
+[=left-hand side=] is a [=swizzle view=],
+and the operator is the equal (<a for=syntax_sym lt=equal>`'='`</a>) token.
+In this case a [=swizzle view write=] is performed on the [=left-hand side=],
+using the value of the [=right-hand side=] as the update vector.
+
+<table class='data'>
+  <thead>
+    <tr><th style="width:40%">Precondition<th>Statement<th>Description
+  </thead>
+  <tr algorithm="swizzle assignment">
+    <td>
+        |sv| : swizzle&lt;|AS|,|S|,|AM|,|N|,|K|&gt;<br>
+        |e| : vec|K|&lt;|S|&gt;<br>
+        [=Address space=] |AS| is writable,<br>
+        [=Access mode=] |AM| is [=access/write=] or [=access/read_write=]
+    <td class="nowrap">|sv| = |e|
+    <td>By convention |sv| = (|p|, |IndexSeq|)
+
+        Constraints:
+        * The indices in |IndexSeq| [=shader-creation error|must=] be all distinct from each other.
+        * Each index in |IndexSeq| [=shader-creation error|must=] be in [0,|N|-1].
+
+        Perform the following steps.
+
+        1. Evaluate |p|.
+
+        2. Evaluate |e|, yielding vector |update|.
+
+        3. Read the memory referenced by |p|, yielding vector |old_contents| with type vec|N|&lt;|S|&gt;.
+
+        4. Perform [=swizzle view write|SwizzleViewWrite=](|p|, |IndexSeq|, |old_contents|, |update|)
+
+        Note: If the swizzle view is an [=invalid swizzle view=], steps 3 and 4
+        are [=out-of-bounds accesses=], and therefore may not execute, or may write to
+        different memory locations than expected.
+
+        Note: It may seem unnatural to evaluate |e| before reading the old contents of |p|.
+        However, the swizzle write in step 4 must preserve the vector components *not* listed in |IndexSeq|,
+        and yet those components may have been modified during the evaluation of |e| itself.
+</table>
+
+<div class='example wgsl' heading='Swizzle assignment order of evaluation'>
+<span id="example-swizzle-assign-order-of-evaluation"></span>
+  <xmp highlight=wgsl>
+    var<private> v: array<vec4u,1>;
+
+    fn update_and_index() -> u32 {
+      v[0] += vec4u(2,4,8,10);
+      return 0;
+    }
+
+    fn update_and_rhs() -> vec2u {
+      v[0].x = 900;
+      v[0].z = 100;
+      return vec2u(55,66);
+    }
+
+    fn eval_order_swizzle_assignment() {
+      v[0] = vec4u(0,0,0,0);
+
+      // 1. Evaluate the pointer p, which evaluates
+      //    the index on the left handside,
+      //    setting v[0] = vec4u(2,4,8,10) as a side effect
+      //    and yielding 0 for the index.
+      // 2. Evaluate the right-hand size, setting
+      //     v[0].x = 900
+      //     v[0].z = 100
+      //    and yielding vec2u(55,66).
+      // 3. The swizzle assignment then updates only v[0].x and v[0].y,
+      //    preserving v[0].z and v[0].w.
+
+      v[update_and_index()].yx = update_and_rhs();
+
+      // Now v[0] equals vec4u(66,55,100,10);
+    }
+  </xmp>
+</div>
 
 ### Phony Assignment ### {#phony-assignment-section}
 
@@ -7189,7 +7916,8 @@ A phony-assignment is useful for:
 ### Compound Assignment ### {#compound-assignment-sec}
 
 An [=statement/assignment=] is a <dfn noexport>compound assignment</dfn> when the
-[=left-hand side=] is an expression, and the operator is one of the [=syntax/compound_assignment_operators=].
+[=left-hand side=] is a [=reference type|reference=] expression or a [=swizzle view=],
+and the operator is one of the [=syntax/compound_assignment_operators=].
 
 <pre class=include>
 path: syntax/compound_assignment_operator.syntax.bs.include
@@ -7197,8 +7925,37 @@ path: syntax/compound_assignment_operator.syntax.bs.include
 
 The type requirements, semantics, and behavior of each statement is defined as if
 the compound assignment expands as in the following table, except that:
-* the reference expression |e1| is evaluated only once, and
-* the [=reference type=] for |e1| [=shader-creation error|must=] have a [=access/read_write=] [=access mode=].
+
+* If the expression |e1| is a [=reference type|reference=] expression:
+    * The [=reference type=] for |e1| [=shader-creation error|must=] have a [=access/read_write=] [=access mode=].
+    * |e1| is evaluated only once.
+    * The [=Load rule=] is invoked for the second instance of |e1| in the expansion.
+* If the expression |e1| is a [=swizzle view=] expression:
+    * The [=swizzle view=] type for |e1| [=shader-creation error|must=] have a [=access/read_write=] [=access mode=].
+    * By convention swizzle view |e1| can be written (|p|, |IndexSeq|)
+    * The same constraints apply as for [=swizzle assignment=]:
+        * The indices in |IndexSeq| [=shader-creation error|must=] be all distinct from each other.
+        * Each index in |IndexSeq| [=shader-creation error|must=] be in [0,|N|-1].
+    * Perform the following steps.
+
+        1. Evaluate |p|.
+
+        2. Perform [=swizzle view read|SwizzleViewRead=](|p|, |IndexSeq|),
+            yielding vector |viewed_contents| of type vec|K|&lt;|S|&gt;.
+
+            This is the value for |e1| when used as the left operand
+            of the binary operator in the expansion given below.
+            To ensure left-to-right evaluation of the binary expression,
+            this must occur before the evaluation of |e2|.
+
+        3. Evaluate |e2|.
+
+        4. Read the memory referenced by |p|, yielding vector |old_contents| of type vec|N|&lt;|S|&gt;.
+
+        5. Compute |update| by performing the specified binary operation on |viewed_contents| and |e2|.
+            * For example, if the swizzle assignment is `v.xy += w` then the specified operation is addition.
+
+        6. Perform [=swizzle view write|SwizzleViewWrite=](|p|, |IndexSeq|, |old_contents|, |update|).
 
 <table class='data'>
   <thead>
@@ -7267,8 +8024,53 @@ first a [=read access=] gets the old value, and then a [=write access=] stores t
   </xmp>
 </div>
 
+<div class='example wgsl' heading='Compound swizzle assignment order of evaluation'>
+<span id="example-compound-swizzle-assign-order-of-evaluation"></span>
+  <xmp highlight=wgsl>
+    var<private> v: array<vec4u,1>;
+
+    fn update_and_index() -> u32 {
+      v[0] += vec4u(2,4,8,10);
+      return 0;
+    }
+
+    fn update_and_rhs() -> vec2u {
+      v[0].x = 900;
+      v[0].z = 100;
+      return vec2u(55,66);
+    }
+
+    fn eval_order_compound_swizzle_assignment() {
+      v[0] = vec4u(0,0,0,0);
+
+      // 1. Evaluate the pointer p, which evaluates
+      //    the index on the left handside,
+      //    setting v[0] = vec4u(2,4,8,10) as a side effect
+      //    and yielding 0 for the index.
+      // 2. The swizzle name is .yx and so IndexSeq is the list 1,0.
+      //    Perform SwizzleViewRead(p,IndexSeq),
+      //    yielding view_contents = vec2u(4,2).
+      // 3. Evaluate the right-hand size, setting
+      //     v[0].x = 900
+      //     v[0].z = 100
+      //    and yielding vec2u(55,66).
+      // 4. Compute update vector as
+      //           view_contents + vec2u(55,66)
+      //         = vec2u(4,2) + vec2u(55,66)
+      //         = vec2u(59,68)
+      // 5. The swizzle assignment then updates only v[0].x and v[0].y,
+      //    preserving v[0].z and v[0].w.
+
+      v[update_and_index()].yx += update_and_rhs();
+
+      // Now v[0] equals vec4u(68,59,100,10);
+    }
+  </xmp>
+</div>
+
 <div class=note><span class=marker>Note:</span>
-A compound assignment can rewritten as different WGSL code that uses a [=simple assignment=] instead.
+A compound assignment to a [=reference type|reference=]
+can be rewritten as different WGSL code that uses a [=simple assignment=] instead.
 The idea is to use a pointer to hold the result of evaluating the reference once.
 
 <div algorithm="translation compound assignment not vector component">For example,
@@ -8697,6 +9499,7 @@ of declarations.
 [=Memory locations=] can be accessed during the execution of a function using [=memory views=].
 Within a function, each [=memory view=] has a particular <dfn>root identifier</dfn>, which names
 the variable or formal parameter that first provides access to that memory in that function.
+Similarly, the [=root identifier=] of a [=swizzle view=] is the root identifier for the swizzle view's pointer.
 
 Locally derived expressions of [=reference type|reference=] or
 [=pointer type|pointer=] type may introduce new names for a particular root identifier,
@@ -11119,6 +11922,7 @@ the Vulkan Memory Model.
 
 A [=read access=] occurs when an invocation executes one of the following:
 * An evaluation of the [=Load Rule=]
+* An evaluation of the [=Swizzle View Load Rule=]
 * Any [[#texture-builtin-functions|texture builtin function]] except:
     * [[#texturedimensions|textureDimensions]]
     * [[#texturestore|textureStore]]
@@ -11601,7 +12405,8 @@ The initial value assignment produces an edge to [=param_i_contents=] for
 
 Each [=let-declaration=], *L*, with an [=effective-value-type=] that is a [=pointer type=] is desugared as follows:
 * Visit each subexpression, *SE*, of the initializer expression of *L* in a postorder depth-first traversal:
-    * If  *SE* invokes the [=load rule=] during [=type checking=] and the [=root identifier=]
+    * If  *SE* invokes the [=load rule=] or the [=swizzle view load rule=] during [=type checking=],
+        and the [=root identifier=] for the [=memory view=] or [=swizzle view=]
         is a mutable variable then:
         * Create a new let-declaration, *LSE*, immediately prior to *L* initialized with *SE*.
         * Replace *SE* in *L* with a [[#value-identifier-expr|value identifier expression]]
@@ -12237,7 +13042,7 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td>
    <tr><td>identifier [=resolves|resolving=] to function-scope variable "x",
       where the identifier appears as the [=root identifier=] of a [=memory view=]
-      expression, *MVE*, and the [=load rule=] is invoked on *MVE* during
+      expression, *MVE*, and the [=load rule=] or [=swizzle view load rule=] is invoked on *MVE* during
       [=type checking=]
       <td>*Result*
       <td class>*X* is the node corresponding to the value of "x" at the input to the statement containing this expression
@@ -12249,7 +13054,7 @@ The rules for analyzing expressions take as argument both the expression itself 
    <tr><td>identifier [=resolves|resolving=] to function-scope variable "x",
       where "x" is the desugared pointer parameter *i*, and
       where the identifier appears as the [=root identifier=] of a [=memory view=]
-      expression, *MVE*, and the [=load rule=] is not invoked on *MVE* during
+      expression, *MVE*, and the [=load rule=] and [=swizzle view load rule=] are not invoked on *MVE* during
       [=type checking=]
       <td>
       <td class>
@@ -12257,7 +13062,7 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td class>
    <tr><td>identifier [=resolves|resolving=] to function-scope variable "x",
       where the identifier appears as the [=root identifier=] of a [=memory view=]
-      expression, *MVE*, and the [=load rule=] is not invoked on *MVE* during
+      expression, *MVE*, and the [=load rule=] and [=swizzle view load rule=] are not invoked on *MVE* during
       [=type checking=]
       <td>
       <td class>
@@ -12273,7 +13078,7 @@ The rules for analyzing expressions take as argument both the expression itself 
       [=pointer type=] in the [=address spaces/storage=], [=address spaces/workgroup=],
       or [=address spaces/private=] [=address spaces=] with a non-read-only
       [=access mode=] where the identifier appears as the [=root identifier=]
-      of a [=memory view=] expression, *MVE*, and the [=load rule=] is invoked
+      of a [=memory view=] expression, *MVE*, and the [=load rule=] or [=swizzle view load rule=] is invoked
       on *MVE* during [=type checking=]
       <td>
       <td>
@@ -12283,7 +13088,7 @@ The rules for analyzing expressions take as argument both the expression itself 
       [=pointer type=] in the [=address spaces/storage=], [=address spaces/workgroup=],
       or [=address spaces/private=] [=address spaces=] with a non-read-only
       [=access mode=] where the identifier appears as the [=root identifier=]
-      of a [=memory view=] expression, *MVE*, and the [=load rule=] is not
+      of a [=memory view=] expression, *MVE*, and the [=load rule=] and [=swizzle view load rule=] are not
       invoked on *MVE* during [=type checking=]
       <td>
       <td>
@@ -12314,7 +13119,7 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td>
    <tr><td>identifier [=resolves|resolving=] to non-read-only module-scope
       variable "x" where the identifier appears as the [=root identifier=] of a [=memory view=]
-      expression, *MVE*, and the [=load rule=] is invoked on *MVE* during
+      expression, *MVE*, and the [=load rule=] or [=swizzle view load rule=] is invoked on *MVE* during
       [=type checking=]
       <td>
       <td>
@@ -12323,7 +13128,7 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td>
    <tr><td>identifier [=resolves|resolving=] to non-read-only module-scope
       variable "x" where the identifier appears as the [=root identifier=] of a [=memory view=]
-      expression, *MVE*, and the [=load rule=] is not invoked on *MVE* during
+      expression, *MVE*, and the [=load rule=] and [=swizzle view load rule=] are not invoked on *MVE* during
       [=type checking=]
       <td>
       <td>
@@ -12335,7 +13140,12 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td rowspan=3 class="nowrap">*CF'*, *V*
       <td rowspan=3>
    <tr><td class="nowrap">*op* *e*,<br> where *op* is a unary operator
-   <tr><td class="nowrap">*e*.field
+       <td rowspan=2>
+       <td rowspan=2 class="nowrap">(*CF*, *e*) => (*CF'*, *V*)
+       <td rowspan=2 class="nowrap">*CF'*, *V*
+       <td rowspan=2>
+   <tr><td class="nowrap">*e*.field,
+       where _field_ is a structure member name, or a [=swizzle=] name
    <tr><td>*e1* *op* *e2*,<br> where *op* is a non-short-circuiting binary operator
       <td rowspan=2> *Result*
       <td rowspan=2 class="nowrap">(*CF*, *e1*) => (*CF1*, *V1*)<br>
