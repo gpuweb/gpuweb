@@ -6,7 +6,7 @@ all: index.html nfkc validate test diagrams
 validate: lalr tspath_tests unit_tests validate-examples
 
 clean:
-	rm -f index.html index.bs.pre index.pre.html wgsl.recursive.bs.include.pre grammar/grammar.js wgsl.lalr.txt
+	rm -f index.html index.bs.pre index.pre.html wgsl.recursive.bs.include.pre grammar/grammar.js grammar/grammar.js.pre wgsl.lalr.txt
 	rm -rf grammar/build
 
 
