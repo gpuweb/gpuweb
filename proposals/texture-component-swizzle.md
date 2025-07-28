@@ -57,7 +57,7 @@ The `GPUTexture.createView(descriptor)` algorithm is extended with the following
 
 ## Validation
 
-A validation error happens if the swizzle is not the default and the `"texture-component-swizzle"` feature is enabled.
+A validation error happens if the swizzle is not the default and the `"texture-component-swizzle"` feature is not enabled.
 
 If the feature `"core-features-and-limits"` is not enabled on a device, a draw call may not bind two views of the same texture differing in swizzle. Only a single swizzle per texture is supported. This is enforced via validation at draw time.
 
