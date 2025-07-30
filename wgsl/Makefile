@@ -6,7 +6,7 @@ all: index.html nfkc validate test diagrams
 validate: lalr tspath_tests unit_tests validate-examples
 
 clean:
-	rm -f index.html index.bs.pre index.pre.html wgsl.recursive.bs.include.pre grammar/grammar.js wgsl.lalr.txt
+	rm -f index.html index.bs.pre index.pre.html wgsl.recursive.bs.include.pre grammar/grammar.js grammar/grammar.js.pre wgsl.lalr.txt
 	rm -rf grammar/build
 
 
@@ -33,7 +33,13 @@ TREESITTER_PARSER_STAMP := grammar/build.stamp
 
 # Extract WGSL grammar from the spec
 $(TREESITTER_GRAMMAR_INPUT): index.bs ./grammar/src/scanner.c ./tools/extract-grammar.py
-	source ../tools/custom-action/dependency-versions.sh && python3 ./tools/extract-grammar.py --spec index.bs --scanner ./grammar/src/scanner.c --tree-sitter-dir grammar --flow x
+	bash -c ' \
+	  if [ -f ../tools/custom-action/dependency-versions.sh ]; then \
+	    source ../tools/custom-action/dependency-versions.sh; \
+	  else \
+	    source /dependency-versions.sh; \
+	  fi && \
+	  python3 ./tools/extract-grammar.py --flow x'
 
 # Build a Treesitter parser to validate grammar extract and later examples in spec
 $(TREESITTER_PARSER_STAMP): $(TREESITTER_GRAMMAR_INPUT)
