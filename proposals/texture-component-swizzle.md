@@ -55,6 +55,12 @@ The `GPUTexture.createView(descriptor)` algorithm is extended with the following
   - `descriptor.swizzle.b` must be `"b"`.
   - `descriptor.swizzle.a` must be `"a"`.
 
+## Validation
+
+A validation error happens if the swizzle is not the default and the `"texture-component-swizzle"` feature is not enabled.
+
+If the feature `"core-features-and-limits"` is not enabled on a device, a draw call may not bind two views of the same texture differing in swizzle. Only a single swizzle per texture is supported. This is enforced via validation at draw time.
+
 ## Javascript example
 
 Imagine you have a texture with a single red channel (`r8unorm` format). In your shader, you want to use this as a grayscale image where the red, green, and blue components all have the same value from the texture's red channel, and the alpha is fully opaque:
