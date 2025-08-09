@@ -279,13 +279,13 @@ module.exports = grammar({
 
         enable_extension_list: $ => seq($.enable_extension_name, repeat(seq(',', $.enable_extension_name)), optional(',')),
 
-        requires_directive: $ => seq('requires', $.software_extension_list, ';'),
+        requires_directive: $ => seq('requires', $.language_extension_list, ';'),
 
-        software_extension_list: $ => seq($.software_extension_name, repeat(seq(',', $.software_extension_name)), optional(',')),
+        language_extension_list: $ => seq($.language_extension_name, repeat(seq(',', $.language_extension_name)), optional(',')),
 
         enable_extension_name: $ => $.ident_pattern_token,
 
-        software_extension_name: $ => $.ident_pattern_token,
+        language_extension_name: $ => $.ident_pattern_token,
 
         ident_pattern_token: $ => /([_\p{XID_Start}][\p{XID_Continue}]+)|([\p{XID_Start}])/u,
 
