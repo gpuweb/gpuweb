@@ -47,6 +47,10 @@ enum GPUComponentSwizzle {
 };
 ```
 
+If the `"texture-component-swizzle"` feature is enabled, reading or sampling the depth or stencil aspect of a texture behaves as if the texture contains the values (V, 0, 0, 1) where V is the actual depth or stencil value. Otherwise, the values are (V, X, X, X) where X is an implementation-defined unspecified value.
+
+## Validation
+
 The `GPUTexture.createView(descriptor)` algorithm is extended with the following validation rules changes:
 
 - If `descriptor.usage` includes the `RENDER_ATTACHMENT` or `STORAGE_BINDING` bit:
@@ -55,9 +59,7 @@ The `GPUTexture.createView(descriptor)` algorithm is extended with the following
   - `descriptor.swizzle.b` must be `"b"`.
   - `descriptor.swizzle.a` must be `"a"`.
 
-## Validation
-
-A validation error happens if the swizzle is not the default and the `"texture-component-swizzle"` feature is not enabled.
+- If `descriptor.swizzle` is not the default, the `"texture-component-swizzle"` feature must be enabled.
 
 If the feature `"core-features-and-limits"` is not enabled on a device, a draw call may not bind two views of the same texture differing in swizzle. Only a single swizzle per texture is supported. This is enforced via validation at draw time.
 
@@ -89,7 +91,7 @@ const textureView = myTexture.createView({
 
 ## Open Questions
 
-- Are there new validation rules needed if the view is depth-stencil or multisampled?
+- Are there new validation rules needed if the view is multisampled?
 - In Compatibility Mode, this could count against the [texture and sampler combination limit](https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#21-limit-the-number-of-texturesampler-combinations-in-a-stage), or it might not be exposed at all.
 
 ## Resources
