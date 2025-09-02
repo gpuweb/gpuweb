@@ -48,6 +48,8 @@ enum GPUComponentSwizzle {
 ```
 
 If the `"texture-component-swizzle"` feature is enabled, reading or sampling the depth or stencil aspect of a texture behaves as if the texture contains the values (V, 0, 0, 1) where V is the actual depth or stencil value. Otherwise, the values are (V, X, X, X) where X is an implementation-defined unspecified value.
+To reduce compatibility issues in practice, implementations *should* provide (V, 0, 0, 1) wherever
+possible, even if this feature is not enabled.
 
 ## Validation
 
