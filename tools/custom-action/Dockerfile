@@ -12,6 +12,7 @@ RUN \
   apt install -y \
     build-essential \
     clang \
+    emscripten \
     nodejs \
     npm \
     git \
