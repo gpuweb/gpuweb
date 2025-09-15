@@ -72,21 +72,12 @@ Add a single new enable extension:
 
 All built-in function can only be used in `compute` or `fragment` shader stages. `T` as `uvec2`.
 
-| Function                                                          | Preconditions | Description                                                              |
-| ----------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------ |
-| `fn atomicStoreMax(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T)` |               | Atomically stores the value v in the atomic object pointed to by atomic_ptr. |
-| `fn atomicStoreMin(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T)` |               | Atomically stores the value v in the atomic object pointed to by atomic_ptr. |
-
-### Functions additional functions made availible via `atomic_64_ops`
+| Function                                                          | Result                                                              |
+| ----------------------------------------------------------------- |  ------------------------------------------------------------------------ |
+| `fn atomicStoreMax(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T)` |   The value in the atomic object pointed to by atomic_ptr will be atomically updated to be the maximum of the original value and the value v. |
+| `fn atomicStoreMin(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T)` |   The value in the atomic object pointed to by atomic_ptr will be atomically updated to be the minimum of the original value and the value v. |
 
 
-
-All built-in function can only be used in `compute` or `fragment` shader stages. `T` as `uvec2`.
-
-| Function                                                          | Preconditions | Description                                                                      |
-| ----------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------- |
-| `fn atomicLoad(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` |               | Returns the atomically loaded the value pointed to by atomic_ptr. It does not modify the object. |
-| `fn atomicStore(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T) -> T` |               | Atomically stores the value v in the atomic object pointed to by atomic_ptr.     |
 
 # API
 
