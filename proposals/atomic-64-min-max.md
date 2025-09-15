@@ -2,7 +2,7 @@
 
 Status: **Draft**
 
-Last modified: 2025-07-112
+Last modified: 2025-09-15
 
 Issue: [#5071](https://github.com/gpuweb/gpuweb/issues/5071)
 
@@ -13,9 +13,6 @@ The WGSL spec does not have a 64 bit integer type and there are no near term pla
 The alignment and size of `vec2u` (`vec2<u32>`) is specified as 8 bytes. This allows us to use the `vec2<u32>` as a composite type for the unsigned 64 bit integer. See the [WGSL specification on alignment and size](https://www.w3.org/TR/WGSL/#alignment-and-size).
 
 Since all atomic operations in WGSL [operate only on atomic types](https://www.w3.org/TR/WGSL/#atomic-types) the declaration `Atomic<vec2u>` will actually map to a `u64` in all backends.
-
-> *msl*
-> Typed resources used in 64-bit integer operations must be declared with HLSL type `int64_t` or `uint64_t` and have format `R32G32_UINT`.
 
 # Requirements
 
@@ -54,6 +51,8 @@ typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS9 {
 } D3D12_FEATURE_DATA_D3D12_OPTIONS9;
 ```
 Atomic sub is not available in HLSL.
+
+> Typed resources used in 64-bit integer operations must be declared with HLSL type `int64_t` or `uint64_t` and have format `R32G32_UINT`.
 
 # WGSL
 
