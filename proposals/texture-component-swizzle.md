@@ -71,10 +71,6 @@ const device = await adapter.requestDevice({
 const textureView = myTexture.createView({ swizzle: "rrr1" });
 ```
 
-## Open Questions
-
-- In Compatibility Mode, this could count against the [texture and sampler combination limit](https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#21-limit-the-number-of-texturesampler-combinations-in-a-stage), or it might not be exposed at all.
-
 ## Resources
 
 - [Vkswizzle(3) Vulkan Manual Page](https://registry.khronos.org/vulkan/specs/latest/man/html/VkComponentMapping.html)
