@@ -31,7 +31,7 @@ A new `swizzle` option is added to the `GPUTextureViewDescriptor` which allows f
 
 ```webidl
 partial dictionary GPUTextureViewDescriptor {
-    DOMString? swizzle;
+    DOMString swizzle = "rgba";
 };
 ```
 
@@ -42,11 +42,11 @@ To reduce compatibility issues in practice, implementations *should* provide (V,
 
 The `GPUTexture.createView(descriptor)` algorithm is extended with the following changes:
 
-- If `descriptor.swizzle` is not `null`, it must be a four-character string that only includes `"r"`, `"g"`, `"b"`, `"a"`, `"0"`, or `"1"`, otherwise a `TypeError` is raised.
+- If `descriptor.swizzle` must be a four-character string that only includes `"r"`, `"g"`, `"b"`, `"a"`, `"0"`, or `"1"`, otherwise a `TypeError` is raised.
 
-- If `descriptor.usage` includes the `RENDER_ATTACHMENT` or `STORAGE_BINDING` bit, `descriptor.swizzle` must be either `null` or `"rgba"`.
+- If `descriptor.usage` includes the `RENDER_ATTACHMENT` or `STORAGE_BINDING` bit, `descriptor.swizzle` must be `"rgba"`.
 
-- If `descriptor.swizzle` is neither null nor `"rgba"`, the `"texture-component-swizzle"` feature must be enabled.
+- If `descriptor.swizzle` is not `"rgba"`, the `"texture-component-swizzle"` feature must be enabled.
 
 If the feature `"core-features-and-limits"` is not enabled on a device, a draw call may not bind two views of the same texture differing in swizzle. Only a single swizzle per texture is supported. This is enforced via validation at draw time.
 
