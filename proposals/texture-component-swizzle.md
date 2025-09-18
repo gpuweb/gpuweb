@@ -42,7 +42,7 @@ To reduce compatibility issues in practice, implementations *should* provide (V,
 
 The `GPUTexture.createView(descriptor)` algorithm is extended with the following changes:
 
-- If `descriptor.swizzle` must be a four-character string that only includes `"r"`, `"g"`, `"b"`, `"a"`, `"0"`, or `"1"`, otherwise a `TypeError` is raised.
+- `descriptor.swizzle` must be a four-character string that only includes `"r"`, `"g"`, `"b"`, `"a"`, `"0"`, or `"1"`, otherwise a `TypeError` is raised.
 
 - If `descriptor.usage` includes the `RENDER_ATTACHMENT` or `STORAGE_BINDING` bit, `descriptor.swizzle` must be `"rgba"`.
 
