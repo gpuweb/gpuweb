@@ -1209,10 +1209,11 @@ def flow_build(options):
             print(f"stdout: {e.stdout}")
             print(f"stderr: {e.stderr}")
             return False
+        return True
 
     if newer_than(scanner_cc_staging, stampfile) or newer_than(options.grammar_filename,stampfile):
         print("{}: ...Building custom scanner".format(options.script))
-        build_library([scanner_cc_staging, os.path.join(options.grammar_dir,"src","parser.c")])
+        return build_library([scanner_cc_staging, os.path.join(options.grammar_dir,"src","parser.c")])
     else:
         print("{}: ...Skip building tree_sitter_wgsl: grammar/build.stamp is fresh".format(options.script))
     return True
