@@ -15,6 +15,9 @@ WGSL_SOURCES:=index.bs ./grammar/src/scanner.c wgsl.recursive.bs.include wgsl.re
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
+wgsl.reserved.bs.include: Makefile tools/generate-reserved-words.py
+	python3 tools/generate-reserved-words.py >$@
+
 GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html nfkc
 	@echo 'Inserting source permalink: index.pre.html -> index.html'
