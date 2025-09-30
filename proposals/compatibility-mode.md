@@ -289,7 +289,7 @@ sampler in a shader will generate a validation error at pipeline creation time.
 ## 21. Limit the number of texture+sampler combinations in a stage.
 
 If the number of texture+sampler combinations used a in single stage in a pipeline exceeds
-`min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)` a validation error is generated.
+`maxSampledTexturesPerShaderStage` or `maxSamplersPerShaderStage`, a validation error is generated.
 
 The validation occurs as follows:
 
@@ -297,16 +297,16 @@ The validation occurs as follows:
 maxCombinationsPerStage = min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)
 for each stage of the pipeline:
   sum = 0
-  for each texture binding in the pipeline layout which is visible to that stage:
-    sum += max(1, number of texture sampler combos for that texture binding)
-  for each external texture binding in the pipeline layout which is visible to that stage:
-    sum += 1 // for LUT texture + LUT sampler
-    sum += 3 * max(1, number of external_texture sampler combos) // for Y+U+V
-  if sum > maxCombinationsPerStage
+  for each unique texture or external texture binding that is used in any call to a texture builtin in the shader call graph reachable from the shader entry point:
+    numPairs = max(1, number of unique texture sampler combos for that texture binding)
+    if it's an external texture binding,
+      numPairs = 1 + 3 * numPairs // for LUT texture/sampler and Y+U+V
+    sum = sum + numPairs
+  if sum > maxSampledTexturesPerShaderStage or sum > maxSamplersPerShaderStage
     generate a validation error.
 ```
 
-**Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
+**Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together, and are limited by GL_MAX_TEXTURE_IMAGE_UNITS and GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS. Texture unit X uses sampler unit X.
 
 ### 22. Disallow multisampled `rgba16float` and `r32float` textures.
 
