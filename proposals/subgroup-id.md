@@ -2,7 +2,7 @@
 
 Status: **Draft**
 
-Last modified: 2025-10-01
+Last modified: 2025-10-02
 
 # Overview
 
@@ -18,6 +18,13 @@ It is currently planned to be added to [HLSL](https://github.com/microsoft/hlsl-
 | Built-in | Stage | Type | Direction | Description |
 | -------- | ----- | ---- | --------- | ----------- |
 | `subgroup_id` | compute | u32 | Input | The invocation's subgroup's id within the workgroup |
+
+Ideally this built-in would be considered subgroup uniform, but our uniformity
+analysis occurs at the workgroup level.
+
+**TODO**: Do we want to try and introduce subgroup uniformity?
+APIs speak little of the guarantees and testing shows that guarantees do not
+match user expectations.
 
 # Language vs Enable Extension
 
