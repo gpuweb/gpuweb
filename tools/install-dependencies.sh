@@ -1,18 +1,19 @@
 #!/bin/bash
-set -eo pipefail
+set -euo pipefail
 source ./tools/custom-action/dependency-versions.sh # Source dependency versions
 
 code=1
 for opt in "$@"; do
     case "$opt" in
         bikeshed)
-            # Always use the latest bikeshed because that's what spec-prod uses.
-            python3 -m pip install --upgrade bikeshed
+            # Note we pin a version of Bikeshed so that `build-validate-publish` will be stable,
+            # but spec-prod (used in `publish-TR-webgpu`) always uses the latest.
+            python3 -m pip install --upgrade bikeshed==$PIP_BIKESHED_VERSION
             bikeshed update
             code=0
             ;;
         wgsl)
-            python3 -m pip install tree_sitter==$PIP_TREE_SITTER_VERSION
+            python3 -m pip install --upgrade build==$PIP_BUILD_VERSION tree_sitter==$PIP_TREE_SITTER_VERSION
             code=0
             ;;
         diagrams)

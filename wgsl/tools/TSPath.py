@@ -37,7 +37,7 @@ Treesitter parse tree.  It is inspired by W3C's XPath.
 
 Examples:
 
-    /translation_unit 
+    /translation_unit
         The translation_unit node at the top of the tree
 
     //enable_directive
@@ -197,7 +197,7 @@ class SeqNode(ExprNode):
     def __init__(self,children):
         super().__init__(ENKind.seq)
         self.exprs = children
-    
+
     def match(self,ts_node):
         result = []
         # Walk through both lists
@@ -324,17 +324,17 @@ class TSPath:
 
         # Indexed
         # These are only valid inside parens.
-        m = re.fullmatch('(\d+)(.*)',path)
+        m = re.fullmatch('(\\d+)(.*)',path)
         if m:
             return IndexedNode(int(m.group(1)),self.parse(m.group(2)))
 
         # IndexedChild
-        m = re.fullmatch('\[(\d+)\](.*)',path)
+        m = re.fullmatch('\\[(\\d+)\\](.*)',path)
         if m:
             return IndexedChildNode(int(m.group(1)),self.parse(m.group(2)))
 
         # Named
-        m = re.fullmatch('(\w+)(.*)',path)
+        m = re.fullmatch('(\\w+)(.*)',path)
         if m:
             return NamedNode(m.group(1),self.parse(m.group(2)))
 
