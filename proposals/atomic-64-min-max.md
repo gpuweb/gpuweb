@@ -12,7 +12,7 @@ The WGSL spec does not have a 64 bit integer type and there are no near term pla
 
 The alignment and size of `vec2u` (`vec2<u32>`) is specified as 8 bytes. This allows us to use the `vec2<u32>` as a composite type for the unsigned 64 bit integer. See the [WGSL specification on alignment and size](https://www.w3.org/TR/WGSL/#alignment-and-size).
 
-Since all atomic operations in WGSL [operate only on atomic types](https://www.w3.org/TR/WGSL/#atomic-types) the declaration `Atomic<vec2u>` will actually map to a `u64` in all backends.
+Since all atomic operations in WGSL [operate only on atomic types](https://www.w3.org/TR/WGSL/#atomic-types) the declaration `atomic<vec2u>` will actually map to a `u64` in all backends.
 
 # Requirements
 
@@ -34,7 +34,7 @@ Metal is very restrictive on support for atomic 64. It restricts all operations 
 
 According to the Metal [feature table](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf), this includes the following families: Apple 9
 
-See page 251 of the [Metal Shading Language Specification](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf).
+See page 260 of the [Metal Shading Language Specification](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf).
 
 While we only get `min`/`max` but `min`/`max` is useful if one is doing software (compute) GPU rendering. See the [requirement for atomic 64 bit support](https://jms55.github.io/posts/2024-11-14-virtual-geometry-bevy-0-15/#hardware-rasterization-and-atomicmax) for software rendering of virtual geometry.
 
@@ -74,8 +74,8 @@ All built-in function can only be used in `compute` or `fragment` shader stages.
 
 | Function                                                          | Result                                                              |
 | ----------------------------------------------------------------- |  ------------------------------------------------------------------------ |
-| `fn atomicStoreMax(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T)` |   The value in the atomic object pointed to by atomic_ptr will be atomically updated to be the maximum of the original value and the value v. |
-| `fn atomicStoreMin(atomic_ptr: ptr<AS, atomic<T>, read_write>, v: T)` |   The value in the atomic object pointed to by atomic_ptr will be atomically updated to be the minimum of the original value and the value v. |
+| `fn atomicStoreMax(atomic_ptr: ptr<storage, atomic<T>, read_write>, v: T)` |   The value in the atomic object pointed to by atomic_ptr will be atomically updated to be the maximum of the original value and the value v. |
+| `fn atomicStoreMin(atomic_ptr: ptr<storage, atomic<T>, read_write>, v: T)` |   The value in the atomic object pointed to by atomic_ptr will be atomically updated to be the minimum of the original value and the value v. |
 
 
 
