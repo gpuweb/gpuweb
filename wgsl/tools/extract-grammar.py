@@ -13,8 +13,6 @@ import sys
 import string
 import shutil
 
-from distutils.ccompiler import new_compiler
-from distutils.unixccompiler import UnixCCompiler
 from tree_sitter import Language, Parser
 
 # TODO: Source from spec
@@ -641,12 +639,15 @@ class ScanResult(dict):
          A dictionary mapping the name of an example to the
          WGSL source text for the example.
          The name is taken from the "heading" attriute of the <div> element.
+    self['_reserved']
+         A list of reserved words.
     """
     def __init__(self):
         self[scanner_rule.name()] = dict()
         self[scanner_example.name()] = dict()
         self[scanner_token.name()] = dict()
         self['raw'] = []
+        self['_reserved'] = []
 
 
 def read_spec(options):
@@ -654,6 +655,10 @@ def read_spec(options):
     Returns a ScanResult from parsing the Bikeshed source of the WGSL spec.
     """
     result = ScanResult()
+
+    # Read reserved words
+    with open('wgsl.reserved.plain', "r") as file:
+        result['_reserved'] = [s.strip() for s in file.readlines()]
 
     # Get the input bikeshed text.
     scanner_lines = read_lines_from_file(
@@ -1004,7 +1009,6 @@ def flow_extract(options, scan_result):
 
     inline: $ => [
         $.global_decl,
-        $._reserved,
     ],
 
     // WGSL has no parsing conflicts.
@@ -1091,9 +1095,12 @@ def flow_extract(options, scan_result):
             "_blankspace", {'type': 'pattern',
                                'value': derivative_patterns["_blankspace"]})
         rule_skip.add("_blankspace")
+        grammar_source += ",\n"
 
+        # Reserved words
 
-        grammar_source += "\n"
+        grammar_source += "\n        _reserved: $ => choice('" + "', '".join(scan_result['_reserved']) + "'),\n"
+
         grammar_source += r"""
     }
 });"""[1:-1]
@@ -1164,22 +1171,15 @@ def flow_build(options):
     os.makedirs(os.path.join(options.grammar_dir, "src"), exist_ok=True)
     scanner_cc_staging = os.path.join(options.grammar_dir, "src", "scanner.c")
 
+    # If binding.c does not exist, run npx tree-sitter-cli init --update
+    if not os.path.exists(os.path.join(options.grammar_dir, "bindings", "python", "tree_sitter_wgsl", "binding.c")):
+        cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "init", "--update"]
+        print("{}:     {}".format(options.script, " ".join(cmd)))
+        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
     cmd = ["npx", "tree-sitter-cli@" + value_from_dotenv("NPM_TREE_SITTER_CLI_VERSION"), "generate"]
     print("{}:     {}".format(options.script, " ".join(cmd)))
     subprocess.run(cmd, cwd=options.grammar_dir, check=True)
-
-    # Use "npm install" to create the tree-sitter CLI that has WGSL
-    # support.  But "npm install" fetches data over the network.
-    # That can be flaky, so only invoke it when needed.
-    if os.path.exists("grammar/node_modules/tree-sitter-cli"):
-        # "npm install" has been run already.
-        print("{}:    skipping npm install: grammar/node_modules/tree-sitter-cli already exists".format(options.script))
-        pass
-    else:
-        cmd = ["npm", "install"]
-        print("{}:    {}".format(options.script, " ".join(cmd)))
-        subprocess.run(cmd, cwd=options.grammar_dir, check=True)
 
     # Following are commented for future reference to expose playground
     # Remove "--docker" if local environment matches with the container
@@ -1218,10 +1218,11 @@ def flow_build(options):
             print(f"stdout: {e.stdout}")
             print(f"stderr: {e.stderr}")
             return False
+        return True
 
     if newer_than(scanner_cc_staging, stampfile) or newer_than(options.grammar_filename,stampfile):
         print("{}: ...Building custom scanner".format(options.script))
-        build_library([scanner_cc_staging, os.path.join(options.grammar_dir,"src","parser.c")])
+        return build_library([scanner_cc_staging, os.path.join(options.grammar_dir,"src","parser.c")])
     else:
         print("{}: ...Skip building tree_sitter_wgsl: grammar/build.stamp is fresh".format(options.script))
     return True
