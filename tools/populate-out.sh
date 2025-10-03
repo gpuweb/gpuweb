@@ -1,9 +1,11 @@
 #!/bin/bash
 # This is called from the repository root. Populates out/ with everything to
 # publish on GitHub Pages and PR previews.
-set -eo pipefail
+set -euo pipefail
 
 mkdir -p out/{wgsl,wgsl/grammar,explainer,correspondence}
+
+cp LICENSE.md out/
 
 cp -r spec/{index.html,webgpu.idl,img} out/
 cp spec/webgpu.idl out/webgpu.idl.txt

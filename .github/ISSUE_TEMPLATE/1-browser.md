@@ -13,10 +13,8 @@ Instead, file a bug against the relevant browser.
 Chrome (or Dawn/Tint):
   Known issues:
     https://issues.chromium.org/savedsearches/6760928
-    https://crbug.com/dawn
-    https://crbug.com/tint
   To file a new issue:
-    https://issues.chromium.org/issues/new?component=1456980
+    https://issues.chromium.org/issues/new?noWizard=true&component=1456980
 
 WebKit:
   https://bugs.webkit.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&component=WebGPU

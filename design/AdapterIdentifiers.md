@@ -1,5 +1,10 @@
 # WebGPU Adapter Identifiers
 
+**This document is outdated. `adapter.requestAdapterInfo()` has been replaced with
+`adapter.info` and `unmaskHints` doesn't exist anymore. See:
+[#4536](https://github.com/gpuweb/gpuweb/issues/4536),
+[#4316](https://github.com/gpuweb/gpuweb/pull/4316).
+
 ## Introduction
 
 The WebGL extension [WEBGL_debug_renderer_info](https://www.khronos.org/registry/webgl/extensions/WEBGL_debug_renderer_info/) reports identifying information about a device's graphics driver for the purposes of debugging or detection and avoidance of bugs or performance pitfalls on a particular driver or piece of hardware.
