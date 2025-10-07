@@ -89,6 +89,19 @@ New GPU features:
 | ------------------- | -------------------------------------------------------------------- |
 | `atomic_64_min_max` | Allows the WGSL feature predicated on support for these 64 bit operations |
 
+# Discussion
+
+From 2025-09-30 WGSL meeting:
+
+*Issue:* Only offer the feature when 64bit ints are supported? This may be the common case.
+
+*Issue:* If `u64` is supported generally, then should the base type for the atomic be `u64` or `vec2u`?
+
+*Note:* Unlike ordinary `atomicMin` and `atomicMax`, the functions don't return the resulting value.
+They don't return a value at all. The group discussed whether the names should be made distinct
+from `atomicMin` and `atomicMax`.  Note that the landed proposal uses `atomicStoreMin` and `atomicStoreMax` which
+is already distinct.
+
 # Appendix
 
 ## Appendix A: WGSL Built-in Function Mappings
