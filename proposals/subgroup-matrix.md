@@ -120,7 +120,10 @@ Additional functionality includes:
 
 ### MSL/Metal
 
-Apple calls them simdgroup matrices and support has existed since MSL 2.3. They are limited to relatively few GPUs though (Apple7+ in the [feature set](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf)). That is iPhone 12+, some newer iPads, and the M1 and later macs.
+Apple calls them simdgroup matrices and support has existed since MSL 2.3. 
+Not all Metal devices support it (Apple7+ in the [feature set](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf)).
+Intel-based Macs and many iPads are excluded.
+The supported devices include iPhone 12+, some newer iPads, and the M1 and later macs.  Apple7 is A14 Bionic, released in 2020.
 
 MSL support a small number of matrix variants:
 
@@ -277,6 +280,16 @@ subgroup matrix.
 
 Note: this is where the requirement on the subgroups feature stems from in
 practice.
+
+*Issue:* A developer is concerned this is too restrictive, and does not allow
+for configurations that achieve peak performance. They suggest constraining
+the workgroup size x dimension to be a multiple of the device _minimum_ subgroup size.
+* Reply: It would be nicer to say the x dimension is a multiple of the selected
+workgroup size, but there is no way to portably constrain it that way.
+Metal can query the subgroup size of a pipline, but Vulkan and D3D cannot.
+Vulkan and D3D can specify a subgroup size, but Metal cannot.
+
+See https://github.com/gpuweb/gpuweb/pull/5335#discussion_r2408982867
 
 #### Expressions
 
