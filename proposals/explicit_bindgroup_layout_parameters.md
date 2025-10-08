@@ -72,7 +72,7 @@ matrix is:
 | :--------------------------- | :-----------------: | :---------------------: | :---------------: |
 | Texture `float`              | Y                   | Y                       | Y                 |
 | Texture `unfilterable_float` | N                   | Y                       | *YA*              |
-| Texture `unknown`            | *YA*                | Y                       | Y                 |
+| Texture `unknown`            | *YA*                | Y                       | *YA*              |
 
 Note: YA means “yes because of the auto algorithm”: the automatic defaulting algorithm will ensure
 compatibility with actual uses in the shader.
