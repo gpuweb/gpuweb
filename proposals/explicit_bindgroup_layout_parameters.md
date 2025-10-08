@@ -26,7 +26,7 @@ needed layout information.
 * Sampler would be extended to permit a `filtering`, `non_filtering,`or `unknown` template parameter
 * [Sampled texture types](https://gpuweb.github.io/gpuweb/wgsl/#sampled-texture-type) where the
   [sampled type](https://gpuweb.github.io/gpuweb/wgsl/#sampled-type) is a floating point type would
-  be extended to take a `filterable`/`unfilterable/unknown` template parameter.
+  be extended to take a `filterable`/`unfilterable`/`unknown` template parameter.
 
 In both cases, if the parameter is not specified, it would be `unknown`, in which case the `"auto"`
 layout algorithm will pick a value, as it does today.
@@ -36,7 +36,7 @@ types: `texture_*<i32>`, `texture_*<u32>`, and `texture_depth_*`.
 
 ## Example
 
-```
+```wgsl
 @group(0) @binding(0) var sampler1: sampler<filtering>;
 @group(0) @binding(1) var sampler2: sampler<non_filtering>;
 
@@ -108,7 +108,7 @@ first obey the filtering parameter, then apply defaults from there.
 The new filtering parameters will affect function parameters. The extra filtering information can be
 provided when writing a function signature.
 
-```
+```wgsl
 fn a(b: sampler<filtering>, c: texture_2d<f32, unfilterable>)
 ```
 
