@@ -3,11 +3,8 @@
 
 * Authors: @kainino0x, @kangz, @dneto0, @dj2
 * Updated: Oct 8, 2025
-* Issues: [#4956](https://github.com/gpuweb/gpuweb/issues/4956)
-        (related [#4957](https://github.com/gpuweb/gpuweb/issues/4957)).
-        The type changes are also required for bindless, [#380](https://github.com/gpuweb/gpuweb/issues/380).
+* Issue: [#5353](https://github.com/gpuweb/gpuweb/issues/5353)
 * Status: **Proposal**
-
 
 In order to be able to create more pipelines with the `auto` layout in WebGPU, and to provide the
 needed information to implement bindless, we propose to add binding layout information for textures
@@ -17,6 +14,12 @@ The requirements of bindless add extra constraints on how the extra information 
 for bindless we need the information in the generic parameter for `getBinding` and `hasBinding`.
 (See [Bindless Investigation](https://hackmd.io/@cwfitzgerald/wgpu-bindless#Shader-API-round-2) for
 description of get/has binding.)
+
+Motivating Issues:
+1. [#4956](https://github.com/gpuweb/gpuweb/issues/4956)
+2. [#4957](https://github.com/gpuweb/gpuweb/issues/4957)
+3. The type changes are also required for bindless, [#380](https://github.com/gpuweb/gpuweb/issues/380).
+
 
 # Proposal
 
