@@ -124,7 +124,7 @@ bindings, and, as today, the `"auto"` layout algorithm or bind group layout vali
 care of them. That is, the transitive closure of call sites of this function must eventually reach
 only non-bindless bindings for those parameters.  (See issue below)
 
-## *Binding depth textures to non-depth bind points*
+## Binding depth textures to non-depth bind points
 
 Later, in order to support [#4957](https://github.com/gpuweb/gpuweb/issues/4957), the texture type
 parameter can additionally be `depth`. Validation-wise, this is exactly the same as `unfilterable`,
