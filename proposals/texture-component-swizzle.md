@@ -44,9 +44,15 @@ The `GPUTexture.createView(descriptor)` algorithm is extended with the following
 
 - `descriptor.swizzle` must be a four-character string that only includes `"r"`, `"g"`, `"b"`, `"a"`, `"0"`, or `"1"`, otherwise a `TypeError` is raised.
 
-- If `descriptor.usage` includes the `RENDER_ATTACHMENT` or `STORAGE_BINDING` bit, `descriptor.swizzle` must be `"rgba"`.
-
 - If `descriptor.swizzle` is not `"rgba"`, the `"texture-component-swizzle"` feature must be enabled.
+
+The `renderable texture view` definition requirements are extended with the following change:
+
+- `descriptor.swizzle` must be `"rgba"`.
+
+The `GPUDevice.createBindGroup()` algorithm is extended with the following change:
+
+- `storageTextureView.[[descriptor]].swizzle` must be `"rgba"`.
 
 If the feature `"core-features-and-limits"` is not enabled on a device, a draw call may not bind two views of the same texture differing in swizzle. Only a single swizzle per texture is supported. This is enforced via validation at draw time.
 
