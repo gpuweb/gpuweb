@@ -68,21 +68,23 @@ Validation of the texture/sampler pairs used in texture calls to make sure unfil
 not sampled with filtering.  These cases generate shader-creation errors.  The compatibility
 matrix is:
 
-|                              | Sampler `filtering` | Sampler `non_filtering` | Sampler `unknown` |
-| :--------------------------- | :-----------------: | :---------------------: | :---------------: |
-| Texture `float`              | Y                   | Y                       | Y                 |
-| Texture `unfilterable_float` | N                   | Y                       | *YA*              |
-| Texture `unknown`            | *YA*                | Y                       | *YA*              |
+|                              | Sampler `non_filtering` | Sampler `filtering` | Sampler `unknown` |
+| :--------------------------- | :---------------------: | :-----------------: | :---------------: |
+| Texture `float`              | Y                       | Y                   | Y                 |
+| Texture `unfilterable_float` | Y                       | N                   | *YA*              |
+| Texture `unknown`            | Y                       | *YA*                | *YA*              |
 
-Note: YA means “yes because of the auto algorithm”: the automatic defaulting algorithm will ensure
-compatibility with actual uses in the shader.
+Note: YA means “can't be rejected yet, have to check at pipeline creation with a BindGroupLayout.
+There always exists a layout for which this will be valid, and the auto layout algorithm will always
+be able to find one.”
 
 Only one parameter can be provided to a texture/sampler. Providing it twice (e.g.
 `sampler<filtering, filtering>` is a `createShaderModule` error). The filtering parameters for
 textures must only be used with a floating-point sampled type.
 
-For `getBinding`/`hasBinding`, the extra layout parameter is required. (Relaxing this restriction
-would require inferring the parameter; see "Automatic layouts for bindless" below.)
+For `getBinding`/`hasBinding`, the extra layout parameter is required and can not be `unknown`.
+(Relaxing this restriction would require inferring the parameter; see
+"Automatic layouts for bindless" below.)
 
 The extra filtering parameter provided in the shader will trigger errors on the API side if they
 don't match up with the bind group information. At pipeline creation with an *explicit* layout,
@@ -119,10 +121,11 @@ This will then require any `sampler`/`texture` passed into this function to matc
 parameters. (Although, see "Conversions between types with different filterability/filteringness"
 below).
 
-If no filterable parameters are provided, then they must be traceable back to static (non-bindless)
-bindings, and, as today, the `"auto"` layout algorithm or bind group layout validation will take
-care of them. That is, the transitive closure of call sites of this function must eventually reach
-only non-bindless bindings for those parameters.  (See issue below)
+If no filterable parameters are provided (omitting the fiterability/filteringness enum is equivalent
+to `unknown`), then they must be traceable back to static (non-bindless) bindings, and, as today,
+the `"auto"` layout algorithm or bind group layout validation will take care of them. That is, the
+transitive closure of call sites of this function must eventually reach only non-bindless bindings
+for those parameters.  (See issue below)
 
 ## Binding depth textures to non-depth bind points
 
