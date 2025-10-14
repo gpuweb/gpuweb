@@ -639,12 +639,15 @@ class ScanResult(dict):
          A dictionary mapping the name of an example to the
          WGSL source text for the example.
          The name is taken from the "heading" attriute of the <div> element.
+    self['_reserved']
+         A list of reserved words.
     """
     def __init__(self):
         self[scanner_rule.name()] = dict()
         self[scanner_example.name()] = dict()
         self[scanner_token.name()] = dict()
         self['raw'] = []
+        self['_reserved'] = []
 
 
 def read_spec(options):
@@ -652,6 +655,10 @@ def read_spec(options):
     Returns a ScanResult from parsing the Bikeshed source of the WGSL spec.
     """
     result = ScanResult()
+
+    # Read reserved words
+    with open('wgsl.reserved.plain', "r") as file:
+        result['_reserved'] = [s.strip() for s in file.readlines()]
 
     # Get the input bikeshed text.
     scanner_lines = read_lines_from_file(
@@ -1002,7 +1009,6 @@ def flow_extract(options, scan_result):
 
     inline: $ => [
         $.global_decl,
-        $._reserved,
     ],
 
     // WGSL has no parsing conflicts.
@@ -1089,9 +1095,12 @@ def flow_extract(options, scan_result):
             "_blankspace", {'type': 'pattern',
                                'value': derivative_patterns["_blankspace"]})
         rule_skip.add("_blankspace")
+        grammar_source += ",\n"
 
+        # Reserved words
 
-        grammar_source += "\n"
+        grammar_source += "\n        _reserved: $ => choice('" + "', '".join(scan_result['_reserved']) + "'),\n"
+
         grammar_source += r"""
     }
 });"""[1:-1]
@@ -1209,10 +1218,11 @@ def flow_build(options):
             print(f"stdout: {e.stdout}")
             print(f"stderr: {e.stderr}")
             return False
+        return True
 
     if newer_than(scanner_cc_staging, stampfile) or newer_than(options.grammar_filename,stampfile):
         print("{}: ...Building custom scanner".format(options.script))
-        build_library([scanner_cc_staging, os.path.join(options.grammar_dir,"src","parser.c")])
+        return build_library([scanner_cc_staging, os.path.join(options.grammar_dir,"src","parser.c")])
     else:
         print("{}: ...Skip building tree_sitter_wgsl: grammar/build.stamp is fresh".format(options.script))
     return True

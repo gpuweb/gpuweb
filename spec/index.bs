@@ -185,11 +185,13 @@ spec: Khronos Data Format Specification; urlPrefix: https://registry.khronos.org
 <link rel="icon" type="image/png" sizes="96x96" href="img/favicon-96x96.png">
 
 <style>
-/* Displays the WebGPU logo next to the W3C logo */
-.head h1:after {
+/* Displays the WebGPU logo below the W3C logo */
+.head h1:before {
     content: url(img/logo.png);
     content: url(img/logo.png) / "WebGPU logo"; /* alt text */
     float: right;
+    clear: right;
+    margin-right: 34px;
 }
 
 /* Make <dl> blocks more distinct from their surroundings. */
@@ -728,8 +730,8 @@ interface mixin GPUObjectBase {
     guaranteed, however, as holding a strong reference to a parent object may be required in some
     implementations.
 
-    As a result, developers should assume that a [=WebGPU interface=] may not be garbage collected
-    until all child objects of that interface have also been garbage collected. This may cause some
+    As a result, developers should assume that a [=WebGPU interface=] may remain live
+    until all child objects of that interface have also been garbage collected, causing some
     resources to remain allocated longer than anticipated.
 
     Calling the `destroy` method on a [=WebGPU interface=] (such as
@@ -1074,7 +1076,7 @@ that is most efficient for GPUs to operate on.
 All of these transitions are done by the WebGPU implementation of the user agent.
 
 Note: This example describes the worst case, while in practice
-the implementation may not need to cross the process boundary,
+the implementation might not need to cross the process boundary,
 or may be able to expose the driver-managed memory directly to
 the user behind an `ArrayBuffer`, thus avoiding any data copies.
 
@@ -1159,7 +1161,7 @@ WebGPU more likely to run without modification on different platforms.
     - Disjoint ranges of a single buffer may be bound to two different binding
         points as [=internal usage/storage=].
 
-        Overlapping ranges may *not* be bound to a single dispatch/draw call;
+        Overlapping ranges must not be bound to a single dispatch/draw call;
         this is checked by "[$Encoder bind groups alias a writable resource$]".
 </div>
 
@@ -1169,7 +1171,7 @@ WebGPU more likely to run without modification on different platforms.
     This is necessary to allow disjoint slices of 3D textures
     to be bound as different attachments to a single render pass.
 
-    One slice may *not* be bound twice for two different attachments;
+    One slice must not be bound twice for two different attachments;
     this is checked by {{GPUCommandEncoder/beginRenderPass()}}.
 </div>
 
@@ -1510,7 +1512,7 @@ API calls perform validation according to these features (not the [=adapter=]'s 
 See the [[#feature-index|Feature Index]] for a description of the functionality each feature enables.
 
 Note:
-Enabling features may not necessarily be desirable, as doing so may have a performance impact.
+Even where supported, enabling features is not necessarily desirable, as doing so may have a performance impact.
 Because of this, and to improve portability across devices and implementations,
 applications should generally only request features that they may actually require.
 
@@ -1519,7 +1521,7 @@ applications should generally only request features that they may actually requi
 Each <dfn dfn>limit</dfn> is a numeric limit on the usage of WebGPU on a device.
 
 Note:
-Setting "better" limits may not necessarily be desirable, as doing so may have a performance impact.
+Even where supported, setting "better" limits is not necessarily desirable, as doing so may have a performance impact.
 Because of this, and to improve portability across devices and implementations, applications should
 generally only request limits better than the defaults if they may actually require them.
 
@@ -2079,6 +2081,27 @@ interface GPUAdapterInfo {
     </div>
 </div>
 
+<h3 id=feature-detection data-dfn-type=dfn>Feature Detection
+</h3>
+
+*This section is non-normative.*
+
+Fully implementing this specification requires implementation of everything it specifies, except
+where otherwise stated (like [[#optional-capabilities]]).
+
+However, since new "core" additions are added to this specification before being exposed by
+implementations, many features are designed to be feature-detectable by applications:
+
+- Interface support can be detected with `typeof InterfaceName !== 'undefined'`.
+- Method and attribute support can be detected with `'itemName' in InterfaceName.prototype`.
+- New dictionary members, if they need to be detectable, generally document a specific
+    mechanism for feature detection. For example:
+
+    - {{GPUPrimitiveState/unclippedDepth}} support is part of a device feature,
+        {{GPUFeatureName/"depth-clip-control"}}.
+    - Canvas support for {{GPUCanvasConfiguration/toneMapping}} is detected using
+        {{GPUCanvasContext/getConfiguration()}}.
+
 ## Extension Documents ## {#extension-documents}
 
 "Extension Documents" are additional documents which describe new functionality which is
@@ -2167,6 +2190,24 @@ premultiplication) in which the WebGPU numeric values are to be interpreted.
 WebGPU allows all of the color spaces in the {{PredefinedColorSpace}} enum.
 Note, each color space is defined over an extended range, as defined by the referenced CSS definitions,
 to represent color values outside of its space (in both chrominance and luminance).
+
+<div class=note heading>
+    As described above, {{GPUTexture}}s are not color managed. This includes `-srgb` formats,
+    which despite their are not *tagged* with an sRGB color space (like those described by
+    {{PredefinedColorSpace}} and the CSS color spaces <a value for=color()>srgb</a> and
+    <a value for=color()>srgb-linear</a>).
+
+    However, `-srgb` texture formats *do* have gamma-encoding/decoding properties which are
+    algorithmically close to those used for gamma encoding in {{PredefinedColorSpace/"srgb"}} and
+    {{PredefinedColorSpace/"display-p3"}}. For example, a fragment
+    shader can output an "sRGB-linear"-encoded (physically linear) color value into an `-srgb`
+    format texture, which will gamma-encode the value when it is written.
+    Then, the value in the texture will be correctly encoded for use on a
+    {{PredefinedColorSpace/"srgb"}}-tagged (approximately perceptually-linear) canvas.
+
+    It is similarly possible to take advantage of these properties using
+    {{GPUQueue/copyExternalImageToTexture()}}; see its description for additional information.
+</div>
 
 An <dfn dfn>out-of-gamut premultiplied RGBA value</dfn> is one where any of the R/G/B channel values
 exceeds the alpha channel value. For example, the premultiplied sRGB RGBA value [1.0, 0, 0, 0.5]
@@ -2964,6 +3005,7 @@ enum GPUFeatureName {
     "texture-formats-tier1",
     "texture-formats-tier2",
     "primitive-index",
+    "texture-component-swizzle",
 };
 </script>
 
@@ -3357,15 +3399,15 @@ enum GPUBufferMapState {
         <dl dfn-type=dfn dfn-for="GPUBuffer/[[internal state]]">
             : "<dfn>available</dfn>"
             ::
-                The buffer may be used in queue operations (unless it is [$invalid$]).
+                The buffer can be used in queue operations (unless it is [$invalid$]).
 
             : "<dfn>unavailable</dfn>"
             ::
-                The buffer may not be used in queue operations due to being mapped.
+                The buffer cannot be used in queue operations due to being mapped.
 
             : "<dfn>destroyed</dfn>"
             ::
-                The buffer may not be used in any operations due to being {{GPUBuffer/destroy()}}ed.
+                The buffer cannot be used in any operations due to being {{GPUBuffer/destroy()}}ed.
         </dl>
 </dl>
 
@@ -3915,7 +3957,7 @@ The {{GPUMapMode}} flags determine how a {{GPUBuffer}} is mapped when calling
                     but with its pointer mutably referencing the content of |data| at offset
                     (|offset| - {{GPUBuffer/[[mapping]]}}.[=active buffer mapping/range=][0]).
 
-                    Note: A {{RangeError}} may not be thrown here, because the |data| has already
+                    Note: A {{RangeError}} cannot be thrown here, because the |data| has already
                     been allocated during {{GPUBuffer/mapAsync()}} or {{GPUDevice/createBuffer()}}.
 
                 1. Set |view|.{{ArrayBuffer/[[ArrayBufferDetachKey]]}} to "WebGPUBufferMapping".
@@ -4691,6 +4733,9 @@ dictionary GPUTextureViewDescriptor
     GPUIntegerCoordinate mipLevelCount;
     GPUIntegerCoordinate baseArrayLayer = 0;
     GPUIntegerCoordinate arrayLayerCount;
+
+    // Requires "texture-component-swizzle" feature.
+    DOMString swizzle = "rgba";
 };
 </script>
 
@@ -4737,6 +4782,23 @@ dictionary GPUTextureViewDescriptor
     ::
         How many array layers, starting with {{GPUTextureViewDescriptor/baseArrayLayer}}, are accessible
         to the texture view.
+
+    : <dfn>swizzle</dfn>
+    ::
+        A string of length four, with each character mapping to the texture view's red/green/blue/alpha
+        channels, respectively.
+
+        When accessed by a shader, the red/green/blue/alpha channels are replaced by the value
+        corresponding to the component specified in `swizzle[0]`, `swizzle[1]`, `swizzle[2]`, and
+        `swizzle[3]`, respectively:
+        - `"r"`: Take its value from the red channel of the texture.
+        - `"g"`: Take its value from the green channel of the texture.
+        - `"b"`: Take its value from the blue channel of the texture.
+        - `"a"`: Take its value from the alpha channel of the texture.
+        - `"0"`: Force its value to 0.
+        - `"1"`: Force its value to 1.
+
+        Requires the {{GPUFeatureName/"texture-component-swizzle"}} feature to be enabled.
 </dl>
 
 <script type=idl>
@@ -4899,6 +4961,7 @@ enum GPUTextureAspect {
 
                 1. [=?=] [$Validate texture format required features$] of
                     |descriptor|.{{GPUTextureViewDescriptor/format}} with |this|.{{GPUObjectBase/[[device]]}}.
+                1. [=?=] [$Validate swizzle string$] of |descriptor|.{{GPUTextureViewDescriptor/swizzle}}.
                 1. Let |view| be [=!=] [$create a new WebGPU object$](|this|, {{GPUTextureView}}, |descriptor|).
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |view|.
@@ -4925,6 +4988,8 @@ enum GPUTextureAspect {
                                 |this|.{{GPUTexture/format}},
                                 |descriptor|.{{GPUTextureViewDescriptor/aspect}}).
 
+                        - If |descriptor|.{{GPUTextureViewDescriptor/swizzle}} is not `"rgba"`,
+                            {{GPUFeatureName/"texture-component-swizzle"}} must be [=enabled for=] |this|.{{GPUObjectBase/[[device]]}}.
                         - |descriptor|.{{GPUTextureViewDescriptor/usage}} must be a subset of |this|.{{GPUTexture/usage}}.
                         - If |descriptor|.{{GPUTextureViewDescriptor/usage}} includes the {{GPUTextureUsage/RENDER_ATTACHMENT}} bit:
                             - |descriptor|.{{GPUTextureViewDescriptor/format}} must be a [=renderable format=].
@@ -5063,6 +5128,14 @@ enum GPUTextureAspect {
                 : {{GPUTextureDimension/"2d"}}
                 :: Return |texture|.{{GPUTexture/depthOrArrayLayers}}.
             </dl>
+</div>
+
+<div algorithm class=validusage data-timeline=content>
+    To <dfn abstract-op>Validate swizzle string</dfn> of a {{DOMString}} |swizzle|,
+    run the following [=content timeline=] steps:
+
+    1. If |swizzle| does not match the [[!ECMAScript]] regexp `^[rgba01]{4}$`:
+        1. Throw a {{TypeError}}.
 </div>
 
 ## Texture Formats ## {#texture-formats}
@@ -5289,7 +5362,7 @@ See [[#texture-format-caps]].
 </div>
 
 Use of some texture formats require a feature to be enabled on the {{GPUDevice}}. Because new
-formats can be added to the specification, those enum values may not be known by the implementation.
+formats can be added to the specification, those enum values might not be known by the implementation.
 In order to normalize behavior across implementations, attempting to use a format that requires a
 feature will throw an exception if the associated feature is not enabled on the device. This makes
 the behavior the same as when the format is unknown to the implementation.
@@ -5310,7 +5383,7 @@ See [[#texture-format-caps]] for information about which {{GPUTextureFormat}}s r
 </h3>
 
 A {{GPUExternalTexture}} is a sampleable 2D texture wrapping an external video frame.
-It is an immutable snapshot; its contents may not change over time, either from inside WebGPU
+It is an immutable snapshot; its contents cannot change over time, either from inside WebGPU
 (it is only sampleable) or from outside WebGPU (e.g. due to video frame advancement).
 
 {{GPUExternalTexture}}s can be bound into bind groups via the
@@ -5330,7 +5403,7 @@ Note that member uses several binding slots, as defined there.
     - Metadata for converting coordinates before reading from those planes (crop and rotation).
     - Metadata for converting values into the specified output color space (matrices, gammas, 3D LUT).
 
-    The configuration used internally by an implementation may not be consistent across time,
+    The configuration used internally by an implementation may be inconsistent across time,
     systems, user agents, media sources, or even frames within a single video source.
     In order to account for many possible representations,
     the binding conservatively uses the following, for *each* external texture:
@@ -6627,6 +6700,7 @@ following members:
                                         - |storageTextureView|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/usage}}
                                             includes {{GPUTextureUsage/STORAGE_BINDING}}.
                                         - |storageTextureView|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/mipLevelCount}} must be 1.
+                                        - |storageTextureView|.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/swizzle}} must be `"rgba"`.
 
                                     :  {{GPUBindGroupLayoutEntry/buffer}}
                                     ::
@@ -7184,8 +7258,7 @@ interface GPUCompilationInfo {
 A {{GPUCompilationMessage}} is an informational, warning, or error message generated by the
 {{GPUShaderModule}} compiler. The messages are intended to be human readable to help developers
 diagnose issues with their shader {{GPUShaderModuleDescriptor/code}}. Each message may correspond to
-either a single point in the shader code, a substring of the shader code, or may not correspond to
-any specific point in the code at all.
+a single point or range of the shader source, or may be unassociated with any specific part of the code.
 
 {{GPUCompilationMessage}} has the following attributes:
 
@@ -7261,8 +7334,8 @@ Note: {{GPUCompilationMessage}}.{{GPUCompilationMessage/offset}} and
     ::
         Returns any messages generated during the {{GPUShaderModule}}'s compilation.
 
-        The locations, order, and contents of messages are [=implementation-defined=]
-        In particular, messages may not be ordered by {{GPUCompilationMessage/lineNum}}.
+        The locations, order, and contents of messages are [=implementation-defined=].
+        In particular, messages aren't necessarily ordered by {{GPUCompilationMessage/lineNum}}.
 
         <div algorithm=GPUShaderModule.getCompilationInfo>
             <div data-timeline=content>
@@ -11643,7 +11716,7 @@ dictionary GPUComputePassTimestampWrites {
 </dl>
 
 Note: Timestamp query values are written in nanoseconds, but how the value is determined is
-[=implementation-defined=] and may not increase monotonically. See [[#timestamp]] for details.
+[=implementation-defined=]. See [[#timestamp]] for details.
 
 <script type=idl>
 dictionary GPUComputePassDescriptor
@@ -12027,7 +12100,7 @@ dictionary GPURenderPassTimestampWrites {
 </dl>
 
 Note: Timestamp query values are written in nanoseconds, but how the value is determined is
-[=implementation-defined=] and may not increase monotonically. See [[#timestamp]] for details.
+[=implementation-defined=]. See [[#timestamp]] for details.
 
 <script type=idl>
 dictionary GPURenderPassDescriptor
@@ -12247,6 +12320,7 @@ dictionary GPURenderPassColorAttachment {
         1. |descriptor|.{{GPUTextureViewDescriptor/arrayLayerCount}} must be 1.
         1. |descriptor|.{{GPUTextureViewDescriptor/aspect}} must refer to all [=aspects=] of
             |view|.{{GPUTextureView/[[texture]]}}.
+        1. |descriptor|.{{GPUTextureViewDescriptor/swizzle}} must be `"rgba"`.
     </div>
 </div>
 
@@ -14070,21 +14144,9 @@ GPUQueue includes GPUObjectBase;
                             {{GPUTextureUsage/RENDER_ATTACHMENT}} and {{GPUTextureUsage/COPY_DST}}.
                         - |texture|.{{GPUTexture/dimension}} must be {{GPUTextureDimension/"2d"}}.
                         - |texture|.{{GPUTexture/sampleCount}} must be 1.
-                        - |texture|.{{GPUTexture/format}} must be one of the following
-                            formats (which all support {{GPUTextureUsage/RENDER_ATTACHMENT}} usage):
-                            - {{GPUTextureFormat/"r8unorm"}}
-                            - {{GPUTextureFormat/"r16float"}}
-                            - {{GPUTextureFormat/"r32float"}}
-                            - {{GPUTextureFormat/"rg8unorm"}}
-                            - {{GPUTextureFormat/"rg16float"}}
-                            - {{GPUTextureFormat/"rg32float"}}
-                            - {{GPUTextureFormat/"rgba8unorm"}}
-                            - {{GPUTextureFormat/"rgba8unorm-srgb"}}
-                            - {{GPUTextureFormat/"bgra8unorm"}}
-                            - {{GPUTextureFormat/"bgra8unorm-srgb"}}
-                            - {{GPUTextureFormat/"rgb10a2unorm"}}
-                            - {{GPUTextureFormat/"rgba16float"}}
-                            - {{GPUTextureFormat/"rgba32float"}}
+                        - |texture|.{{GPUTexture/format}} must be a [[#plain-color-formats|plain color format]]
+                            supporting {{GPUTextureUsage/RENDER_ATTACHMENT}} and be a
+                            `unorm`/`unorm-srgb` or `float`/`ufloat` format (not `snorm`, `uint`, or `sint`).
                     </div>
 
                 1. If |copySize|.[=GPUExtent3D/depthOrArrayLayers=] is &gt; 0, issue the subsequent
@@ -14105,14 +14167,26 @@ GPUQueue includes GPUObjectBase;
                     1. Let |srcY| be |y| if |source|.{{GPUCopyExternalImageSourceInfo/flipY}} is `false` and
                         (|copySize|.[=GPUExtent3D/height=] &minus; 1 &minus; |y|) otherwise.
                     1. For each |x| in the range [0, |copySize|.[=GPUExtent3D/width=] &minus; 1]:
-                        1. Set [=texel block=]
-                            (|dstOrigin|.[=GPUOrigin3D/x=] &plus; |x|, |dstOrigin|.[=GPUOrigin3D/y=] &plus; |y|) of
-                            |dstSubregion| to be an [=equivalent texel representation=] of the pixel at
+                        1. Let |srcColor| be the [[#color-spaces|color-managed color value]] of the pixel at
                             (|srcOrigin|.[=GPUOrigin2D/x=] &plus; |x|, |srcOrigin|.[=GPUOrigin2D/y=] &plus; |srcY|) of
-                            |source|.{{GPUCopyExternalImageSourceInfo/source}} after applying any
+                            |source|.{{GPUCopyExternalImageSourceInfo/source}}.
+                        1. Let |dstColor| be the numeric RGBA value resulting from applying any
                             [[#color-space-conversions|color encoding]] required by
                             |destination|.{{GPUCopyExternalImageDestInfo/colorSpace}} and
-                            |destination|.{{GPUCopyExternalImageDestInfo/premultipliedAlpha}}.
+                            |destination|.{{GPUCopyExternalImageDestInfo/premultipliedAlpha}}
+                            to |srcColor|.
+                        1. If |texture|.{{GPUTexture/format}} is an `-srgb` format:
+                            1. Set |dstColor| to the result of applying the sRGB non-linear-to-linear conversion to it.
+
+                            Note:
+                            This cancels out the sRGB linear-to-non-linear conversion that occurs
+                            when writing an `-srgb` format in the next step, so that precision
+                            from an sRGB-like input image is not lost and the *linear* color values
+                            of the original image can be read from the texture
+                            (as is generally the purpose of using `-srgb` formats).
+                        1. Set [=texel block=]
+                            (|dstOrigin|.[=GPUOrigin3D/x=] &plus; |x|, |dstOrigin|.[=GPUOrigin3D/y=] &plus; |y|) of
+                            |dstSubregion| to an [=equivalent texel representation=] of |dstColor|.
             </div>
         </div>
 
@@ -14402,11 +14476,14 @@ Timestamp queries allow applications to write timestamps to a {{GPUQuerySet}}, u
 and then resolve timestamp values (in nanoseconds as a [=64-bit unsigned integer=]) into
 a {{GPUBuffer}}, using {{GPUCommandEncoder}}.{{GPUCommandEncoder/resolveQuerySet()}}.
 
-Timestamp values are [=implementation-defined=] and may not increase monotonically. The physical device
-may reset the timestamp counter occasionally, which can result in unexpected values such as negative
-deltas between timestamps that logically should be monotonically increasing. These instances should
-be rare and can safely be ignored. Applications should not be written in such a way that unexpected
+Timestamp values are [=implementation-defined=].
+Applications must handle arbitrary timestamp results, and should not be written in such a way that unexpected
 timestamps cause an application failure.
+
+Note:
+The physical device may reset the timestamp counter occasionally, which can
+result in unexpected values such as negative deltas from one timestamp to the next.
+These instances should be rare, and these data points can safely be discarded.
 
 <p tracking-vector>
 Timestamp queries are implemented using high-resolution timers (see [[#security-timing-device]]).
@@ -14420,8 +14497,8 @@ To mitigate security and privacy concerns, their precision must be reduced:
     - Return the result of calling [=coarsen time=] on |fineTimestamp|
         with `crossOriginIsolatedCapability` set to `false`.
 
-    Note: Since cross-origin isolation may not apply to the [=device timeline=] or
-    [=queue timeline=], `crossOriginIsolatedCapability` is never set to `true`.
+    Note: Cross-origin isolation never applies to the [=device timeline=] or
+    [=queue timeline=], so `crossOriginIsolatedCapability` is never set to `true`.
 </div>
 
 <div algorithm data-timeline=device>
@@ -14588,6 +14665,8 @@ interface GPUCanvasContext {
         Configures the context for this canvas.
         This clears the drawing buffer to transparent black (in [$Replace the drawing buffer$]).
 
+        See {{GPUCanvasContext/getConfiguration()}} for information on [=feature detection=].
+
         <div algorithm=GPUCanvasContext.configure>
             <div data-timeline=content>
                 **Called on:** {{GPUCanvasContext}} |this|.
@@ -14613,15 +14692,10 @@ interface GPUCanvasContext {
                     [$GPUTextureDescriptor for the canvas and configuration$](|this|.{{GPUCanvasContext/canvas}}, |configuration|).
                 1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to |configuration|.
 
-                    <div class=note heading>
-                        This spec requires supporting HDR via the {{GPUCanvasConfiguration/toneMapping}} option.
-                        If a user agent only supports <code>toneMapping: "standard"</code>,
-                        then the {{GPUCanvasConfiguration/toneMapping}} member should *not* exist in
-                        {{GPUCanvasConfiguration}}, so it will not exist on the object returned by
-                        {{GPUCanvasContext/getConfiguration()}} and will not be accessed by
-                        {{GPUCanvasContext/configure()}}). This allows websites to detect feature
-                        support.
-                    </div>
+                    Note:
+                    This exposes only the members defined in an implementation's definition of
+                    {{GPUCanvasConfiguration}}. See the specifications of those members for notes about
+                    [=feature detection=].
 
                 1. Set |this|.{{GPUCanvasContext/[[textureDescriptor]]}} to |descriptor|.
                 1. [$Replace the drawing buffer$] of |this|.
@@ -14664,7 +14738,12 @@ interface GPUCanvasContext {
 
     : <dfn>getConfiguration()</dfn>
     ::
-        Returns the context configuration.
+        Returns the context configuration, or `null` if the context is not configured.
+
+        Note:
+        This method exists primarily for [=feature detection=] of members (and sub-members) of
+        {{GPUCanvasConfiguration}}; see those members for details.
+        For supported members, it returns the originally-supplied values.
 
         <div algorithm=GPUCanvasContext.getConfiguration>
             <div data-timeline=content>
@@ -14677,13 +14756,6 @@ interface GPUCanvasContext {
                 1. Let |configuration| be a copy of |this|.{{GPUCanvasContext/[[configuration]]}}.
                 1. Return |configuration|.
             </div>
-        </div>
-
-        <div class=note heading>
-            In scenarios where {{GPUCanvasContext/getConfiguration()}} shows that
-            {{GPUCanvasConfiguration/toneMapping}} is implemented and the <l>'@media/dynamic-range'</l> media
-            query indicates HDR support, then WebGPU canvas **should** render content using the full
-            HDR range instead of clamping values to the SDR range of the HDR display.
         </div>
 
     : <dfn>getCurrentTexture()</dfn>
@@ -14998,7 +15070,20 @@ dictionary GPUCanvasConfiguration {
         The tone mapping determines how the content of textures returned by
         {{GPUCanvasContext/getCurrentTexture()}} are to be displayed.
 
-        Note: If an implementation doesn't support HDR WebGPU canvases, it should also not expose this member, to allow for feature detection. See {{GPUCanvasContext/getConfiguration()}}.
+        <div class=note heading>
+            This is a required feature, but user agents might not yet implement it,
+            effectively supporting only the default {{GPUCanvasToneMapping}}.
+            In such implementations, this member **should not** exist in its implementation of
+            {{GPUCanvasConfiguration}}, to make [=feature detection=] possible using
+            {{GPUCanvasContext/getConfiguration()}}.
+
+            This is especially important in implementations which otherwise have HDR capabilities
+            (where a <l>'@media/dynamic-range'</l> of <l>''@media/dynamic-range/high''</l> would be
+            exposed).
+
+            If an implementation exposes this member and a `high` dynamic range, it **should** render the
+            canvas as an HDR element, not clamp values to the SDR range of the HDR display.
+        </div>
 
     : <dfn>alphaMode</dfn>
     ::
@@ -15620,7 +15705,7 @@ always be wrapped in a smaller nested error scope.
 When a {{GPUError}} is generated that is not observed by any [=GPU error scope=], the user agent **may** [=fire an event=] named <dfn event for=GPUDevice>uncapturederror</dfn> at a {{GPUDevice}} using {{GPUUncapturedErrorEvent}}.
 
 Note: {{GPUDevice/uncapturederror}} events are intended to be used for telemetry and reporting
-unexpected errors. They may not be dispatched for all uncaptured errors (for example, there may be a limit on the number of errors surfaced), and should not be used for handling known error cases that may occur during
+unexpected errors. They won't necessarily be dispatched for all uncaptured errors (for example, there may be a limit on the number of errors surfaced), so they should not be used for handling known error cases that may occur during
 normal operation of an application. Prefer using {{GPUDevice/pushErrorScope()}} and
 {{GPUDevice/popErrorScope()}} in those cases.
 
@@ -16573,7 +16658,7 @@ It guarantees that:
 - if |alpha| &le; 0.0, the result is 0x0
 - if |alpha| &ge; 1.0, the result is 0xFFFFFFFF
 - intermediate |alpha| values should result in a proportionate number of bits set to 1 in the mask.
-    Some platforms may not guarantee that the number of bits set to 1 in the mask monotonically
+    Not all platforms guarantee that the number of bits set to 1 in the mask monotonically
     increases as alpha increases for a given pixel.
 
 <h4 id=per-sample-shading>Per-Sample Shading
@@ -17005,10 +17090,12 @@ This feature adds the following [=optional API surfaces=]:
 Allows the {{GPUTextureUsage/RENDER_ATTACHMENT}} usage on textures with format {{GPUTextureFormat/"rg11b10ufloat"}},
 and also allows textures of that format to be blended, multisampled, and resolved.
 
+Implicitly allows {{GPUTextureFormat/"rg11b10ufloat"}} as a destination format in {{GPUQueue/copyExternalImageToTexture()}}.
+
 This feature adds no [=optional API surfaces=].
 
-Enabling {{GPUFeatureName/"texture-formats-tier1"}} at device creation will also enable
-{{GPUFeatureName/"rg11b10ufloat-renderable"}}.
+Note: This feature is automatically enabled by {{GPUFeatureName/"texture-formats-tier1"}},
+which is automatically enabled by {{GPUFeatureName/"texture-formats-tier2"}}.
 
 <h3 id=bgra8unorm-storage data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"bgra8unorm-storage"`
 </h3>
@@ -17073,6 +17160,9 @@ expose real values whenever the feature is available on the adapter:
 <h3 id=texture-formats-tier1 data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"texture-formats-tier1"`
 </h3>
 
+Enabling {{GPUFeatureName/"texture-formats-tier1"}} at device creation will enable
+{{GPUFeatureName/"rg11b10ufloat-renderable"}}. The following items are in addition to that.
+
 Supports the below new {{GPUTextureFormat}}s with the {{GPUTextureUsage/RENDER_ATTACHMENT}},
 [=blendable=], `multisampling` capabilities and the {{GPUTextureUsage/STORAGE_BINDING}} capability
 with the {{GPUStorageTextureAccess/"read-only"}} and {{GPUStorageTextureAccess/"write-only"}}
@@ -17110,14 +17200,18 @@ Allows the {{GPUStorageTextureAccess/"read-only"}} or {{GPUStorageTextureAccess/
 - {{GPUTextureFormat/"rgb10a2unorm"}}
 - {{GPUTextureFormat/"rg11b10ufloat"}}
 
-Enabling {{GPUFeatureName/"texture-formats-tier2"}} at device creation will also enable
-{{GPUFeatureName/"texture-formats-tier1"}}.
+Implicitly allows the following new destination formats in {{GPUQueue/copyExternalImageToTexture()}}:
+- {{GPUTextureFormat/"r16unorm"}}
+- {{GPUTextureFormat/"rg16unorm"}}
+- {{GPUTextureFormat/"rgba16unorm"}}
 
-Enabling {{GPUFeatureName/"texture-formats-tier1"}} at device creation will also enable
-{{GPUFeatureName/"rg11b10ufloat-renderable"}}.
+Note: This feature is automatically enabled by {{GPUFeatureName/"texture-formats-tier2"}}.
 
 <h3 id=texture-formats-tier2 data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"texture-formats-tier2"`
 </h3>
+
+Enabling {{GPUFeatureName/"texture-formats-tier2"}} at device creation will enable
+{{GPUFeatureName/"texture-formats-tier1"}}. The following items are in addition to that.
 
 Allows the {{GPUStorageTextureAccess/"read-write"}} {{GPUStorageTextureAccess}} on below
 {{GPUTextureFormat}}s:
@@ -17137,9 +17231,6 @@ Allows the {{GPUStorageTextureAccess/"read-write"}} {{GPUStorageTextureAccess}} 
 - {{GPUTextureFormat/"rgba32sint"}}
 - {{GPUTextureFormat/"rgba32float"}}
 
-Enabling {{GPUFeatureName/"texture-formats-tier2"}} at device creation will also enable
-{{GPUFeatureName/"texture-formats-tier1"}}.
-
 <h3 id=dom-gpufeaturename-primitive-index data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"primitive-index"`
 </h3>
 
@@ -17149,6 +17240,19 @@ This feature adds the following [=optional API surfaces=]:
 
 - New WGSL extensions:
     - [=extension/primitive_index=]
+
+<h3 id=dom-gpufeaturename-texture-component-swizzle data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"texture-component-swizzle"`
+</h3>
+
+Allows {{GPUTextureView}}s to rearrange or replace the color components from texture's red/green/blue/alpha channels
+when used as a {{GPUTextureUsage/TEXTURE_BINDING}}.
+
+Also defines previously-implementation-defined behavior when [[#reading-depth-stencil]].
+
+This feature adds the following [=optional API surfaces=]:
+
+- New {{GPUTextureViewDescriptor}} dictionary members:
+    - {{GPUTextureViewDescriptor/swizzle}}
 
 # Appendices # {#appendices}
 
@@ -17784,9 +17888,14 @@ A stencil-aspect {{GPUTextureView}} must be bound to a normal texture binding ty
 The {{GPUTextureBindingLayout/sampleType}} in the {{GPUBindGroupLayout}}
 must be {{GPUTextureSampleType/"uint"}}.
 
-Reading or sampling the depth or stencil aspect of a texture behaves as if the texture contains
-the values `(V, X, X, X)`, where V is the actual depth or stencil value,
-and each X is an [=implementation-defined=] unspecified value.
+If the {{GPUFeatureName/"texture-component-swizzle"}} feature is enabled, reading or sampling the
+depth or stencil aspect of a texture behaves as if the texture contains the values `(V, 0, 0, 1)`
+where V is the actual depth or stencil value. Otherwise, the values are `(V, X, X, X)` where each X
+is an [=implementation-defined=] unspecified value.
+
+To reduce compatibility issues in practice, implementations **should** provide `(V, 0, 0, 1)`
+wherever possible, even if the {{GPUFeatureName/"texture-component-swizzle"}} feature is not
+enabled.
 
 For depth-aspect bindings, the unspecified values are not visible through bindings with
 `texture_depth_*` types.
@@ -17835,6 +17944,8 @@ All packed texture formats support {{GPUTextureUsage/COPY_SRC}}, {{GPUTextureUsa
 and {{GPUTextureUsage/TEXTURE_BINDING}} usages.
 All of these formats are [=filterable=].
 None of these formats are [=renderable=] or support multisampling.
+<!-- POSTV1: If adding renderability to rgb9e5ufloat, be sure to consider whether it should be
+allowed in copyExternalImageToTexture. -->
 
 A <dfn dfn>compressed format</dfn> is any format with a block size greater than 1&times;1.
 

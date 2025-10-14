@@ -21,29 +21,17 @@ partial enum GPUFeatureName {
 };
 ```
 
-The GPUTextureViewDescriptor `swizzle` option lets you rearrange or even replace the data from a texture's channels when creating a GPUTextureView. This is done by assigning a value from the GPUComponentSwizzle enum to each of the `r`, `g`, `b`, and `a` components in your texture view.
+A new `swizzle` option is added to the `GPUTextureViewDescriptor` which allows for rearranging or replacing the data from the texture's channels when creating a `GPUTextureView`. The `swizzle` value is a string of length four, with each character mapping to the view's red, green, blue, and alpha components, respectively. Each character can be either:
+- `"r"`: Take its value from the red channel of the texture.
+- `"g"`: Take its value from the green channel of the texture.
+- `"b"`: Take its value from the blue channel of the texture.
+- `"a"`: Take its value from the alpha channel of the texture.
+- `"0"`: Force its value to 0.
+- `"1"`: Force its value to 1.
 
 ```webidl
 partial dictionary GPUTextureViewDescriptor {
-    GPUTextureComponentSwizzle swizzle;
-};
-
-// Structure specifying a custom color component mapping for a texture view.
-dictionary GPUTextureComponentSwizzle {
-    GPUComponentSwizzle r = "r";
-    GPUComponentSwizzle g = "g";
-    GPUComponentSwizzle b = "b";
-    GPUComponentSwizzle a = "a";
-};
-
-// A set of options to choose from when specifying a component swizzle.
-enum GPUComponentSwizzle {
-    "zero",     // Force its value to 0.
-    "one",      // Force its value to 1.
-    "r",        // Take its value from the red channel of the texture.
-    "g",        // Take its value from the green channel of the texture.
-    "b",        // Take its value from the blue channel of the texture.
-    "a",        // Take its value from the alpha channel of the texture.
+    DOMString swizzle = "rgba";
 };
 ```
 
@@ -52,15 +40,19 @@ To reduce compatibility issues in practice, implementations *should* provide (V,
 
 ## Validation
 
-The `GPUTexture.createView(descriptor)` algorithm is extended with the following validation rules changes:
+The `GPUTexture.createView(descriptor)` algorithm is extended with the following changes:
 
-- If `descriptor.usage` includes the `RENDER_ATTACHMENT` or `STORAGE_BINDING` bit:
-  - `descriptor.swizzle.r` must be `"r"`.
-  - `descriptor.swizzle.g` must be `"g"`.
-  - `descriptor.swizzle.b` must be `"b"`.
-  - `descriptor.swizzle.a` must be `"a"`.
+- `descriptor.swizzle` must be a four-character string that only includes `"r"`, `"g"`, `"b"`, `"a"`, `"0"`, or `"1"`, otherwise a `TypeError` is raised.
 
-- If `descriptor.swizzle` is not the default, the `"texture-component-swizzle"` feature must be enabled.
+- If `descriptor.swizzle` is not `"rgba"`, the `"texture-component-swizzle"` feature must be enabled.
+
+The `renderable texture view` definition requirements are extended with the following change:
+
+- `descriptor.swizzle` must be `"rgba"`.
+
+The `GPUDevice.createBindGroup()` algorithm is extended with the following change:
+
+- `storageTextureView.[[descriptor]].swizzle` must be `"rgba"`.
 
 If the feature `"core-features-and-limits"` is not enabled on a device, a draw call may not bind two views of the same texture differing in swizzle. Only a single swizzle per texture is supported. This is enforced via validation at draw time.
 
@@ -80,20 +72,10 @@ const device = await adapter.requestDevice({
 
 // ... Assuming myTexture is a GPUTexture with a single red channel.
 
-const textureView = myTexture.createView({
-  swizzle: {
-    r: 'r',  // Map the view's red component to the texture's red channel
-    g: 'r',  // Map the view's green component to the texture's red channel
-    b: 'r',  // Map the view's blue component to the texture's red channel
-    a: 'one' // Force the view's alpha component to 1.0
-  }
-});
+// Map the view's red, green, blue components to the texture's red channel
+// and force the view's alpha component to 1.0.
+const textureView = myTexture.createView({ swizzle: "rrr1" });
 ```
-
-## Open Questions
-
-- Are there new validation rules needed if the view is multisampled?
-- In Compatibility Mode, this could count against the [texture and sampler combination limit](https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#21-limit-the-number-of-texturesampler-combinations-in-a-stage), or it might not be exposed at all.
 
 ## Resources
 

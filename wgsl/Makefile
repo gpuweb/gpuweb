@@ -15,6 +15,11 @@ WGSL_SOURCES:=index.bs ./grammar/src/scanner.c wgsl.recursive.bs.include wgsl.re
 index.pre.html: $(WGSL_SOURCES)
 	DIE_ON=everything bash ../tools/invoke-bikeshed.sh $@ $(WGSL_SOURCES)
 
+wgsl.reserved.bs.include: Makefile tools/generate-reserved-words.py
+	python3 tools/generate-reserved-words.py >$@
+wgsl.reserved.plain: Makefile tools/generate-reserved-words.py
+	python3 tools/generate-reserved-words.py --plain >$@
+
 GHC=https://github.com/gpuweb/gpuweb/blob
 index.html: index.pre.html nfkc
 	@echo 'Inserting source permalink: index.pre.html -> index.html'
@@ -32,7 +37,7 @@ TREESITTER_GRAMMAR_INPUT := grammar/grammar.js
 TREESITTER_PARSER_STAMP := grammar/build.stamp
 
 # Extract WGSL grammar from the spec
-$(TREESITTER_GRAMMAR_INPUT): index.bs ./grammar/src/scanner.c ./tools/extract-grammar.py
+$(TREESITTER_GRAMMAR_INPUT): index.bs ./grammar/src/scanner.c ./tools/extract-grammar.py wgsl.reserved.plain
 	bash -c ' \
 	  if [ -f ../tools/custom-action/dependency-versions.sh ]; then \
 	    source ../tools/custom-action/dependency-versions.sh; \
