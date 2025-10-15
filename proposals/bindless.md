@@ -177,8 +177,8 @@ When allocating a descriptor set for this layout, [`VkDescriptorSetVariableDescr
 Descriptor sets can only be modified on the device timeline and descriptors cannot be modified while they might be in use as that would be a race.
 `VK_EXT_descriptor_buffer` is another related extension which could allow pipelining the updates to descriptors with other queue operations.
 
-Vulkan doesn't have a functionality to manage residency of resources on the GPU that I could see.
-All resources are always resident.
+By default in Vulkan, all resources are resident at all time and the application must manage residency by itself.
+Some Vulkan extensions like [`VK_EXT_memory_budget`](https://registry.khronos.org/vulkan/specs/latest/man/html/VK_EXT_memory_budget.html) and [`VK_EXT_pageable_device_local_memory`](https://registry.khronos.org/vulkan/specs/latest/man/html/VK_EXT_pageable_device_local_memory.html) allow getting a memory budget and asking the driver to manage residency but are far from available on all systems.
 
 #### SPIR-V
 
