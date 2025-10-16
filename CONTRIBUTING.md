@@ -64,14 +64,29 @@ the Bikeshed API will be used to generate the specification
 Diagrams generated using [Mermaid](https://mermaid-js.github.io/mermaid/).
 This isn't required unless you're modifying or creating diagrams.
 
-The WGSL spec uses some additional tools for language parsing;
-see [wgsl/README.md](wgsl/README.md) if you want to know more.
+The WGSL spec uses some additional tools for language parsing.
+See [wgsl/README.md](wgsl/README.md) if you want to know more.
+
+Some build steps for the WGSL spec modify the Python environment.
+If this is undesirable or not allowed in your situation, then create and use
+a [venv](https://docs.python.org/3/library/venv.html) virtual Python environment:
+
+* As a one-time setup step, create a `venv` environment in a subdirectory:
+
+    # Run this from the root directory of the repository. Creates a subdir named `myenv`
+    python -m venv myenv
+
+* Then enter the virtual environment before running the WGSL build:
+
+    . myenv/bin/activate
+    # Now you can build the WGSL spec in this shell
 
 ## Building this spec
 
 To build all documents:
 
 ```bash
+. myenv/bin/activate   # Required only if using a Python virtual environment
 make -j
 ```
 
@@ -84,6 +99,7 @@ make -C spec index.html
 To build just the WGSL specification (`wgsl/index.html`):
 
 ```bash
+. myenv/bin/activate   # Required only if using a Python virtual environment
 make -C wgsl index.html
 ```
 
