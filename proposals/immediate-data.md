@@ -95,7 +95,7 @@ dictionary GPUPipelineLayoutDescriptor
 ```
 `immediateSize`: Size of immediate data range used in pipeline, type is bytes.
 
-NOTE: `immediateSize` = sizeof(variables) + sizeof(paddings). Follow [ Aligment rules ](https://www.w3.org/TR/WGSL/#alignment-and-size) in wgsl spec.
+NOTE: `immediateSize` = sizeof(variables) + sizeof(paddings). Follow [ Alignment rules ](https://www.w3.org/TR/WGSL/#alignment-and-size) in wgsl spec.
 
 NOTE: two pipeline layouts are defined to be “compatible for immediate data” if they were created with identical immediate data byte size. It means immediate data values can share between pipeline layouts that are compatible for immediate data.
 
