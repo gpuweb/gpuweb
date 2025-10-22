@@ -111,11 +111,9 @@ interface mixin GPUBindingCommandsMixin {
 }
 ```
 
-NOTE: `rangeOffset`: Offset in bytes into immediate data range to begin writing at. Requires multiple of 4 bytes.
-
-NOTE: `dataOffset`: Offset into data to begin writing from. Given in elements if data is a TypedArray and bytes otherwise.
-
-NOTE: The immediate data is stored in an internal slot `[[immediate data]]` in `GPUBindingCommandsMixin`, which is shared across `GPUComputePassEncoder`, `GPURenderPassEncoder`, and `GPURenderBundleEncoder`. See issue [#5117](https://github.com/gpuweb/gpuweb/issues/5117).
+- `rangeOffset`: Offset in bytes into immediate data range to begin writing at. Requires multiple of 4 bytes.
+- `dataOffset` and `size` work like in [writeBuffer](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-writebuffer): "Given in elements if data is a TypedArray and bytes otherwise."
+- The immediate data is stored in an internal slot `[[immediate data]]` in `GPUBindingCommandsMixin`, which is shared across `GPUComputePassEncoder`, `GPURenderPassEncoder`, and `GPURenderBundleEncoder`. See issue [#5117](https://github.com/gpuweb/gpuweb/issues/5117).
 
 ## Per-Stage Immediate Data
 
@@ -132,10 +130,8 @@ See issue [#5116](https://github.com/gpuweb/gpuweb/issues/5116) for detailed dis
 The `setImmediateData()` function is available in `GPURenderBundleEncoder` through `GPUBindingCommandsMixin`.
 
 **Behavior:**
-- When encoding a render bundle, calls to `setImmediateData()` snapshot the immediate data content at encoding time
-- When executing a render bundle via `executeBundles()`, the snapshotted immediate data values are applied
-- Immediate data is cleared/reset between bundles (similar to bind group state)
-- After `executeBundles()` completes, the render pass binding state (including immediate data) is reset to empty
+- When encoding a render bundle (as when encoding a render pass), calls to `setImmediateData()` snapshot the immediate data content at encoding time. The immediate values used by draw calls in a bundle cannot be changed.
+- Immediate data is cleared/reset before and after executing each individual bundle (similar to bind group state).
 
 **Example:**
 ```javascript
