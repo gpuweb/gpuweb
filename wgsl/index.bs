@@ -4586,6 +4586,10 @@ The declaration [=shader-creation error|must=] appear at [=module scope=], and i
 When type *T* is defined as a [=type alias=] for a structure type *S*,
 all properties of the members of *S*, including attributes, carry over to the members of *T*.
 
+Note: If the type being aliased supports [=value constructor=] built-in functions,
+then those functions can be called via the alias name instead of the original
+type specifier name, when the type alias is [=in scope=] and it is otherwise valid to call the function.
+
 <pre class=include>
 path: syntax/type_alias_decl.syntax.bs.include
 </pre>
@@ -7531,16 +7535,47 @@ path: syntax/for_init.syntax.bs.include
 path: syntax/for_update.syntax.bs.include
 </pre>
 
-The <dfn dfn-for="statement">for</dfn> statement takes the form
-`for (initializer; condition; update_part) { body }` and is syntactic sugar on top of a [=statement/loop=] statement with the same `body`.
+The <dfn dfn-for="statement">for</dfn> statement is syntactic sugar over a [=compound statement=] 
+containing a [=statement/loop=] statement.
+In general, the `for` statement takes the form 
+
+  > `for (` *initializer* `;` *condition* `;` *update_part* `) {` *body* `}`
+
+When the condition expression is present, the `for` statement desugars to a loop of the form:
+
+<blockquote>
+   {                                   <br> &nbsp; &nbsp; 
+       *initializer* ;                 <br> &nbsp; &nbsp; 
+       loop {                          <br> &nbsp; &nbsp; &nbsp; &nbsp;
+          if !(*condition*) { break; } <br> &nbsp; &nbsp; &nbsp; &nbsp;
+          *body*                       <br> &nbsp; &nbsp; &nbsp; &nbsp;
+          continuing { *update_part* } <br> &nbsp; &nbsp;
+       }                               <br>
+   }
+</blockquote>
+When the condition expression is absent, the `for` statement desugars to a loop of the form:
+
+<blockquote>
+   {                                   <br> &nbsp; &nbsp; 
+       *initializer* ;                 <br> &nbsp; &nbsp; 
+       loop {                          <br> &nbsp; &nbsp; &nbsp; &nbsp;
+          *body*                       <br> &nbsp; &nbsp; &nbsp; &nbsp;
+          continuing { *update_part* } <br> &nbsp; &nbsp;
+       }                               <br>
+   }
+</blockquote>
+
 Additionally:
 * If `initializer` is non-empty, it is executed inside an additional [=scope=] before the first [=iteration=].
     The scope of a declaration in the initializer extends to the end of the loop body.
 * [=Type rule precondition=]: If the condition is non-empty, it [=shader-creation error|must=] be an expression of [=bool=] type.
-    * If present, the condition is evaluated immediately before executing the loop body.
+    * If present, the condition is evaluated immediately before executing the for-loop body.
         If the condition is false, then a [[#break-statement]] is executed, finishing execution of the loop.
         This check is performed at the start of each loop iteration.
-* If `update_part` is non-empty, it becomes a [=statement/continuing=] statement at the end of the loop body.
+* If `update_part` is non-empty, it becomes a [=statement/continuing=] statement at the end of the loop construct.
+* Desugaring [=behavioral requirement|will=] rename identifiers declared in the `body` as needed to ensure
+    all identifiers in the `update_part` still [=resolves|resolve=] to the same declarations they did
+    before desugaring occurred.
 
 The `initializer` of a for loop is executed once prior to executing the loop.
 When a [=declaration=] appears in the initializer, its [=identifier=] is [=in scope=] until the end of the `body`.
@@ -7553,7 +7588,7 @@ the next statement until the end of the `body`.
 The declaration is executed each time it is reached, so each new iteration
 creates a new instance of the variable or constant, and re-initializes it.
 
-<div class='example wgsl function-scope' heading="For to Loop transformation: before">
+<div class='example wgsl function-scope' heading="For to Loop transformation, with a condition: before">
   <xmp highlight=wgsl>
     var a: i32 = 2;
     for (var i: i32 = 0; i < 4; i++) {
@@ -7567,7 +7602,7 @@ creates a new instance of the variable or constant, and re-initializes it.
 
 Converts to:
 
-<div class='example wgsl function-scope' heading="For to Loop transformation: after">
+<div class='example wgsl function-scope' heading="For to Loop transformation, with a condition: after">
   <xmp highlight=wgsl>
     var a: i32 = 2;
     { // Introduce new scope for loop variable i
@@ -7580,6 +7615,43 @@ Converts to:
         if a == 0 {
           continue;
         }
+        a = a + 2;
+
+        continuing {
+          i++;
+        }
+      }
+    }
+  </xmp>
+</div>
+
+<div class='example wgsl function-scope' heading="For to Loop transformation, without a condition: before">
+  <xmp highlight=wgsl>
+    var a: i32 = 2;
+    for (var i: i32 = 0; ; i++) {
+      if a == 0 {
+        continue;
+      }
+      if i == 4 { break; }
+      a = a + 2;
+    }
+  </xmp>
+</div>
+
+Converts to:
+
+<div class='example wgsl function-scope' heading="For to Loop transformation, without a condition: after">
+  <xmp highlight=wgsl>
+    var a: i32 = 2;
+    { // Introduce new scope for loop variable i
+      var i: i32 = 0;
+      loop {
+        // Note: Desugaring does not introduce an if clause here.
+
+        if a == 0 {
+          continue;
+        }
+        if i == 4 { break; }
         a = a + 2;
 
         continuing {
@@ -7952,11 +8024,19 @@ non-empty [=behavior=] for each statement, and function.
         |s1|: |B1|<br>
         |s2|: |B2|
     <td class="nowrap">|B1| &cup; |B2|
-  <tr algorithm="loop with continuing without break behavior">
-    <td class="nowrap" rowspan=2>loop {|s1| continuing {|s2|}}
+  <tr algorithm="loop with exactly return behaviour before the continuing block">
+    <td class="nowrap" rowspan=3>loop {|s1| continuing {|s2|}}
     <td class="nowrap">
         |s1|: |B1|<br>
         |s2|: |B2|<br>
+        |B1| &equals; {Return}<br>
+        None of {Continue, Return} are in |B2|<br>
+    <td class="nowrap">{Return}
+  <tr algorithm="loop with continuing without break behavior">
+    <td class="nowrap">
+        |s1|: |B1|<br>
+        |s2|: |B2|<br>
+        |B1| &ne; {Return}<br>
         None of {Continue, Return} are in |B2|<br>
         Break is not in (|B1| &cup; |B2|)
     <td class="nowrap">(|B1| &cup; |B2|)&#x2216;{Continue, Next}
@@ -7964,6 +8044,7 @@ non-empty [=behavior=] for each statement, and function.
     <td class="nowrap">
         |s1|: |B1|<br>
         |s2|: |B2|<br>
+        |B1| &ne; {Return}<br>
         None of {Continue, Return} are in |B2|<br/>
         Break is in (|B1| &cup; |B2|)
     <td class="nowrap">(|B1| &cup; |B2| &cup; {Next})&#x2216;{Break, Continue}
@@ -7992,7 +8073,7 @@ For the purpose of this analysis:
 - `for` loops get desugared (see [[#for-statement]])
 - `while` loops get desugared (see [[#while-statement]])
 - `loop {s}` is treated as `loop {s continuing {}}`
-- `if` statements without an `else` branch are treated as if they had an empty else branch (which adds Next to their [=behavior=])
+- `if` statements without an `else` branch are treated as if they had an empty else branch, i.e. ended in `else {}`; this adds Next to their [=behavior=]
 - `if` statements with `else if` branches are treated as if they were nested simple `if/else` statements
 - a [=syntax/switch_clause=] starting with `default` behaves just like a [=syntax/switch_clause=] starting with `case _:`
 
@@ -11633,6 +11714,11 @@ When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `
   <thead>
     <tr><th>Statement<th>New nodes<th>Recursive analyses<th>Resulting control flow node<th>New edges
   </thead>
+  <tr><td class="nowrap">*empty statement*
+      <td>
+      <td>
+      <td>*CF*
+      <td>
   <tr><td class="nowrap">{*s*}
       <td>
       <td class="nowrap">(*CF*, *s*) => *CF'*
@@ -11703,16 +11789,21 @@ When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `
       <td rowspan=3>
       <td rowspan=3>*CF*
       <td rowspan=3>
+
       Note: If x is a [=address spaces/function=] address space variable, *CF*
       is used as the zero value initializer in the
       [[#func-var-value-analysis|value analysis]].
   <tr><td class="nowrap">break;
   <tr><td class="nowrap">continue;
   <tr><td class="nowrap">break if *e*;
-      <td>
+      <td>*CFend*
       <td class="nowrap">(*CF*, *e*) => (*CF'*, *V*)
-      <td>*CF'*
-      <td>
+      <td>*CFend*
+      <td>*CFend* -> {*CF'*, *V*}
+
+          Note: The edge from *CFend* to *V* captures the fact that when
+          the condition value is non-uniform, then control flow resulting
+          from this `break if` statement is also non-uniform.
   <tr><td class="nowrap">return;
       <td>
       <td>
@@ -11750,14 +11841,31 @@ When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `
       <td>
       <td>(*CF*, *e*) => (*CF'*, *V*)
       <td>*CF'*
-      <td>Note: If x is a [=address spaces/function=] address space variable,
+      <td>
+
+      Note: If x is a [=address spaces/function=] address space variable,
       *V* is used as the result value in the [[#func-var-value-analysis|value analysis]].
+  <tr><td>*f*`()`<br>Function call statement without arguments
+      <td>
+      <td>Invoke [[#uniformity-function-calls|function call analysis]]:
+                (*CF*, *f*()) => ([=CF_after=], [=Result=])
+      <td>*CF_after*
+      <td>
+  <tr><td>*f*`(`*e1*,...,*eN*`)`<br>Function call statement with arguments
+      <td>
+      <td>Invoke [[#uniformity-function-calls|function call analysis]]:
+                (*CF*, *f*(*e1*,...,*eN*)) => ([=CF_after=], [=Result=])
+      <td>*CF_after*
+      <td>
 </table>
 
-Analysis of [[#for-statement|for]] and [[#while-statement|while]] loops follows
-from their respective desugaring translations to [[#loop-statement|loop]] statements.
-
-In [[#switch-statement|switch]], a [=default-alone clause=] block is treated exactly like a [=case clause=] with regards to uniformity.
+For the purpose of this analysis:
+- `for` loops get desugared (see [[#for-statement]])
+- `while` loops get desugared (see [[#while-statement]])
+- `loop {s}` is treated as `loop {s continuing {}}`
+- `if` statements without an `else` branch are treated as if they had an empty else branch, i.e. ended in `else {}`
+- `if` statements with `else if` branches are treated as if they were nested simple `if/else` statements
+- a [=syntax/switch_clause=] starting with `default` behaves just like a [=syntax/switch_clause=] starting with `case _:`
 
 To maximize performance, implementations often try to minimize the amount of
 [=uniform control flow|non-uniform control flow=].
@@ -11979,11 +12087,12 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td>
       <td class="nowrap">*CF*,*CF*
       <td>
+   <tr><td class="nowrap">( *e* )
+      <td rowspan=3>
+      <td rowspan=3 class="nowrap">(*CF*, *e*) => (*CF'*, *V*)
+      <td rowspan=3 class="nowrap">*CF'*, *V*
+      <td rowspan=3>
    <tr><td class="nowrap">*op* *e*,<br> where *op* is a unary operator
-      <td rowspan=2>
-      <td rowspan=2 class="nowrap">(*CF*, *e*) => (*CF'*, *V*)
-      <td rowspan=2 class="nowrap">*CF'*, *V*
-      <td rowspan=2>
    <tr><td class="nowrap">*e*.field
    <tr><td>*e1* *op* *e2*,<br> where *op* is a non-short-circuiting binary operator
       <td rowspan=2> *Result*
@@ -11992,6 +12101,18 @@ The rules for analyzing expressions take as argument both the expression itself 
       <td rowspan=2 class="nowrap">*CF2*, *Result*
       <td rowspan=2 class="nowrap">*Result* -> {*V1*, *V2*}
    <tr><td class="nowrap">e1[e2]
+   <tr><td>*f*`()`<br>Function call expression without arguments
+       <td>
+       <td>Invoke [[#uniformity-function-calls|function call analysis]]:<br>
+                (*CF*, *f*()) => ([=CF_after=], [=Result=])
+       <td>*CF_after*, *Result*
+       <td>
+   <tr><td>*f*`(`*e1*,...,*eN*`)`<br>Function call expression with arguments
+       <td>
+       <td>Invoke [[#uniformity-function-calls|function call analysis]]:
+                (*CF*, *f*(*e1*,...,*eN*)) => ([=CF_after=], [=Result=])
+       <td>*CF_after*, *Result*
+       <td>
 </table>
 
 The following built-in input variables are considered uniform:
@@ -13324,9 +13445,9 @@ value of a given type.
 
 WGSL provides value constructors for all [=predeclared=] types and all
 [=constructible=] [=structure=] types.
-The constructor built-in functions have the same spelling as the types.
+Such a constructor built-in function has the same spelling as the type, or a [=type alias=] for the type.
 Wherever such a built-in function is used, the [=identifier=]
-[=shader-creation error|must=] be [=in scope=] of the type and the [=identifier=]
+[=shader-creation error|must=] be [=in scope=] of the type or the type alias, and the [=identifier=]
 [=shader-creation error|must not=] [=resolve=] to another declaration.
 
 Note: The structure types returned by [[#frexp-builtin|frexp]],
