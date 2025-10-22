@@ -20,10 +20,10 @@ New functionality will be added under the language extension: `buffer_view`.
 # Buffer Type
 
 Add a new opaque host-shareable type to WGSL: `buffer<N>`.
-This type can be the effective-value-type of a variable in the storage,
-uniform, or workgroup address spaces.
-No other value declarations of the type itself are allowed (though it may
-appear in a pointer type).
+This type can be the type of a variable in the storage, uniform, or workgroup
+address spaces.
+No other value declarations of the type are allowed (though it may appear in a
+pointer type).
 The type is **not** constructible and so it cannot be used in assignments.
 
 The template parameter specifies the size of the buffer in bytes.
@@ -181,6 +181,8 @@ is provided.
 MSL supports pointer casting so the buffer type could be codegen’d as a `char*`
 and then casted where the bufferView call is made.
 `char*` is used to make this TBAA safe.
+Additionally pointer casts should conservatively be tagged as `mayalias`.
+Implementations could opportunistically optimize this away.
 
 ## GLSL
 
