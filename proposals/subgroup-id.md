@@ -2,7 +2,7 @@
 
 
 * Status: **Draft**
-* Last modified: 2025-10-14
+* Last modified: 2025-10-22
 * Issue: [#5365](https://github.com/gpuweb/gpuweb/issues/5365)
 
 # Overview
@@ -25,16 +25,14 @@ It is currently planned to be added to [HLSL](https://github.com/microsoft/hlsl-
 Ideally these built-ins would be considered subgroup uniform, but our uniformity
 analysis occurs at the workgroup level.
 
-**TODO**: Do we want to try and introduce subgroup uniformity?
-APIs speak little of the guarantees and testing shows that guarantees do not
-match user expectations.
+**RESOLVED**: Subgroup uniformity will be introduced as a separate language feature.
 
 # Language vs Enable Extension
 
 There are two options to expose the built-ins: as language extension or as an
 enable extension.
 
-**TODO**: Decide on the type of extension.
+**RESOLVED**: Language extension
 
 ## Language Extension
 
@@ -83,15 +81,4 @@ The downsides to a polyfill are that:
    natively generate.
 2. It uses a groupshared variable and likely eats into the groupshared memory
    budget.
-
-## Enable Extension
-
-In this option, the built-in value is exposed under a new enable extension
-`subgroup_id`.
-This option would rely on the native implementations to provide the value.
-This means implementations would not expose the value in D3D12 implementations
-until it is available in a future shader model.
-
-The downside to an enable extension is that the built-in would not be available
-on all platforms for some time.
 
