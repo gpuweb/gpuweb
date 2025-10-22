@@ -2,7 +2,7 @@
 
 **Roadmap:** This proposal is **under active development, but has not been standardized for inclusion in the WebGPU specification. The proposal is likely to change before it is standardized.** WebGPU implementations **must not** expose this functionality; doing so is a spec violation. Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
 
-Last modified: 2024-05-30
+Last modified: 2025-10-20
 
 Issue: #75
 
@@ -17,29 +17,29 @@ No special requirements.
 
 | Address space | Sharing among invocations | Default access mode | Notes |
 | --- | --- | --- | --- |
-| `immediate_data` | Invocations in [shader stage](https://www.w3.org/TR/WGSL/#shader-stages) | [read](https://www.w3.org/TR/WGSL/#access-read) | For [uniform buffer](https://www.w3.org/TR/WGSL/#uniform-buffer) variables exclude [array types](https://www.w3.org/TR/WGSL/#array-types) variable or [structure types](https://www.w3.org/TR/WGSL/#struct-types) variable contains [array types](https://www.w3.org/TR/WGSL/#array-types) attributes |
+| `immediate` | Invocations in [shader stage](https://www.w3.org/TR/WGSL/#shader-stages) | [read](https://www.w3.org/TR/WGSL/#access-read) | For [uniform buffer](https://www.w3.org/TR/WGSL/#uniform-buffer) variables exclude [array types](https://www.w3.org/TR/WGSL/#array-types) variable or [structure types](https://www.w3.org/TR/WGSL/#struct-types) variable contains [array types](https://www.w3.org/TR/WGSL/#array-types) attributes |
 
 
 ## Variable and Value Declarations
 
 | Declaration | Mutability | Scope | Effective-value-type | Initializer Support | Initializer Expression | Part of Resource Interface |
 | --- | --- | --- | --- | --- | --- | --- |
-| `var<immediate_data>` | Immutable | [Module](https://www.w3.org/TR/WGSL/#module-scope) | [Concrete](https://www.w3.org/TR/WGSL/#type-concrete) [constructible](https://www.w3.org/TR/WGSL/#constructible) [host-shareable](https://www.w3.org/TR/WGSL/#host-shareable) excludes [array types](https://www.w3.org/TR/WGSL/#array-types) and [structure types](https://www.w3.org/TR/WGSL/#struct-types) contains array members | Disallowed	| | Yes. [uniform buffer](https://www.w3.org/TR/WGSL/#uniform-buffer) |
+| `var<immediate>` | Immutable | [Module](https://www.w3.org/TR/WGSL/#module-scope) | [Concrete](https://www.w3.org/TR/WGSL/#type-concrete) [constructible](https://www.w3.org/TR/WGSL/#constructible) [host-shareable](https://www.w3.org/TR/WGSL/#host-shareable) excludes [array types](https://www.w3.org/TR/WGSL/#array-types) and [structure types](https://www.w3.org/TR/WGSL/#struct-types) contains array members | Disallowed	| | Yes. [uniform buffer](https://www.w3.org/TR/WGSL/#uniform-buffer) |
 
-NOTE: Each [entry point](https://www.w3.org/TR/WGSL/#entry-point) can statically use at most one immediate data variable.
+NOTE: Each [entry point](https://www.w3.org/TR/WGSL/#entry-point) can statically use at most one immediate variable.
 
 Sample Code:
 ```
-struct Constants {
-    inner: i32;
+struct S {
+  i : i32,
 }
 
-var<immediate_data> a : Constants;
-var<immediate_data> b : i32;
-var<immediate_data> c : i32; // unused
+var<immediate> a : S;
+var<immediate> b : i32;
+var<immediate> c : i32; // unused
 
 fn uses_a() {
-  let foo = a.inner;
+  let foo = a.i;
 }
 
 fn uses_uses_a() {
@@ -50,7 +50,7 @@ fn uses_b() {
   let foo = b;
 }
 
-// Each entry point can statically use at most one immediate data variable.
+// Each entry point can statically use at most one immediate variable.
 @compute @workgroup_size(1)
 fn main1() {
   uses_a();
@@ -69,7 +69,6 @@ fn main3() {
 @compute @workgroup_size(1)
 fn main4() {
 }
-
 ```
 
 # API
@@ -96,7 +95,7 @@ dictionary GPUPipelineLayoutDescriptor
 ```
 `immediateSize`: Size of immediate data range used in pipeline, type is bytes.
 
-NOTE: `immediateSize` = sizeof(variables) + sizeof(paddings). Follow [ Aligment rules ](https://www.w3.org/TR/WGSL/#alignment-and-size) in wgsl spec.
+NOTE: `immediateSize` = sizeof(variables) + sizeof(paddings). Follow [ Alignment rules ](https://www.w3.org/TR/WGSL/#alignment-and-size) in wgsl spec.
 
 NOTE: two pipeline layouts are defined to be “compatible for immediate data” if they were created with identical immediate data byte size. It means immediate data values can share between pipeline layouts that are compatible for immediate data.
 
@@ -104,22 +103,52 @@ NOTE: Immediate data range follow [out-of-bounds access](https://www.w3.org/TR/W
 
 ## GPUCommandEncoder
 
-Four new functions in `GPUCommandEncoder`.
+One new function in `GPUBindingCommandsMixin`.
 
 ```javascript
 interface mixin GPUBindingCommandsMixin {
-        void setImmediateDataRange(uint32_t rangeOffset, AllowSharedBufferSource data, optional dataOffset, optional size);
+        void setImmediateData(uint32_t rangeOffset, AllowSharedBufferSource data, optional dataOffset, optional size);
 }
 ```
-NOTE: rangeOffset: Offset in bytes into immediate data range to begin writing at. Requires multiple of 4 bytes.
-NOTE: dataOffset: Offset in into data to begin writing from. Given in elements if data is a TypedArray and bytes otherwise.
 
-# Open Questions:
+- `rangeOffset`: Offset in bytes into immediate data range to begin writing at. Requires multiple of 4 bytes.
+- `dataOffset` and `size` work like in [writeBuffer](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-writebuffer): "Given in elements if data is a TypedArray and bytes otherwise."
+- The immediate data is stored in an internal slot `[[immediate data]]` in `GPUBindingCommandsMixin`, which is shared across `GPUComputePassEncoder`, `GPURenderPassEncoder`, and `GPURenderBundleEncoder`. See issue [#5117](https://github.com/gpuweb/gpuweb/issues/5117).
 
-- Should pipelineLayout defines immediate range compatible?
-  - Implementation internal immediate data usage could easily break compatibility. Implementation needs extra
-    effort to ensure such compatibility.
+## Per-Stage Immediate Data
 
-- Should it be allowed to use multiple `var<immediate_data>` in one entry point?
-  <https://github.com/gpuweb/gpuweb/pull/4612#discussion_r1584076993>
-  Currently this proposal allows only one, for simplicity.
+This proposal does **NOT** support per-stage immediate data ranges. The immediate data range is unified across all shader stages (vertex, fragment, compute). This decision is based on:
+
+- Vulkan and D3D12 use unified immediate data ranges (push constants and root constants respectively)
+- Metal supports per-stage ranges but can easily implement unified ranges by calling set*Bytes() multiple times
+- Unified ranges simplify the API and implementation
+
+See issue [#5116](https://github.com/gpuweb/gpuweb/issues/5116) for detailed discussion.
+
+## Render Bundle Support
+
+The `setImmediateData()` function is available in `GPURenderBundleEncoder` through `GPUBindingCommandsMixin`.
+
+**Behavior:**
+- When encoding a render bundle (as when encoding a render pass), calls to `setImmediateData()` snapshot the immediate data content at encoding time. The immediate values used by draw calls in a bundle cannot be changed.
+- Immediate data is cleared/reset before and after executing each individual bundle (similar to bind group state).
+
+**Example:**
+```javascript
+// Create bundle with immediate data
+const bundleEncoder = device.createRenderBundleEncoder(descriptor);
+bundleEncoder.setImmediateData(0, new Uint32Array([1, 2, 3, 4]));
+bundleEncoder.setPipeline(pipeline);
+bundleEncoder.draw(3);
+const bundle = bundleEncoder.finish();
+
+// Use in render pass
+const passEncoder = commandEncoder.beginRenderPass(descriptor);
+passEncoder.setImmediateData(0, new Uint32Array([5, 6, 7, 8]));
+passEncoder.draw(3); // Uses [5, 6, 7, 8]
+passEncoder.executeBundles([bundle]); // Uses snapshotted [1, 2, 3, 4]
+passEncoder.draw(3); // Uses [] - immediate data cleared after executeBundles
+passEncoder.end();
+```
+
+See issue [#5118](https://github.com/gpuweb/gpuweb/issues/5118) for detailed discussion.
