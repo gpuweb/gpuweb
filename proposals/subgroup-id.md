@@ -7,7 +7,7 @@
 
 # Overview
 
-This proposal intends to adds two new built-in values: `subgroup_id` and `num_subgroups`.
+This proposal intends to add two new built-in values: `subgroup_id` and `num_subgroups`.
 `subgroup_id` represents the value of the invocation's subgroup's id within the
 workgroup.
 This built-in value was originally omitted from the subgroups feature because
