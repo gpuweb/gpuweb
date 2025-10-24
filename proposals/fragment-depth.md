@@ -12,7 +12,7 @@ The ability for fragment shaders to explicitly write to the depth buffer via the
 
 In the current WGSL specification, the mere act of writing to `@builtin(frag_depth)` often incurs a significant performance penalty because driver heuristics cannot guarantee that the fragment shader output will adhere to the depth written by the rasterizer's interpolated depth. Consequently, writing to `frag_depth` typically forces the GPU to disable crucial early-Z optimizations for the entire draw call.
 
-The introduction of a new `depth` built-in attribute with modes `less`, `greater`, and `any` directly addresses this performance limitation by letting the developer express their intent to the hardware.
+The introduction of a new `depth_mode` built-in parameter for the `@builtin(frag_depth)` with modes `less`, `greater`, and `any` directly addresses this performance limitation by letting the developer express their intent to the hardware.
 
 *   The `any` mode maintains the existing, unconditional behavior of `frag_depth`.
 *   The `less` and `greater` modes are used when a fragment shader declares it will only write depth values that are guaranteed to be less than (or greater than) the existing depth. The driver can be assured that any fragment whose interpolated depth already fails the declared comparison cannot possibly satisfy the conditional write, allowing it to be rejected early.
@@ -53,24 +53,17 @@ Source: https://usermanual.wiki/Document/Vulkan2BProgramming2BGuide2BThe2BOffici
 
 | WGSL language extension | Description |
 | --- | --- |
-| `fragment_depth` | Adds built-in `depth` attribute support for fragment's depth |
+| `fragment_depth` | Adds built-in `depth_mode` parameter support for fragment's depth |
 
-### Built-in attribute
+### Built-in `depth_mode` parameter to `frag_depth`
 
-```
-depth_attr :
- '@' 'depth' '(' depth_mode ',' ? ')'
-```
+An optional `depth_mode` parameter declated after the built-in `frag_depth` name is allowed and
+defaults to `any`.
 
-#### Description
+It can be either `@builtin(frag_depth)`, `@builtin(frag_depth, greater)`,
+`@builtin(frag_depth, lesser)`, or `@builtin(frag_depth, any)`.
 
-Applies `depth_mode` on the  `frag_depth` built-in output value in a fragment shader.
-
-Must only be applied to the `frag_depth` built-in output value.
-
-#### Parameters
-
-`depth_mode` must be either `any`, `greater`, or `less`.
+This applies `depth_mode` on the `frag_depth` built-in output value in a fragment shader.
 
 ### Example usage
 
@@ -78,7 +71,7 @@ Must only be applied to the `frag_depth` built-in output value.
 requires fragment_depth;
 
 @fragment
-fn main() -> @builtin(frag_depth) @depth(greater) f32 {
+fn main() -> @builtin(frag_depth, greater) f32 {
   return 1.0f;
 }
 ```
@@ -87,9 +80,9 @@ fn main() -> @builtin(frag_depth) @depth(greater) f32 {
 
 | Built-in | SPIR-V | MSL | HLSL | GLSL |
 |----------|--------|-----|------|------|
-| depth(any) | SpvBuiltInFragDepth | depth(any) | SV_Depth | depth_any |
-| depth(greater) | SpvBuiltInFragDepth + OpExecutionMode DepthGreater | depth(greater) | SV_DepthGreaterEqual | depth_greater |
-| depth(less) | SpvBuiltInFragDepth + OpExecutionMode DepthLess | depth(less) | SV_DepthLessEqual | depth_less |
+| frag_depth, any | SpvBuiltInFragDepth | depth(any) | SV_Depth | depth_any |
+| frag_depth, greater | SpvBuiltInFragDepth + OpExecutionMode DepthGreater | depth(greater) | SV_DepthGreaterEqual | depth_greater |
+| frag_depth, less | SpvBuiltInFragDepth + OpExecutionMode DepthLess | depth(less) | SV_DepthLessEqual | depth_less |
 
 ## Open sub-issues
 
