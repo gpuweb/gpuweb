@@ -103,7 +103,7 @@ Each pipeline defines a set of **immediate slots** based on the `var<immediate>`
 - Each byte in the immediate data range corresponds to one slot
 - `immediateSize` = sizeof(variables) + sizeof(paddings), following [Alignment rules](https://www.w3.org/TR/WGSL/#alignment-and-size) in WGSL spec
 - For struct types, padding bytes **are included** in the size but **are not included** in the set of slots that must be set by the API
-- Example: `var<immediate> s : struct { a : f32, b : vec4<f32> }` requires `immediateSize = 20` (4 bytes for `a`, 12 bytes padding at offsets 1-3 to align `b`, 16 bytes for `b`), but only slots 0, 4, 5, 6, 7 (bytes containing actual data) need to be set via `setImmediateData()`
+- Example: `var<immediate> s : struct { a : f32, b : vec4<f32> }` requires `immediateSize = 20` (4 bytes for `a`, 12 bytes padding at offsets 1-3 to align `b`, 16 bytes for `b`), but only slots 0-3 (for `a`) and 4-19 (for `b`, 16 bytes) need to be set via `setImmediateData()`
 
 **Compatibility:** Two pipeline layouts are "compatible for immediate data" if they were created with identical `immediateSize`. Immediate data values can be shared between pipelines with compatible layouts.
 
