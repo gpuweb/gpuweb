@@ -57,7 +57,7 @@ Source: https://usermanual.wiki/Document/Vulkan2BProgramming2BGuide2BThe2BOffici
 
 ### Built-in `depth_mode` parameter to `frag_depth`
 
-An optional `depth_mode` parameter declated after the built-in `frag_depth` name is allowed and
+An optional `depth_mode` parameter declared after the built-in `frag_depth` name is allowed and
 defaults to `any`.
 
 It can be either `@builtin(frag_depth)`, `@builtin(frag_depth, greater)`,
