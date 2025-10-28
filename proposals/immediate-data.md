@@ -156,7 +156,7 @@ encoder.setPipeline(pipeline);
 // ERROR: Immediate slots 0-15 have not been set
 // encoder.dispatchWorkgroups(1);
 
-encoder.setImmediateData(0, new Float32Array([1, 2, 3, 4])); // Sets slots 0-15
+encoder.setImmediateData(0, new Float32Array([1, 2, 3, 4])); // Sets slots 0-3
 
 // OK: All required slots are now set
 encoder.dispatchWorkgroups(1);
