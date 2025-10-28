@@ -2,7 +2,7 @@
 
 **Roadmap:** This proposal is **under active development, but has not been standardized for inclusion in the WebGPU specification. The proposal is likely to change before it is standardized.** WebGPU implementations **must not** expose this functionality; doing so is a spec violation. Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
 
-Last modified: 2025-10-27
+Last modified: 2025-10-28
 
 Issue: #75
 
@@ -100,10 +100,10 @@ dictionary GPUPipelineLayoutDescriptor
 ### Immediate Slots
 
 Each pipeline defines a set of **immediate slots** based on the `var<immediate>` variables used by its shaders:
-- Each byte in the immediate data range corresponds to one slot
+- Each 32-bit word (4 bytes) in the immediate data range corresponds to one slot
 - `immediateSize` = sizeof(variables) + sizeof(paddings), following [Alignment rules](https://www.w3.org/TR/WGSL/#alignment-and-size) in WGSL spec
-- For struct types, padding bytes **are included** in the size but **are not included** in the set of slots that must be set by the API
-- Example: `var<immediate> s : struct { a : f32, b : vec4<f32> }` requires `immediateSize = 20` (4 bytes for `a`, 12 bytes padding at offsets 1-3 to align `b`, 16 bytes for `b`), but only slots 0-3 (for `a`) and 4-19 (for `b`, 16 bytes) need to be set via `setImmediateData()`
+- For struct types, padding bytes **are included** in the size but slots corresponding to padding **are not included** in the set of slots that must be set by the API
+- Example: `var<immediate> s : struct { a : f32, b : vec4<f32> }` requires `immediateSize = 32` (4 bytes for `a` at offset 0, 12 bytes padding at offsets 4-15 to align `b` to a 16-byte boundary, 16 bytes for `b` at offsets 16-31). Only slots 0, 4, 5, 6, 7 (the 32-bit words containing actual data: word 0 for `a`, words 4-7 for `b`) need to be set via `setImmediateData()`
 
 **Compatibility:** Two pipeline layouts are "compatible for immediate data" if they were created with identical `immediateSize`. Immediate data values can be shared between pipelines with compatible layouts.
 
@@ -119,8 +119,8 @@ interface mixin GPUBindingCommandsMixin {
 }
 ```
 
-- `rangeOffset`: Offset in bytes into immediate data range to begin writing at. Requires multiple of 4 bytes.
-- `dataOffset` and `size` work like in [writeBuffer](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-writebuffer): "Given in elements if data is a TypedArray and bytes otherwise."
+- `rangeOffset`: Offset in bytes into immediate data range to begin writing at. Must be a multiple of 4 bytes.
+- `dataOffset` and `size` work like in [writeBuffer](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-writebuffer): "Given in elements if data is a TypedArray and bytes otherwise." The actual byte size copied must be a multiple of 4 bytes.
 - The immediate data is stored in an internal slot `[[immediate data]]` in `GPUBindingCommandsMixin`, which is shared across `GPUComputePassEncoder`, `GPURenderPassEncoder`, and `GPURenderBundleEncoder`. See issue [#5117](https://github.com/gpuweb/gpuweb/issues/5117).
 
 ## Validation
@@ -139,7 +139,7 @@ Immediate values must be set before they can be used in draw or dispatch operati
 
 3. **After executeBundles():** After `executeBundles()` completes, all immediate slots are cleared (no slots are considered set).
 
-4. **Setting slots:** When `setImmediateData(rangeOffset, data, ...)` is called, the byte offsets `[rangeOffset, rangeOffset + actualSize)` are marked as set, where `actualSize` is the actual byte size of the data being copied.
+4. **Setting slots:** When `setImmediateData(rangeOffset, data, ...)` is called, the 32-bit word slots at byte offsets `[rangeOffset, rangeOffset + actualSize)` are marked as set, where `actualSize` is the actual byte size of the data being copied. Since both `rangeOffset` and `actualSize` must be multiples of 4 bytes, this marks complete 32-bit word slots as set.
 
 **Example validation:**
 
