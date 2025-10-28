@@ -144,7 +144,7 @@ Immediate values must be set before they can be used in draw or dispatch operati
 **Example validation:**
 
 ```javascript
-// Pipeline uses slots 0-15 (16 bytes of immediate data)
+// Pipeline uses slots 0-3 (16 bytes of immediate data)
 const pipeline = device.createComputePipeline({
   layout: device.createPipelineLayout({ immediateSize: 16 }),
   compute: { module, entryPoint: "main" } // uses var<immediate> data : vec4<f32>
@@ -153,7 +153,7 @@ const pipeline = device.createComputePipeline({
 const encoder = commandEncoder.beginComputePass();
 encoder.setPipeline(pipeline);
 
-// ERROR: Immediate slots 0-15 have not been set
+// ERROR: Immediate slots 0-3 have not been set
 // encoder.dispatchWorkgroups(1);
 
 encoder.setImmediateData(0, new Float32Array([1, 2, 3, 4])); // Sets slots 0-3
