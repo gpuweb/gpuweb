@@ -62,7 +62,7 @@ Add a single new enable extension:
 
 | Enable                  | Description                                          |
 | ----------------------- | ---------------------------------------------------- |
-| `atomic_vec2u_min_max`     | Adds functions for only min and max ops 64 bit atomics |
+| `atomic_vec2u_min_max`     | Adds functions for min and max atomic ops on a vec2u |
 
 > **NOTE**: The `atomic_vec2u_min_max` should be limited to storage buffers. This does not include textures/images.
 
