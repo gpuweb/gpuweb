@@ -87,7 +87,7 @@ New GPU features:
 
 | Feature             | Description                                                          |
 | ------------------- | -------------------------------------------------------------------- |
-| `atomic_vec2u_min_max` | Allows the WGSL feature predicated on support for these 64 bit operations |
+| `atomic_vec2u_min_max` | Allows the WGSL feature predicated on support for min/max atomic vec2u bit operations |
 
 # Discussion
 
