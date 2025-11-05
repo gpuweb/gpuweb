@@ -294,7 +294,6 @@ If the number of texture+sampler combinations used a in single stage in a pipeli
 The validation occurs as follows:
 
 ```
-maxCombinationsPerStage = min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)
 for each stage of the pipeline:
   sum = 0
   for each unique texture or external texture binding that is used in any call to a texture builtin in the shader call graph reachable from the shader entry point:
