@@ -274,6 +274,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         text: primitive restart value; url: primitive-restart-value
         for: supported limits
             text: maxComputeWorkgroupStorageSize; url: dom-supported-limits-maxcomputeworkgroupstoragesize
+            text: maxImmediateSize; url: dom-supported-limits-maximmediatesize
     type: attribute
         for: GPU
             text: wgslLanguageFeatures; url: gpuwgsllanguagefeatures
@@ -941,6 +942,12 @@ shader that goes beyond the specified limits.
             This maps the WebGPU [=supported limits/maxComputeWorkgroupStorageSize=] limit
             into a standalone WGSL limit.
         <td>[=supported limits/maxComputeWorkgroupStorageSize|16384=]
+    <tr><td>Maximum combined [=byte-size=] of all [=immediate data=] variables that are
+            [=statically accessed=] by a single [=shader=]
+
+            This maps the WebGPU [=supported limits/maxImmediateSize=] limit
+            into a standalone WGSL limit.
+        <td>[=supported limits/maxImmediateSize|64=]
     <tr><td>Maximum number of elements in [[#value-constructor-builtin-function|value constructor]] expression of [=array=] type<td>2047
 </table>
 
@@ -1467,6 +1474,7 @@ The [=language extension=] names are:
 * <a for=language_extension lt=pointer_composite_access>`'pointer_composite_access'`</a>
 * <a for=language_extension lt=uniform_buffer_standard_layout>`'uniform_buffer_standard_layout'`</a>
 * <a for=language_extension lt=subgroup_id>`'subgroup_id'`</a>
+* <a for=language_extension lt=immediate_data>`'immediate_data'`</a>
 
 ### Interpolation Type Names ### {#interpolation-type-names}
 
@@ -1938,6 +1946,12 @@ Extension names are not [=identifiers=]: they do not [=resolves|resolve=] to [=d
       Allows the use of the [=built-in values/subgroup_id=] and [=built-in
       values/num_subgroups=] built-in values when the [=extension/subgroups=]
       extension is enabled.
+   <tr><td><dfn for="language_extension">immediate_data</dfn>
+      <td>
+      Enables the [=address spaces/immediate=] address space, allowing variables
+      to be declared with `var<immediate>` and bound to small amounts of frequently
+      updated data passed directly from the command encoder via the WebGPU API.
+
 </table>
 
 Note: The intent is that, over time, WGSL will define language extensions embodying all functionality in language extensions commonly supported at that time.
@@ -4847,7 +4861,7 @@ effective-value-type.
 <tr><td>[=variable|var=]&lt;[=address spaces/immediate=]&gt;
     <td>Immutable
     <td>[=module scope|Module=]
-    <td>[=type/concrete|Concrete=] [=constructible=] [=host-shareable=], excluding arrays and structures containing array members
+    <td>[=constructible=] [=host-shareable=], excluding arrays and structures containing array members
     <td>Disallowed
     <td>
     <td>Yes.<br>[=immediate data=]
@@ -5134,9 +5148,40 @@ access mode; the default is read.
 
 A variable in the [=address spaces/immediate=] address space is an <dfn
 noexport>immediate data</dfn> variable.
-Its [=store type=] [=shader-creation error|must=] be a [=host-shareable=] [=constructible=] [=type/concrete=] type,
+Its [=store type=] [=shader-creation error|must=] be a [=host-shareable=] [=constructible=] type,
 excluding arrays and structures that contain array members.
 Each [=entry point=] [=shader-creation error|must=] [=statically access=] at most one immediate data variable.
+
+The <dfn noexport>accessible slots</dfn> of an immediate data variable are the 4-byte-aligned slots that
+contain the actual data (not padding bytes) of the variable's [=store type=].
+Let |T| be the store type of an immediate data variable.
+The set of accessible slots is computed as follows:
+
+<blockquote algorithm="accessible slots">
+    <dfn export>AccessibleSlots</dfn>(|T|) computes a [=set=] of slot indices (where each slot is 4 bytes):
+
+    1. Let |slots| be an empty [=set=].
+    1. Let |size| = [=SizeOf=](|T|).
+    1. If |T| is a [=structure=] with |N| members:
+        1. For each member index |i| from 1 to |N|:
+            1. Let |offset| = [=OffsetOfMember=](|T|, |i|).
+            1. Let |memberSize| = [=SizeOfMember=](|T|, |i|).
+            1. For each byte offset |b| from |offset| to |offset| + |memberSize| - 1:
+                1. Let |slotIndex| = floor(|b| &div; 4).
+                1. Add |slotIndex| to |slots|.
+    1. Otherwise (|T| is not a structure):
+        1. For each byte offset |b| from 0 to |size| - 1:
+            1. Let |slotIndex| = floor(|b| &div; 4).
+            1. Add |slotIndex| to |slots|.
+    1. Return |slots|.
+</blockquote>
+
+<div class=note>
+The [=accessible slots=] exclude padding bytes between structure members and at the end of structures.
+Only the accessible slots need to be initialized via the WebGPU API
+before the immediate data variable is accessed in a shader.
+</div>
+
 
 A <dfn>texture resource</dfn> is a variable whose [=effective-value-type=] is a [=texture type=].
 It is declared at [=module scope=].
@@ -5151,7 +5196,7 @@ It is declared at [=module scope=], exists in the [=address spaces/handle=] addr
 and is immutable.
 
 As described in [[#resource-interface]], uniform buffers, storage buffers,
-textures, and samplers form the [=resource interface of a shader=].
+textures, samplers, and immediate data form the [=resource interface of a shader=].
 
 The <dfn noexport>lifetime</dfn> of a variable is the period during shader
 execution for which the [=memory locations=] are associated with the variable.
@@ -10170,22 +10215,27 @@ A <dfn noexport>resource</dfn> is an object which provides access to data extern
 and which is not an [=override-declaration=] and not a [[#stage-inputs-outputs|shader stage input or output]].
 Resources are shared by all invocations of the shader.
 
-There are four kinds of resources:
+There are five kinds of resources:
 
 * [=Uniform buffers=]
 * [=Storage buffers=]
 * [=Texture resources=]
 * [=Sampler resources=]
+* [=Immediate data=]
 
 The <dfn noexport>resource interface of a shader</dfn> is the set of module-scope
 resource variables [=statically accessed=] by
 [=functions in a shader stage|functions in the shader stage=].
 
-Each resource variable [=shader-creation error|must=] be declared with both [=attribute/group=] and [=attribute/binding=]
+Each resource variable, except for [=immediate data=] variables, [=shader-creation error|must=] be declared with both [=attribute/group=] and [=attribute/binding=]
 attributes.
 Together with the shader's stage, these identify the binding address
 of the resource on the shader's pipeline.
 See [[WebGPU#gpupipelinelayout]].
+
+[=Immediate data=] variables do not use [=attribute/group=] or [=attribute/binding=] attributes.
+They are accessed via the WebGPU API on the command encoder,
+and are limited in size by the pipeline layout's immediate data size configuration.
 
 Two different resource variables in a [=shader=] [=shader-creation error|must
 not=] have the same [=attribute/group=] and [=attribute/binding=] values, when
@@ -10247,6 +10297,8 @@ where compatibility is defined by the following table.
   <tr><td>[=type/external texture=]
       <td>{{GPUBindGroupLayoutEntry/externalTexture}}
       <td colspan=2>(not applicable)
+  <tr><td>[=immediate data=]
+      <td colspan=3>Not a bind group entry. Validated against pipeline layout immediate data size.
 </table>
 
 See the [$validating GPUProgrammableStage|WebGPU API$]
@@ -10462,7 +10514,7 @@ table.
       <td>Invocations in the same [=shader stage=]
       <td>[=access/read=]
       <td>For [=immediate data=] variables.<br>
-          [=type/concrete|Concrete=] [=constructible=] [=host-shareable=] types, excluding arrays and structures containing array members.<br>
+          [=constructible=] [=host-shareable=] types, excluding arrays and structures containing array members.<br>
           Each [=entry point=] can [=statically access=] at most one immediate variable.
   <tr><td><dfn noexport dfn-for="address spaces">handle</dfn>
       <td>Invocations in the same shader stage
