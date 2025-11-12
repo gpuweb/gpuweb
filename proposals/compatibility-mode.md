@@ -391,8 +391,8 @@ If `createTexture()` is called with any of these formats and `sampleCount > 1`, 
 
 **Justification**: OpenGL ES 3.1 does not require multisampling to be supported on integer texture formats. The minimum value for GL_MAX_INTEGER_SAMPLES is 1, and [94.7% of reports on gpuinfo have that value](https://opengles.gpuinfo.org/displaycapability.php?name=GL_MAX_INTEGER_SAMPLES&esversion=31).
 
-## Issues
+### 24. Disallow "Fine" variants of derivative functions (`dpdxFine()`, `dpdyFine()`, `fwidthFine()`).
 
-Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
+These functions must not be referenced from the from the call graph rooted at a shader entry point or else a validation error will occur at pipeline creation time.
 
-A: Unclear. In SPIR-V, Fine variants must include the value of P for the local fragment, while Coarse variants do not. WGSL is less constraining, and simply says that Coarse "may result in fewer unique positions than `dpdxFine(e)`."
+**Justification**: OpenGL ES does not support "Coarse" and "Fine" variants of the derivative functions (`dfdx()`, `dfdy()`, `fwidth()`).
