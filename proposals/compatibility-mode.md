@@ -220,11 +220,11 @@ When creating a texture you can pass in a `textureBindingViewDimension`.
 **Justification**: OpenGL ES 3.1 cannot create 2d textures with more than 1 layer nor can it
 create cube maps that are not exactly 6 layers.
 
-## 15. Disallow bgra8unorm-srgb textures
+### 15. Disallow bgra8unorm-srgb textures
 
 **Justification**: OpenGL ES 3.1 does not support bgra8unorm-srgb textures.
 
-## 16. Disallow `textureLoad` with `texture_depth?` textures
+### 16. Disallow `textureLoad` with `texture_depth?` textures
 
 If a `texture_depth`, `texture_depth_2d_array`, or `texture_depth_cube` are used in a `textureLoad` call
 in code passed to `createShaderModule` a validation error is generated.
@@ -233,7 +233,7 @@ in code passed to `createShaderModule` a validation error is generated.
 
 Note: this does not affect textures made with depth formats bound to `texture_2d<f32>`.
 
-## 17. Disallow `@interpolation(flat)` and `@interpolation(flat, first)`
+### 17. Disallow `@interpolation(flat)` and `@interpolation(flat, first)`
 
 If code is passed to `createShaderModule` that uses `@interpolation(flat)` or `@interpolation(flat, first)`
 generate a validation error.
@@ -242,7 +242,7 @@ generate a validation error.
 other APIs only support the first vertex so only `@interpolation(flat, either)` is supported in
 compatibility mode.
 
-## 18. Introduce new `maxStorageBuffersInVertexStage` and `maxStorageTexturesInVertexStage` limits.
+### 18. Introduce new `maxStorageBuffersInVertexStage` and `maxStorageTexturesInVertexStage` limits.
 
 In `createBindGroupLayout` and `createPipelineLayout` (including `"auto"` layout creation), if the number of `"storage"`/`"read-only-storage"` buffer bindings with visibility bit `VERTEX` exceeds the `maxStorageBuffersInVertexStage` limit, a validation error will occur.
 
@@ -260,7 +260,7 @@ In Core mode, at device creation time, and after application of the previous rul
 
 **Justification**: OpenGL ES 3.1 allows `MAX_VERTEX_SHADER_STORAGE_BLOCKS` and `MAX_VERTEX_IMAGE_UNIFORMS` to be zero, and there are a significant number of devices in the field with that value.
 
-## 19. Introduce new `maxStorageBuffersInFragmentStage` and `maxStorageTexturesInFragmentStage` limits.
+### 19. Introduce new `maxStorageBuffersInFragmentStage` and `maxStorageTexturesInFragmentStage` limits.
 
 In `createBindGroupLayout`, `createPipelineLayout` (including `"auto"` layout creation), if the number of `"storage"`/`"read-only-storage"` buffer bindings with visibility bit `FRAGMENT` exceeds the `maxStorageBuffersInFragmentStage` limit, a validation error will occur.
 
@@ -279,14 +279,14 @@ In Core mode, at device creation time, and after application of the previous rul
 **Justification**: Although OpenGL ES 3.1 allows `MAX_FRAGMENT_SHADER_STORAGE_BLOCKS` and `MAX_FRAGMENT_IMAGE_UNIFORMS` to be zero the
 population of devices with less than 4 of each limit is around 5% and falling. The remaining devices support 4 or more of each.
 
-## 20. Disallow using a depth texture with a non-comparison sampler
+### 20. Disallow using a depth texture with a non-comparison sampler
 
 Using a depth texture `texture_depth_2d`, `texture_depth_cube`, `texture_depth_2d_array` with a non-comparison
 sampler in a shader will generate a validation error at pipeline creation time.
 
 **Justification**: OpenGL ES 3.1 says such usage has undefined behavior.
 
-## 21. Limit the number of texture+sampler combinations in a stage.
+### 21. Limit the number of texture+sampler combinations in a stage.
 
 If the number of texture+sampler combinations used a in single stage in a pipeline exceeds
 `min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)` a validation error is generated.
