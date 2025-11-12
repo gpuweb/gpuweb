@@ -68,15 +68,20 @@ Validation of the texture/sampler pairs used in texture calls to make sure unfil
 not sampled with filtering.  These cases generate shader-creation errors.  The compatibility
 matrix is:
 
-|                              | Sampler `non_filtering` | Sampler `filtering` | Sampler `unknown` |
-| :--------------------------- | :---------------------: | :-----------------: | :---------------: |
-| Texture `float`              | Y                       | Y                   | Y                 |
-| Texture `unfilterable_float` | Y                       | N                   | *YA*              |
-| Texture `unknown`            | Y                       | *YA*                | *YA*              |
+|                              | Sampler `non_filtering` | Sampler `unknown`   | Sampler `filtering` |
+| :--------------------------- | :---------------------: | :-----------------: | :-----------------: |
+| Texture `float`              | Y                       | Y                   | Y                   |
+| Texture `unknown`            | Y                       | *YA*                | *YA*                |
+| Texture `unfilterable_float` | Y                       | *YA*                | N                   |
 
-Note: YA means “can't be rejected yet, have to check at pipeline creation with a BindGroupLayout.
+Note: YA ("Yes Automatic") means “can't be rejected yet, have to check at pipeline creation with a BindGroupLayout.
 There always exists a layout for which this will be valid, and the auto layout algorithm will always
 be able to find one.”
+
+The ordering of rows and columns in the compatibility matrix suggests valid substitutions.
+Moving to the left, or moving up never makes things worse: if a given texture/sampler pairing
+is valid, then it's ok to replace the texture of that kind with one from a higher row,
+and independently it's ok to replace the sampler of that kind with one from a more leftward column.
 
 Only one parameter can be provided to a texture/sampler. Providing it twice (e.g.
 `sampler<filtering, filtering>` is a `createShaderModule` error). The filtering parameters for

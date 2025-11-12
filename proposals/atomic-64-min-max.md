@@ -62,13 +62,13 @@ Add a single new enable extension:
 
 | Enable                  | Description                                          |
 | ----------------------- | ---------------------------------------------------- |
-| `atomic_64_min_max`     | Adds functions for only min and max ops 64 bit atomics |
+| `atomic_vec2u_min_max`     | Adds functions for min and max atomic ops on a vec2u |
 
-> **NOTE**: The `atomic_64_min_max` should be limited to storage buffers. This does not include textures/images.
+> **NOTE**: The `atomic_vec2u_min_max` should be limited to storage buffers. This does not include textures/images.
 
 ## Built-in Functions
 
-### Functions made availible via `atomic_64_min_max`
+### Functions made availible via `atomic_vec2u_min_max`
 
 All built-in function can only be used in `compute` or `fragment` shader stages. `T` as `uvec2`.
 
@@ -87,7 +87,7 @@ New GPU features:
 
 | Feature             | Description                                                          |
 | ------------------- | -------------------------------------------------------------------- |
-| `atomic_64_min_max` | Allows the WGSL feature predicated on support for these 64 bit operations |
+| `atomic_vec2u_min_max` | Allows the WGSL feature predicated on support for min/max atomic vec2u bit operations |
 
 # Discussion
 
