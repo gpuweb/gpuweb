@@ -415,7 +415,7 @@ Steps for `GPUBindGroup.removeBinding(binding)`:
     - `this.destroy()` has never been called.
     - `slot < Math.min(this.[[desc]].dynamicArraySize, this.[[device]].limits.maxDynamicBindingArraySize)`
 
- - When `this.[[device]].queue.onSubmittedWorkDone()` is resolved, set `this.[[availableAfterSubmit]][slot]` to `this.[[device]].queue.[[lastSubmitIndex]]`.
+ - Set `this.[[availableAfterSubmit]][slot]` to `this.[[device]].queue.[[lastSubmitIndex]]`.
 
  - On the device timeline:
 
