@@ -281,7 +281,6 @@ Validation rules added to `GPUDevice.createBindGroup(desc)`:
     - Each `entry` in `desc.entries` that doesn't match an entry in `desc.layout.[[desc]].entries` must have `entry.binding - desc.layout.[[desc]].dynamicArray.start` in `[0, desc.dynamicArraySize)`.
     - Each `entry` in `desc.entries` in the dynamic array range must be compatible with `desc.layout.[[desc]].dynamicArray.type`. (TODO [#5374](https://github.com/gpuweb/gpuweb/issues/5374), determine the compatibility rules).
 
-
 The vast majority of `GPUBindGroups` will not contain a dynamic binding array, so to minimize the additional `queue.submit` validation overhead, only the dynamic binding array `GPUBindGroups` may be destroyed.
 Hence here are the validation rules for `GPUBindGroup.destroy()`:
 
@@ -357,9 +356,26 @@ Two ways to update the dynamic binding array are exposed to allow both implicit 
 `insertBinding` is simpler to use because it defers to the browser's tracking of which slots may be in use and returns to the user the `binding` it placed the `resource` on (or an exception on failure).
 On the other hand `update` gives the application control of where it places binding, which may be useful to allocate contiguous ranges, for hardcoded slots, or when porting code manually allocating in D3D12/Metal/Vulkan already.
 
+`GPUQueue` is augmented to have monotonic numbers that can be used to refer to `GPUQueue.submit()` calls and the ones that have been completed for use in the validation of `GPUBindGroup.update/insertBinding/removeBinding`:
+
+ - An additional state is added to `GPUQueue`:
+
+   - A `Number` called `[[lastSubmitIndex]]` with initial value of `0`.
+   - A `Number` called `[[completedSubmitIndex]]` with initial value of `0`.
+
+ - In the steps of `GPUQueue.submit`, add do:
+
+   - Increment `this.[[lastSubmitIndex]]`.
+   - Let `submitIndex` = `this.[[lastSubmitIndex]]`.
+   - `this.onSubmittedWorkDone().then(() => {this.[[completedSubmitIndex]] = submitIndex})`.
+
+This is necessary for dynamic binding arrays to track when is the last time that a slot may have been used on the GPU.
+It is valid to overwrite a slot only when it can no longer be used on the GPU and both `GPUBindGroup.update` and `GPUBindGroup.insertBinding` use that in their internal logic.
+The user can make a slot no longer possible to use on the GPU using `removeBinding` but because some GPU work might still be in-flight, the slot will only become available later, when current GPU work is completed.
+
 Additional internal state is added to `GPUBindGroup`:
 
- - An `Array<boolean>` called `[[slot_maybe_used]]` of size `this.[[desc]].dynamicArraySize` initially filled with `false` values.
+ - An `Array<Number>` called `[[availableAfterSubmit]]` of size `this.[[desc]].dynamicArraySize` initially filled with `0` values.
 
 Steps for `GPUBindGroup.update(binding, resource)`:
 
@@ -367,10 +383,11 @@ Steps for `GPUBindGroup.update(binding, resource)`:
  - Let `slot` be `binding - this.[[desc]].layout.[[desc]].dynamicArray.start`.
  - If any of the following is not satisfied, throw an `OperationException`:
 
-    - `slot < this.[[desc]].dynamicArraySize`
-    - `!this.[[slot_maybe_used]][slot]`
+    - `this.destroy()` has never been called.
+    - `slot < Math.min(this.[[desc]].dynamicArraySize, this.[[device]].limits.maxDynamicBindingArraySize)`
+    - `this.[[availableAfterSubmit]][slot] <= this.[[device]].queue.[[completedSubmitIndex]]`
 
- - Set `this.[[slot_maybe_used]][slot]`
+ - Set `this.[[availableAfterSubmit]][slot]` to `Infinity`.
  - On the device timeline:
 
    - If any of the following is not satified, generate a validation error and return.
@@ -383,8 +400,8 @@ Steps for `GPUBindGroup.update(binding, resource)`:
 Steps for `GPUBindGroup.insertBinding(resource)`:
 
  - If `this.[[desc]].layout.[[desc]].dynamicArray` is `undefined`, throw an `OperationError`.
- - Let `slot` be `this.[[slot_maybe_used]].indexOf(false)`.
- - If `slot` is `-1`, throw an `OperationError`.
+ - Let `slot` be `this.[[availableAfterSubmit]].findIndex((e) => e <= this.[[device]].queue.[[completedSubmitIndex]])`.
+ - If `slot` is `undefined`, throw an `OperationError`.
  - Let `binding` be `slot + this.[[desc]].layout.[[desc]].dynamicArray.start`.
  - Call `this.update(binding, resource)`.
  - Return `binding`.
@@ -395,18 +412,17 @@ Steps for `GPUBindGroup.removeBinding(binding)`:
  - Let `slot` be `binding - this.[[desc]].layout.[[desc]].dynamicArray.start`.
  - If any of the following is not satisfied, throw an `OperationException`:
 
-    - `slot < this.[[desc]].dynamicArraySize`
-    - `!this.[[slot_maybe_used]][slot]`
+    - `this.destroy()` has never been called.
+    - `slot < Math.min(this.[[desc]].dynamicArraySize, this.[[device]].limits.maxDynamicBindingArraySize)`
 
- - When `this.[[device]].queue.onSubmittedWorkDone()` is resolved, set `this.[[slot_maybe_used]][slot]` to `false`. (TODO [#5379](https://github.com/gpuweb/gpuweb/issues/5379) actually, make it happen just before all the user-visible `onSubmittedWorkDone`).
+ - When `this.[[device]].queue.onSubmittedWorkDone()` is resolved, set `this.[[availableAfterSubmit]][slot]` to `this.[[device]].queue.[[lastSubmitIndex]]`.
 
  - On the device timeline:
 
-   - If any of the following is not satified, generate a validation error and return.
-
-      - `this` is valid and `destroy()` hasn't been called on it.
-
+   - If `this` isn't valid, generate a validation error and return.
    - Remove the entry at `binding`.
+
+Note that the `Math.min()` with `maxDynamicBindingArraySize` is to allow browsers to skip allocating giant content-side arrays if a user tries sets `dynamicArraySize` to ludicrous numbers.
 
 #### Shader/layout compatibility and default pipeline layout
 
