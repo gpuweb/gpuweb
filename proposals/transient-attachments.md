@@ -28,7 +28,7 @@ partial namespace GPUTextureUsage {
 The `validating GPUTextureDescriptor(this, descriptor)` algorithm is extended with the following change:
 
 - If `descriptor.usage` includes the `TRANSIENT_ATTACHMENT` bit:
-  - `descriptor.usage` must only contain `TRANSIENT_ATTACHMENT` and `RENDER_ATTACHMENT` bits.
+  - `descriptor.usage` must contain only and exactly `TRANSIENT_ATTACHMENT` and `RENDER_ATTACHMENT` bits.
 
 The `GPURenderPassColorAttachment Valid Usage` algorithm is extended with the following change:
 
