@@ -9,7 +9,9 @@ Issue:
 
 ## Motivation
 
-When a texture is declared "memoryless", the GPU knows that the contents of that texture are only needed temporarily—specifically, only within the current render pass or subpass. Moreover, since the texture contents are discarded after the render pass, the driver may not even need to allocate space for that texture in the main VRAM at all.
+When a texture is declared transient (or "memoryless"), the GPU knows that the contents of that texture are only needed temporarily—specifically, only within the current render pass. Moreover, since the texture contents are discarded after the render pass, the driver may not even need to allocate space for that texture in the main VRAM at all.
+
+Even without hardware support for transient attachments, the hint can be used to reuse the allocation of transient textures between passes, which reduces peak memory usage.
 
 ## API changes
 
@@ -26,13 +28,23 @@ partial namespace GPUTextureUsage {
 The `validating GPUTextureDescriptor(this, descriptor)` algorithm is extended with the following change:
 
 - If `descriptor.usage` includes the `TRANSIENT_ATTACHMENT` bit:
-  - `descriptor.usage` must contain no other bits except `RENDER_ATTACHMENT`.
+  - `descriptor.usage` must only contain `TRANSIENT_ATTACHMENT` and `RENDER_ATTACHMENT` bits.
 
 The `GPURenderPassColorAttachment Valid Usage` algorithm is extended with the following change:
 
 - If `renderViewDescriptor.usage` includes the `TRANSIENT_ATTACHMENT` bit:
-  - `this.storeOp` must be `"discard".`
   - `this.loadOp` must be `"clear"`.
+  - `this.storeOp` must be `"discard".`
+
+The `GPURenderPassDepthStencilAttachment Valid Usage` algorithm is extended with the following change:
+
+- If `this.view.[[descriptor]].usage` includes the `TRANSIENT_ATTACHMENT` bit:
+  - If format has a depth aspect and `this.depthReadOnly` is false:
+    - `this.depthLoadOp` must be `"clear"`.
+    - `this.depthStoreOp` must be `"discard".`
+  - If format has a stencil aspect and `this.stencilReadOnly` is false:
+    - `this.stencilLoadOp ` must be `"clear"`.
+    - `this.stencilStoreOp ` must be `"discard".`
 
 ## Javascript example
 
@@ -40,16 +52,19 @@ The `GPURenderPassColorAttachment Valid Usage` algorithm is extended with the fo
 const adapter = await navigator.gpu.requestAdapter();
 const device = await adapter.requestDevice();
 
-const transientTexture = device.createTexture({
-  size: [42, 42],
-  // The TRANSIENT_ATTACHMENT flag indicates the texture content is temporary,
-  // potentially keeping it in fast on-chip memory.
-  usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TRANSIENT_ATTACHMENT,
-  format: 'rgba8unorm',
-});
+if ('TRANSIENT_ATTACHMENT' in GPUTextureUsage) {
 
-// I can now use this texture to serve as transient attachments, e.g.
-// as color attachments in a render pipeline.
+  const transientTexture = device.createTexture({
+    size: [42, 42],
+    // The TRANSIENT_ATTACHMENT flag indicates the texture content is temporary,
+    // potentially keeping it in fast on-chip memory.
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TRANSIENT_ATTACHMENT,
+    format: 'rgba8unorm',
+  });
+
+  // I can now use this texture to serve as transient attachments, e.g.
+  // as color attachments in a render pipeline.
+}
 ```
 
 ## Resources
