@@ -19,7 +19,7 @@ A new `TRANSIENT_ATTACHMENT` is added to `GPUTextureUsage` to let developers cre
 
 ```webidl
 partial namespace GPUTextureUsage {
-    const GPUFlagsConstant TRANSIENT_ATTACHMENT = 0x40;
+    const GPUFlagsConstant TRANSIENT_ATTACHMENT = 0x20;
 };
 ```
 
