@@ -281,7 +281,6 @@ Validation rules added to `GPUDevice.createBindGroup(desc)`:
     - Each `entry` in `desc.entries` that doesn't match an entry in `desc.layout.[[desc]].entries` must have `entry.binding - desc.layout.[[desc]].dynamicArray.start` in `[0, desc.dynamicArraySize)`.
     - Each `entry` in `desc.entries` in the dynamic array range must be compatible with `desc.layout.[[desc]].dynamicArray.type`. (TODO [#5374](https://github.com/gpuweb/gpuweb/issues/5374), determine the compatibility rules).
 
-
 The vast majority of `GPUBindGroups` will not contain a dynamic binding array, so to minimize the additional `queue.submit` validation overhead, only the dynamic binding array `GPUBindGroups` may be destroyed.
 Hence here are the validation rules for `GPUBindGroup.destroy()`:
 
@@ -333,7 +332,97 @@ In implementations this can be done with almost no additional overhead to the cu
 
 #### Updates of bindings in dynamic binding arrays
 
-TODO: [#5379](https://github.com/gpuweb/gpuweb/issues/5379)
+The set of resources that appliation need to access will evolve over time.
+For example in a rendering engine that supports streaming of assets, when new content is loaded (models, map chunks, etc) it will need to be added to the dynamic binding array, and some now unused content removed.
+Dynamic binding arrays can use a lot of memory so this proposal adds a way to update the content of existing dynamic binding arrays over time.
+Other proposals were made that involved copy-on-write semantics, but not selected for this proposal because:
+
+ - Dynamic binding arrays can contain megabytes of data, so copying them is expensive and would increase peak memory usage.
+ - Due to the implementation constraints listed above, updates wouldn't happen in the dynamic binding arrays already refereced in command encoders (even encoders that are still open for recording).
+ - Transparently optimizing the copy-on-write is not possible because the application can always detect if a resource has been made available, which would cause subtle races and non-portability (an application might rely on the copy happening, but on faster hardware the optimization would reuse a now unused binding faster).
+
+The D3D12 and Vulkan require that dynamic binding arrays are modified by the CPU, without racing with the GPU trying to use the modified binding.
+This is somewhat similar to the design constraint for buffer mapping, where ownership is transferred back and forth between the CPU and GPU, but for dynamic binding arrays we should try to have a simpler looking API.
+
+```webidl
+partial interface GPUBindGroup {
+    void update(GPUIndex32 binding, GPUBindingResource resource);
+    GPUIndex32 insertBinding(GPUBindingResource resource);
+    void removeBinding(GPUIndex32 binding);
+};
+```
+
+Two ways to update the dynamic binding array are exposed to allow both implicit and explicit allocation of resources in the dynamic binding array.
+`insertBinding` is simpler to use because it defers to the browser's tracking of which slots may be in use and returns to the user the `binding` it placed the `resource` on (or an exception on failure).
+On the other hand `update` gives the application control of where it places binding, which may be useful to allocate contiguous ranges, for hardcoded slots, or when porting code manually allocating in D3D12/Metal/Vulkan already.
+
+`GPUQueue` is augmented to have monotonic numbers that can be used to refer to `GPUQueue.submit()` calls and the ones that have been completed for use in the validation of `GPUBindGroup.update/insertBinding/removeBinding`:
+
+ - An additional state is added to `GPUQueue`:
+
+   - A `Number` called `[[lastSubmitIndex]]` with initial value of `0`.
+   - A `Number` called `[[completedSubmitIndex]]` with initial value of `0`.
+
+ - In the steps of `GPUQueue.submit`, add do:
+
+   - Increment `this.[[lastSubmitIndex]]`.
+   - Let `submitIndex` = `this.[[lastSubmitIndex]]`.
+   - `this.onSubmittedWorkDone().then(() => {this.[[completedSubmitIndex]] = submitIndex})`.
+
+This is necessary for dynamic binding arrays to track when is the last time that a slot may have been used on the GPU.
+It is valid to overwrite a slot only when it can no longer be used on the GPU and both `GPUBindGroup.update` and `GPUBindGroup.insertBinding` use that in their internal logic.
+The user can make a slot no longer possible to use on the GPU using `removeBinding` but because some GPU work might still be in-flight, the slot will only become available later, when current GPU work is completed.
+
+Additional internal state is added to `GPUBindGroup`:
+
+ - An `Array<Number>` called `[[availableAfterSubmit]]` of size `this.[[desc]].dynamicArraySize` initially filled with `0` values.
+
+Steps for `GPUBindGroup.update(binding, resource)`:
+
+ - If `this.[[desc]].layout.[[desc]].dynamicArray` is `undefined`, throw an `OperationError`.
+ - Let `slot` be `binding - this.[[desc]].layout.[[desc]].dynamicArray.start`.
+ - If any of the following is not satisfied, throw an `OperationException`:
+
+    - `this.destroy()` has never been called.
+    - `slot < Math.min(this.[[desc]].dynamicArraySize, this.[[device]].limits.maxDynamicBindingArraySize)`
+    - `this.[[availableAfterSubmit]][slot] <= this.[[device]].queue.[[completedSubmitIndex]]`
+
+ - Set `this.[[availableAfterSubmit]][slot]` to `Infinity`.
+ - On the device timeline:
+
+   - If any of the following is not satified, generate a validation error and return.
+
+      - `this` is valid and `destroy()` hasn't been called on it.
+      - If `resource` is not compatible with `this.[[desc]].layout.[[desc]].dynamicArray.type` (TODO [#5374](https://github.com/gpuweb/gpuweb/issues/5374), determine the compatibility rules).
+
+   - Set the entry at `binding` in the bindgroup to `resource`.
+
+Steps for `GPUBindGroup.insertBinding(resource)`:
+
+ - If `this.[[desc]].layout.[[desc]].dynamicArray` is `undefined`, throw an `OperationError`.
+ - Let `slot` be `this.[[availableAfterSubmit]].findIndex((e) => e <= this.[[device]].queue.[[completedSubmitIndex]])`.
+ - If `slot` is `undefined`, throw an `OperationError`.
+ - Let `binding` be `slot + this.[[desc]].layout.[[desc]].dynamicArray.start`.
+ - Call `this.update(binding, resource)`.
+ - Return `binding`.
+
+Steps for `GPUBindGroup.removeBinding(binding)`:
+
+ - If `this.[[desc]].layout.[[desc]].dynamicArray` is `undefined`, throw an `OperationError`.
+ - Let `slot` be `binding - this.[[desc]].layout.[[desc]].dynamicArray.start`.
+ - If any of the following is not satisfied, throw an `OperationException`:
+
+    - `this.destroy()` has never been called.
+    - `slot < Math.min(this.[[desc]].dynamicArraySize, this.[[device]].limits.maxDynamicBindingArraySize)`
+
+ - Set `this.[[availableAfterSubmit]][slot]` to `this.[[device]].queue.[[lastSubmitIndex]]`.
+
+ - On the device timeline:
+
+   - If `this` isn't valid, generate a validation error and return.
+   - Remove the entry at `binding`.
+
+Note that the `Math.min()` with `maxDynamicBindingArraySize` is to allow browsers to skip allocating giant content-side arrays if a user tries sets `dynamicArraySize` to ludicrous numbers.
 
 #### Shader/layout compatibility and default pipeline layout
 
