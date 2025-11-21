@@ -379,9 +379,13 @@ Additional internal state is added to `GPUBindGroup`:
 
 Steps for `GPUBindGroup.update(binding, resource)`:
 
- - If `this.[[desc]].layout.[[desc]].dynamicArray` is `undefined`, throw an `OperationError`.
+ - If any of the following is not satisfied, throw an `OperationError`:
+
+    - `this.[[desc]].layout.[[desc]].dynamicArray` is not `undefined`.
+    - `slot >= this.[[desc]].layout.[[desc]].dynamic.start`.
+
  - Let `slot` be `binding - this.[[desc]].layout.[[desc]].dynamicArray.start`.
- - If any of the following is not satisfied, throw an `OperationException`:
+ - If any of the following is not satisfied, throw an `OperationError`:
 
     - `this.destroy()` has never been called.
     - `slot < Math.min(this.[[desc]].dynamicArraySize, this.[[device]].limits.maxDynamicBindingArraySize)`
@@ -408,9 +412,14 @@ Steps for `GPUBindGroup.insertBinding(resource)`:
 
 Steps for `GPUBindGroup.removeBinding(binding)`:
 
- - If `this.[[desc]].layout.[[desc]].dynamicArray` is `undefined`, throw an `OperationError`.
+
+ - If any of the following is not satisfied, throw an `OperationError`:
+
+    - `this.[[desc]].layout.[[desc]].dynamicArray` is not `undefined`.
+    - `slot >= this.[[desc]].layout.[[desc]].dynamic.start`.
+
  - Let `slot` be `binding - this.[[desc]].layout.[[desc]].dynamicArray.start`.
- - If any of the following is not satisfied, throw an `OperationException`:
+ - If any of the following is not satisfied, throw an `OperationError`:
 
     - `this.destroy()` has never been called.
     - `slot < Math.min(this.[[desc]].dynamicArraySize, this.[[device]].limits.maxDynamicBindingArraySize)`
