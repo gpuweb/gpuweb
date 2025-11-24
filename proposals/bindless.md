@@ -381,8 +381,8 @@ Steps for `GPUBindGroup.update(binding, resource)`:
 
  - If any of the following is not satisfied, throw an `OperationError`:
 
-    - `this.[[desc]].layout.[[desc]].dynamicArray` is not `undefined`.
-    - `slot >= this.[[desc]].layout.[[desc]].dynamic.start`.
+    - `this.[[desc]].layout.[[desc]].dynamicArray` must not be `undefined`.
+    - `binding` must be `>= this.[[desc]].layout.[[desc]].dynamic.start`.
 
  - Let `slot` be `binding - this.[[desc]].layout.[[desc]].dynamicArray.start`.
  - If any of the following is not satisfied, throw an `OperationError`:
