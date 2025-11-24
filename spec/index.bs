@@ -125,8 +125,11 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
             text: workgroup; url: address-spaces-workgroup
         for: builtin
             text: sample_mask; url: built-in-values-sample_mask
+            text: sample_index; url: built-in-values-sample_index
             text: frag_depth; url: built-in-values-frag_depth
             text: clip_distances; url: built-in-values-clip_distances
+            text: vertex_index; url: built-in-values-vertex_index
+            text: instance_index; url: built-in-values-instance_index
             text: workgroup_id; url: built-in-values-workgroup_id
             text: local_invocation_id; url: built-in-values-local_invocation_id
             text: global_invocation_id; url: built-in-values-global_invocation_id
@@ -228,7 +231,7 @@ object[type="image/svg+xml"] {
 
 /* The new spec template doesn't put a box around algorithms anymore. */
 /* Add a similar box for Valid Usage requirements. */
-div.algorithm, div.validusage {
+div.algorithm, div.validusage, div.compatmode {
     margin: .5em 0;
     padding: .5em;
     border-width: thin;
@@ -237,6 +240,9 @@ div.algorithm, div.validusage {
 }
 div.validusage {
     border-color: #88e;
+}
+div.compatmode {
+    border-color: #72b6e3;
 }
 div.algorithm {
     border-color: #ddd;
@@ -249,6 +255,10 @@ div.algorithm {
 .device-timeline>.validusage:first-child,
 .queue-timeline>.validusage:first-child {
     margin-top: 1.5em;
+}
+/* compatmode blocks usually start without a list, so add padding to accommodate the watermark. */
+div.compatmode {
+    padding-top: 1.5em;
 }
 
 /*
@@ -331,12 +341,13 @@ div.algorithm > div[data-timeline] {
  * NOTE: This text is non-accessible (no alt text) and non-selectable;
  * surrounding text must also explain the context.
  */
-.validusage,
+.validusage, .compatmode,
 .content-timeline, .device-timeline, .queue-timeline,
 [data-timeline] {
     position: relative;
 }
 .validusage::before,
+.compatmode::before,
 .content-timeline::before,
 .device-timeline::before,
 .queue-timeline::before {
@@ -352,6 +363,10 @@ div.algorithm > div[data-timeline] {
 .validusage::before {
     content: "Valid Usage";
     content: "Valid Usage" / ""; /* No alt text, see above */
+}
+.compatmode::before {
+    content: "Compatibility Mode";
+    content: "Compatibility Mode" / ""; /* No alt text, see above */
 }
 .content-timeline::before {
     content: "Content Timeline";
@@ -1307,6 +1322,10 @@ improved privacy. It is not required that a [=fallback adapter=] is available on
     ::
         If set to `true` indicates that the adapter was requested with compatibility with
         [=WebXR sessions=].
+
+    : <dfn>\[[default feature level]]</dfn>, of type [=feature level string=], readonly
+    ::
+        Indicates the default feature level of devices created from this adapter.
 </dl>
 
 [=adapter=] has the following [=device timeline properties=]:
@@ -1383,14 +1402,21 @@ implicitly [$valid to use with|unusable$].
     1. Let |features| be the [=set=] of values in
         |descriptor|.{{GPUDeviceDescriptor/requiredFeatures}}.
     1. If |features| contains {{GPUFeatureName/"texture-formats-tier2"}}:
-        1. [=set/Append=] {{GPUFeatureName/"texture-formats-tier1"}} to |features|
+        1. [=set/Append=] {{GPUFeatureName/"texture-formats-tier1"}} to |features|.
     1. If |features| contains {{GPUFeatureName/"texture-formats-tier1"}}:
-        1. [=set/Append=] {{GPUFeatureName/"rg11b10ufloat-renderable"}} to |features|
-    1. [=set/Append=] {{GPUFeatureName/"core-features-and-limits"}} to |features|.
-    1. Let |limits| be a [=supported limits=] object with all values set to their defaults.
+        1. [=set/Append=] {{GPUFeatureName/"rg11b10ufloat-renderable"}} to |features|.
+    1. Append any default {{GPUFeatureName}}s to |features|
+        as defined by the |adapter|.{{adapter/[[default feature level]]}}.
+    1. Let |limits| be a new [=supported limits=] object with the default limits
+        as defined by the |adapter|.{{adapter/[[default feature level]]}}.
     1. For each (|key|, |value|) pair in |descriptor|.{{GPUDeviceDescriptor/requiredLimits}}:
         1. If |value| is not `undefined` and |value| is [=limit/better=] than |limits|[|key|]:
             1. Set |limits|[|key|] to |value|.
+    1. Set |limits|.{{supported limits/maxStorageBuffersPerShaderStage}} to max(|limits|.{{supported limits/maxStorageBuffersPerShaderStage}}, |limits|.{{supported limits/maxStorageBuffersInVertexStage}}, |limits|.{{supported limits/maxStorageBuffersInFragmentStage}}).
+    1. Set |limits|.{{supported limits/maxStorageTexturesPerShaderStage}} to max(|limits|.{{supported limits/maxStorageTexturesPerShaderStage}}, |limits|.{{supported limits/maxStorageTexturesInVertexStage}}, |limits|.{{supported limits/maxStorageTexturesInFragmentStage}}).
+    1. If |features| [=list/contains=] {{GPUFeatureName/"core-features-and-limits"}}:
+        1. Set |limits|.{{supported limits/maxStorageBuffersInVertexStage}} and |limits|.{{supported limits/maxStorageBuffersInFragmentStage}} to |limits|.{{supported limits/maxStorageBuffersPerShaderStage}}.
+        1. Set |limits|.{{supported limits/maxStorageTexturesInVertexStage}} and |limits|.{{supported limits/maxStorageTexturesInFragmentStage}} to |limits|.{{supported limits/maxStorageTexturesPerShaderStage}}.
     1. Let |device| be a [=device=] object.
     1. Set |device|.{{device/[[adapter]]}} to |adapter|.
     1. Set |device|.{{device/[[features]]}} to |features|.
@@ -1507,7 +1533,7 @@ Even where supported, setting "better" limits is not necessarily desirable, as d
 Because of this, and to improve portability across devices and implementations, applications should
 generally only request limits better than the defaults if they may actually require them.
 
-Each limit has a <dfn dfn for=limit>default</dfn> value.
+Each limit has a <dfn dfn for=limit>default</dfn> value and a <dfn dfn for=limit>compatibility mode default</dfn>.
 
 [=Adapters=] are always guaranteed to support the defaults or [=limit/better=]
 (see [[#adapter-capability-guarantees]]).
@@ -1548,17 +1574,17 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
 
 <table class=data dfn-type=attribute dfn-for="supported limits">
     <thead>
-        <tr><th>Limit name <th>Type <th>[=Limit class=] <th>[=limit/Default=] <th>
+        <tr><th>Limit name <th>Type <th>[=Limit class=] <th>[=limit/Default=] <th>[=limit/Compatibility Mode Default=]
     </thead>
 
     <tr><td><dfn>maxTextureDimension1D</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>8192
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8192 <td>4096
     <tr class=row-continuation><td colspan=5>
         The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=]
         of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"1d"}}.
 
     <tr><td><dfn>maxTextureDimension2D</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>8192
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8192 <td>4096
     <tr class=row-continuation><td colspan=5>
         The maximum allowed value for the {{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=] and {{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=]
         of a [=texture=] created with {{GPUTextureDescriptor/dimension}} {{GPUTextureDimension/"2d"}}.
@@ -1639,11 +1665,43 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         which are storage buffers.
         See [=Exceeds the binding slot limits=].
 
+        Note: This limit applies to all stages. At [=a new device|device initialization=], it is normalized with {{supported limits/maxStorageBuffersInVertexStage}} and {{supported limits/maxStorageBuffersInFragmentStage}} so that in the validation algorithm, each stage can be checked against just one of the three limits.
+
+    <tr><td><dfn>maxStorageBuffersInVertexStage</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8 <td>0
+    <tr class=row-continuation><td colspan=5>
+        For the vertex stage, the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
+        which are storage buffers.
+        See [=Exceeds the binding slot limits=].
+
+    <tr><td><dfn>maxStorageBuffersInFragmentStage</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8 <td>4
+    <tr class=row-continuation><td colspan=5>
+        For the fragment stage, the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
+        which are storage buffers.
+        See [=Exceeds the binding slot limits=].
+
     <tr><td><dfn>maxStorageTexturesPerShaderStage</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>4
     <tr class=row-continuation><td colspan=5>
         For each possible {{GPUShaderStage}} `stage`,
         the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
+        which are storage textures.
+        See [=Exceeds the binding slot limits=].
+
+        Note: This limit applies to all stages. At [=a new device|device initialization=], it is normalized with {{supported limits/maxStorageTexturesInVertexStage}} and {{supported limits/maxStorageTexturesInFragmentStage}} so that in the validation algorithm, each stage can be checked against just one of the three limits.
+
+    <tr><td><dfn>maxStorageTexturesInVertexStage</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8 <td>0
+    <tr class=row-continuation><td colspan=5>
+        For the vertex stage, the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
+        which are storage textures.
+        See [=Exceeds the binding slot limits=].
+
+    <tr><td><dfn>maxStorageTexturesInFragmentStage</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8 <td>4
+    <tr class=row-continuation><td colspan=5>
+        For the fragment stage, the maximum number of {{GPUBindGroupLayoutEntry}} entries across a {{GPUPipelineLayout}}
         which are storage textures.
         See [=Exceeds the binding slot limits=].
 
@@ -1656,7 +1714,7 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         See [=Exceeds the binding slot limits=].
 
     <tr><td><dfn>maxUniformBufferBindingSize</dfn>
-        <td>{{GPUSize64}} <td>[=limit class/maximum=] <td colspan=2>65536 bytes
+        <td>{{GPUSize64}} <td>[=limit class/maximum=] <td>65536 bytes <td>16384 bytes
     <tr class=row-continuation><td colspan=5>
         The maximum {{GPUBufferBinding}}.{{GPUBufferBinding/size}} for bindings with a
         {{GPUBindGroupLayoutEntry}} |entry| for which
@@ -1717,13 +1775,13 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         when creating a {{GPURenderPipeline}}.
 
     <tr><td><dfn>maxInterStageShaderVariables</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>16
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>16 <td>15
     <tr class=row-continuation><td colspan=5>
         The maximum allowed number of input or output variables for inter-stage
         communication (like vertex outputs or fragment inputs).
 
     <tr><td><dfn>maxColorAttachments</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>8
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>8 <td>4
     <tr class=row-continuation><td colspan=5>
         The maximum allowed number of color attachments in
         {{GPURenderPipelineDescriptor}}.{{GPURenderPipelineDescriptor/fragment}}.{{GPUFragmentState/targets}},
@@ -1743,19 +1801,19 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         {{GPUShaderModule}} entry-point.
 
     <tr><td><dfn>maxComputeInvocationsPerWorkgroup</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>256
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>256 <td>128
     <tr class=row-continuation><td colspan=5>
         The maximum value of the product of the `workgroup_size` dimensions for a
         compute stage {{GPUShaderModule}} entry-point.
 
     <tr><td><dfn>maxComputeWorkgroupSizeX</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>256
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>256 <td>128
     <tr class=row-continuation><td colspan=5>
         The maximum value of the `workgroup_size` X dimension for a
         compute stage {{GPUShaderModule}} entry-point.
 
     <tr><td><dfn>maxComputeWorkgroupSizeY</dfn>
-        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>256
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td>256 <td>128
     <tr class=row-continuation><td colspan=5>
         The maximum value of the `workgroup_size` Y dimensions for a
         compute stage {{GPUShaderModule}} entry-point.
@@ -1797,7 +1855,11 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxSampledTexturesPerShaderStage;
     readonly attribute unsigned long maxSamplersPerShaderStage;
     readonly attribute unsigned long maxStorageBuffersPerShaderStage;
+    readonly attribute unsigned long maxStorageBuffersInVertexStage;
+    readonly attribute unsigned long maxStorageBuffersInFragmentStage;
     readonly attribute unsigned long maxStorageTexturesPerShaderStage;
+    readonly attribute unsigned long maxStorageTexturesInVertexStage;
+    readonly attribute unsigned long maxStorageTexturesInFragmentStage;
     readonly attribute unsigned long maxUniformBuffersPerShaderStage;
     readonly attribute unsigned long long maxUniformBufferBindingSize;
     readonly attribute unsigned long long maxStorageBufferBindingSize;
@@ -2372,28 +2434,42 @@ interface GPU {
                             a [=feature level string=].
                     </div>
 
-                    If they are met **and** the user agent chooses to return an adapter:
+                    If any are unmet:
 
-                    1. Set |adapter| to an [=adapter=] chosen according to
+                    1. Let |adapter| be `null`, issue the |resolution steps|
+                        on <var data-timeline=content>contentTimeline</var>, and return.
+
+                1. If |options|.{{GPURequestAdapterOptions/featureLevel}} is [=feature level string/"compatibility"=]:
+                    1. Set |options|.{{GPURequestAdapterOptions/featureLevel}} to
+                        [=feature level string/"compatibility"=] if the user agent chooses
+                        to support it, or [=feature level string/"core"=] if not.
+
+                        Note: This doesn't modify the JavaScript object passed by the application.
+
+                1. Set |adapter| to either:
+                    - A new [=adapter=] object chosen according to
                         the rules in [[#adapter-selection]] and the criteria in |options|,
-                        adhering to [[#adapter-capability-guarantees]].
-                        Initialize the properties of |adapter| according to their definitions:
+                        adhering to [[#adapter-capability-guarantees]], with the capabilities
+                        determined in an [=implementation-defined=] way by the user agent.
+                    - `null`, if the user agent is unable to return an adapter, or makes an
+                        [=implementation-defined=] choice not to return an adapter.
 
-                        1. Set |adapter|.{{adapter/[[limits]]}} and |adapter|.{{adapter/[[features]]}}
-                            according to the supported capabilities of the adapter.
-                            |adapter|.{{adapter/[[features]]}} must contain {{GPUFeatureName/"core-features-and-limits"}}.
-                        1. If |adapter| meets the criteria of a [=fallback adapter=] set
-                            |adapter|.{{adapter/[[fallback]]}} to `true`. Otherwise, set it to `false`.
-                        1. Set |adapter|.{{adapter/[[xrCompatible]]}} to
-                            |options|.{{GPURequestAdapterOptions/xrCompatible}}.
+                    If an |adapter| is returned, initialize its properties according to their
+                    definitions.
 
-                    Otherwise:
+                    1. Set |adapter|.{{adapter/[[limits]]}} and |adapter|.{{adapter/[[features]]}}
+                        according to the supported capabilities of the adapter.
+                    1. If |adapter| meets the criteria of a [=fallback adapter=] set
+                        |adapter|.{{adapter/[[fallback]]}} to `true`. Otherwise, set it to `false`.
+                    1. Set |adapter|.{{adapter/[[xrCompatible]]}} to
+                        |options|.{{GPURequestAdapterOptions/xrCompatible}}.
+                    1. Set |adapter|.{{adapter/[[default feature level]]}} to
+                        |options|.{{GPURequestAdapterOptions/featureLevel}}.
 
-                    1. Let |adapter| be `null`.
-                1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
+                1. Issue the |resolution steps| on <var data-timeline=content>contentTimeline</var>.
             </div>
             <div data-timeline=content>
-                [=Content timeline=] steps:
+                [=Content timeline=] |resolution steps|:
 
                 1. If |adapter| is not `null`:
                     1. [=Resolve=] |promise| with a new {{GPUAdapter}} encapsulating |adapter|.
@@ -2538,19 +2614,46 @@ enum GPUPowerPreference {
 <dl dfn-type=dict-member dfn-for=GPURequestAdapterOptions>
     : <dfn>featureLevel</dfn>
     ::
-        "Feature level" for the adapter request.
+        Requests an adapter that supports at least a particular set of [=capabilities=].
+        This influences the {{adapter/[[default feature level]]}} of devices created
+        from this adapter. The capabilities for each level are defined below, and the exact
+        steps are defined in {{GPU/requestAdapter()}} and "[=a new device=]".
+
+        If the implementation or system does not support all of the capabilities in the
+        requested feature level, {{GPU/requestAdapter()}} will return `null`.
+
+        Note:
+        Applications should typically make a single {{GPU/requestAdapter()}} call with the lowest
+        feature level they support, then inspect the adapter for additional capabilities they can
+        use optionally, and request those in {{GPUAdapter/requestDevice()}}.
 
         The allowed <dfn dfn for="">feature level string</dfn> values are:
 
         <dl dfn-type=dfn dfn-for="feature level string">
             : <dfn noexport>"core"</dfn>
-            :: No effect.
-            : <dfn noexport>"compatibility"</dfn>
-            :: No effect.
+            ::
+                The following set of capabilities:
+
+                - The [=limit/Default=] limits.
+                - {{GPUFeatureName/"core-features-and-limits"}}.
 
                 Note:
-                This value is reserved for future use as a way to opt into additional validation restrictions.
-                Applications should not use this value at this time.
+                Adapters with this {{adapter/[[default feature level]]}} may
+                conventionally be referred to as "Core-defaulting".
+            : <dfn noexport>"compatibility"</dfn>
+            ::
+                The following set of capabilities:
+
+                - The [=limit/Compatibility Mode Default=] limits.
+                - No features. (It excludes the {{GPUFeatureName/"core-features-and-limits"}} feature.)
+
+                If the implementation cannot enforce the stricter "Compatibility Mode"
+                validation rules, {{GPU/requestAdapter()}} will ignore this request and
+                treat it as a request for [=feature level string/"core"=].
+
+                Note:
+                Adapters with this {{adapter/[[default feature level]]}} may
+                conventionally be referred to as "Compatibility-defaulting".
         </dl>
 
     : <dfn>powerPreference</dfn>
@@ -2790,7 +2893,7 @@ interface GPUAdapter {
 
                     Otherwise:
 
-                    1. Let |device| be [=a new device=] with the capabilities described by |descriptor|.
+                    1. Let |device| be the result of creating [=a new device=] from |adapter| with |descriptor|.
                     1. [$Expire$] |adapter|.
 
                 1. Issue the subsequent steps on <var data-timeline=content>contentTimeline</var>.
@@ -4032,6 +4135,7 @@ interface GPUTexture {
     readonly attribute GPUTextureDimension dimension;
     readonly attribute GPUTextureFormat format;
     readonly attribute GPUFlagsConstant usage;
+    readonly attribute (GPUTextureViewDimension or undefined) textureBindingViewDimension;
 };
 GPUTexture includes GPUObjectBase;
 </script>
@@ -4076,6 +4180,16 @@ GPUTexture includes GPUObjectBase;
         The set of {{GPUTextureFormat}}s that can be used as the
         {{GPUTextureViewDescriptor}}.{{GPUTextureViewDescriptor/format}}
         when creating views on this {{GPUTexture}}.
+
+    : <dfn>textureBindingViewDimension</dfn>
+    ::
+        <div class=compatmode>
+            On devices without {{GPUFeatureName/"core-features-and-limits"}},
+            views created from this texture must have this as their {{GPUTextureViewDescriptor/dimension}}.
+        </div>
+
+        On devices with {{GPUFeatureName/"core-features-and-limits"}},
+        this is `undefined`, and there is no such restriction.
 </dl>
 
 {{GPUTexture}} has the following [=device timeline properties=]:
@@ -4199,6 +4313,7 @@ dictionary GPUTextureDescriptor
     required GPUTextureFormat format;
     required GPUTextureUsageFlags usage;
     sequence<GPUTextureFormat> viewFormats = [];
+    GPUTextureViewDimension textureBindingViewDimension;
 };
 </script>
 
@@ -4252,11 +4367,22 @@ dictionary GPUTextureDescriptor
         Formats in this list must be [=texture view format compatible=] with the texture format.
 
         <div algorithm data-timeline=const>
-            Two {{GPUTextureFormat}}s |format| and |viewFormat| are <dfn dfn for="">texture view format compatible</dfn> if:
+            Two {{GPUTextureFormat}}s |format| and |viewFormat| are <dfn dfn for="">texture view format compatible</dfn> on a given |device| if:
 
             - |format| equals |viewFormat|, or
-            - |format| and |viewFormat| differ only in whether they are `srgb` formats (have the `-srgb` suffix).
+            - |format| and |viewFormat| differ only in whether they are `srgb` formats (have the `-srgb` suffix) and |device|.{{device/[[features]]}} [=list/contains=] {{GPUFeatureName/"core-features-and-limits"}}.
         </div>
+
+    : <dfn>textureBindingViewDimension</dfn>
+    ::
+        <div class=compatmode>
+            On devices without {{GPUFeatureName/"core-features-and-limits"}},
+            views created from this texture must have this as their {{GPUTextureViewDescriptor/dimension}}.
+            If not specified, a default is chosen.
+        </div>
+
+        On devices with {{GPUFeatureName/"core-features-and-limits"}},
+        this is ignored, and there is no such restriction.
 </dl>
 
 <script type=idl>
@@ -4397,6 +4523,34 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
                 1. Set |t|.{{GPUTexture/dimension}} to |descriptor|.{{GPUTextureDescriptor/dimension}}.
                 1. Set |t|.{{GPUTexture/format}} to |descriptor|.{{GPUTextureDescriptor/format}}.
                 1. Set |t|.{{GPUTexture/usage}} to |descriptor|.{{GPUTextureDescriptor/usage}}.
+
+                1.
+                    <div class=compatmode>
+                        If |t|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                        1. If |descriptor|.{{GPUTextureDescriptor/textureBindingViewDimension}} is [=map/exist|provided=]:
+                            1. Set |t|.{{GPUTexture/textureBindingViewDimension}} to |descriptor|.{{GPUTextureDescriptor/textureBindingViewDimension}}.
+
+                            Otherwise, if |descriptor|.{{GPUTexture/dimension}} is:
+
+                            <dl class=switch>
+                                : {{GPUTextureDimension/"1d"}}
+                                :: Set |t|.{{GPUTexture/textureBindingViewDimension}} to {{GPUTextureViewDimension/"1d"}}.
+
+                                : {{GPUTextureDimension/"2d"}}
+                                :: If the [$array layer count$] of |t| is 1:
+
+                                    - Set |t|.{{GPUTexture/textureBindingViewDimension}} to {{GPUTextureViewDimension/"2d"}}.
+
+                                    Otherwise:
+
+                                    - Set |t|.{{GPUTexture/textureBindingViewDimension}} to {{GPUTextureViewDimension/"2d-array"}}.
+
+                                : {{GPUTextureDimension/"3d"}}
+                                :: Set |t|.{{GPUTexture/textureBindingViewDimension}} to {{GPUTextureViewDimension/"3d"}}.
+                            </dl>
+                    </div>
+
                 1. Issue the |initialization steps| on the [=Device timeline=] of |this|.
                 1. Return |t|.
             </div>
@@ -4476,6 +4630,15 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
                         - |descriptor|.{{GPUTextureDescriptor/format}} must support {{GPUTextureDimension/"3d"}}
                             textures according to [[#texture-format-caps]].
                 </dl>
+            -
+                <div class=compatmode>
+                    If |this|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                    1. If |descriptor|.{{GPUTextureDescriptor/textureBindingViewDimension}} is {{GPUTextureViewDimension/"2d"}}, |this|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be 1.
+                    1. if |descriptor|.{{GPUTextureDescriptor/textureBindingViewDimension}} is {{GPUTextureViewDimension/"cube"}}, |this|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be 6.
+
+                    Note: this validation only applies to a user-specified textureBindingViewDimension. If no value is provided, the texture's textureBindingViewDimension is set as described in {{GPUDevice/createTexture()}}. That algorithm cannot produce invalid values, so the above validation is not required.
+                </div>
             - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/width=] must be multiple of [=texel block width=].
             - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/height=] must be multiple of [=texel block height=].
             - If |descriptor|.{{GPUTextureDescriptor/sampleCount}} > 1:
@@ -4496,8 +4659,7 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
                 - |descriptor|.{{GPUTextureDescriptor/usage}} must be equal to {{GPUTextureUsage/TRANSIENT_ATTACHMENT}} | {{GPUTextureUsage/RENDER_ATTACHMENT}}.
             - For each |viewFormat| in |descriptor|.{{GPUTextureDescriptor/viewFormats}},
                 |descriptor|.{{GPUTextureDescriptor/format}} and |viewFormat| must be
-                [=texture view format compatible=].
-
+                [=texture view format compatible=] on device |this|.
                 <div class=note heading>
                     Implementations may consider issuing a developer-visible warning if |viewFormat| is not compatible with any of the
                     given {{GPUTextureDescriptor/usage}} bits, as that |viewFormat| will be unusable.
@@ -4921,7 +5083,10 @@ enum GPUTextureAspect {
                                     - |this|.{{GPUTexture/dimension}} must be {{GPUTextureDimension/"2d"}}.
                                     - |descriptor|.{{GPUTextureViewDescriptor/arrayLayerCount}} must be a multiple of `6`.
                                     - |this|.{{GPUTexture/width}} must equal |this|.{{GPUTexture/height}}.
-
+                                    -
+                                        <div class=compatmode>
+                                            {{GPUObjectBase/[[device]]}}.{{device/[[features]]}} must [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}.
+                                        </div>
                                 : {{GPUTextureViewDimension/"3d"}}
                                 ::
                                     - |this|.{{GPUTexture/dimension}} must be {{GPUTextureDimension/"3d"}}.
@@ -6041,13 +6206,29 @@ type and each [=binding type=] has an associated [=internal usage=], given by th
                 :: Consider 1 {{supported limits/maxUniformBuffersPerShaderStage}} slot to be used.
                 : |entry|.{{GPUBindGroupLayoutEntry/buffer}}?.{{GPUBufferBindingLayout/type}}
                     is {{GPUBufferBindingType/"storage"}} or {{GPUBufferBindingType/"read-only-storage"}}
-                :: Consider 1 {{supported limits/maxStorageBuffersPerShaderStage}} slot to be used.
+                :: If |stage| is:
+                    <dl class=switch>
+                        : {{GPUShaderStage/VERTEX}}
+                        :: Consider 1 {{supported limits/maxStorageBuffersInVertexStage}} slot to be used.
+                        : {{GPUShaderStage/FRAGMENT}}
+                        :: Consider 1 {{supported limits/maxStorageBuffersInFragmentStage}} slot to be used.
+                        : {{GPUShaderStage/COMPUTE}}
+                        :: Consider 1 {{supported limits/maxStorageBuffersPerShaderStage}} slot to be used.
+                    </dl>
                 : |entry|.{{GPUBindGroupLayoutEntry/sampler}} is [=map/exist|provided=]
                 :: Consider 1 {{supported limits/maxSamplersPerShaderStage}} slot to be used.
                 : |entry|.{{GPUBindGroupLayoutEntry/texture}} is [=map/exist|provided=]
                 :: Consider 1 {{supported limits/maxSampledTexturesPerShaderStage}} slot to be used.
                 : |entry|.{{GPUBindGroupLayoutEntry/storageTexture}} is [=map/exist|provided=]
-                :: Consider 1 {{supported limits/maxStorageTexturesPerShaderStage}} slot to be used.
+                :: If |stage| is:
+                    <dl class=switch>
+                        : {{GPUShaderStage/VERTEX}}
+                        :: Consider 1 {{supported limits/maxStorageTexturesInVertexStage}} slot to be used.
+                        : {{GPUShaderStage/FRAGMENT}}
+                        :: Consider 1 {{supported limits/maxStorageTexturesInFragmentStage}} slot to be used.
+                        : {{GPUShaderStage/COMPUTE}}
+                        :: Consider 1 {{supported limits/maxStorageTexturesPerShaderStage}} slot to be used.
+                    </dl>
                 : |entry|.{{GPUBindGroupLayoutEntry/externalTexture}} is [=map/exist|provided=]
                 :: Consider
                     4 {{supported limits/maxSampledTexturesPerShaderStage}} slot,
@@ -6547,7 +6728,13 @@ following members:
                                         - If |layoutBinding|.{{GPUBindGroupLayoutEntry/texture}}.{{GPUTextureBindingLayout/multisampled}}
                                             is `true`, |texture|'s {{GPUTextureDescriptor/sampleCount}}
                                             &gt; `1`, Otherwise |texture|'s {{GPUTextureDescriptor/sampleCount}} is `1`.
+                                        -
+                                            <div class=compatmode>
+                                                If |texture|.{{GPUTexture/textureBindingViewDimension}} is not `undefined`:
 
+                                                - [=Assert=] |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}.
+                                                - |texture|.{{GPUTexture/textureBindingViewDimension}} must be equal to |textureView|.{{GPUTextureViewDescriptor/dimension}}.
+                                            </div>
                                     : {{GPUBindGroupLayoutEntry/storageTexture}}
                                     ::
                                         - |resource| is either a {{GPUTexture}} or a {{GPUTextureView}}.
@@ -6621,6 +6808,17 @@ following members:
                                                         must be 1.
                                             </dl>
                                 </dl>
+                            -
+                                <div class=compatmode>
+                                    If |this|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                                    - For each {{GPUBindGroupEntry}} |bindGroupEntry| in |descriptor|.{{GPUBindGroupDescriptor/entries}}:
+                                        - If |bindGroupEntry|.{{GPUBindGroupEntry/resource}} is a {{GPUTextureView}}:
+                                            - Let |textureView| be |bindGroupEntry|.{{GPUBindGroupEntry/resource}}.
+                                            - Let |descriptor| be |textureView|.{{GPUTextureView/[[descriptor]]}}.
+                                            - |descriptor|.{{GPUTextureViewDescriptor/baseArrayLayer}} must be `0`.
+                                            - |descriptor|.{{GPUTextureViewDescriptor/arrayLayerCount}} must be equal to |textureView|.{{GPUTextureView/[[texture]]}}.{{GPUTexture/depthOrArrayLayers}}.
+                                </div>
                     </div>
 
                 1. Let |bindGroup|.{{GPUBindGroup/[[layout]]}} =
@@ -7781,6 +7979,15 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
             Note: {{GPUSamplerBindingType/"comparison"}} samplers can also only be used with
             {{GPUTextureSampleType/"depth"}} textures, because they are the only texture type that can
             be bound to WGSL `texture_depth_*` bindings.
+        1.
+            <div class=compatmode>
+                If |device|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                1. If |call| is a call to `textureLoad`,
+                    |textureBinding| must not be of type [=type/depth texture=].
+                1. If |call| uses a sampler binding |samplerBinding| and |textureBinding| is of type [=type/depth texture=],
+                    |samplerBinding| must be of `sampler_comparison` type.
+            </div>
     1. For each |key| &rarr; |value| in |descriptor|.{{GPUProgrammableStage/constants}}:
         1. |key| |must| equal the [=pipeline-overridable constant identifier string=] of
             some [=pipeline-overridable=] constant defined in the shader module
@@ -7795,6 +8002,20 @@ typedef double GPUPipelineConstantValue; // May represent WGSL's bool, f32, i32,
             |descriptor|.{{GPUProgrammableStage/constants}} |must| [=map/contain=] |key|.
     1. [=pipeline-creation error|Pipeline-creation=] [=program errors=] |must| not
         result from the rules of the [[WGSL]] specification.
+    1.
+        <div class=compatmode>
+            If |device|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+            1. Let |sum| be 0.
+            1. For each unique texture or external texture binding |textureBinding| that is used in any call to a texture builtin in any of the [=functions in the shader stage=] rooted at |entryPoint|:
+                1. Let |samplerBindings| be the set of sampler bindings used together with |textureBinding| in any call to a texture builtin in any of the [=functions in the shader stage=] rooted at |entryPoint|.
+                1. Let |numPairs| be <code>max(1, number of elements of |samplerBindings|)</code>.
+                1. If |textureBinding| is an external texture binding:
+                    1. Let |numPairs| be <code>1 + 3 * |numPairs|</code>.
+                1. Let |sum| be <code>|sum| + |numPairs|</code>.
+            1. |sum| |must| be &le; |device|.limits.{{supported limits/maxSampledTexturesPerShaderStage}}.
+            1. |sum| |must| be &le; |device|.limits.{{supported limits/maxSamplersPerShaderStage}}.
+        </div>
 </div>
 
 <div algorithm data-timeline=const>
@@ -8466,9 +8687,16 @@ dictionary GPURenderPipelineDescriptor
                         [=map/exist|provided=], and
                         |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.{{GPUDepthStencilState/format}}
                         must have a [=aspect/depth=] aspect.
+                -
+                    <div class=compatmode>
+                        If |device|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                        - The [=builtin/sample_mask=] builtin must not be a [=shader stage input=] or [=shader stage output=] of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.
+                        - The [=builtin/sample_index=] builtin must not be a [=shader stage input=] of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}.
+                    </div>
             - [$validating GPUPrimitiveState$](|descriptor|.{{GPURenderPipelineDescriptor/primitive}}, |device|) succeeds.
             - If |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}} is [=map/exist|provided=]:
-                - [$validating GPUDepthStencilState$](|descriptor|.{{GPURenderPipelineDescriptor/depthStencil}},
+                - [$validating GPUDepthStencilState$](|device|, |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}},
                     |descriptor|.{{GPURenderPipelineDescriptor/primitive}}.{{GPUPrimitiveState/topology}}) succeeds.
             - [$validating GPUMultisampleState$](|descriptor|.{{GPURenderPipelineDescriptor/multisample}}) succeeds.
             - If |descriptor|.{{GPURenderPipelineDescriptor/multisample}}.{{GPUMultisampleState/alphaToCoverageEnabled}}
@@ -8484,6 +8712,21 @@ dictionary GPURenderPipelineDescriptor
                 - A |descriptor|.{{GPURenderPipelineDescriptor/depthStencil}}.
             - [$validating inter-stage interfaces$](|device|, |descriptor|) returns `true`.
         </div>
+</div>
+
+<div algorithm class=validusage data-timeline=device>
+    <dfn abstract-op>validating Compatibility Mode shader binding</dfn>(|variable|)
+
+    **Arguments:**
+    - shader binding declaration |variable|, a module-scope variable declaration reflected from a shader module
+
+    **Returns:** {{boolean}}
+
+    [=Device timeline=] steps:
+    1. If the [=interpolation=] of the |variable| is [=interpolation type/linear=], return `false`.
+    1. If the [=interpolation=] of the |variable| is [=interpolation type/flat=] and the [=interpolation sampling=] is not [=interpolation sampling/either=], return `false`.
+    1. If the [=interpolation sampling=] of the |variable| is [=interpolation sampling/sample=], return `false`.
+    1. Return 'true'
 </div>
 
 <div algorithm class=validusage data-timeline=device>
@@ -8516,6 +8759,11 @@ dictionary GPURenderPipelineDescriptor
         - The [=location=] of each user-defined output of
             |descriptor|.{{GPURenderPipelineDescriptor/vertex}} must be
             &le; |maxVertexShaderOutputLocation|.
+    1. If |device|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+        <div class="compatmode">
+            1. For each user-defined |output| of |descriptor|.{{GPURenderPipelineDescriptor/vertex}}:
+                1. If [$validating Compatibility Mode shader binding$](|output|) fails, return `false`.
+        </div>
     1. If |descriptor|.{{GPURenderPipelineDescriptor/fragment}} [=map/exist|is provided=]:
         1. Let |maxFragmentShaderInputVariables| be
             |device|.limits.{{supported limits/maxInterStageShaderVariables}}.
@@ -8535,6 +8783,11 @@ dictionary GPURenderPipelineDescriptor
             |descriptor|.{{GPURenderPipelineDescriptor/fragment}} is less
             than |device|.limits.{{supported limits/maxInterStageShaderVariables}}.
             (This follows from the above rules.)
+        1. If |device|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+            <div class="compatmode">
+                1. For each user-defined |input| of |descriptor|.{{GPURenderPipelineDescriptor/fragment}}:
+                    1. If [$validating Compatibility Mode shader binding$](|input|) fails, return `false`.
+            </div>
     1. Return `true`.
 </div>
 
@@ -8867,6 +9120,20 @@ dictionary GPUFragmentState
                 - All the [=shader stage outputs=] with [=location=] in |entryPoint| must be in one
                     struct and [=use dual source blending=].
             - [$Validating GPUFragmentState's color attachment bytes per sample$](|device|, |descriptor|.{{GPUFragmentState/targets}}) succeeds.
+            -
+                <div class=compatmode>
+                    If |device|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                    - All non-null {{GPUColorTargetState}}s |colorState| in
+                        |descriptor|.{{GPUFragmentState/targets}} must have equal values for each
+                        of the following members:
+                        - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/color}}
+                        - |colorState|.{{GPUColorTargetState/blend}}.{{GPUBlendState/alpha}}
+                        - |colorState|.{{GPUColorTargetState/writeMask}}
+
+                    - For each |function| in the [=functions in the shader stage=] rooted at |entryPoint|:
+                        - |function| must not be [[WGSL#dpdxFine-builtin|dpdxFine]], [[WGSL#dpdyFine-builtin|dpdyFine]], or [[WGSL#fwidthFine-builtin|fwidthFine]].
+                </div>
         </div>
 </div>
 
@@ -9252,10 +9519,11 @@ must be 0.
 </div>
 
 <div algorithm data-timeline=device>
-    <dfn abstract-op>validating GPUDepthStencilState</dfn>(|descriptor|, |topology|)
+    <dfn abstract-op>validating GPUDepthStencilState</dfn>(|device|, |descriptor|, |topology|)
 
     **Arguments:**
 
+    - {{GPUDevice}}            |device|
     - {{GPUDepthStencilState}} |descriptor|
     - {{GPUPrimitiveTopology}} |topology|
 
@@ -9285,6 +9553,12 @@ must be 0.
                 - |descriptor|.{{GPUDepthStencilState/depthBias}} must be 0.
                 - |descriptor|.{{GPUDepthStencilState/depthBiasSlopeScale}} must be 0.
                 - |descriptor|.{{GPUDepthStencilState/depthBiasClamp}} must be 0.
+            -
+                <div class=compatmode>
+                    If |device|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                    - |descriptor|.{{GPUDepthStencilState/depthBiasClamp}} must be 0.
+                </div>
         </div>
 
 </div>
@@ -9958,6 +10232,17 @@ dictionary GPUVertexAttribute {
                 |must| pass [$validating GPUVertexBufferLayout$](|device|, |vertexBuffer|).
             1. Let |totalEffectiveVertexAttributes| be the sum of |vertexBuffer|.{{GPUVertexBufferLayout/attributes}}.[=list/size=],
                 over every |vertexBuffer| in |descriptor|.{{GPUVertexState/buffers}}.
+            1.
+                <div class=compatmode>
+                    If |device|.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                    1. If the [=builtin/vertex_index=] builtin is a [=shader stage input=] of
+                        |descriptor|.{{GPURenderPipelineDescriptor/vertex}}:
+                        - Add 1 to |totalEffectiveVertexAttributes|
+                    1. If the [=builtin/instance_index=] builtin is a [=shader stage input=] of
+                        |descriptor|.{{GPURenderPipelineDescriptor/vertex}}:
+                        - Add 1 to |totalEffectiveVertexAttributes|
+                </div>
             1. |totalEffectiveVertexAttributes| |must| be &le;
                  |device|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxVertexAttributes}}.
             1. For every vertex attribute declaration (at location |location| with type |T|) that is
@@ -10703,6 +10988,12 @@ dictionary GPUCommandEncoderDescriptor
                         - |destination|.{{GPUTexelCopyBufferInfo/buffer}}.{{GPUBuffer/usage}} contains
                             {{GPUBufferUsage/COPY_DST}}.
                         - [$validating texture buffer copy$](|source|, |destination|, |dataLength|, |copySize|, {{GPUTextureUsage/COPY_SRC}}, |aligned|) returns `true`.
+                        -
+                            <div class=compatmode>
+                                If device.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                                - |source|.{{GPUTexelCopyTextureInfo/texture}}.{{GPUTexture/format}} must not be a [=compressed format=].
+                            </div>
                     </div>
 
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
@@ -10787,6 +11078,14 @@ dictionary GPUCommandEncoderDescriptor
                                 and |dstTexture|.{{GPUTexture/format}}, respectively.
                         - The [$set of subresources for texture copy$](|source|, |copySize|) and
                             the [$set of subresources for texture copy$](|destination|, |copySize|) are disjoint.
+                        -
+                            <div class=compatmode>
+                                If device.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                                - |source|.{{GPUTexelCopyTextureInfo/texture}}.{{GPUTexture/format}} must not be a [=compressed format=].
+                                - |destination|.{{GPUTexelCopyTextureInfo/texture}}.{{GPUTexture/format}} must not be a [=compressed format=].
+                                - |source|.{{GPUTexelCopyTextureInfo/texture}}.{{GPUTexture/sampleCount}} and |destination|.{{GPUTexelCopyTextureInfo/texture}}.{{GPUTexture/sampleCount}} must be 1.
+                            </div>
                     </div>
 
                 1. [$Enqueue a command$] on |this| which issues the subsequent steps on the
@@ -11230,6 +11529,31 @@ It must only be included by interfaces which also include those mixins.
                         - [$effective buffer binding size$](|bound|) must be &ge; [=minimum buffer binding size=]
                             of the binding variable in |pipeline|'s shader that corresponds to |bindGroupEntry|.
             - [$Encoder bind groups alias a writable resource$](|encoder|, |pipeline|) must be `false`.
+            -
+                <div class=compatmode>
+                    If |encoder|.{{GPUObjectBase/[[device]]}}.{{device/[[features]]}} does not [=list/contain=] {{GPUFeatureName/"core-features-and-limits"}}:
+
+                    - All bindings referring to the same {{GPUTexture}} must have compatible {{GPUTextureView}}s, determined as follows:
+
+                        For each pair of ({{GPUIndex32}} |index1|, {{GPUBindGroupLayout}} |bindGroupLayout1|) in |bindGroupLayouts|:
+                        - If |bindGroupLayout1| is `null`, [=iteration/continue=].
+                        - Let |bindGroup1| be |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index1|].
+                        - For each {{GPUBindGroupEntry}} |bindGroupEntry1| in |bindGroup1|.{{GPUBindGroup/[[entries]]}}:
+                            - If |bindGroupEntry1|.{{GPUBindGroupEntry/resource}} is not a {{GPUTextureView}}, [=iteration/continue=].
+                            - Let |descriptor1| be |bindGroupEntry1|.{{GPUBindGroupEntry/resource}}.{{GPUTextureView/[[descriptor]]}}.
+                            - For each pair of ({{GPUIndex32}} |index2|, {{GPUBindGroupLayout}} |bindGroupLayout2|) in |bindGroupLayouts|:
+                                - If |bindGroupLayout2| is `null`, [=iteration/continue=].
+                                - Let |bindGroup2| be |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}[|index2|].
+                                - For each {{GPUBindGroupEntry}} |bindGroupEntry2| in |bindGroup2|.{{GPUBindGroup/[[entries]]}}:
+                                    - If |bindGroupEntry2|.{{GPUBindGroupEntry/resource}} is not a {{GPUTextureView}}, [=iteration/continue=].
+                                    - If |bindGroupEntry1|.{{GPUBindGroupEntry/resource}}.{{GPUTextureView/[[texture]]}} is not equal to
+                                        |bindGroupEntry2|.{{GPUBindGroupEntry/resource}}.{{GPUTextureView/[[texture]]}}, [=iteration/continue=].
+                                    - Let |descriptor2| be |bindGroupEntry2|.{{GPUBindGroupEntry/resource}}.{{GPUTextureView/[[descriptor]]}}.
+                                    - |descriptor2|.{{GPUTextureViewDescriptor/baseMipLevel}} must be equal to |descriptor1|.{{GPUTextureViewDescriptor/baseMipLevel}}.
+                                    - |descriptor2|.{{GPUTextureViewDescriptor/mipLevelCount}} must be equal to |descriptor1|.{{GPUTextureViewDescriptor/mipLevelCount}}.
+                                    - |descriptor2|.{{GPUTextureViewDescriptor/aspect}} must be equal to |descriptor1|.{{GPUTextureViewDescriptor/aspect}}.
+                                    - |descriptor2|.{{GPUTextureViewDescriptor/swizzle}} must be equal to |descriptor1|.{{GPUTextureViewDescriptor/swizzle}}.
+                </div>
         </div>
 
     Otherwise return `true`.
@@ -16692,7 +17016,8 @@ typedef (sequence<GPUIntegerCoordinate> or GPUExtent3DDict) GPUExtent3D;
 
 Allows all Core WebGPU features and limits to be used.
 
-Note: This is currently available on all adapters and enabled automatically on all devices even if not requested.
+This is always available unless {{GPURequestAdapterOptions/featureLevel}} is set to [=feature level string/"compatibility"=],
+in which case it may or may not be available (see those definitions for information).
 
 <h3 id=depth-clip-control data-dfn-type=enum-value data-dfn-for=GPUFeatureName>`"depth-clip-control"`
 <span id=dom-gpufeaturename-depth-clip-control></span>
@@ -17105,7 +17430,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>If {{GPUFeatureName/"texture-formats-tier2"}} is enabled
@@ -17116,7 +17441,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>If {{GPUFeatureName/"texture-formats-tier2"}} is enabled
@@ -17146,7 +17471,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>
@@ -17157,7 +17482,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>
@@ -17204,7 +17529,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td>&checkmark;
         <td>&checkmark;
@@ -17216,7 +17541,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td>&checkmark;
         <td>&checkmark;
@@ -17237,7 +17562,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>8
     <tr>
         <td>{{GPUTextureFormat/bgra8unorm-srgb}}
-        <td>
+        <td>{{GPUFeatureName/"core-features-and-limits"}}
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>&checkmark;
@@ -17279,7 +17604,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>If {{GPUFeatureName/"texture-formats-tier2"}} is enabled
@@ -17290,7 +17615,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>If {{GPUFeatureName/"texture-formats-tier2"}} is enabled
@@ -17336,7 +17661,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>
@@ -17347,7 +17672,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>
@@ -17393,7 +17718,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td>&checkmark;
         <td>&checkmark;
@@ -17405,7 +17730,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"sint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td>&checkmark;
         <td>&checkmark;
@@ -17417,8 +17742,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"float"}},<br/>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>&checkmark;
-        <td>&checkmark;
-        <td>&checkmark;
+        <td colspan=2>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td>&checkmark;
         <td>&checkmark;
         <td>If {{GPUFeatureName/"texture-formats-tier2"}} is enabled
@@ -17456,7 +17780,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
             <p>{{GPUTextureSampleType/"unfilterable-float"}}
         <td>&checkmark;
         <td>If {{GPUFeatureName/"float32-blendable"}} is enabled
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td><!-- Metal -->
         <td>&checkmark;
         <td>&checkmark;
@@ -17470,8 +17794,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>
         <td><!-- Metal -->
         <td>
-        <td>&checkmark;
-        <td>&checkmark;
+        <td colspan=2>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td>
         <td colspan=2>8
     <tr>
@@ -17482,8 +17805,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>
         <td><!-- Metal -->
         <td>
-        <td>&checkmark;
-        <td>&checkmark;
+        <td colspan=2>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td>
         <td colspan=2>8
     <tr>
@@ -17496,8 +17818,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>If {{GPUFeatureName/"float32-blendable"}} is enabled
         <td><!-- Metal -->
         <td>
-        <td>&checkmark;
-        <td>&checkmark;
+        <td colspan=2>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td>
         <td colspan=2>8
     <tr>
@@ -17545,7 +17866,7 @@ The [=texel block memory cost=] of each of these formats is the same as its
         <td>{{GPUTextureSampleType/"uint"}}
         <td>&checkmark;
         <td>
-        <td>&checkmark;
+        <td>If {{GPUFeatureName/"core-features-and-limits"}} is enabled
         <td>
         <td colspan=2>If {{GPUFeatureName/"texture-formats-tier1"}} is enabled
         <td>

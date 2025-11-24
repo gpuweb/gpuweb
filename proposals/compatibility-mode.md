@@ -124,9 +124,9 @@ Each `GPUColorTargetState` in a `GPUFragmentState` must have the same `blend.alp
 
 **Justification**: OpenGL ES does not support Cube Array textures.
 
-### 5. Views of the same texture used in a single draw may not differ in aspect or mip levels.
+### 5. Views of the same texture used in a single draw may not differ in aspect, mip levels, or swizzle.
 
-A draw call may not bind two views of the same texture differing in `aspect`, `baseMipLevel`, or `mipLevelCount`. Only a single aspect and mip level range per texture is supported. This is enforced via validation at draw time.
+A draw call may not bind two views of the same texture differing in `aspect`, `baseMipLevel`, `mipLevelCount`, or `swizzle`. Only a single aspect, a mip level range, and a swizzle per texture is supported. This is enforced via validation at draw time.
 
 **Justification**: OpenGL ES does not support texture views, but one set of these parameters per texture is supported via glTexParameteri(). In particular, one depth/stencil aspect may be specified via `GL_DEPTH_STENCIL_TEXTURE_MODE`, and one mip level subset via the `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` parameters.
 
@@ -138,7 +138,7 @@ A bind group may not reference a subset of array layers. Only views of the entir
 
 ### 7. Disallow `sample_mask` and `sample_index` builtins in WGSL.
 
-Use of the `sample_mask` or `sample_index` builtins would cause a validation error at shader module creation time.
+Use of the `sample_mask` or `sample_index` builtins would cause a validation error at pipeline creation time.
 
 **Justification**: OpenGL ES 3.1 does not support `gl_SampleMask`, `gl_SampleMaskIn`, or `gl_SampleID`.
 
@@ -146,7 +146,7 @@ Use of the `sample_mask` or `sample_index` builtins would cause a validation err
 
 The `rg32uint`, `rg32sint`, and `rg32float` texture formats no longer support the `"write-only" or "read-only" STORAGE_BINDING` capability by default.
 
-Calls to `createTexture()` or `createBindGroupLayout()` with this combination cause a validation error. Calls to `createShaderModule()` will fail if these formats are referenced as storage textures.
+Calls to `createTexture()` or `createBindGroupLayout()` with this combination cause a validation error.
 
 **Justification**: GLSL ES 3.1 (section 4.4.7, "Format Layout Qualifiers") does not permit any two-component (RG) texture formats in a format layout qualifier.
 
@@ -289,24 +289,23 @@ sampler in a shader will generate a validation error at pipeline creation time.
 ### 21. Limit the number of texture+sampler combinations in a stage.
 
 If the number of texture+sampler combinations used a in single stage in a pipeline exceeds
-`min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)` a validation error is generated.
+`maxSampledTexturesPerShaderStage` or `maxSamplersPerShaderStage`, a validation error is generated.
 
 The validation occurs as follows:
 
 ```
-maxCombinationsPerStage = min(maxSampledTexturesPerShaderStage, maxSamplersPerShaderStage)
 for each stage of the pipeline:
   sum = 0
-  for each texture binding in the pipeline layout which is visible to that stage:
-    sum += max(1, number of texture sampler combos for that texture binding)
-  for each external texture binding in the pipeline layout which is visible to that stage:
-    sum += 1 // for LUT texture + LUT sampler
-    sum += 3 * max(1, number of external_texture sampler combos) // for Y+U+V
-  if sum > maxCombinationsPerStage
+  for each unique texture or external texture binding that is used in any call to a texture builtin in the shader call graph reachable from the shader entry point:
+    numPairs = max(1, number of unique texture sampler combos for that texture binding)
+    if it's an external texture binding,
+      numPairs = 1 + 3 * numPairs // for LUT texture/sampler and Y+U+V
+    sum = sum + numPairs
+  if sum > maxSampledTexturesPerShaderStage or sum > maxSamplersPerShaderStage
     generate a validation error.
 ```
 
-**Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together. Texture unit X uses sampler unit X.
+**Justification**: In OpenGL ES 3.1 does not support more combinations. Sampler units and texture units are bound together, and are limited by GL_MAX_TEXTURE_IMAGE_UNITS and GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS. Texture unit X uses sampler unit X.
 
 ### 22. Disallow multisampled `rgba16float` and `r32float` textures.
 
@@ -392,8 +391,8 @@ If `createTexture()` is called with any of these formats and `sampleCount > 1`, 
 
 **Justification**: OpenGL ES 3.1 does not require multisampling to be supported on integer texture formats. The minimum value for GL_MAX_INTEGER_SAMPLES is 1, and [94.7% of reports on gpuinfo have that value](https://opengles.gpuinfo.org/displaycapability.php?name=GL_MAX_INTEGER_SAMPLES&esversion=31).
 
-## Issues
+### 24. Disallow "Fine" variants of derivative functions (`dpdxFine()`, `dpdyFine()`, `fwidthFine()`).
 
-Q: OpenGL ES does not have "coarse" and "fine" variants of the derivative instructions (`dFdx()`, `dFdy()`, `fwidth()`). Should WGSL's "fine" derivatives (`dpdxFine()`, `dpdyFine()`, and `fwidthFine()`) be required to deliver high precision results? See [Issue 4325](https://github.com/gpuweb/gpuweb/issues/4325).
+These functions must not be referenced from the from the call graph rooted at a shader entry point or else a validation error will occur at pipeline creation time.
 
-A: Unclear. In SPIR-V, Fine variants must include the value of P for the local fragment, while Coarse variants do not. WGSL is less constraining, and simply says that Coarse "may result in fewer unique positions than `dpdxFine(e)`."
+**Justification**: OpenGL ES does not support "Coarse" and "Fine" variants of the derivative functions (`dfdx()`, `dfdy()`, `fwidth()`).
