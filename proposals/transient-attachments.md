@@ -39,11 +39,9 @@ The `GPURenderPassColorAttachment Valid Usage` algorithm is extended with the fo
 The `GPURenderPassDepthStencilAttachment Valid Usage` algorithm is extended with the following change:
 
 - If `this.view.[[descriptor]].usage` includes the `TRANSIENT_ATTACHMENT` bit:
-  - If format has a depth aspect and `this.depthReadOnly` is false:
     - `this.depthLoadOp` must be `"clear"`.
-    - `this.depthStoreOp` must be `"discard".`
-  - If format has a stencil aspect and `this.stencilReadOnly` is false:
     - `this.stencilLoadOp ` must be `"clear"`.
+    - `this.depthStoreOp` must be `"discard".`
     - `this.stencilStoreOp ` must be `"discard".`
 
 ## Javascript example
