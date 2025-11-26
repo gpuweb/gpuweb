@@ -200,8 +200,8 @@ Add new types:
 These types are not considered “composite” in the WGSL taxonomy, because they
 are not decomposible.
 You can’t reference a sub-vector or a single component.
-The numeric dimensions must be a const-expressions.
-These types cannot be part of any interface, they can only be instantiated
+The numeric dimensions must be const-expressions.
+These types cannot be part of any interface; they can only be instantiated
 in the Function address space.
 They are plain types (similar to atomics) so that they can be included in
 composite types.
