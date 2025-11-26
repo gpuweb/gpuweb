@@ -177,18 +177,12 @@ Add new types:
 *   subgroup_matrix_left<_T_, _K_, _M_>: M rows x K columns matrix of T components.
 *   subgroup_matrix_right<_T_, _N_, _K_>: K rows x N columns matrix of T components
 *   subgroup_matrix_result<_T_, _N_, _M_>: M rows x N columns matrix of T components
-*   M, N, and K are override-expressions of positive integer values
-    *   **TODO**: Do we want to support override-expressions or just const-expressions?
+*   M, N, and K are const-expressions of positive integer values
     *   Similar to arrays, two subgroup matrices are the same if:
         *   They are the same base type
         *   They have the same component type
-        *   The have matching row counts such that:
-            *   Both are equal valued const-expressions, or
-            *   Both resolve to the same override-declaration
-        *   The have matching column counts such that:
-            *   Both are equal valued const-expressions, or
-            *   Both resolve to the same override-declaration
-        *   Note: like arrays, types cannot match if the row or column counts use an override-expression that is not equivalent to override identifier.
+        *   The have matching row counts
+        *   The have matching column counts
 *   T is the component type and must be one of the entries in the table
     *   The scalar shader type is the associated type usable in the shader code for scalar operations and data representation in memory
     *   Can be expanded in the future to support more types (e.g. bfloat16) via new enables.
@@ -206,9 +200,9 @@ Add new types:
 These types are not considered “composite” in the WGSL taxonomy, because they
 are not decomposible.
 You can’t reference a sub-vector or a single component.
-The numeric dimensions must be override-expressions.
-These types cannot be part of any interface (i.e. they can only be instantiated
-in Function and Private address spaces).
+The numeric dimensions must be const-expressions.
+These types cannot be part of any interface; they can only be instantiated
+in the Function address space.
 They are plain types (similar to atomics) so that they can be included in
 composite types.
 An important use case is to make arrays of these matrices.
@@ -240,8 +234,8 @@ Why use a “left” and “right” matrix type, instead of a single matrix typ
 
 #### Variables
 
-A variable containing a subgroup matrix can only be instantiated in Function or
-Private address spaces.
+A variable containing a subgroup matrix can only be instantiated in Function
+address space.
 (This limitation comes from SPIR-V and Metal).
 These variables are meant to be used as very temporary scratch space.
 
@@ -365,7 +359,7 @@ AM is read or read_write.
 **Description**:<br>
 Load a subgroup matrix from p, offset elements from the start of the array.
 
-col_major must be an override-expression.
+col_major must be a const-expression.
 
 Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove p, offset, or stride are subgroup uniform
@@ -396,7 +390,7 @@ AM is write or read_write.
 **Description**:<br>
 Store the subgroup matrix value into p, offset elements from the start of the array.
 
-col_major must be an override-expression.
+col_major must be a const-expression.
 
 Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove p, offset, value, or stride are subgroup
@@ -663,7 +657,7 @@ WGSL pipeline-creation checks (repeated for ease of reference):
 
 | Function | SPIR-V | MSL | HLSL |
 | -------- | ------ | ---- | ---- |
-| Value constructors | OpCompositeConstruct with appropriate value<br>const-/override-expressions could use constant instructions | make_filled_simdgroup_matrix | Splat with appropriate value |
+| Value constructors | OpCompositeConstruct with appropriate value<br>const-expressions could use constant instructions | make_filled_simdgroup_matrix | Splat with appropriate value |
 | subgroupMatrixLoad | OpCooperativeMatrixLoadKHR<br>Pointer operand is a direct translation of the WGSL pointer | simdgroup_matrix_load<br>The WGSL pointer needs translated into the origin operand in MSL | Matrix::Load<br>Pointer operand is traced to variable.<br>Offset maybe combination of pointer offset and function call parameter.
 | subgroupMatrixStore | OpCooperativeMatrixStoreKHR<br>Pointer operand is a direct translation of the WGSL pointer | simdgroup_matrix_store<br>The WGSL pointer needs translated into the origin operand in MSL | Matrix::Store<br>The WGSL pointer needs translated into the origin operand in MSL | Matrix::Load<br>Pointer operand is traced to variable.<br>Offset maybe combination of pointer offset and function call parameter.
 | subgroupMatrixMultiply | OpCooperativeMatrixMulAddKHR<br>C is a zero value matrix matching the result type | simdgroup_multiply | Multiply
