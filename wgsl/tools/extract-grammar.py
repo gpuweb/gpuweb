@@ -986,10 +986,10 @@ def flow_extract(options, scan_result):
     name: 'wgsl',
 
     externals: $ => [
-        $.block_comment,
+        $._block_comment,
         $._disambiguate_template,
-        $.template_args_start,
-        $.template_args_end,
+        $._template_args_start,
+        $._template_args_end,
         $._less_than,
         $._less_than_equal,
         $._shift_left,
@@ -1003,7 +1003,7 @@ def flow_extract(options, scan_result):
 
     extras: $ => [
         $.line_comment,
-        $.block_comment,
+        $._block_comment,
         $._blankspace,
     ],
 
