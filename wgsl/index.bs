@@ -8039,7 +8039,7 @@ non-empty [=behavior=] for each statement, and function.
         |s1|: |B1|<br>
         |s2|: |B2|
     <td class="nowrap">|B1| &cup; |B2|
-  <tr algorithm="loop with exactly return behaviour before the continuing block">
+  <tr algorithm="loop with exactly return behavior before the continuing block">
     <td class="nowrap" rowspan=3>loop {|s1| continuing {|s2|}}
     <td class="nowrap">
         |s1|: |B1|<br>
@@ -8096,6 +8096,8 @@ Each [=built-in function=] has a [=behavior=] of {Next}.
 And each operator application not listed in the table above has the same [=behavior=] as if it were a function call with the same operands and with a function's [=behavior=] of {Next}.
 
 The behavior of a function [=shader-creation error|must=] satisfy the rules given above.
+
+Note: The rules above imply that the behavior of a loop is {Next}, {Return}, or {Next,Return}.
 
 Note: It is unnecessary to analyze the behavior of expressions because they
 will always be {Next} or a previously analyzed function will have produced
@@ -11708,16 +11710,17 @@ notations:
       <td>*Vout*(*s2*)
   <tr><td>loop { *s1* continuing { *s2* } }
       <td>*Vin*(*s1*)
-      <td>*Vout*(*prev*), *Vout*(*s2*)
+      <td>*Vout*(*prev*),<br>
+          *Vout*(*s2*) if the behavior of *s1* intersects {Next,Continue}
   <tr><td>loop { *s1* continuing { *s2* } }
       <td>*Vin*(*s2*)
-      <td>*Vout*(*s1*),<br>
-          *Vout*(*s*<sub>i</sub>)<br>
+      <td>*Vout*(*s1*) if Next is in the behavior of *s1*,<br>
+          *Vout*(*s*<sub>i</sub>)
           for all *s*<sub>i</sub> in *s1* whose behavior is {*Continue*} and transfer control to *s2*
   <tr><td>loop { *s1* continuing { *s2* } }
       <td>*Vin*(*next*)
-      <td>*Vout*(*s2*),<br>
-          *Vout*(*s*<sub>i</sub>)<br>
+      <td>*Vout*(*s2*) if Break is in the behavior of *s1*,<br>
+          *Vout*(*s*<sub>i</sub>)
           for all *s*<sub>i</sub> in *s1* whose behavior is {*Break*} and transfer control to *next*
   <tr><td>switch *e* {<br>
             case _: *s1*<br>
@@ -11778,6 +11781,26 @@ assignment, [=increment statement|increment=], or [=decrement statement|decremen
 
 When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `X -> Y, X -> Z`.
 
+In analyzing loops, we use the following patterns:
+* Node *CF'* models control flow uniformity at the start of each [=iteration=].
+* Node *CF1* models control flow uniformity at the end of the loop body *s1*.
+* Node *CF2* models control flow uniformity at the end of the continuing block statements *s2*.
+* The edges *CF'* -> *CF1* and *CF'* -> *CF2* model the fact control flow
+    uniformity at the end of a loop affects the uniformity at the start
+    of the next iteration.
+    They are absent when loop body statements *s1* only break or return,
+    i.e. the behavior of *s1* is a subset of {Break, Return}.
+* The *CF'* -> *CF* edge models the fact that uniformity at the start of
+    at least some iterations depends on the uniformity when control flow
+    reaches the whole loop statement.
+* When the whole loop has behavior {Next}, we assume any control flow
+    divergence is resolved by the time the loop ends.
+    The loop's result control flow node is therefore set to *CF*,
+    to model the fact that uniformity upon leaving the loop matches
+    uniformity when first arriving at the loop.
+* Note: [[#behaviors|Statement behavior analysis]] implies that the
+    behavior of a loop is one of {Next}, {Return}, or {Next,Return}.
+  
 <table class='data'>
   <caption>Uniformity rules for statements</caption>
   <thead>
@@ -11826,21 +11849,54 @@ When several edges have to be created we use `X -> {Y, Z}` as a short-hand for `
       <td>*CFend*
       <td>*CFend*
       <td class="nowrap">*CFend* -> {*CF1*, *CF2*}
-  <tr><td class="nowrap">loop {*s1* continuing {*s2*}}<br> with behavior {Next}
+
+  <!-- begin loop cases -->
+  <tr><td rowspan=2 class="nowrap">loop {*s1*}<br>Return not in behavior of *s1*
+      <td rowspan=2 >*CF'*
+      <td rowspan=2>(*CF'*, *s1*) => *CF1*
+      <td rowspan=2>*CF*
+      <td>*CF'* -> {*CF1*, *CF*},<br>
+           if behavior of *s1* intersects {Next,Continue}
+  <tr>
+      <td>*CF'* -> *CF*,<br>
+           if behavior of *s1* does not intersect {Next,Continue}
+  <tr><td rowspan=2>loop {*s1*}<br>Return in behavior of *s1*
       <td rowspan=2>*CF'*
-      <td rowspan=2 class="nowrap">(*CF'*, *s1*) => *CF1*<br>
-          (*CF1*, *s2*) => *CF2*
+      <td rowspan=2>(*CF'*, *s1*) => *CF1*
+      <td rowspan=2>*CF1*
+      <td>*CF'* -> {*CF1*, *CF*}<br>
+           if behavior of *s1* intersects {Next,Continue}
+  <tr>
+      <td>*CF'* ->  *CF*<br>
+           if behavior of *s1* does not intersect {Next,Continue}
+
+  <tr><td>loop {*s1* continuing {*s2*}}<br>
+          *s1* has behavior {Break}
+      <td>
+      <td>(*CF*, *s1*) => *CF1*
       <td>*CF*
-      <td rowspan=2 class="nowrap">*CF'* -> {*CF2*, *CF*}
-  <tr><td class="nowrap">loop {*s1* continuing {*s2*}}<br> with another behavior
-      <td>*CF'*
-  <tr><td class="nowrap">loop {*s1*}<br> with behavior {Next}
+      <td rowspan=2>
+
+      Note: The loop executes only a single iteration, so no additional edges are required.
+  <tr><td>loop {*s1* continuing {*s2*}}<br>
+          *s1* has behavior {Return} or {Break,Return}
+      <td>
+      <td>(*CF*, *s1*) => *CF1*
+      <td>*CF1*
+
+  <tr><td rowspan=2>loop {*s1* continuing {*s2*}}<br>
+          *s1*'s behaviour intersects {Next,Continue}
       <td rowspan=2>*CF'*
-      <td rowspan=2 class="nowrap">(*CF'*, *s1*) => *CF1*
-      <td>*CF*
-      <td rowspan=2 class="nowrap">*CF'* -> {*CF1*, *CF*}
-  <tr><td class="nowrap">loop {*s1*}<br> with another behavior
-      <td>*CF'*
+      <td rowspan=2 class="nowrap">(*CF'*, *s1*) => *CF1*<br> (*CF1*, *s2*) => *CF2*
+      <td>*CF*<br>
+          if Return not in behavior of *s1*
+      <td rowspan=2>*CF'* -> {*CF2*, *CF*}
+
+  <tr>
+      <td>*CF'*<br>
+          if Return in behavior of *s1*
+  <!-- end loop cases -->
+
   <tr><td class="nowrap">switch *e* case _: *s_1* .. case _: *s_n*<br> with behavior {Next}
       <td>
       <td rowspan=2 class="nowrap">(*CF*, *e*) => (*CF'*, *V*)<br>
