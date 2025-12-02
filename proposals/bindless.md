@@ -237,7 +237,7 @@ Because the `GPUResourceTable` is an object containing data, it gets a `.destroy
 
 ```webidl
 dictionary GPUResourceTableDescriptor : GPUObjectDescriptorBase {
-    required unsigned long size;
+    required GPUSize32 size;
 };
 partial interface GPUResourceTable {
     void destroy();
@@ -252,7 +252,7 @@ partial interface GPUDevice {
 The steps for `GPUDevice.createResourceTable(desc)` are:
 
  - Let `t` be a new WebGPU object (this, GPUResourceTable, desc).
- - let `t.size` be `Math.min(desc.size, this.limits.maxResourceTableSize)`. (Note: this is done to avoid the need to create giant content-timeline arrays if `size` is huge but fails validation on the device timeline)
+ - let `t.size` be `Math.min(desc.size, this.limits.maxResourceTableSize)`. (Note: this is done to avoid the need to create giant content-timeline arrays if `size` is huge but fails validation on the device timeline) TODO: [#5465](https://github.com/gpuweb/gpuweb/issues/5465) decide if these are the client-side semantics that we want.
  - On the device timeline:
 
     - If any of the following is not satified, invalidate `t`:
@@ -262,11 +262,11 @@ The steps for `GPUDevice.createResourceTable(desc)` are:
 
  - Return `t`.
 
-TODO: [#5463](https://github.com/gpuweb/gpuweb/issues/5462) should we allow OOM?
+TODO: [#5462](https://github.com/gpuweb/gpuweb/issues/5462) should we allow OOM?
 
 The steps for `GPUResourceTable.destroy()` are:
 
- - On the device timeline, set `this.[[destroyed]]` to `true` (it is a state initially set to `false`).
+ - On the device timeline, set `this.[[destroyed]]` to `true` (it is a state initially set to `false`). Note that implementations no longer need `this.[[availableAfterSubmit]]` for tracking and can free it.
 
 Additional validation rule for `queue.submit()`:
 
@@ -309,7 +309,7 @@ Changes to algorithms are:
  - In `createPipelineLayout` a validation error is generated (and an error object) if `usesResourceTable` is `true` but `"sampling-resource-table"` is not enabled (explicitly or implicitly with `"heterogeneous-resource-table"`).
  - In validating `GPUProgrammableStage(stage, descriptor, layout, device)` a validation error is generated if the shader uses the WGSL resource table builtins but `layout.[[desc]].usesResourceTable` is `false`, or if the types used to access the resource tables are not supported with the extensions enabled (for example storage textures when only `"sampling-resource-table"` is enabled).
  - In creating the defaulting pipeline layout, if the shader uses the WGSL resource table builtins, set `desc.usesResourceTable` to `true`.
- - In the validation for `dispatch*` and `draw*` add a check that if `pipeline.[[desc]].layout.[[desc]].usesResourceTable` is `true`, then the `GPUCommandEncoder`'s `[[resource_table] ]` is not null.
+ - In the validation for `dispatch*` and `draw*` add a check that if `pipeline.[[desc]].layout.[[desc]].usesResourceTable` is `true`, then the `GPUCommandEncoder`'s `[[resource_table]]` is not null.
 
 #### Pinning of buffer and texture usages
 
@@ -418,7 +418,7 @@ Steps for `GPUResourceTable.update(slot, resource)`:
 
 Steps for `GPUResourceTable.insertBinding(resource)`:
 
- - Let `slot` be `this.[[availableAfterSubmit]].findIndex((e) => e <= this.[[device]].queue.[[completedSubmitIndex]])`.
+ - Let `slot` be `this.[[availableAfterSubmit]].findIndex((e) => e <= this.[[device]].queue.[[completedSubmitIndex]])`. TODO: [#5466](https://github.com/gpuweb/gpuweb/issues/5466) returning the minimum requires O(log N) operation, returning the freed slots in the order they are freed can be O(1), decide which one to do.
  - If `slot` is `undefined`, throw an `OperationError`.
  - Call `this.update(slot, resource)`.
  - Return `slot`.
@@ -449,7 +449,7 @@ A previous version of the proposal added a "dynamic binding array" concept to `G
 The `GPUBindGroupDescriptor` had a creation argument that would decide of the size of the binding array and `GPUBindGroup` gained all the `destroy/update/insertBinding/removeBinding` methods that are on `GPUResourceTable`.
 In the shader the binding array could be accessed with `@group(N) @binding(M) var resources : resource_binding`.
 
-Discussion in [#5372](https://github.com/gpuweb/gpuweb/issues/5372) and offline determined that the `GPUResourceTable` approach was preferrable because:
+Discussion in [#5372](https://github.com/gpuweb/gpuweb/issues/5372) and offline determined that the `GPUResourceTable` approach was preferable because:
 
  - It removes the confusing indices between the "slots" that are used in the shader and the "binding" numbers at the API level, which are offset by `GPUBindGroupDescriptor.dynamicArray.start`.
  - It avoids putting two complex but orthogonal aspects of WebGPU in the same object (`GPUBindGroup`).
