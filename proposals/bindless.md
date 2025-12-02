@@ -448,7 +448,7 @@ In order to access the resource table two new methods are added, `getResource` a
 The bindless feature will not be available on all devices so must be guarded by an `enable` when
 used in WGSL.
 
-The enable name is `resource_binding`.
+The enable name is `resource_table`.
 
 #### New methods
 In order to access the resource table two new methods, `getResource` and `hasResource` are defined.
