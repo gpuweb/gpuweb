@@ -162,6 +162,17 @@ Metal Shading Language Specification 3.2 section 2.14.1 "The Need for a Uniform 
 
 It's not immediately clear how heterogeneous bindless would be expressed in MSL.
 
+#### Metal 4
+
+[Metal 4](https://developer.apple.com/documentation/metal/understanding-the-metal-4-core-api) overhauls the Metal API with many reworked concepts for command encoding, barriers and resource bindings.
+It adds a [`MTL4ArgumentTable`](https://developer.apple.com/documentation/metal/mtl4argumenttable) object that's used in [`setArgumentTable`](https://developer.apple.com/documentation/metal/mtl4rendercommandencoder/setargumenttable(_:stages:)?language=objc) to set the resources that subsequent shader invocations will use.
+Argument tables are created with a max count of textures/buffers/samplers and with entries updated individually on the CPU.
+The Metal documentation notes that "Metal takes a snapshot of the resources in the argument table when you encode a draw, dispatch, or execute command." which is a copy-on-write semantic.
+
+The single (really per-stage) current argument table is the only way to pass resources to a shader in Metal 4 and shaders use "indexed" entrypoint arguments to references resources in the current argument table.
+Because of this it seems that argument table cannot be used to implement bindless because their entries cannot be indexed dynamically but more importantly because the copy-on-write would be too expensive if it happened each time a bindful resource is changed, or an immediate updated.
+Instead bindless will still need to use argument buffers that are stored inside the argument table.
+
 ### Vulkan / SPIR-V
 
 Vulkan promoted [`VK_EXT_descriptor_indexing`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_descriptor_indexing.html) ([documentation](https://docs.vulkan.org/samples/latest/samples/extensions/descriptor_indexing/README.html)) to core in Vulkan 1.2, it is how bindless is exposed in that API.
