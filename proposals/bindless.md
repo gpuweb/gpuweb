@@ -55,16 +55,16 @@ The WebGPU implementation must still be resilient to misbehaving pages that try 
 
 **Indexing of descriptors - uninitialized entries**: In all APIs bindless is be done by indexing descriptors (Metal can a bit more flexible) in arrays of descriptors that have been allocated by the application.
 Applications allocate conservatively-sized arrays and elements might not be initialized, or contain stale data (esp past the currently used index range).
-Sparse arrays are supported in target APIs, as long as the uninitialized entries are not used. 
+Sparse arrays are supported in target APIs, as long as the uninitialized entries are not used.
 
 **Indexing of descriptors - index uniformity**: Some hardware can only index inside the descriptor arrays uniformly, though a scalarization loops allows emulating non-uniform indexing.
 
 **Descriptor homogeneity**: Hardware descriptors may have different sizes depending on the resource type.
 For example a buffer could be a 64bit virtual address, while a sampled texture could be a 64 byte data payload.
-This makes allocation of the descriptor arrays and their indexing in the shader depend on the type of descriptor, so descriptor types may not always be mixed in the same descriptor array. 
+This makes allocation of the descriptor arrays and their indexing in the shader depend on the type of descriptor, so descriptor types may not always be mixed in the same descriptor array.
 
 **Samplers**: Samplers stayed "bindful" a lot longer than other types of resources because they are pure fixed-function object that don't have contents.
-In all APIs bindless for samplers has additional constraints and limits. 
+In all APIs bindless for samplers has additional constraints and limits.
 
 ### D3D12 / HLSL
 
@@ -128,9 +128,9 @@ Metal [argument buffer tier 2](https://developer.apple.com/documentation/metal/b
 
 Argument buffers are `MTLBuffers` that contain resources usable by the shader.
 Their layout is opaque (maybe until macOS 13.0 for Tier2 devices?) and they have to be filled by using an `MTLArgumentEncoder` which is similar to a `GPUBindGroupLayout` either reflected from an `MTLLibrary` or created directly with `MTLArgumentDescriptor`.
-It is called out explicily that argument buffers cannot contain unions, so that can't be used for heterogeneous descriptors.
+It is called out explicitly that argument buffers cannot contain unions, so that can't be used for heterogeneous descriptors.
 The argument buffers are bound with the `set*Buffer` method like any other buffer.
-With argument buffer tier 2 it is also possible to directly write `buffer.gpuAddress` somwhere in `argumentBuffer.contents`.
+With argument buffer tier 2 it is also possible to directly write `buffer.gpuAddress` somewhere in `argumentBuffer.contents`.
 
 When using argument buffers, the application must handle residency explicitly by calling `useResource`, `useHeap` (when suballocating resources), or `useResidencySet`.
 
@@ -329,7 +329,7 @@ partial interface GPUTexture {
 
 TODO: [#5375](https://github.com/gpuweb/gpuweb/issues/5375) Add the similar interface for `GPUBuffer`.
 
-TODO: [#5376](https://github.com/gpuweb/gpuweb/issues/5376) Ahould usages be used when they don't differentiate between read-only storage access and writeable storage access?
+TODO: [#5376](https://github.com/gpuweb/gpuweb/issues/5376) Should usages be used when they don't differentiate between read-only storage access and writeable storage access?
 
 TODO: [#5378](https://github.com/gpuweb/gpuweb/issues/5378) Pinning and unpinning add additional state to resources that makes WebGPU code less composable, are there better alternatives?
 
@@ -351,9 +351,9 @@ Pinning replaces the currently pinned usage, if any.
 Every check for `GPUTexture.[[destroyed]]` for use with `usage` of the texture by the GPU has an additional check that the pinned usage, if any, matches `usage`.
 In implementations this can be done with almost no additional overhead to the current validation of `[[destroyed]]` by replacing sets of used resources into maps of resources to usages, and by combining the `usage` and `[[destroyed]]` checks in a single bitmask check.
 
-#### Updates of bindings in resource tables 
+#### Updates of bindings in resource tables
 
-The set of resources that appliation need to access will evolve over time.
+The set of resources that the application needs to access will evolve over time.
 For example in a rendering engine that supports streaming of assets, when new content is loaded (models, map chunks, etc) it will need to be added to the resource table, and some now unused content removed.
 Resource tables can use a lot of memory so this proposal adds a way to update the content of existing resource tables over time.
 Other proposals were made that involved copy-on-write semantics, but not selected for this proposal because:
@@ -409,7 +409,7 @@ Steps for `GPUResourceTable.update(slot, resource)`:
  - Set `this.[[availableAfterSubmit]][slot]` to `Infinity`.
  - On the device timeline:
 
-   - If any of the following is not satified, generate a validation error and return.
+   - If any of the following is not satisfied, generate a validation error and return.
 
       - `this` is valid and `destroy()` hasn't been called on it.
       - If `resource` is not possible to set in the `GPUResourceTable` (TODO [#5374](https://github.com/gpuweb/gpuweb/issues/5374), determine the compatibility rules, depending on sampling vs. heterogeneous).
@@ -438,8 +438,105 @@ Steps for `GPUResourceTable.removeBinding(slot)`:
    - Remove the entry at `slot`.
 
 ### WGSL
+To provide access to the data in the `GPUResourceTable` the concept of a resource table is added to
+WGSL. The resource table is an implicit concept, there is no type, address space or name for the
+table, it's implicitly available if a `GPUResourceTable` has been bound.
 
-TODO: [#5380](https://github.com/gpuweb/gpuweb/issues/5380)
+In order to access the resource table two new methods are added, `getResource` and `hasResource`.
+
+#### New enable extension
+The bindless feature will not be available on all devices so must be guarded by an `enable` when
+used in WGSL.
+
+The enable name is `resource_table`.
+
+#### New methods
+In order to access the resource table two new methods, `getResource` and `hasResource` are defined.
+
+##### `hasResource`
+Used to determine if a given `index` in the resource table contains the given `T` type of texture.
+
+```
+@must_use fn hasResource<T>(index: I) -> bool
+```
+
+* `I` is an `i32` or `u32`
+* `T` is a format-less storage texture (e.g. `texture_storage_2d<f32>`), sampled texture, multisampled
+  texture, depth texture, or sampler.
+
+NOTE: Eventually the `T` will also contain storage `buffer view` objects and texel buffers.
+
+`hasResource` returns true if the item at `index` of the resource table is of type `T`.
+
+##### `getResource`
+Retrieves a texture of type `T` from the `index` in the resource table. If the texture is out of
+bounds, or the binding is not a type `T` a default texture of type `T` is returned. (i.e. this
+method will  _always_ return a texture of the correct type, it just may not be the one at the given
+`index`).
+
+```
+@must_use fn getResource<T>(index: I) -> T
+```
+
+* `I` is an `i32` or `u32`
+* `T` is a format-less storage texture (e.g. `texture_storage_2d<f32>`), sampled texture, multisampled
+  texture, depth texture, or sampler.
+
+NOTE: Eventually the `T` will also contain storage `buffer view` objects and texel buffers.
+
+`getResource` returns the value in the resource table at `index` of type `T`.
+
+If `index` is outside the bounds of the resource table then a default value of type `T` will be
+returned. If the item at `index` is not of type `T` then a default value of type `T` is returned.
+Essentially, a value is always returned, it may be a synthesized default value.
+
+###### Default Resources
+When a given index is either out of bounds, or the requested `T` type does not match what is bound
+a default resource is returned. These resources are defined as:
+
+TODO: [#5471](https://github.com/gpuweb/gpuweb/issues/5471) Define the default resources
+<table>
+<tr><th>Type<th>Defaults
+<tr>
+    <td>format-less storage texture
+    <td>
+<tr>
+    <td>sampled texture
+    <td>
+<tr>
+    <td>multisampled texture
+    <td>
+<tr>
+    <td>depth texture
+    <td>
+<tr>
+    <td>sampler
+    <td>
+</table>
+
+#### Type Compatibility Rules
+The `T` types used in the `getResource` and `hasResource` methods allow some flexibility in their
+types based on the filtering settings.
+
+TODO: [#5470](https://github.com/gpuweb/gpuweb/issues/5470) define the compatibility rules when they are known.
+
+
+#### Example usage
+
+```
+enable resource_table;
+
+const kCatTexture = 0u;
+const kHouseTexture = 1u;
+
+@fragment fn fs() {
+    let cat = textureLoad(getResource<texture_2d<f32>>(kCatTexture));
+
+    if (hasResource<texture_2d<f32>>(kHouseTexture)) {
+        let house = textureLoad(getResource<texture_2d<f32>>(kHouseTexture));
+    }
+}
+```
 
 ### Alternatives considered
 
