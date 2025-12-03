@@ -353,7 +353,7 @@ In implementations this can be done with almost no additional overhead to the cu
 
 #### Updates of bindings in resource tables
 
-The set of resources that application need to access will evolve over time.
+The set of resources that the application needs to access will evolve over time.
 For example in a rendering engine that supports streaming of assets, when new content is loaded (models, map chunks, etc) it will need to be added to the resource table, and some now unused content removed.
 Resource tables can use a lot of memory so this proposal adds a way to update the content of existing resource tables over time.
 Other proposals were made that involved copy-on-write semantics, but not selected for this proposal because:
@@ -462,7 +462,9 @@ Used to determine if a given `index` in the resource table contains the given `T
 
 * `I` is an `i32` or `u32`
 * `T` is a format-less storage texture (e.g. `texture_storage_2d<f32>`), sampled texture, multisampled
-  texture, or depth texture.
+  texture, depth texture, or sampler.
+
+NOTE: Eventually the `T` will also contain storage `buffer view` objects and texel buffers.
 
 `hasResource` returns true if the item at `index` of the resource table is of type `T`.
 
@@ -478,13 +480,46 @@ method will  _always_ return a texture of the correct type, it just may not be t
 
 * `I` is an `i32` or `u32`
 * `T` is a format-less storage texture (e.g. `texture_storage_2d<f32>`), sampled texture, multisampled
-  texture, or depth texture.
+  texture, depth texture, or sampler.
+
+NOTE: Eventually the `T` will also contain storage `buffer view` objects and texel buffers.
 
 `getResource` returns the value in the resource table at `index` of type `T`.
 
 If `index` is outside the bounds of the resource table then a default value of type `T` will be
 returned. If the item at `index` is not of type `T` then a default value of type `T` is returned.
-Essentially, a value is always returned, it may be a synthensized default value.
+Essentially, a value is always returned, it may be a synthesized default value.
+
+###### Default Resources
+When a given index is either out of bounds, or the requested `T` type does not match what is bound
+a default resource is returned. These resources are defined as:
+
+TODO: [#5471](https://github.com/gpuweb/gpuweb/issues/5471) Define the default resources
+<table>
+<tr><th>Type<th>Defaults
+<tr>
+    <td>format-less storage texture
+    <td>
+<tr>
+    <td>sampled texture
+    <td>
+<tr>
+    <td>multisampled texture
+    <td>
+<tr>
+    <td>depth texture
+    <td>
+<tr>
+    <td>sampler
+    <td>
+</table>
+
+#### Type Compatibility Rules
+The `T` types used in the `getResource` and `hasResource` methods allow some flexibility in their
+types based on the filtering settings.
+
+TODO: [#5470](https://github.com/gpuweb/gpuweb/issues/5470) define the compatibility rules when they are known.
+
 
 #### Example usage
 
