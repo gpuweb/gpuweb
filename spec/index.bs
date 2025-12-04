@@ -149,6 +149,7 @@ spec: WGSL; urlPrefix: https://gpuweb.github.io/gpuweb/wgsl/#
             text: subgroup size; url: subgroup-size
     type: abstract-op
         text: SizeOf; url: sizeof
+        text: AccessibleSlots; url: accessible-slots
 spec: Internationalization Glossary; urlPrefix: https://www.w3.org/TR/i18n-glossary/#
     type: dfn
         text: localizable text; url: dfn-localizable-text
@@ -1615,6 +1616,14 @@ A <dfn dfn>supported limits</dfn> object has a value for every limit defined by 
         counting any empty slots below the highest index.
         Validated in {{GPUDevice/createRenderPipeline()}} and [$valid to draw|in draw calls$].
 
+    <tr><td><dfn>maxImmediateSize</dfn>
+        <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>64
+    <tr class=row-continuation><td colspan=5>
+        The maximum size, in bytes, of immediate data range used in a pipeline.
+        Must be a multiple of 4.
+
+        Note: 64 bytes is the size of a 4×4 matrix of f32 values.
+
     <tr><td><dfn>maxBindingsPerBindGroup</dfn>
         <td>{{GPUSize32}} <td>[=limit class/maximum=] <td colspan=2>1000
     <tr class=row-continuation><td colspan=5>
@@ -1849,6 +1858,7 @@ interface GPUSupportedLimits {
     readonly attribute unsigned long maxTextureArrayLayers;
     readonly attribute unsigned long maxBindGroups;
     readonly attribute unsigned long maxBindGroupsPlusVertexBuffers;
+    readonly attribute unsigned long maxImmediateSize;
     readonly attribute unsigned long maxBindingsPerBindGroup;
     readonly attribute unsigned long maxDynamicUniformBuffersPerPipelineLayout;
     readonly attribute unsigned long maxDynamicStorageBuffersPerPipelineLayout;
@@ -6927,6 +6937,10 @@ GPUPipelineLayout includes GPUObjectBase;
     : <dfn>\[[bindGroupLayouts]]</dfn>, of type [=list=]&lt;{{GPUBindGroupLayout}}&gt;, readonly
     ::
         The {{GPUBindGroupLayout}} objects provided at creation in {{GPUPipelineLayoutDescriptor/bindGroupLayouts|GPUPipelineLayoutDescriptor.bindGroupLayouts}}.
+
+    : <dfn>\[[immediateSize]]</dfn>, of type {{GPUSize32}}, readonly
+    ::
+        The size in bytes of the immediate data range, provided at creation in {{GPUPipelineLayoutDescriptor/immediateSize|GPUPipelineLayoutDescriptor.immediateSize}}.
 </dl>
 
 Note: using the same {{GPUPipelineLayout}} for many {{GPURenderPipeline}} or {{GPUComputePipeline}} pipelines guarantees that the user agent doesn't need to rebind any resources internally when there is a switch between these pipelines.
@@ -6956,6 +6970,7 @@ A {{GPUPipelineLayout}} is created via {{GPUDevice/createPipelineLayout()|GPUDev
 dictionary GPUPipelineLayoutDescriptor
          : GPUObjectDescriptorBase {
     required sequence<GPUBindGroupLayout?> bindGroupLayouts;
+    GPUSize32 immediateSize = 0;
 };
 </script>
 
@@ -6968,6 +6983,11 @@ pipeline, and have the following members:
         A list of optional {{GPUBindGroupLayout}}s the pipeline will use. Each element corresponds
         to a [=@group=] attribute in the {{GPUShaderModule}}, with the `N`th element corresponding
         with `@group(N)`.
+
+    : <dfn>immediateSize</dfn>
+    ::
+        The size, in bytes, of the immediate data range used by the pipeline.
+        Must be a multiple of 4 and must not exceed {{supported limits/maxImmediateSize}}.
 </dl>
 
 <dl dfn-type=method dfn-for=GPUDevice>
@@ -7017,16 +7037,21 @@ pipeline, and have the following members:
                         - The [=list/size=] of |descriptor|.{{GPUPipelineLayoutDescriptor/bindGroupLayouts}}
                             must be &le; |limits|.{{supported limits/maxBindGroups}}.
                         - |allEntries| must not [=exceeds the binding slot limits|exceed the binding slot limits=] of |limits|.
+                        - |descriptor|.{{GPUPipelineLayoutDescriptor/immediateSize}} must be &le;
+                            |limits|.{{supported limits/maxImmediateSize}}.
+                        - |descriptor|.{{GPUPipelineLayoutDescriptor/immediateSize}} must be a multiple of 4.
                     </div>
 
                 1. Set the |pl|.{{GPUPipelineLayout/[[bindGroupLayouts]]}} to |bindGroupLayouts|.
+                1. Set the |pl|.{{GPUPipelineLayout/[[immediateSize]]}} to |descriptor|.{{GPUPipelineLayoutDescriptor/immediateSize}}.
             </div>
         </div>
 </dl>
 
 Note: two {{GPUPipelineLayout}} objects are considered equivalent for any usage
 if their internal {{GPUPipelineLayout/[[bindGroupLayouts]]}} sequences contain
-{{GPUBindGroupLayout}} objects that are [=group-equivalent=].
+{{GPUBindGroupLayout}} objects that are [=group-equivalent=] and their
+{{GPUPipelineLayout/[[immediateSize]]}} values are equal.
 
 ## Example ## {#bindgroup-examples}
 
@@ -11240,6 +11265,9 @@ interface mixin GPUBindingCommandsMixin {
         [AllowShared] Uint32Array dynamicOffsetsData,
         GPUSize64 dynamicOffsetsDataStart,
         GPUSize32 dynamicOffsetsDataLength);
+
+    undefined setImmediates(GPUSize32 rangeOffset, AllowSharedBufferSource data,
+        optional GPUSize64 dataOffset = 0, optional GPUSize64 size);
 };
 </script>
 
@@ -11254,9 +11282,21 @@ It must only be included by interfaces which also include those mixins.
     ::
         The current {{GPUBindGroup}} for each index.
 
-    : <dfn>\[[dynamic_offsets]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, [=list=]&lt;{{GPUBufferDynamicOffset}}&gt;&gt;, initally empty
+    : <dfn>\[[dynamic_offsets]]</dfn>, of type [=ordered map=]&lt;{{GPUIndex32}}, [=list=]&lt;{{GPUBufferDynamicOffset}}&gt;&gt;, initially empty
     ::
         The current dynamic offsets for each {{GPUBindingCommandsMixin/[[bind_groups]]}} entry.
+
+    : <dfn>\[[immediate_data]]</dfn>, of type [=byte sequence=], initially empty
+    ::
+        The current immediate data bytes.
+        The length equals the device's {{supported limits/maxImmediateSize}}.
+        Values are set by {{GPUBindingCommandsMixin/setImmediates()}}.
+
+    : <dfn>\[[immediate_data_set]]</dfn>, of type [=list=]&lt;{{boolean}}&gt;, initially empty
+    ::
+        Tracks which 32-bit word slots of immediate data have been set.
+        The length equals the device's {{supported limits/maxImmediateSize}} divided by 4.
+        Each entry corresponds to a 4-byte slot and is initially `false`.
 </dl>
 
 ## Bind Groups ## {#programmable-passes-bind-groups}
@@ -11461,7 +11501,6 @@ It must only be included by interfaces which also include those mixins.
     </div>
 </div>
 
-
 <div algorithm data-timeline=device>
     To <dfn abstract-op>Iterate over each dynamic binding offset</dfn> in a given {{GPUBindGroup}} |bindGroup|
     with a given list of |steps| to be executed for each dynamic offset, run the following [=device timeline=] steps:
@@ -11551,6 +11590,37 @@ It must only be included by interfaces which also include those mixins.
 </div>
 
 <div algorithm data-timeline=device>
+    <dfn abstract-op>Validate immediate data</dfn>(encoder, pipeline)
+
+    **Arguments:**
+
+    : {{GPUBindingCommandsMixin}} |encoder|
+    :: Encoder whose immediate data is being validated.
+    : {{GPUPipelineBase}} |pipeline|
+    :: Pipeline to validate |encoder|'s immediate data is compatible with.
+
+    [=Device timeline=] steps:
+
+    1. Let |pipelineLayout| be |pipeline|.{{GPUPipelineBase/[[layout]]}}.
+    2. Let |immediateSize| be |pipelineLayout|.{{GPUPipelineLayout/[[immediateSize]]}}.
+    3. If |immediateSize| is 0, return `true`.
+    4. If any of the following conditions are unsatisfied, return `false`:
+
+        <div class=validusage>
+            - |pipeline| must not be `null`.
+            - For each immediate data variable that is [=statically used=] by any entry point in |pipeline|:
+                - Let |T| be the [=store type=] of the immediate data variable.
+                - Let |requiredSize| be [$SizeOf$](|T|).
+                - |immediateSize| must be &ge; |requiredSize|.
+                - Let |accessibleSlots| be [$AccessibleSlots$](|T|) as defined in [[WGSL]].
+                - For each |slotIndex| in |accessibleSlots|:
+                    - |encoder|.{{GPUBindingCommandsMixin/[[immediate_data_set]]}}[|slotIndex|] must be `true`.
+        </div>
+
+    Otherwise return `true`.
+</div>
+
+<div algorithm data-timeline=device>
     <dfn abstract-op>Encoder bind groups alias a writable resource</dfn>(|encoder|, |pipeline|)
     if any writable buffer binding range overlaps with any other binding range of the same buffer,
     or any writable texture binding overlaps in [=texture subresources=] with any other texture binding
@@ -11606,6 +11676,72 @@ It must only be included by interfaces which also include those mixins.
     Note:
     Implementations are strongly encouraged to optimize this algorithm.
 </div>
+
+## Immediate Data ## {#programmable-passes-immediate-data}
+
+<dl dfn-type=method dfn-for=GPUBindingCommandsMixin>
+    : <dfn>setImmediates(rangeOffset, data, dataOffset, size)</dfn>
+    ::
+        Sets immediate data for subsequent render or compute commands.
+
+        <div algorithm=GPUBindingCommandsMixin.setImmediates>
+            <div data-timeline=content>
+                **Called on:** {{GPUBindingCommandsMixin}} |this|.
+
+                **Arguments:**
+
+                <pre class=argumentdef for="GPUBindingCommandsMixin/setImmediates(rangeOffset, data, dataOffset, size)">
+                    |rangeOffset|: Offset in bytes into the immediate data range to begin writing at.
+                        Must be a multiple of 4.
+                    |data|: Data to write into the immediate data range.
+                    |dataOffset|: Offset into |data| to begin writing from. Given in elements if
+                        |data| is a {{TypedArray}} and bytes otherwise. Defaults to 0.
+                    |size|: Size of content to write from |data|. Given in elements if
+                        |data| is a {{TypedArray}} and bytes otherwise.
+                </pre>
+
+                **Returns:** {{undefined}}
+
+                [=Content timeline=] steps:
+
+                1. If |data| is an {{ArrayBuffer}} or {{DataView}}, let the element type be "byte".
+                    Otherwise, |data| is a TypedArray; let the element type be the type of the TypedArray.
+                1. Let |dataSize| be the size of |data|, in elements.
+                1. If |size| is missing,
+                    let |contentsSize| be |dataSize| &minus; |dataOffset|.
+                    Otherwise, let |contentsSize| be |size|.
+                1. If any of the following conditions are unsatisfied,
+                    throw an {{OperationError}} and return.
+
+                    <div class=validusage>
+                        - |contentsSize| &ge; 0.
+                        - |dataOffset| + |contentsSize| &le; |dataSize|.
+                        - |contentsSize|, converted to bytes, is a multiple of 4.
+                    </div>
+                1. Let |dataContents| be [=get a copy of the buffer source|a copy of the bytes held by the buffer source=] |data|.
+                1. Let |contents| be the |contentsSize| elements of |dataContents| starting at
+                    an offset of |dataOffset| elements.
+                1. Let |contentsBytes| be |contentsSize| converted to bytes.
+                1. Issue the subsequent steps on the [=Device timeline=] of |this|.{{GPUObjectBase/[[device]]}}.
+            </div>
+            <div data-timeline=device>
+                [=Device timeline=] steps:
+
+                1. [$Validate the encoder state$] of |this|. If it returns false, return.
+                1. If any of the following conditions are unsatisfied, [$invalidate$] |this| and return.
+
+                    <div class=validusage>
+                        - |rangeOffset| is a multiple of 4.
+                        - |rangeOffset| + |contentsBytes| &le; |this|.{{GPUObjectBase/[[device]]}}.{{device/[[limits]]}}.{{supported limits/maxImmediateSize}}.
+                    </div>
+                1. For each byte |b| at index |i| in |contents|:
+                    1. Let |byteIndex| be |rangeOffset| + |i|.
+                    1. Let |slotIndex| be floor(|byteIndex| &div; 4).
+                    1. Set |this|.{{GPUBindingCommandsMixin/[[immediate_data]]}}[|byteIndex|] to |b|.
+                    1. Set |this|.{{GPUBindingCommandsMixin/[[immediate_data_set]]}}[|slotIndex|] to true.
+            </div>
+        </div>
+</dl>
 
 # Debug Markers # {#debug-markers}
 
@@ -11895,6 +12031,8 @@ dictionary GPUComputePassDescriptor
                         - |usageScope| must satisfy [=usage scope validation=].
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
+                        - [$Validate immediate data$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
+                            is `true`.
                         - all of |workgroupCountX|, |workgroupCountY| and |workgroupCountZ| are &le;
                             |this|.device.limits.{{supported limits/maxComputeWorkgroupsPerDimension}}.
                     </div>
@@ -11963,6 +12101,8 @@ dictionary GPUComputePassDescriptor
                     <div class=validusage>
                         - |usageScope| must satisfy [=usage scope validation=].
                         - [$Validate encoder bind groups$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
+                            is `true`.
+                        - [$Validate immediate data$](|this|, |this|.{{GPUComputePassEncoder/[[pipeline]]}})
                             is `true`.
                         - |indirectBuffer| is [$valid to use with$] |this|.
                         - |indirectBuffer|.{{GPUBuffer/usage}} contains {{GPUBufferUsage/INDIRECT}}.
@@ -13357,6 +13497,8 @@ It must only be included by interfaces which also include those mixins.
         <div class=validusage>
             - [$Validate encoder bind groups$](|encoder|, |encoder|.{{GPURenderCommandsMixin/[[pipeline]]}})
                 must be `true`.
+            - [$Validate immediate data$](|encoder|, |encoder|.{{GPURenderCommandsMixin/[[pipeline]]}})
+                must be `true`.
             - Let |pipelineDescriptor| be |encoder|.{{GPURenderCommandsMixin/[[pipeline]]}}.{{GPURenderPipeline/[[descriptor]]}}.
             - For each {{GPUIndex32}} |slot| `0` to
                 |pipelineDescriptor|.{{GPURenderPipelineDescriptor/vertex}}.{{GPUVertexState/buffers}}.[=list/size=]:
@@ -13741,6 +13883,7 @@ attachments used by this encoder.
     the following [=device timeline=] steps:
 
         1. [=map/Clear=] |encoder|.{{GPUBindingCommandsMixin/[[bind_groups]]}}.
+        1. Clear |encoder|.{{GPUBindingCommandsMixin/[[immediate_data_set]]}}.
         1. Set |encoder|.{{GPURenderCommandsMixin/[[pipeline]]}} to `null`.
         1. Set |encoder|.{{GPURenderCommandsMixin/[[index_buffer]]}} to `null`.
         1. [=map/Clear=] |encoder|.{{GPURenderCommandsMixin/[[vertex_buffers]]}}.
