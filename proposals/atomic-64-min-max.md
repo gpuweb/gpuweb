@@ -18,8 +18,7 @@ Since all atomic operations in WGSL [operate only on atomic types](https://www.w
 
 ## Vulkan
 
-*   `VK_KHR_shader_atomic_int64` (device extension) or Vulkan 1.2 with support bits.
-*   [VK_KHR_shader_atomic_int64](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_shader_atomic_int64.html)
+*   [VK_KHR_shader_atomic_int64](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_shader_atomic_int64.html) (device extension) or Vulkan 1.2 with support bits.
 *   [Spirv Enviroment for 64 bit integers](https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#spirvenv-capabilities-table-Int64Atomics)
 
 According to [this query](https://vulkan.gpuinfo.org/listfeaturescore12.php), the 1.2 feature `"shaderBufferInt64Atomics"` has 87.7% support on Linux and 31% support on Android. As an extension, [this query](https://vulkan.gpuinfo.org/displayextensiondetail.php?extension=VK_KHR_shader_atomic_int64) has 69% support on Linux but only 4.66% support on android.
