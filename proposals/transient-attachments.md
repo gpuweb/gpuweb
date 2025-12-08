@@ -1,6 +1,6 @@
 # Transient Attachments
 
-Last modified: 2025-11-25
+Last modified: 2025-12-08
 
 - Issue: https://github.com/gpuweb/gpuweb/issues/5396
 - Spec PR: https://github.com/gpuweb/gpuweb/pull/5450
@@ -23,6 +23,10 @@ partial namespace GPUTextureUsage {
 ```
 
 ## Validation
+
+The `GPUCanvasContext/configure(configuration)` algorithm is extended with the following change:
+
+- If `configuration.usage` includes the `TRANSIENT_ATTACHMENT` bit, throw a TypeError.
 
 The `validating GPUTextureDescriptor(this, descriptor)` algorithm is extended with the following change:
 
