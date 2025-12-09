@@ -2,18 +2,28 @@
 
 The documents in this directory are
 [WebGPU extension documents](https://gpuweb.github.io/gpuweb/#extension-documents)
-which describe **non-normative, non-standardized draft proposals** to add functionality to WebGPU.
+which describe **draft proposals** to add functionality to WebGPU.
+g
+The proposals are organized into three categories:
 
-These proposals **may or may not be under active consideration**.
+- This directory contains proposals **under active consideration**. These proposals are **not
+  stable, non-normative, non-standardized** and may change at any time.
+
+- The `accepted` subdirectory contains proposals that have been **accepted and incorporated into the
+  main specification**. We retain them here to keep the design rationale and investigation notes
+  easily available.
+
+- The `inactive` subdirectory contains proposals that are not under active consideration but could
+  be considered later.
+
 Check the "roadmap" of an extension document to understand its status.
 
-These proposals are **not stable** and may change at any time. They may be:
+The committee generally handles smaller changes to the WebGPU or WGSL specifications with GitHub
+issues and pull requestions. We use documents in this directory for proposals which are larger or
+require extended discussion, and are thus not easily contained in more direct forms.
 
-- In-development proposals which are not easily contained in a GitHub pull request, HackMD, or similar.
-- Inactive proposals which are not under active consideration but could be considered later.
-
-If the group agrees that it never intends to consider a proposal in the future, it should be
-removed from this directory (and may be migrated outside of the WebGPU community group).
+If the group agrees that it never intends to consider a proposal in the future, it should be removed
+from this directory (and may be migrated outside of the WebGPU community group).
 
 ## New Proposals
 
