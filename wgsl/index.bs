@@ -260,6 +260,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         text: front-facing; url: front-facing
         text: shader-output mask; url: shader-output-mask
         text: framebuffer; url: framebuffer
+        text: immediateSize; url: dom-gpupipelinelayoutdescriptor-immediatesize
         text: normalized device coordinates; url: ndc
         text: clip space coordinates; url: clip-space-coordinates
         text: clip position; url: clip-position
@@ -268,6 +269,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         text: rasterizationpoint-depth; url: rasterizationpoint-depth
         text: rasterizationpoint-perspectivedivisor; url: rasterizationpoint-perspectivedivisor
         text: fragmentdestination-position; url: fragmentdestination-position
+        text: setImmediates; url: dom-gpubindingcommandsmixin-setimmediates
         text: subgroups-feature; url: subgroups
         text: subgroupMinSize; url: dom-gpuadapterinfo-subgroupminsize
         text: subgroupMaxSize; url: dom-gpuadapterinfo-subgroupmaxsize
@@ -5152,6 +5154,9 @@ noexport>immediate data</dfn> variable.
 Its [=store type=] [=shader-creation error|must=] be a [=host-shareable=] [=constructible=] type,
 excluding arrays and structures that contain array members.
 Each [=entry point=] [=shader-creation error|must=] [=statically access=] at most one immediate data variable.
+The value of an immediate variable is set via [=setImmediates=] commands recorded by the WebGPU API command encoder,
+and remains constant during shader execution.
+The variable size is limited by the pipeline layout's [=immediateSize=] configuration.
 
 <div class=note>
 The [=AccessibleSlots=] exclude padding bytes between structure members and at the end of structures.
@@ -5173,7 +5178,7 @@ It is declared at [=module scope=], exists in the [=address spaces/handle=] addr
 and is immutable.
 
 As described in [[#resource-interface]], uniform buffers, storage buffers,
-textures, samplers, and immediate data form the [=resource interface of a shader=].
+textures, and samplers form the [=resource interface of a shader=].
 
 The <dfn noexport>lifetime</dfn> of a variable is the period during shader
 execution for which the [=memory locations=] are associated with the variable.
@@ -9343,6 +9348,7 @@ The interface includes:
 * [=Shader stage inputs=]
 * [=Shader stage outputs=]
 * [=Override-declarations=]
+* [=Immediate data=]
 * Attached [=resources=], which include:
     * [=Uniform buffers=]
     * [=Storage buffers=]
@@ -9375,6 +9381,8 @@ We can now precisely define the <dfn noexport>interface of a shader</dfn> as con
   - The [=uniform buffer=], [=storage buffer=], [=texture resource=], and [=sampler resource=] variables
         [=statically accessed=] by the shader.
   - The [=override-declarations=]
+        [=statically accessed=] by the shader.
+  - The [=immediate data=] variables
         [=statically accessed=] by the shader.
 
 ### Inter-stage Input and Output Interface ### {#stage-inputs-outputs}
@@ -10189,30 +10197,28 @@ If not, a [=pipeline-creation error=] [=behavioral requirement|will=] result.
 ### Resource Interface ### {#resource-interface}
 
 A <dfn noexport>resource</dfn> is an object which provides access to data external to a [=shader stage=],
-and which is not an [=override-declaration=] and not a [[#stage-inputs-outputs|shader stage input or output]].
+and which is not an [=override-declaration=], not an [=immediate data=] variable, and not a [[#stage-inputs-outputs|shader stage input or output]].
 Resources are shared by all invocations of the shader.
 
-There are five kinds of resources:
+There are four kinds of resources:
 
 * [=Uniform buffers=]
 * [=Storage buffers=]
 * [=Texture resources=]
 * [=Sampler resources=]
-* [=Immediate data=]
 
 The <dfn noexport>resource interface of a shader</dfn> is the set of module-scope
 resource variables [=statically accessed=] by
 [=functions in a shader stage|functions in the shader stage=].
 
-Each resource variable, except for [=immediate data=] variables, [=shader-creation error|must=] be declared with both [=attribute/group=] and [=attribute/binding=]
+Each resource variable [=shader-creation error|must=] be declared with both [=attribute/group=] and [=attribute/binding=]
 attributes.
 Together with the shader's stage, these identify the binding address
 of the resource on the shader's pipeline.
 See [[WebGPU#gpupipelinelayout]].
 
 [=Immediate data=] variables do not use [=attribute/group=] or [=attribute/binding=] attributes.
-They are accessed via the WebGPU API on the command encoder,
-and are limited in size by the pipeline layout's immediate data size configuration.
+
 
 Two different resource variables in a [=shader=] [=shader-creation error|must
 not=] have the same [=attribute/group=] and [=attribute/binding=] values, when
@@ -10274,8 +10280,6 @@ where compatibility is defined by the following table.
   <tr><td>[=type/external texture=]
       <td>{{GPUBindGroupLayoutEntry/externalTexture}}
       <td colspan=2>(not applicable)
-  <tr><td>[=immediate data=]
-      <td colspan=3>Not a bind group entry. Validated against pipeline layout immediate data size.
 </table>
 
 See the [$validating GPUProgrammableStage|WebGPU API$]
@@ -10567,8 +10571,6 @@ and |A| is a host-shareable or fixed footprint array or runtime-sized array:
 * <dfn noexport id="accessible-bytes">AccessibleBytes</dfn>(|T|) is the set of byte offsets within an instance of type |T| that contain data.
     * If |T| is a scalar or vector, then [=AccessibleBytes=](|T|) is the set of integers `k` such that `0 <= k <` [=SizeOf=](|T|).
     * If |T| is a matrix with |C| columns and |R| rows, then [=AccessibleBytes=](|T|) is the union of sets `{ k + i * Stride | k in AccessibleBytes(vec|R|) }` for `i` in `0..C-1`, where `Stride` is [=roundUp=]([=AlignOf=](vec|R|), [=SizeOf=](vec|R|)).
-    * If |T| is an atomic type `atomic<T'>`, then [=AccessibleBytes=](|T|) is [=AccessibleBytes=](|T'|).
-    * If |T| is an array of |N| elements of type |E|, then [=AccessibleBytes=](|T|) is the union of sets `{ k + i * Stride | k in AccessibleBytes(E) }` for `i` in `0..N-1`, where `Stride` is [=StrideOf=](|T|).
     * If |T| is a structure |S|, then [=AccessibleBytes=](|T|) is the union of sets `{ k + Offset | k in AccessibleBytes(M_i) }` for each member `M_i` at offset `Offset` = [=OffsetOfMember=](|S|, `i`).
 * <dfn noexport id="accessible-slots">AccessibleSlots</dfn>(|T|) is the set of integers `i` such that the intersection of the interval `[4*i, 4*i+4)` and [=AccessibleBytes=](|T|) is not empty.
 
