@@ -260,6 +260,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         text: front-facing; url: front-facing
         text: shader-output mask; url: shader-output-mask
         text: framebuffer; url: framebuffer
+        text: immediateSize; url: dom-gpupipelinelayoutdescriptor-immediatesize
         text: normalized device coordinates; url: ndc
         text: clip space coordinates; url: clip-space-coordinates
         text: clip position; url: clip-position
@@ -268,6 +269,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         text: rasterizationpoint-depth; url: rasterizationpoint-depth
         text: rasterizationpoint-perspectivedivisor; url: rasterizationpoint-perspectivedivisor
         text: fragmentdestination-position; url: fragmentdestination-position
+        text: setImmediates; url: dom-gpubindingcommandsmixin-setimmediates
         text: subgroups-feature; url: subgroups
         text: subgroupMinSize; url: dom-gpuadapterinfo-subgroupminsize
         text: subgroupMaxSize; url: dom-gpuadapterinfo-subgroupmaxsize
@@ -275,6 +277,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         text: texture view swizzle; url: dom-gputextureviewdescriptor-swizzle
         for: supported limits
             text: maxComputeWorkgroupStorageSize; url: dom-supported-limits-maxcomputeworkgroupstoragesize
+            text: maxImmediateSize; url: dom-supported-limits-maximmediatesize
     type: attribute
         for: GPU
             text: wgslLanguageFeatures; url: gpuwgsllanguagefeatures
@@ -942,6 +945,11 @@ shader that goes beyond the specified limits.
             This maps the WebGPU [=supported limits/maxComputeWorkgroupStorageSize=] limit
             into a standalone WGSL limit.
         <td>[=supported limits/maxComputeWorkgroupStorageSize|16384=]
+    <tr><td>Maximum [=byte-size=] of an [=immediate data=] [=variable=].
+
+            This maps the WebGPU [=supported limits/maxImmediateSize=] limit
+            into a standalone WGSL limit.
+        <td>[=supported limits/maxImmediateSize|64=]
     <tr><td>Maximum number of elements in [[#value-constructor-builtin-function|value constructor]] expression of [=array=] type<td>2047
 </table>
 
@@ -1468,6 +1476,7 @@ The [=language extension=] names are:
 * <a for=language_extension lt=pointer_composite_access>`'pointer_composite_access'`</a>
 * <a for=language_extension lt=uniform_buffer_standard_layout>`'uniform_buffer_standard_layout'`</a>
 * <a for=language_extension lt=subgroup_id>`'subgroup_id'`</a>
+* <a for=language_extension lt=immediate_address_space>`'immediate_address_space'`</a>
 
 ### Interpolation Type Names ### {#interpolation-type-names}
 
@@ -1939,6 +1948,12 @@ Extension names are not [=identifiers=]: they do not [=resolves|resolve=] to [=d
       Allows the use of the [=built-in values/subgroup_id=] and [=built-in
       values/num_subgroups=] built-in values when the [=extension/subgroups=]
       extension is enabled.
+   <tr><td><dfn for="language_extension">immediate_address_space</dfn>
+      <td>
+      Enables the [=address spaces/immediate=] address space, allowing variables
+      to be declared with `var<immediate>` and bound to small amounts of frequently
+      updated data passed directly from the command encoder via the WebGPU API.
+
 </table>
 
 Note: The intent is that, over time, WGSL will define language extensions embodying all functionality in language extensions commonly supported at that time.
@@ -4845,6 +4860,14 @@ effective-value-type.
     <td>
     <td>Yes.<br>[=uniform buffer=]
 
+<tr><td>[=variable|var=]&lt;[=address spaces/immediate=]&gt;
+    <td>Immutable
+    <td>[=module scope|Module=]
+    <td>[=type/concrete|Concrete=] [=constructible=] [=host-shareable=], excluding arrays and structures containing array members
+    <td>Disallowed
+    <td>
+    <td>Yes.<br>[=immediate data=]
+
 <tr><td>[=variable|var=]<sup>6</sup>
     <td>Immutable<sup>7</sup>
     <td>[=module scope|Module=]
@@ -5124,6 +5147,22 @@ Its [=store type=] must be a [=host-shareable=] type and must satisfy the
 [[#address-space-layout-constraints|address space layout constraints]].
 The variable may be declared with a [=access/read=] or [=access/read_write=]
 access mode; the default is read.
+
+A variable in the [=address spaces/immediate=] address space is an <dfn
+noexport>immediate data</dfn> variable.
+Its [=store type=] [=shader-creation error|must=] be a [=host-shareable=] [=constructible=] type,
+excluding arrays and structures that contain array members.
+Each [=entry point=] [=shader-creation error|must=] [=statically access=] at most one immediate data variable.
+The value of an immediate variable is set via [=setImmediates=] commands recorded by the WebGPU API command encoder,
+and remains constant during shader execution.
+The variable size is limited by the pipeline layout's [=immediateSize=] configuration.
+
+<div class=note>
+The [=AccessibleSlots=] exclude padding bytes between structure members and at the end of structures.
+Only the accessible slots need to be initialized via the WebGPU API
+before the immediate data variable is accessed in a shader.
+</div>
+
 
 A <dfn>texture resource</dfn> is a variable whose [=effective-value-type=] is a [=texture type=].
 It is declared at [=module scope=].
@@ -7551,17 +7590,17 @@ path: syntax/for_init.syntax.bs.include
 path: syntax/for_update.syntax.bs.include
 </pre>
 
-The <dfn dfn-for="statement">for</dfn> statement is syntactic sugar over a [=compound statement=] 
+The <dfn dfn-for="statement">for</dfn> statement is syntactic sugar over a [=compound statement=]
 containing a [=statement/loop=] statement.
-In general, the `for` statement takes the form 
+In general, the `for` statement takes the form
 
   > `for (` *initializer* `;` *condition* `;` *update_part* `) {` *body* `}`
 
 When the condition expression is present, the `for` statement desugars to a loop of the form:
 
 <blockquote>
-   {                                   <br> &nbsp; &nbsp; 
-       *initializer* ;                 <br> &nbsp; &nbsp; 
+   {                                   <br> &nbsp; &nbsp;
+       *initializer* ;                 <br> &nbsp; &nbsp;
        loop {                          <br> &nbsp; &nbsp; &nbsp; &nbsp;
           if !(*condition*) { break; } <br> &nbsp; &nbsp; &nbsp; &nbsp;
           *body*                       <br> &nbsp; &nbsp; &nbsp; &nbsp;
@@ -7572,8 +7611,8 @@ When the condition expression is present, the `for` statement desugars to a loop
 When the condition expression is absent, the `for` statement desugars to a loop of the form:
 
 <blockquote>
-   {                                   <br> &nbsp; &nbsp; 
-       *initializer* ;                 <br> &nbsp; &nbsp; 
+   {                                   <br> &nbsp; &nbsp;
+       *initializer* ;                 <br> &nbsp; &nbsp;
        loop {                          <br> &nbsp; &nbsp; &nbsp; &nbsp;
           *body*                       <br> &nbsp; &nbsp; &nbsp; &nbsp;
           continuing { *update_part* } <br> &nbsp; &nbsp;
@@ -9310,6 +9349,7 @@ The interface includes:
 * [=Shader stage inputs=]
 * [=Shader stage outputs=]
 * [=Override-declarations=]
+* [=Immediate data=]
 * Attached [=resources=], which include:
     * [=Uniform buffers=]
     * [=Storage buffers=]
@@ -9342,6 +9382,8 @@ We can now precisely define the <dfn noexport>interface of a shader</dfn> as con
   - The [=uniform buffer=], [=storage buffer=], [=texture resource=], and [=sampler resource=] variables
         [=statically accessed=] by the shader.
   - The [=override-declarations=]
+        [=statically accessed=] by the shader.
+  - The [=immediate data=] variables
         [=statically accessed=] by the shader.
 
 ### Inter-stage Input and Output Interface ### {#stage-inputs-outputs}
@@ -10156,7 +10198,7 @@ If not, a [=pipeline-creation error=] [=behavioral requirement|will=] result.
 ### Resource Interface ### {#resource-interface}
 
 A <dfn noexport>resource</dfn> is an object which provides access to data external to a [=shader stage=],
-and which is not an [=override-declaration=] and not a [[#stage-inputs-outputs|shader stage input or output]].
+and which is not an [=override-declaration=], not an [=immediate data=] variable, and not a [[#stage-inputs-outputs|shader stage input or output]].
 Resources are shared by all invocations of the shader.
 
 There are four kinds of resources:
@@ -10175,6 +10217,9 @@ attributes.
 Together with the shader's stage, these identify the binding address
 of the resource on the shader's pipeline.
 See [[WebGPU#gpupipelinelayout]].
+
+[=Immediate data=] variables do not use [=attribute/group=] or [=attribute/binding=] attributes.
+
 
 Two different resource variables in a [=shader=] [=shader-creation error|must
 not=] have the same [=attribute/group=] and [=attribute/binding=] values, when
@@ -10447,6 +10492,12 @@ table.
       <td>Invocations in the same [=shader stage=]
       <td>[=access/read=]
       <td>For [=storage buffer=] variables
+  <tr><td><dfn noexport dfn-for="address spaces">immediate</dfn>
+      <td>Invocations in the same [=shader stage=]
+      <td>[=access/read=]
+      <td>For [=immediate data=] variables.<br>
+          [=constructible=] [=host-shareable=] types, excluding arrays and structures containing array members.<br>
+          Each [=entry point=] can [=statically access=] at most one immediate variable.
   <tr><td><dfn noexport dfn-for="address spaces">handle</dfn>
       <td>Invocations in the same shader stage
       <td>[=access/read=]
@@ -10518,6 +10569,11 @@ and |A| is a host-shareable or fixed footprint array or runtime-sized array:
           [=StrideOf=](array<|E|, |N|>) = [=roundUp=]([=AlignOf=](E), [=SizeOf=](E))<br>
           [=StrideOf=](array<|E|>) = [=roundUp=]([=AlignOf=](E), [=SizeOf=](E))
         </p>
+* <dfn noexport id="accessible-bytes">AccessibleBytes</dfn>(|T|) is the set of byte offsets within an instance of type |T| that contain data.
+    * If |T| is a scalar or vector, then [=AccessibleBytes=](|T|) is the set of integers `k` such that `0 <= k <` [=SizeOf=](|T|).
+    * If |T| is a matrix with |C| columns and |R| rows, then [=AccessibleBytes=](|T|) is the union of sets `{ k + i * Stride | k in AccessibleBytes(vec|R|) }` for `i` in `0..C-1`, where `Stride` is [=roundUp=]([=AlignOf=](vec|R|), [=SizeOf=](vec|R|)).
+    * If |T| is a structure |S|, then [=AccessibleBytes=](|T|) is the union of sets `{ k + Offset | k in AccessibleBytes(M_i) }` for each member `M_i` at offset `Offset` = [=OffsetOfMember=](|S|, `i`).
+* <dfn noexport id="accessible-slots">AccessibleSlots</dfn>(|T|) is the set of integers `i` such that the intersection of the interval `[4*i, 4*i+4)` and [=AccessibleBytes=](|T|) is not empty.
 
 ### Alignment and Size ###  {#alignment-and-size}
 
@@ -10981,7 +11037,7 @@ sections and then the resulting layout is validated against the
 [=RequiredAlignOf=](|T|, |C|) rules.
 -->
 
-When [=language_extension/uniform_buffer_standard_layout=] is **not** supported, 
+When [=language_extension/uniform_buffer_standard_layout=] is **not** supported,
 the [=address spaces/uniform=] address space requires that:
 * Array elements are aligned to 16 byte boundaries.
     That is, [=StrideOf=](array&lt;|T|,|N|&gt;) = 16 &times; |k|' for some positive integer |k|'.
