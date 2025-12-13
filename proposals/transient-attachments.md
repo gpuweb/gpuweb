@@ -1,10 +1,9 @@
 # Transient Attachments
 
-**Roadmap:** This proposal is **under active development, but has not been standardized for inclusion in the WebGPU specification. The proposal is likely to change before it is standardized.** WebGPU implementations **must not** expose this functionality; doing so is a spec violation. Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
+Last modified: 2025-12-08
 
-Issue:
-
-- https://github.com/gpuweb/gpuweb/issues/5396
+- Issue: https://github.com/gpuweb/gpuweb/issues/5396
+- Spec PR: https://github.com/gpuweb/gpuweb/pull/5450
 
 
 ## Motivation
@@ -25,10 +24,15 @@ partial namespace GPUTextureUsage {
 
 ## Validation
 
+The `GPUCanvasContext/configure(configuration)` algorithm is extended with the following change:
+
+- If `configuration.usage` includes the `TRANSIENT_ATTACHMENT` bit, throw a TypeError.
+
 The `validating GPUTextureDescriptor(this, descriptor)` algorithm is extended with the following change:
 
 - If `descriptor.usage` includes the `TRANSIENT_ATTACHMENT` bit:
   - `descriptor.usage` must contain only and exactly `TRANSIENT_ATTACHMENT` and `RENDER_ATTACHMENT` bits.
+  - `descriptor.dimension` must be `"2d"`.
 
 The `GPURenderPassColorAttachment Valid Usage` algorithm is extended with the following change:
 
