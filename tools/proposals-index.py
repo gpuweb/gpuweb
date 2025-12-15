@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
+
+# To format this file, use: python3 -m autopep8
+
 import argparse
-import sys
+import collections
 import difflib
+import re
+import sys
 from pathlib import Path
 
 
@@ -10,6 +15,7 @@ def main():
     assert proposals_dir.exists(), "Can't find the proposals directory"
 
     # Parse arguments
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'mode',
@@ -19,19 +25,34 @@ def main():
     args = parser.parse_args()
 
     # Collect proposals and group them by status
+
+    # Lists of tuple of (issue number, text of index line)
+    Proposal = collections.namedtuple(
+        'Proposal', ['issue_number', 'entry_text'])
     proposals_merged = []
     proposals_draft = []
     proposals_inactive = []
 
     found_invalid_status = False
-    for proposal_path in sorted(proposals_dir.iterdir()):
-        if proposal_path.name == 'README.md':
+    for proposal_path in proposals_dir.iterdir():
+        filename = proposal_path.name
+        if filename == 'README.md':
             continue
 
         lines = proposal_path.read_text().splitlines()
         line3 = lines[2] if len(lines) >= 3 else ''
+        line4 = lines[3] if len(lines) >= 3 else ''
 
-        proposal_entry = f'* [{proposal_path.stem}]({proposal_path.name})'
+        match = re.match(
+            r'^\* Issue: \[#(\d+)]\(https://github\.com/gpuweb/gpuweb/issues/\1\),?$', line4)
+        if match == None:
+            print(
+                f'{filename}: Invalid issue line (must match standard format):\n{line4}\n')
+            sys.exit(1)
+        issue_number = int(match[1])
+
+        entry_text = f'* #{issue_number} [{proposal_path.stem}]({filename})'
+        proposal_entry = Proposal(issue_number, entry_text)
 
         if line3 == '* Status: [Merged](README.md#status-merged)':
             proposals_merged.append(proposal_entry)
@@ -41,7 +62,7 @@ def main():
             proposals_inactive.append(proposal_entry)
         else:
             print(
-                f'{proposal_path.name}: Invalid status line (line 3 must be a known status line):\n{line3}\n')
+                f'{filename}: Invalid status line (line 3 must be a known status line):\n{line3}\n')
             found_invalid_status = True
 
     if found_invalid_status:
@@ -61,19 +82,22 @@ def main():
         if line.startswith('<!-- SECTION'):
             start_line = line_num
             if line == '<!-- SECTION status-merged -->':
-                new_list = proposals_merged
+                proposals = proposals_merged
             elif line == '<!-- SECTION status-draft -->':
-                new_list = proposals_draft
+                proposals = proposals_draft
             elif line == '<!-- SECTION status-inactive -->':
-                new_list = proposals_inactive
+                proposals = proposals_inactive
             else:
-                assert False, f'Unrecognized SECTION line in README.md: {line}'
+                print(f'{filename}: Unrecognized SECTION line in README.md: {line}')
+                sys.exit(1)
 
             # Replace everything from 'SECTION' to the next blank line, with the new list
             try:
                 line_num = readme_lines.index('', start_line)
             except ValueError:
                 line_num = len(readme_lines)
+            # Sort by issue number (used a Khronos "extension number") and extract entry text
+            new_list = map(lambda x: x.entry_text, sorted(proposals))
             readme_lines[start_line + 1:line_num] = new_list
         else:
             line_num += 1

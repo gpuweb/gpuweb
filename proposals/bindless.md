@@ -1,7 +1,8 @@
 # Bindless
 
 * Status: [Draft](README.md#status-draft)
-* Issue: [#380](https://github.com/gpuweb/gpuweb/issues/380) and child issues.
+* Issue: [#380](https://github.com/gpuweb/gpuweb/issues/380)
+  and child issues.
 
 Previous discussions happenend on:
 
