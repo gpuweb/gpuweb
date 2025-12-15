@@ -1468,6 +1468,7 @@ The [=language extension=] names are:
 * <a for=language_extension lt=pointer_composite_access>`'pointer_composite_access'`</a>
 * <a for=language_extension lt=uniform_buffer_standard_layout>`'uniform_buffer_standard_layout'`</a>
 * <a for=language_extension lt=subgroup_id>`'subgroup_id'`</a>
+* <a for=language_extension lt=subgroup_uniformity>`'subgroup_uniformity'`</a>
 
 ### Interpolation Type Names ### {#interpolation-type-names}
 
@@ -1939,6 +1940,15 @@ Extension names are not [=identifiers=]: they do not [=resolves|resolve=] to [=d
       Allows the use of the [=built-in values/subgroup_id=] and [=built-in
       values/num_subgroups=] built-in values when the [=extension/subgroups=]
       extension is enabled.
+  <tr><td><dfn for="language_extension">subgroup_uniformity</dfn>
+      <td>
+      Adds an additional scope, subgroup, for [=uniform control flow=]
+      [[#subgroup-builtin-functions|subgroup]] and
+      [[#quad-builtin-functions|quad]] built-in functions to be all invocations
+      in the same [=subgroup=].
+
+      Note: The use of subgroup and quad built-in functions requires the
+      [=extension/subgroups=] extension to be enabled.
 </table>
 
 Note: The intent is that, over time, WGSL will define language extensions embodying all functionality in language extensions commonly supported at that time.
@@ -11275,11 +11285,20 @@ The analysis is what actually defines these concepts, and when a program is vali
 
 For a given group of invocations:
 - If all invocations in a given scope execute as if they are executing in lockstep at a given
-    point in the program, that point is said to have <dfn noexport>uniform control flow</dfn>.
-    - For a [=compute shader stage=], the scope of uniform control flow is all invocations
-        in the same [=compute shader stage/workgroup=].
-    - For other shader stages, the scope of uniform control flow is all invocations for that
-        [=entry point=] in the same [=draw command=].
+    point in the program, that point is said to have <dfn noexport>uniform control flow</dfn>
+    for the given <dfn noexport>uniformity scope</dfn>.
+    - <dfn noexport>Workgroup uniformity scope</dfn>: For a [=compute shader
+        stage=], the uniformity scope is all invocations in the same [=compute
+        shader stage/workgroup=].
+    - <dfn noexport>Draw uniformity scope</dfn>: For other shader stages, the
+        uniformity scope is all invocations for that [=entry point=] in the same
+        [=draw command=].
+    - <dfn noexport>Subgroup uniformity scope</dfn>: If the
+        [=language_extension/subgroup_uniformity=] feature is supported, the
+        uniformity scope for [[#subgroup-builtin-functions|subgroup]] and
+        [[#quad-builtin-functions|quad]] built-in functions instead is all
+        invocations in the same [=subgroup=].
+
 - If an expression is executed in uniform control flow, and all invocations compute the
     same value, it is said to be a <dfn noexport>uniform value</dfn>.
 - If invocations hold the same value for a local variable at every point where it is live,
@@ -11290,6 +11309,15 @@ For a given group of invocations:
 The remaining subsections specify a static analysis that verifies that
 [[#collective-operations|collective operations]] are only executed in [=uniform
 control flow=].
+If the [=language_extension/subgroup_uniformity=] feature is supported then
+there are multiple [=uniformity scopes=].
+This analysis is performed once for each scope.
+
+Note: The analysis is described as being executed once per scope, but
+implementations may perform a single analysis that includes each scope.
+[=Workgroup uniformity scope|Workgroup=] and [=draw uniformity scope|draw=]
+uniformity scopes are effectively equivalent since they operate on different
+shader stages and represent the largest uniformity scope in a shader stage.
 
 The analysis assumes [=dynamic errors=] do not occur.
 A shader stage with a [=dynamic error=] is already non-portable, no matter the outcome
@@ -12035,24 +12063,32 @@ Most built-in functions have tags of:
 Here is the list of exceptions:
 - A call to a function in [[#sync-builtin-functions]]:
     - Has a [=function tag=] of [=NoRestriction=].
-    - Has a [=call site tag=] of [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=]
-        consisting of an unnamed [=diagnostic/triggering rule=].
-        - Note: The triggering rule has no name, and so it cannot be filtered.
-    - Additionally for the case of a call to [[#workgroupUniformLoad-builtin|workgroupUniformLoad]],
+    - Has a [=call site tag=] of:
+        - [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=]
+            consisting of an unnamed [=diagnostic/triggering rule=]
+            if [=language_extension/subgroup_uniformity=] is not supported or
+            the [=uniformity scope=] is not subgroup.
+            - Note: The triggering rule has no name, and so it cannot be filtered.
+        - [=CallSiteNoRestriction=] otherwise.
+    - Additionally if [=language_extension/subgroup_uniformity=] is not
+        supported or the [=uniformity scope=] is not subgroup, for a
+        call to [[#workgroupUniformLoad-builtin|workgroupUniformLoad]],
         the parameter `p` has a [=parameter tag=] of [=ParameterRequiredToBeUniform.S|ParameterRequiredToBeUniform.error=],
         with [=potential-trigger-set=] consisting of an unnamed [=diagnostic/triggering rule=].
 - A call to a function in
     [[#derivative-builtin-functions]], [[#texturesample]], [[#texturesamplebias]], and [[#texturesamplecompare]]:
     - Has a [=function tag=] of [=ReturnValueMayBeNonUniform=].
     - Has a [=call site tag=] as follows:
-        - Let *DF* be the [=nearest enclosing diagnostic filter=] for the call site location and triggering rule [=trigger/derivative_uniformity=]
-        - If *DF* exists, then let *S* be the *DF*'s new severity parameter.
-            - If *S* is the severity [=severity/off=], the call site tag is [=CallSiteNoRestriction=].
-            - Otherwise the call site tag is [=CallSiteRequiredToBeUniform.S=], with [=potential-trigger-set=]
+        - If [=language_extension/subgroup_uniformity=] is not supported or the [=uniformity scope=] is not subgroup
+            - Let *DF* be the [=nearest enclosing diagnostic filter=] for the call site location and triggering rule [=trigger/derivative_uniformity=]
+            - If *DF* exists, then let *S* be the *DF*'s new severity parameter.
+                - If *S* is the severity [=severity/off=], the call site tag is [=CallSiteNoRestriction=].
+                - Otherwise the call site tag is [=CallSiteRequiredToBeUniform.S=], with [=potential-trigger-set=]
+                    consisting of a [=trigger/derivative_uniformity=] element.
+            - If there is no such *DF*,
+                the call site tag is [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=]
                 consisting of a [=trigger/derivative_uniformity=] element.
-        - If there is no such *DF*,
-            the call site tag is [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=]
-            consisting of a [=trigger/derivative_uniformity=] element.
+        - [=CallSiteNoRestriction=] otherwise. 
 - A call to [[#textureload]]:
     - Has a [=call site tag=] of [=CallSiteNoRestriction=]
     - Has a [=function tag=] as follows:
@@ -12061,38 +12097,58 @@ Here is the list of exceptions:
         - [=NoRestriction=] otherwise
 - A call to a function in
     [[#subgroup-builtin-functions]] or [[#quad-builtin-functions]]:
-    - Has a [=function tag=] of [=ReturnValueMayBeNonUniform=].
+    - Has a [=function tag=] of:
+        - [=NoRestriction=] if the [=uniformity scope=] is subgroup and the function is one of the following:
+            - [[#subgroupadd-builtin|subgroupAdd]]
+            - [[#subgroupall-builtin|subgroupAll]]
+            - [[#subgroupand-builtin|subgroupAnd]]
+            - [[#subgroupany-builtin|subgroupAny]]
+            - [[#subgroupballot-builtin|subgroupBallot]]
+            - [[#subgroupbroadcast-builtin|subgroupBroadcast]]
+            - [[#subgroupbroadcastfirst-builtin|subgroupBroadcastFirst]]
+            - [[#subgroupmax-builtin|subgroupMax]]
+            - [[#subgroupmin-builtin|subgroupMin]]
+            - [[#subgroupmul-builtin|subgroupMul]]
+            - [[#subgroupor-builtin|subgroupOr]]
+            - [[#subgroupxor-builtin|subgroupXor]]
+        - [=ReturnValueMayBeNonUniform=] otherwise
     - Let *DF* be the [=nearest enclosing diagnostic filter=] for the call site location and triggering rule [=trigger/subgroup_uniformity=]
     - Has a [=call site tag=] as follows:
-        - If *DF* exists, then let *S* be the *DF*'s new severity parameter.
-            - If *S* is the severity [=severity/off=], the call site tag is [=CallSiteNoRestriction=].
-            - Otherwise, the call site tag is [=CallSiteRequiredToBeUniform.S=], with [=potential-trigger-set=]
+        - If [=language_extension/subgroup_uniformity=] is not supported or the [=uniformity scope=] is subgroup then:
+            - If *DF* exists, then let *S* be the *DF*'s new severity parameter.
+                - If *S* is the severity [=severity/off=], the call site tag is [=CallSiteNoRestriction=].
+                - Otherwise, the call site tag is [=CallSiteRequiredToBeUniform.S=], with [=potential-trigger-set=]
+                    consisting of a [=trigger/subgroup_uniformity=] element.
+            - If there is no such *DF*,
+                the call site tag is [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=]
                 consisting of a [=trigger/subgroup_uniformity=] element.
-        - If there is no such *DF*,
-            the call site tag is [=CallSiteRequiredToBeUniform.S|CallSiteRequiredToBeUniform.error=], with [=potential-trigger-set=]
-            consisting of a [=trigger/subgroup_uniformity=] element.
+        - [=CallSiteNoRestriction=] otherwise.
     - Additionally for the case of a call to [[#subgroupshuffleup-builtin|subgroupShuffleUp]] or [[#subgroupshuffledown-builtin|subgroupShuffleDown]],
         the parameter `delta` has a [=parameter tag=] of:
-        - If *DF* exists, then let *S* be *DF*'s new severity parameter.
-            - If *S* is the severity [=severity/off=], the parameter tag is [=NoRestriction=].
-            - Otherwise, the parameter tag is [=ParameterRequiredToBeUniform.S=] with [=potential-trigger-set=]
-                consisting of a [=trigger/subgroup_uniformity=] element.
-        - If there is no such *DF*,
-            the parameter tag is [=ParameterRequiredToBeUniform.S|ParameterRequiredToBeUniform.error=], with [=potential-trigger-set=]
-                consisting of a [=trigger/subgroup_uniformity=] element.
+        - If [=language_extension/subgroup_uniformity=] is not supported or the [=uniformity scope=] is subgroup then:
+            - If *DF* exists, then let *S* be *DF*'s new severity parameter.
+                - If *S* is the severity [=severity/off=], the parameter tag is [=NoRestriction=].
+                - Otherwise, the parameter tag is [=ParameterRequiredToBeUniform.S=] with [=potential-trigger-set=]
+                    consisting of a [=trigger/subgroup_uniformity=] element.
+            - If there is no such *DF*,
+                the parameter tag is [=ParameterRequiredToBeUniform.S|ParameterRequiredToBeUniform.error=], with [=potential-trigger-set=]
+                    consisting of a [=trigger/subgroup_uniformity=] element.
+        - [=NoRestriction=] otherwise.
     - Additionally for the case of a call to [[#subgroupshufflexor-builtin|subgroupShuffleXor]],
         the parameter `mask` has a [=parameter tag=] of:
-        - If *DF* exists, then let *S* be *DF*'s new severity parameter.
-            - If *S* is the severity [=severity/off=], the parameter tag is [=NoRestriction=].
-            - Otherwise, the parameter tag is [=ParameterRequiredToBeUniform.S=] with [=potential-trigger-set=]
-                consisting of a [=trigger/subgroup_uniformity=] element.
-        - If there is no such *DF*,
-            the parameter tag is [=ParameterRequiredToBeUniform.S|ParameterRequiredToBeUniform.error=], with [=potential-trigger-set=]
-                consisting of a [=trigger/subgroup_uniformity=] element.
+        - If [=language_extension/subgroup_uniformity=] is not supported or the [=uniformity scope=] is subgroup then:
+            - If *DF* exists, then let *S* be *DF*'s new severity parameter.
+                - If *S* is the severity [=severity/off=], the parameter tag is [=NoRestriction=].
+                - Otherwise, the parameter tag is [=ParameterRequiredToBeUniform.S=] with [=potential-trigger-set=]
+                    consisting of a [=trigger/subgroup_uniformity=] element.
+            - If there is no such *DF*,
+                the parameter tag is [=ParameterRequiredToBeUniform.S|ParameterRequiredToBeUniform.error=], with [=potential-trigger-set=]
+                    consisting of a [=trigger/subgroup_uniformity=] element.
+        - [=NoRestriction=] otherwise.
 
 Note: A WGSL implementation will ensure that if control flow prior to a
-function call is [=uniform control flow|uniform=], it will also be uniform
-after the function call.
+function call is [=uniform control flow|uniform=] for a particular scope, it
+will also be uniform after the function call.
 
 ### Uniformity Rules for Expressions ### {#uniformity-expressions}
 
@@ -12246,6 +12302,10 @@ The following built-in input variables are considered uniform:
 - [=built-in values/num_workgroups=]
 - [=built-in values/subgroup_size=] when used in a [=compute shader stage=]
 - [=built-in values/num_subgroups=]
+
+At [=subgroup uniformity scope=], the following built-in
+input variables are also considered uniform:
+- [=built-in values/subgroup_id=]
 
 All other ones (see [=built-in values=]) are considered non-uniform.
 
