@@ -28,7 +28,7 @@ Be sure to follow the header style of other proposals. Additionally, as appropri
 ## Proposals Index
 
 <!-- PR checks ensure that the sections below are up-to-date; you can update them manually
-     or use `tools/proposals-index.sh write` -->
+     or use `tools/proposals-index.py write` -->
 
 <h3 id=status-merged>Merged</h3>
 
