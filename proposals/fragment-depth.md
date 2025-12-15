@@ -1,10 +1,7 @@
 # Fragment depth (less, greater, any)
 
-**Roadmap:** This proposal is **under active development, but has not been standardized for inclusion in the WebGPU specification. The proposal is likely to change before it is standardized.** WebGPU implementations **must not** expose this functionality; doing so is a spec violation. Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
-
-Issue:
-
-- https://github.com/gpuweb/gpuweb/issues/5342
+* Status: [Draft](README.md#status-draft)
+* Issue: [#5342](https://github.com/gpuweb/gpuweb/issues/5342)
 
 ## Motivation
 

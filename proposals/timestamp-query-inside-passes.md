@@ -1,10 +1,8 @@
 # Timestamp Queries Inside Passes
 
-**Roadmap:** This extension is **not under active consideration**, but may be considered later.
-WebGPU implementations **must not** expose this functionality; doing so is a spec violation.
-Note however, an implementation might provide an option (e.g. command line flag) to enable a draft
-implementation, for developers who want to test this proposal or use its functionality for locally
-profiling their application performance.
+* Status: [Inactive](README.md#status-inactive)
+* Issue: [#614](https://github.com/gpuweb/gpuweb/issues/614),
+  [#2046](https://github.com/gpuweb/gpuweb/issues/2046)
 
 ## WebGPU Spec Changes
 

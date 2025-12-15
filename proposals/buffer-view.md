@@ -1,7 +1,6 @@
 # Buffer View
 
-* Status: **Draft**
-* Last modified: 2025-10-20
+* Status: [Draft](README.md#status-draft)
 * Issue: [#5338](https://github.com/gpuweb/gpuweb/issues/5338)
 
 # Overview

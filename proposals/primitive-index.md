@@ -1,5 +1,8 @@
 # Primitive Index
 
+* Status: [Merged](README.md#status-merged)
+* Issue: [#1786](https://github.com/gpuweb/gpuweb/issues/1786)
+
 The WebGPU feature `primitive-index` introduces the ability to use the `primitive_index` builtin in fragment shaders in WGSL.
 
 ## Motivation

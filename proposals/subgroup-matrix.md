@@ -1,10 +1,7 @@
 # Subgroup Matrix
 
-Status: **DRAFT**
-
-Last Modified: 2026-10-02
-
-Issue: [#4195](https://github.com/gpuweb/gpuweb/issues/4195)
+* Status: [Draft](README.md#status-draft)
+* Issue: [#4195](https://github.com/gpuweb/gpuweb/issues/4195)
 
 Note: This proposal is largely copied from the design of the
 [Chromium experimental
@@ -120,7 +117,7 @@ Additional functionality includes:
 
 ### MSL/Metal
 
-Apple calls them simdgroup matrices and support has existed since MSL 2.3. 
+Apple calls them simdgroup matrices and support has existed since MSL 2.3.
 Not all Metal devices support it (Apple7+ in the [feature set](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf)).
 Intel-based Macs and many iPads are excluded.
 The supported devices include iPhone 12+, some newer iPads, and the M1 and later macs.  Apple7 is A14 Bionic, released in 2020.
@@ -267,7 +264,7 @@ Offset + Stride \* Rows\* Cols.
 
 #### Attributes
 
-Add an additional error condition to `workgroup_size`. 
+Add an additional error condition to `workgroup_size`.
 It is a pipeline-creation error if the x dimension is not a multiple of
 `GPUAdapterInfo.subgroupMaxSize` and the shader statically accesses any
 subgroup matrix.
