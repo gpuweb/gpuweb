@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 # To format this file, use: python3 -m autopep8
 
 import argparse
@@ -9,13 +8,17 @@ import re
 import sys
 from pathlib import Path
 
+# Status line must be on line 3 and EXACTLY one of these strings
+STATUS_MERGED = '* Status: [Merged](README.md#status-merged)'
+STATUS_DRAFT = '* Status: [Draft](README.md#status-draft)'
+STATUS_INACTIVE = '* Status: [Inactive](README.md#status-inactive)'
+
 
 def main():
     proposals_dir = (Path(__file__).parent / '..' / 'proposals').resolve()
     assert proposals_dir.exists(), "Can't find the proposals directory"
 
     # Parse arguments
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'mode',
@@ -25,15 +28,12 @@ def main():
     args = parser.parse_args()
 
     # Collect proposals and group them by status
-
-    # Lists of tuple of (issue number, text of index line)
-    Proposal = collections.namedtuple(
-        'Proposal', ['issue_number', 'entry_text'])
+    Proposal = collections.namedtuple('Proposal', ['created', 'list_line'])
     proposals_merged = []
     proposals_draft = []
     proposals_inactive = []
 
-    found_invalid_status = False
+    found_invalid_header = False
     for proposal_path in proposals_dir.iterdir():
         filename = proposal_path.name
         if filename == 'README.md':
@@ -41,31 +41,30 @@ def main():
 
         lines = proposal_path.read_text().splitlines()
         line3 = lines[2] if len(lines) >= 3 else ''
-        line4 = lines[3] if len(lines) >= 3 else ''
+        line4 = lines[3] if len(lines) >= 4 else ''
 
-        match = re.match(
-            r'^\* Issue: \[#(\d+)]\(https://github\.com/gpuweb/gpuweb/issues/\1\),?$', line4)
-        if match == None:
-            print(
-                f'{filename}: Invalid issue line (must match standard format):\n{line4}\n')
-            sys.exit(1)
-        issue_number = int(match[1])
-
-        entry_text = f'* #{issue_number} [{proposal_path.stem}]({filename})'
-        proposal_entry = Proposal(issue_number, entry_text)
-
-        if line3 == '* Status: [Merged](README.md#status-merged)':
-            proposals_merged.append(proposal_entry)
-        elif line3 == '* Status: [Draft](README.md#status-draft)':
-            proposals_draft.append(proposal_entry)
-        elif line3 == '* Status: [Inactive](README.md#status-inactive)':
-            proposals_inactive.append(proposal_entry)
+        if line3.startswith(STATUS_MERGED):
+            proposals_section = proposals_merged
+        elif line3.startswith(STATUS_DRAFT):
+            proposals_section = proposals_draft
+        elif line3.startswith(STATUS_INACTIVE):
+            proposals_section = proposals_inactive
         else:
-            print(
-                f'{filename}: Invalid status line (line 3 must be a known status line):\n{line3}\n')
-            found_invalid_status = True
+            print(f'{filename}: Invalid "Status" line (line 3):\n{line3}\n')
+            found_invalid_header = True
+            continue
 
-    if found_invalid_status:
+        match_date = re.fullmatch(r'\* Created: (\d\d\d\d-\d\d-\d\d)', line4)
+        if match_date == None:
+            print(f'{filename}: Invalid "Created" line (line 4):\n{line4}\n')
+            found_invalid_header = True
+            continue
+        date = match_date[1]
+
+        proposals_section.append(
+            Proposal(date, f'* [{proposal_path.stem}]({filename})'))
+
+    if found_invalid_header:
         sys.exit(1)
 
     # Load the README
@@ -75,7 +74,6 @@ def main():
 
     # Generate new README with the proposals lists updated
     readme_lines = old_content.splitlines()
-
     line_num = 0
     while line_num < len(readme_lines):
         line = readme_lines[line_num]
@@ -96,12 +94,10 @@ def main():
                 line_num = readme_lines.index('', start_line)
             except ValueError:
                 line_num = len(readme_lines)
-            # Sort by issue number (used a Khronos "extension number") and extract entry text
-            new_list = map(lambda x: x.entry_text, sorted(proposals))
-            readme_lines[start_line + 1:line_num] = new_list
+            new_lines = map(lambda p: p.list_line, sorted(proposals))
+            readme_lines[start_line + 1:line_num] = new_lines
         else:
             line_num += 1
-
     new_content = '\n'.join(readme_lines) + '\n'
 
     # Check or write the result

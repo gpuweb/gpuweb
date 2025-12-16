@@ -1,6 +1,7 @@
 # Texture component swizzle 🥤
 
 * Status: [Merged](README.md#status-merged)
+* Created: 2025-06-10
 * Issue: [#5179](https://github.com/gpuweb/gpuweb/issues/5179)
 
 ## Motivation

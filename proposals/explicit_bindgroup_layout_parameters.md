@@ -1,6 +1,7 @@
 # WGSL Explicit Bindgroup Layout Parameters
 
 * Status: [Draft](README.md#status-draft)
+* Created: 2025-10-08
 * Issue: [#5353](https://github.com/gpuweb/gpuweb/issues/5353)
 * Authors: @kainino0x, @kangz, @dneto0, @dj2
 

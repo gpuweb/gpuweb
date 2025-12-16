@@ -1,6 +1,7 @@
 # Sized Binding Arrays
 
 * Status: [Draft](README.md#status-draft)
+* Created: 2024-10-25
 * Issue: [#822](https://github.com/gpuweb/gpuweb/issues/822)
 
 ## Motivation

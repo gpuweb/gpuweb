@@ -1,6 +1,7 @@
 # Timestamp Queries Inside Passes
 
 * Status: [Inactive](README.md#status-inactive)
+* Created: 2022-08-25
 * Issue: [#614](https://github.com/gpuweb/gpuweb/issues/614),
   [#2046](https://github.com/gpuweb/gpuweb/issues/2046)
 

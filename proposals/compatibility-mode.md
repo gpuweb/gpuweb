@@ -1,6 +1,7 @@
 # WebGPU Compatibility Mode
 
 * Status: [Merged](README.md#status-merged)
+* Created: 2023-10-10
 * Issue: [#4266](https://github.com/gpuweb/gpuweb/issues/4266),
   [label:compat](https://github.com/gpuweb/gpuweb/issues?q=label%3Acompat)
 

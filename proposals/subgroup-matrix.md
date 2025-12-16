@@ -1,6 +1,7 @@
 # Subgroup Matrix
 
 * Status: [Draft](README.md#status-draft)
+* Created: 2025-10-02
 * Issue: [#4195](https://github.com/gpuweb/gpuweb/issues/4195)
 
 Note: This proposal is largely copied from the design of the

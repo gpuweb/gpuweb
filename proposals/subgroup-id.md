@@ -1,6 +1,7 @@
 # Subgroup ID
 
 * Status: [Draft](README.md#status-draft)
+* Created: 2025-10-01
 * Issue: [#5365](https://github.com/gpuweb/gpuweb/issues/5365)
 
 # Overview

@@ -1,6 +1,7 @@
 # Transient Attachments
 
 * Status: [Draft](README.md#status-draft)
+* Created: 2025-11-19
 * Issue: [#5396](https://github.com/gpuweb/gpuweb/issues/5396)
 
 ## Motivation

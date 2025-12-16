@@ -1,6 +1,7 @@
 # Fragment depth (less, greater, any)
 
 * Status: [Draft](README.md#status-draft)
+* Created: 2025-10-08
 * Issue: [#5342](https://github.com/gpuweb/gpuweb/issues/5342)
 
 ## Motivation

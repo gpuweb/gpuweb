@@ -1,6 +1,7 @@
 # Subgroups
 
 * Status: [Merged](README.md#status-merged)
+* Created: 2023-11-07
 * Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
 
 # Requirements

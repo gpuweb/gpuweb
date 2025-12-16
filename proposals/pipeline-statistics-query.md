@@ -1,7 +1,9 @@
 # Pipeline Statistics Queries
 
 * Status: [Inactive](README.md#status-inactive)
-* Issue: [#691](https://github.com/gpuweb/gpuweb/issues/691)
+* Created: 2021-11-12
+* Issue: [#614](https://github.com/gpuweb/gpuweb/issues/614),
+  [#691](https://github.com/gpuweb/gpuweb/issues/691)
 
 ## WebGPU Spec Changes
 

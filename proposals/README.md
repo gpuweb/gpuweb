@@ -28,7 +28,7 @@ Be sure to follow the header style of other proposals. Additionally, as appropri
 ## Proposals Index
 
 <!-- PR checks ensure that the sections below are up-to-date; you can update them manually
-     or use `tools/proposals-index.py write` -->
+     (they are sorted by "Creation" date) or use `tools/proposals-index.py write` -->
 
 <h3 id=status-merged>Merged</h3>
 
@@ -37,10 +37,10 @@ These documents are kept as explainers and historical artifacts, but may not be 
 Always refer to the specifications as the source of truth.
 
 <!-- SECTION status-merged -->
-* #1786 [primitive-index](primitive-index.md)
-* #4266 [compatibility-mode](compatibility-mode.md)
-* #4306 [subgroups](subgroups.md)
-* #5179 [texture-component-swizzle](texture-component-swizzle.md)
+* [compatibility-mode](compatibility-mode.md)
+* [subgroups](subgroups.md)
+* [texture-component-swizzle](texture-component-swizzle.md)
+* [primitive-index](primitive-index.md)
 
 <h3 id=status-draft>Draft</h3>
 
@@ -54,17 +54,17 @@ Note however, an implementation might provide an option (e.g. command line flag)
 draft implementation, for developers who want to test this proposal.
 
 <!-- SECTION status-draft -->
-* #75 [immediate-data](immediate-data.md)
-* #162 [texel-buffers](texel-buffers.md)
-* #380 [bindless](bindless.md)
-* #822 [sized-binding-arrays](sized-binding-arrays.md)
-* #4195 [subgroup-matrix](subgroup-matrix.md)
-* #5071 [atomic-64-min-max](atomic-64-min-max.md)
-* #5338 [buffer-view](buffer-view.md)
-* #5342 [fragment-depth](fragment-depth.md)
-* #5353 [explicit_bindgroup_layout_parameters](explicit_bindgroup_layout_parameters.md)
-* #5365 [subgroup-id](subgroup-id.md)
-* #5396 [transient-attachments](transient-attachments.md)
+* [immediate-data](immediate-data.md)
+* [texel-buffers](texel-buffers.md)
+* [sized-binding-arrays](sized-binding-arrays.md)
+* [atomic-64-min-max](atomic-64-min-max.md)
+* [subgroup-id](subgroup-id.md)
+* [subgroup-matrix](subgroup-matrix.md)
+* [explicit_bindgroup_layout_parameters](explicit_bindgroup_layout_parameters.md)
+* [fragment-depth](fragment-depth.md)
+* [bindless](bindless.md)
+* [buffer-view](buffer-view.md)
+* [transient-attachments](transient-attachments.md)
 
 <h3 id=status-inactive>Inactive</h3>
 
@@ -72,5 +72,5 @@ These are Draft proposals (see above) that are **not under active consideration*
 They may be considered later.
 
 <!-- SECTION status-inactive -->
-* #614 [timestamp-query-inside-passes](timestamp-query-inside-passes.md)
-* #691 [pipeline-statistics-query](pipeline-statistics-query.md)
+* [pipeline-statistics-query](pipeline-statistics-query.md)
+* [timestamp-query-inside-passes](timestamp-query-inside-passes.md)

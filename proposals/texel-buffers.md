@@ -1,6 +1,7 @@
 # Texel Buffers
 
 * Status: [Draft](README.md#status-draft)
+* Created: 2024-10-07
 * Issue: [#162](https://github.com/gpuweb/gpuweb/issues/162)
 
 # WGSL
