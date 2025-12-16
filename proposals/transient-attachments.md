@@ -1,6 +1,6 @@
 # Transient Attachments
 
-Last modified: 2025-12-08
+Last modified: 2025-12-16
 
 - Issue: https://github.com/gpuweb/gpuweb/issues/5396
 - Spec PR: https://github.com/gpuweb/gpuweb/pull/5450
@@ -33,6 +33,8 @@ The `validating GPUTextureDescriptor(this, descriptor)` algorithm is extended wi
 - If `descriptor.usage` includes the `TRANSIENT_ATTACHMENT` bit:
   - `descriptor.usage` must contain only and exactly `TRANSIENT_ATTACHMENT` and `RENDER_ATTACHMENT` bits.
   - `descriptor.dimension` must be `"2d"`.
+  - `descriptor.mipLevelCount` must be 1.
+  - `descriptor.size.depthOrArrayLayers` must be 1.
 
 The `GPURenderPassColorAttachment Valid Usage` algorithm is extended with the following change:
 
