@@ -1,11 +1,8 @@
 # Bindless
 
-**Roadmap: This proposal is under active development, but has not been standardized for inclusion in the WebGPU specification.
-The proposal is likely to change before it is standardized.**
-WebGPU implementations must not expose this functionality; doing so is a spec violation.
-Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
-
-Issue: [#380](https://github.com/gpuweb/gpuweb/issues/380) and child issues.
+* Status: [Draft](README.md#status-draft)
+* Created: 2025-10-13
+* Issue: [#380](https://github.com/gpuweb/gpuweb/issues/380) and child issues.
 
 Previous discussions happenend on:
 

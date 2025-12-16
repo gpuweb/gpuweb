@@ -1,10 +1,8 @@
 # Texel Buffers
 
-**Roadmap:** This proposal is **under active development, but has not been standardized for inclusion in the WebGPU specification. The proposal is likely to change before it is standardized.** WebGPU implementations **must not** expose this functionality; doing so is a spec violation. Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
-
-Last modified: 2024-10-07
-
-Issue: [#162](https://github.com/gpuweb/gpuweb/issues/162)
+* Status: [Draft](README.md#status-draft)
+* Created: 2024-10-07
+* Issue: [#162](https://github.com/gpuweb/gpuweb/issues/162)
 
 # WGSL
 
