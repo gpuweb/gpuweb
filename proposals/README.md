@@ -30,7 +30,7 @@ Be sure to follow the header style of other proposals. Additionally, as appropri
 <!-- PR checks ensure that the sections below are up-to-date; you can update them manually
      (they are sorted by "Creation" date) or use `tools/proposals-index.py write` -->
 
-<h3 id=status-merged>Merged</h3>
+### Status: Merged
 
 These proposals are **complete** and have been merged into the WebGPU and/or WGSL specifications.
 These documents are kept as explainers and historical artifacts, but may not be 100% accurate.
@@ -42,7 +42,7 @@ Always refer to the specifications as the source of truth.
 * [texture-component-swizzle](texture-component-swizzle.md)
 * [primitive-index](primitive-index.md)
 
-<h3 id=status-draft>Draft</h3>
+### Status: Draft
 
 These proposals are **works in progress** and may be under active development.
 For recent activity, look at the Git history of the file.
@@ -66,7 +66,7 @@ draft implementation, for developers who want to test this proposal.
 * [buffer-view](buffer-view.md)
 * [transient-attachments](transient-attachments.md)
 
-<h3 id=status-inactive>Inactive</h3>
+### Status: Inactive
 
 These are Draft proposals (see above) that are **not under active consideration**.
 They may be considered later.
