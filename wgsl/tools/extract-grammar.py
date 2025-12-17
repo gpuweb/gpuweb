@@ -17,7 +17,7 @@ from tree_sitter import Language, Parser
 
 # TODO: Source from spec
 derivative_patterns = {
-    "_comment": "/\\/\\/.*/",
+    "line_comment": "/\\/\\/.*/",
     "_blankspace": "/[\\u0020\\u0009\\u000a\\u000b\\u000c\\u000d\\u0085\\u200e\\u200f\\u2028\\u2029]/u"
 }
 
@@ -639,7 +639,7 @@ class ScanResult(dict):
          A dictionary mapping the name of an example to the
          WGSL source text for the example.
          The name is taken from the "heading" attriute of the <div> element.
-    self['_reserved']
+    self['reserved']
          A list of reserved words.
     """
     def __init__(self):
@@ -647,7 +647,7 @@ class ScanResult(dict):
         self[scanner_example.name()] = dict()
         self[scanner_token.name()] = dict()
         self['raw'] = []
-        self['_reserved'] = []
+        self['reserved'] = []
 
 
 def read_spec(options):
@@ -658,7 +658,7 @@ def read_spec(options):
 
     # Read reserved words
     with open('wgsl.reserved.plain', "r") as file:
-        result['_reserved'] = [s.strip() for s in file.readlines()]
+        result['reserved'] = [s.strip() for s in file.readlines()]
 
     # Get the input bikeshed text.
     scanner_lines = read_lines_from_file(
@@ -1002,7 +1002,7 @@ def flow_extract(options, scan_result):
     ],
 
     extras: $ => [
-        $._comment,
+        $.line_comment,
         $._block_comment,
         $._blankspace,
     ],
@@ -1067,7 +1067,7 @@ def flow_extract(options, scan_result):
 
 
         for key, value in rules.items():
-            if key.startswith("_") and key != "_comment" and key != "_blankspace" and key not in rule_skip:
+            if key.startswith("_") and key != "line_comment" and key != "_blankspace" and key not in rule_skip:
                 grammar_source += grammar_from_rule(key, value) + ",\n"
                 rule_skip.add(key)
 
@@ -1083,9 +1083,9 @@ def flow_extract(options, scan_result):
 
 
         grammar_source += grammar_from_rule(
-            "_comment", {'type': 'pattern',
-                               'value': derivative_patterns["_comment"]}) + ",\n"
-        rule_skip.add("_comment")
+            "line_comment", {'type': 'pattern',
+                               'value': derivative_patterns["line_comment"]}) + ",\n"
+        rule_skip.add("line_comment")
 
 
         # Extract space
@@ -1099,7 +1099,7 @@ def flow_extract(options, scan_result):
 
         # Reserved words
 
-        grammar_source += "\n        _reserved: $ => choice('" + "', '".join(scan_result['_reserved']) + "'),\n"
+        grammar_source += "\n        reserved: $ => choice('" + "', '".join(scan_result['reserved']) + "'),\n"
 
         grammar_source += r"""
     }
