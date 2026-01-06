@@ -9,9 +9,19 @@ import sys
 from pathlib import Path
 
 # Status line must be on line 3 and EXACTLY one of these strings
-STATUS_MERGED = '* Status: [Merged](README.md#status-merged)'
-STATUS_DRAFT = '* Status: [Draft](README.md#status-draft)'
-STATUS_INACTIVE = '* Status: [Inactive](README.md#status-inactive)'
+STATUSES = {
+    '* Status: [Merged](README.md#status-merged)': 'merged',
+    '* Status: [Draft](README.md#status-draft)': 'draft',
+    '* Status: [Inactive](README.md#status-inactive)': 'inactive',
+}
+# Created line must be on line 4 and match this regex
+CREATED_REGEX = re.compile(r'^\* Created: (\d\d\d\d-\d\d-\d\d)$')
+# Issue line must be on line 5 and match this regex
+ISSUE_STARTER = '* Issue: [#'
+
+
+# Special sections of the README
+STATUS_SECTION_MARKER_REGEX = re.compile(r'^<!-- SECTION status-(\w+) -->$')
 
 
 def main():
@@ -29,9 +39,11 @@ def main():
 
     # Collect proposals and group them by status
     Proposal = collections.namedtuple('Proposal', ['created', 'list_line'])
-    proposals_merged = []
-    proposals_draft = []
-    proposals_inactive = []
+    proposals = {
+        'merged': [],
+        'draft': [],
+        'inactive': [],
+    }
 
     found_invalid_header = False
     for proposal_path in proposals_dir.iterdir():
@@ -42,24 +54,33 @@ def main():
         lines = proposal_path.read_text().splitlines()
         line3 = lines[2] if len(lines) >= 3 else ''
         line4 = lines[3] if len(lines) >= 4 else ''
+        line5 = lines[4] if len(lines) >= 5 else ''
 
-        if line3.startswith(STATUS_MERGED):
-            proposals_section = proposals_merged
-        elif line3.startswith(STATUS_DRAFT):
-            proposals_section = proposals_draft
-        elif line3.startswith(STATUS_INACTIVE):
-            proposals_section = proposals_inactive
+        if line3 in STATUSES:
+            proposals_section = proposals[STATUSES[line3]]
         else:
-            print(f'{filename}: Invalid "Status" line (line 3):\n{line3}\n')
+            print(f'{filename}: Invalid "Status" line (line 3):\n{line3}')
+            print('Should be one of:')
+            for status in STATUSES.keys():
+                print(status)
+            print()
             found_invalid_header = True
-            continue
 
-        match_date = re.fullmatch(r'\* Created: (\d\d\d\d-\d\d-\d\d)', line4)
-        if match_date == None:
-            print(f'{filename}: Invalid "Created" line (line 4):\n{line4}\n')
+        match_date = CREATED_REGEX.match(line4)
+        if match_date:
+            date = match_date[1]
+        else:
+            print(f'{filename}: Invalid "Created" line (line 4"):\n{line4}')
+            print('Should match:\n* Created: YYYY-MM-DD\n')
             found_invalid_header = True
+
+        if not line5.startswith(ISSUE_STARTER):
+            print(f'{filename}: Invalid "Issue" first line (line 5):\n{line5}')
+            print(f'Should start with:\n{ISSUE_STARTER}\n')
+            found_invalid_header = True
+
+        if found_invalid_header:
             continue
-        date = match_date[1]
 
         proposals_section.append(
             Proposal(date, f'* [{proposal_path.stem}]({filename})'))
@@ -77,14 +98,12 @@ def main():
     line_num = 0
     while line_num < len(readme_lines):
         line = readme_lines[line_num]
-        if line.startswith('<!-- SECTION'):
+        match_marker = STATUS_SECTION_MARKER_REGEX.match(line)
+        if match_marker:
             start_line = line_num
-            if line == '<!-- SECTION status-merged -->':
-                proposals = proposals_merged
-            elif line == '<!-- SECTION status-draft -->':
-                proposals = proposals_draft
-            elif line == '<!-- SECTION status-inactive -->':
-                proposals = proposals_inactive
+            proposal_type = match_marker[1]
+            if proposal_type in proposals:
+                proposals_section = proposals[proposal_type]
             else:
                 print(f'{filename}: Unrecognized SECTION line in README.md: {line}')
                 sys.exit(1)
@@ -94,7 +113,7 @@ def main():
                 line_num = readme_lines.index('', start_line)
             except ValueError:
                 line_num = len(readme_lines)
-            new_lines = map(lambda p: p.list_line, sorted(proposals))
+            new_lines = map(lambda p: p.list_line, sorted(proposals_section))
             readme_lines[start_line + 1:line_num] = new_lines
         else:
             line_num += 1
