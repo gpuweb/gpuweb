@@ -1,12 +1,8 @@
 # Subgroups
 
-Status: **Draft**
-
-Last modified: 2025-07-23
-
-Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
-
-Spec PR: [#4963](https://github.com/gpuweb/gpuweb/pulls/4963)
+* Status: [Merged](README.md#status-merged)
+* Created: 2023-11-07
+* Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
 
 # Requirements
 

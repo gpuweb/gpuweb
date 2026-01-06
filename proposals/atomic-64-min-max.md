@@ -1,10 +1,8 @@
 # 64 Bit atomics (storage buffers)
 
-Status: **Draft**
-
-Last modified: 2025-09-15
-
-Issue: [#5071](https://github.com/gpuweb/gpuweb/issues/5071)
+* Status: [Draft](README.md#status-draft)
+* Created: 2025-09-15
+* Issue: [#5071](https://github.com/gpuweb/gpuweb/issues/5071)
 
 ## The 64 bit question
 
