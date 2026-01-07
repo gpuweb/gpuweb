@@ -74,7 +74,7 @@ def raiseRE(s):
 # Definitions:
 #
 #  Token: A non-empty sequence of code points. Parsing considers tokens to
-#    be indivisibl.
+#    be indivisible.
 #
 #  Empty: A unique object representing the empty string. Sometimes shown as
 #    epsilon.
@@ -602,7 +602,7 @@ class Accept(Action):
     """
     An Accept action represents acceptance of the input string.
 
-    That is, the input string is part of the langauge, as we have
+    That is, the input string is part of the language, as we have
     successfully matched it against the start symbol of the language.
     """
     def __str__(self):
@@ -827,7 +827,7 @@ class Item(RegisterableObject):
 
     def next(self):
         # Returns the terminal/nonterminal immediately after the dot, or None if the dot
-        # is at the ene
+        # is at the end
         return self.the_next
 
     def compute_items(self):
@@ -835,7 +835,7 @@ class Item(RegisterableObject):
         Returns the sub-items, as a list.
         """
         rule = self.rule
-        # self.items is the sub-objects, as a list
+        # self.the_items is the sub-objects, as a list
         if rule.is_terminal():
             self.the_items = [rule]
         elif rule.is_symbol_name():
@@ -1596,7 +1596,7 @@ class ItemSet:
         Returns a pair (changed,goto_list) where:
             changed is True when
                 by_index_memo is not None and new item sets were created or lookaheads were modified.
-            goto_list is is a list of pairs (X, item_set_X), where:
+            goto_list is a list of pairs (X, item_set_X), where:
                 X is a grammar symbol X (terminal or non-terminal), and
                 item_set_X is the closed ItemSet goto(self,X)
                    representing the next parser state after having successfully recognized
@@ -1854,7 +1854,7 @@ class Grammar:
                 # This is a zero-width token used for Treesitter's benefit
                 #content = ''
                 pass
-            # Create a placholder definition
+            # Create a placeholder definition
             pass0["rules"][e] = {"type":"TOKEN","content":{"type":"PATTERN","value":content}}
 
         # Remove any rules that should be ignored
@@ -2659,7 +2659,7 @@ class Grammar:
 
     def hoist_until(self,target_rule_name,stop_at_set):
         """
-        Hoists the rules for a a nonterminal into its ancestors.
+        Hoists the rules for a nonterminal into its ancestors.
 
         When target_rule_name holds the name for nonterminal X, and
         there is a rule:
@@ -2976,7 +2976,7 @@ class Grammar:
             reductions.append(result)
             return result
 
-        # The goto table for noterminals
+        # The goto table for nonterminals
         # Maps (item_set, nonterminal) to the next item set
         nonterminal_goto = dict()
 

@@ -65,7 +65,7 @@ const adapter = await navigator.gpu.requestAdapter();
 
 const requestedFeatures = [];
 if (adapter.features.has('primitive-index')) {
-    requestedFeatures.psuh('primitive-index');
+    requestedFeatures.push('primitive-index');
 } else {
     // Use an alternate code path or communicate error to user.
 }

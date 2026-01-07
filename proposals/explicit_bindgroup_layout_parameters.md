@@ -86,7 +86,7 @@ Only one parameter can be provided to a texture/sampler. Providing it twice (e.g
 `sampler<filtering, filtering>` is a `createShaderModule` error). The filtering parameters for
 textures must only be used with a floating-point sampled type.
 
-For `getBinding`/`hasBinding`, the extra layout parameter is required and can not be `unknown`.
+For `getBinding`/`hasBinding`, the extra layout parameter is required and cannot be `unknown`.
 (Relaxing this restriction would require inferring the parameter; see
 "Automatic layouts for bindless" below.)
 
@@ -125,7 +125,7 @@ This will then require any `sampler`/`texture` passed into this function to matc
 parameters. (Although, see "Conversions between types with different filterability/filteringness"
 below).
 
-If no filterable parameters are provided (omitting the fiterability/filteringness enum is equivalent
+If no filterable parameters are provided (omitting the filterability/filteringness enum is equivalent
 to `unknown`), then they must be traceable back to static (non-bindless) bindings, and, as today,
 the `"auto"` layout algorithm or bind group layout validation will take care of them. That is, the
 transitive closure of call sites of this function must eventually reach only non-bindless bindings
