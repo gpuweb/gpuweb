@@ -4,7 +4,7 @@
 * Created: 2025-10-13
 * Issue: [#380](https://github.com/gpuweb/gpuweb/issues/380) and child issues.
 
-Previous discussions happenend on:
+Previous discussions happened on:
 
  - [Bindless investigation and proposal (HackMD)](https://hackmd.io/PCwnjLyVSqmLfTRSqH0viA) (which the motivation and investigation part of this document is taken from).
  - [Bindless for WebGPU: wgpu edition (HackMD)](https://hackmd.io/@cwfitzgerald/wgpu-bindless) with additional design ideas and implementation constraints.
@@ -32,7 +32,7 @@ They need access to each texture potentially used by an object in case they need
 This blows way past the resource limits in the bindful model.
 Examples of algorithms that do this are:
 
- - Visibility buffers, which do a first rasterization pass with just object and triangle IDs in a render target, then  have a compute shader / large quad that handles the texturing of all objects at once.
+ - Visibility buffers, which do a first rasterization pass with just object and triangle IDs in a render target, then have a compute shader / large quad that handles the texturing of all objects at once.
  - Ray-tracing where rays can be launched in any direction and need to get the texture of the intersected object.
  - Rendering 2D contents with many embedded images.
  - And a lot, lot more.
@@ -79,11 +79,11 @@ This handle must be inside one of the two currently bound descriptor heaps (the 
 Descriptors heaps are either CPU heaps used for staging, or GPU heaps that are actually used by the hardware and usable in root signature.
 D3D12 supports [copies between heaps](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-copydescriptors) to move from staging to shader-visible heaps.
 Shader-visible heaps and root descriptor tables have limits that depend on the [resource binding tier](https://learn.microsoft.com/en-us/windows/win32/direct3d12/hardware-support).
-Tier 2 is bindless for textures, Tier 3 bindless for everything. Both tiers have a limit of 2048 max descriptors in sampler heaps but [recent D3D12 features](https://microsoft.github.io/DirectX-Specs/d3d/VulkanOn12.html#sampler-descriptor-heap-size-increase) add a queriable maximum of at least 4000.
+Tier 2 is bindless for textures, Tier 3 bindless for everything. Both tiers have a limit of 2048 max descriptors in sampler heaps but [recent D3D12 features](https://microsoft.github.io/DirectX-Specs/d3d/VulkanOn12.html#sampler-descriptor-heap-size-increase) add a queryable maximum of at least 4000.
 
 D3D12 delegates [residency management](https://learn.microsoft.com/en-us/windows/win32/direct3d12/residency) to the application that tags individual memory heaps (allocations from which resources are sub-allocated) resident and evicts them.
 
-CBV_UAV_SRV descriptor heaps in D3D12 are heterogenous with a device-wide [increment](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-getdescriptorhandleincrementsize) between descriptors when copying between heaps or indexing them.
+CBV_UAV_SRV descriptor heaps in D3D12 are heterogeneous with a device-wide [increment](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-getdescriptorhandleincrementsize) between descriptors when copying between heaps or indexing them.
 
 It is not allowed to change a descriptor in a heap while it might be in use by commands as that could be a data-race.
 
@@ -201,7 +201,7 @@ The APIs don't support patching these GPU pointers / indices before submitting c
 This means that **`GPUBindGroups/GPUResourceTables` set in an encoder cannot have their underlying API object replaced before submit.**
 
 Other constraints from (some) underlying APIs are that bindings can only be updated on the device timeline, and that updates must not race with potential uses of these bindings by the GPU.
-Thi means that **Bindings cannot be overwritten before `onSubmittedWorkDone` since the last time they were visible on the queue timeline**.
+This means that **Bindings cannot be overwritten before `onSubmittedWorkDone` since the last time they were visible on the queue timeline**.
 
 ## Proposal
 
@@ -233,7 +233,7 @@ D3D12 has fixed limits per "resource binding tier" (with 500 000 being the base 
 The new `maxResourceTableSize` limit is added, of class "maximum" and minimum of 50'000 when either optional feature is available.
 
 ```webidl
-partial dictionay GPUSupportedLimits {
+partial dictionary GPUSupportedLimits {
     readonly attribute unsigned long maxResourceTableSize;
 };
 ```
@@ -263,7 +263,7 @@ The steps for `GPUDevice.createResourceTable(desc)` are:
  - let `t.size` be `Math.min(desc.size, this.limits.maxResourceTableSize)`. (Note: this is done to avoid the need to create giant content-timeline arrays if `size` is huge but fails validation on the device timeline) TODO: [#5465](https://github.com/gpuweb/gpuweb/issues/5465) decide if these are the client-side semantics that we want.
  - On the device timeline:
 
-    - If any of the following is not satified, invalidate `t`:
+    - If any of the following is not satisfied, invalidate `t`:
 
         - `"sampling-resource-table"` is enabled (explicitly or implicitly with `"heterogeneous-resource-table"`).
         - `desc.size` must be `<= this.limits.maxResourceTableSize`.
@@ -345,13 +345,13 @@ TODO: [#5381](https://github.com/gpuweb/gpuweb/issues/5381) Add a mechanism to a
 
 Validation for `GPUTexture.pin(usage)`:
 
- - `"sampling-resource-table"` must be enabled on the device (explicitly or implicitly with `"heterogenous-resource-table"`).
+ - `"sampling-resource-table"` must be enabled on the device (explicitly or implicitly with `"heterogeneous-resource-table"`).
  - `this` must not have been destroyed.
  - `usage` must be a single shader usage.
 
 Validation for `GPUTexture.unpin()`:
 
- - `"sampling-resource-table"` must be enabled on the device (explicitly or implicitly with `"heterogenous-resource-table"`).
+ - `"sampling-resource-table"` must be enabled on the device (explicitly or implicitly with `"heterogeneous-resource-table"`).
 
 Note that the calls to `pin` and `unpin` don't need to be balanced.
 Pinning replaces the currently pinned usage, if any.
@@ -559,5 +559,5 @@ Discussion in [#5372](https://github.com/gpuweb/gpuweb/issues/5372) and offline 
  - It removes the confusing indices between the "slots" that are used in the shader and the "binding" numbers at the API level, which are offset by `GPUBindGroupDescriptor.dynamicArray.start`.
  - It avoids putting two complex but orthogonal aspects of WebGPU in the same object (`GPUBindGroup`).
  - Developers really like the `GPUResourceTable` equivalent in HLSL SM 6.6 ["Dynamic Resources"](https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_DynamicResources.html).
- - It is much more efficiently implementable on the Vulkan descriptor heap extension (that's the better way that heterogenous is exposed in Vulkan).
+ - It is much more efficiently implementable on the Vulkan descriptor heap extension (that's the better way that heterogeneous is exposed in Vulkan).
  - It more clearly guides developers towards having only one bindless thing in shaders, supporting multiple per shader would involve implementation acrobatics.

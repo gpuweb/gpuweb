@@ -87,7 +87,7 @@ Translation to the backing APIs would be the following:
 
 Question: Should the type of the indices be set in `RenderPipelineDescriptor`? If not, how is the D3D12 `IBStripCutValue` chosen?
 
-Answer: While `indexFormat` isn't necessary in any of the three APIs, we chose to include it in the pipeline state because primitive restart must always be  enabled (because of Metal) and a D3D12 needs to choose the correct `IBStripCutValue`. The alternative would have been to compile two D3D12 pipelines for every WebGPU pipelines, or defer compilation.
+Answer: While `indexFormat` isn't necessary in any of the three APIs, we chose to include it in the pipeline state because primitive restart must always be enabled (because of Metal) and a D3D12 needs to choose the correct `IBStripCutValue`. The alternative would have been to compile two D3D12 pipelines for every WebGPU pipelines, or defer compilation.
 
 The translation of individual members of RenderPipelineDescriptor is described below.
 

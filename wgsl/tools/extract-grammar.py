@@ -638,7 +638,7 @@ class ScanResult(dict):
     self['example']
          A dictionary mapping the name of an example to the
          WGSL source text for the example.
-         The name is taken from the "heading" attriute of the <div> element.
+         The name is taken from the "heading" attribute of the <div> element.
     self['_reserved']
          A list of reserved words.
     """

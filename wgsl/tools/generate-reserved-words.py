@@ -4,7 +4,7 @@
 
 Usage: python3 generate-reserved-words.py [--plain]
 
-Output goes to the standad output stream.
+Output goes to the standard output stream.
 
 By default, the list is printed as a grammar rule inside
 a <div> elment, meant to be included in the Bikeshed source
@@ -242,7 +242,7 @@ def deliberately_unreserved():
           for col in digest("1 2 3 4"):
             result.append("{}{}{}".format(t,row,col))
 
-    # Common scalar types, incluing bf16 for bfloat16
+    # Common scalar types, including bf16 for bfloat16
     result.extend(digest("""
               i8 i16 i64
               u8 u16 u64
@@ -727,7 +727,7 @@ def generate_reserved_list():
         reserved_by.pop(w, None)
 
     return reserved_by
-    
+
 def generate_reserved_words(mode):
     reserved_by = generate_reserved_list()
     if mode == 'plain':
@@ -744,10 +744,10 @@ def generate_reserved_words(mode):
 
         print("</div>")
         return None
-    raise RuntimeError("Invalid geneeration mode")
+    raise RuntimeError("Invalid generation mode")
 
 
-        
+
 
 def main():
     argparser = argparse.ArgumentParser(

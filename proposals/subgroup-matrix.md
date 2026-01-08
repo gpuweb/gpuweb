@@ -196,7 +196,7 @@ Add new types:
 | i8   |              | 1                      | i32                | -128      | 127       |
 
 These types are not considered “composite” in the WGSL taxonomy, because they
-are not decomposible.
+are not decomposable.
 You can’t reference a sub-vector or a single component.
 The numeric dimensions must be const-expressions.
 These types cannot be part of any interface; they can only be instantiated
@@ -278,7 +278,7 @@ for configurations that achieve peak performance. They suggest constraining
 the workgroup size x dimension to be a multiple of the device _minimum_ subgroup size.
 * Reply: It would be nicer to say the x dimension is a multiple of the selected
 workgroup size, but there is no way to portably constrain it that way.
-Metal can query the subgroup size of a pipline, but Vulkan and D3D cannot.
+Metal can query the subgroup size of a pipeline, but Vulkan and D3D cannot.
 Vulkan and D3D can specify a subgroup size, but Metal cannot.
 
 See https://github.com/gpuweb/gpuweb/pull/5335#discussion_r2408982867

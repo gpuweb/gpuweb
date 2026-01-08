@@ -398,6 +398,6 @@ If `createTexture()` is called with any of these formats and `sampleCount > 1`, 
 
 ### 24. Disallow "Fine" variants of derivative functions (`dpdxFine()`, `dpdyFine()`, `fwidthFine()`).
 
-These functions must not be referenced from the from the call graph rooted at a shader entry point or else a validation error will occur at pipeline creation time.
+These functions must not be referenced from the call graph rooted at a shader entry point or else a validation error will occur at pipeline creation time.
 
 **Justification**: OpenGL ES does not support "Coarse" and "Fine" variants of the derivative functions (`dfdx()`, `dfdy()`, `fwidth()`).

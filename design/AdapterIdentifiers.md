@@ -32,7 +32,7 @@ A common and useful asset for developers is sites such as https://gpuinfo.org/, 
  - Allow for reporting no information (tracking prevention modes, privacy-oriented UAs).
  - Enable UAs to decide for themselves how much information to expose by default.
  - Allow developers to have some input on how much information they need, especially with respect to triggering user prompts.
-    - Any such feature needs to be invokable late in the device lifetime, to allow for cases like filing bug reports.
+    - Any such feature needs to be invocable late in the device lifetime, to allow for cases like filing bug reports.
     - Developers need to know when a call may cause a user prompt to be shown so that they can avoid that path if desired.
  - Offer control over how much data is exposed to embedded content/iframes.
  - Minimize string parsing for accuracy and developer convenience.
@@ -72,7 +72,7 @@ The information that _is_ returned should be helpful in identifying broad bucket
 
 Additionally, in some cases the UA may find it beneficial to return a value that is not the most accurate one that could be reported but still gives developers a reasonable reference point with a lower amount of entropy.
 
-Finally, it may not always be possible or practical to detemine a value for some fields (like a GPU's architecture) and in those cases returning empty string is acceptible even if the user agent would have considered the information low-entropy.
+Finally, it may not always be possible or practical to determine a value for some fields (like a GPU's architecture) and in those cases returning empty string is acceptable even if the user agent would have considered the information low-entropy.
 
 ### Unmasked adapter identifiers
 
@@ -112,7 +112,7 @@ To minimize developer work and reduce the chances of fingerprinting via casing d
 
 The exception to this is `description`, which may be a string reported directly from the driver without modification. As a result, however, `description` should always be omitted from masked adapters. Additionally, enough information should be offered via other fields that developers don't feel the need to attempt parsing the `description` string.
 
-User agents should also make an effort to normalize the strings returned, ideally through a public registery. This especially applies to fields like `vendor` which are presumed to have a relatively low number of possible values.
+User agents should also make an effort to normalize the strings returned, ideally through a public registry. This especially applies to fields like `vendor` which are presumed to have a relatively low number of possible values.
 
 Some values, such as `architecture`, are unlikely to be directly provided by the driver. As such, User Agents are expected to make a best-effort at identifying and reporting common architectures, and report empty string otherwise.
 
@@ -153,14 +153,14 @@ Previously the WebGPU spec had a single string identifier, `GPUAdapter.name`, wh
 ### Force reliance on feature detection
 It was suggested that, similar to other web platform features, no identifiers should be exposed at all and instead developers should rely on feature tests to determine if they need to take a different code path. Unfortunately this is impractical for GPU APIs such as WebGPU or WebGL. There have been multiple documented bugs in the past that are not trivially detectable, such as bugs which are only provoked under high memory usage situations or which only occur intermittently over long time periods. In addition, reading back information from the GPU in order to detect certain classes of issues is not trivial, and in some cases may actually change the driver's behavior.
 
-This means that realtime bug detection can be extremely constly, and may incur performance penalties or add significantly to startup time. As such it is not desirable or practical to ask developers to try and provoke any known driver issues on application startup.
+This means that realtime bug detection can be extremely costly, and may incur performance penalties or add significantly to startup time. As such it is not desirable or practical to ask developers to try and provoke any known driver issues on application startup.
 
 ### Rely on the UA, etc. to fix bugs
 It was also suggested that developers should generally not be the ones shouldering the burden of detecting and working around driver or hardware issues, and instead that responsibility should lie with the hardware manufacturer, OS, or User Agent. In general we agree with this sentiment! User agents, in particular, have a history of implementing workarounds for issues observed on a specific OS, GPU, or driver, as well as working with the appropriate parties to ensure that the problems are fixed upstream. (For example, you can see the [list of bugs that Chromium works around currently here](https://source.chromium.org/chromium/chromium/src/+/main:gpu/config/gpu_driver_bug_list.json). All modern browsers have some variation of this type of workaround list.) This is work we expect to continue in perpetuity.
 
 However, we have also observed that developers cannot rely on platform owners alone to resolve issues. For one, no matter how quickly a user agent or hardware manufacturer responds to bug reports there will always be some period of development, testing, and deployment before developers can rely on the fix, and even then they will likely have to contend with users on older software versions for a long time. This effect is exaggerated when considering that in some cases user agents only release new updates on a yearly cadence.
 
-In some other cases, the issue may not be one of correctness, but of performance. If a certain technique is performed by the GPU in a conformant manner but performs poorly compared to other devices it is generally not the User Agent's place to intervene. An individual developer, however, can make quality vs. performance tradeoffs that are appropriate for their application as long as they are given sufficent information to know when the tradeoff in necessary.
+In some other cases, the issue may not be one of correctness, but of performance. If a certain technique is performed by the GPU in a conformant manner but performs poorly compared to other devices it is generally not the User Agent's place to intervene. An individual developer, however, can make quality vs. performance tradeoffs that are appropriate for their application as long as they are given sufficient information to know when the tradeoff in necessary.
 
 ### Inference from other signals
 There are some other properties, such as a `GPUAdapter`'s limits and available features, that could be used in some cases to infer what kind of device a developer is using. Additionally, developers could use other platform signals (user agent string, screen resolution, etc) to infer that they are on a known device which has a certain class of GPU. (For example, a specific generation iPhone.) The concern with this approach is that it encourages developers to collect _more_ identifiable user information for a less reliable result.
