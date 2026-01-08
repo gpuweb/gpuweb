@@ -5,7 +5,7 @@ However, this would introduce a lot of round-trip synchronization points for mul
 
 There are a number of cases that developers or applications need error handling for:
 
- - *Debugging*: Getting errors synchronously during development, to break into the debugger.
+ - *Debugging*: Getting errors synchronously during development, for debugger breakpoints.
  - *Fatal Errors*: Handling device/adapter loss, either by restoring WebGPU or by fallback to non-WebGPU content.
  - *Fallible Allocation*: Making fallible resource allocations (detecting out-of-memory).
  - *Testing*: Checking success of WebGPU calls, for conformance testing or application unit testing.
