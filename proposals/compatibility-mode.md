@@ -1,5 +1,10 @@
 # WebGPU Compatibility Mode
 
+* Status: [Merged](README.md#status-merged)
+* Created: 2023-10-10
+* Issue: [#4266](https://github.com/gpuweb/gpuweb/issues/4266),
+  [label:compat](https://github.com/gpuweb/gpuweb/issues?q=label%3Acompat)
+
 This proposal is **under active development, but has not been standardized for inclusion in the WebGPU specification**. WebGPU implementations **must not** expose this functionality; doing so is a spec violation. Note however, an implementation might provide an option (e.g. command line flag) to enable a draft implementation, for developers who want to test this proposal.
 
 The changes merged into this document are those for which the GPU for the Web Community Group has achieved **tentative** consensus prior to official standardization of the whole proposal. New items will be added to this doc as tentative consensus on further issues is achieved.
@@ -393,6 +398,6 @@ If `createTexture()` is called with any of these formats and `sampleCount > 1`, 
 
 ### 24. Disallow "Fine" variants of derivative functions (`dpdxFine()`, `dpdyFine()`, `fwidthFine()`).
 
-These functions must not be referenced from the from the call graph rooted at a shader entry point or else a validation error will occur at pipeline creation time.
+These functions must not be referenced from the call graph rooted at a shader entry point or else a validation error will occur at pipeline creation time.
 
 **Justification**: OpenGL ES does not support "Coarse" and "Fine" variants of the derivative functions (`dfdx()`, `dfdy()`, `fwidth()`).

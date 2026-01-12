@@ -1,10 +1,8 @@
 # Subgroup Matrix
 
-Status: **DRAFT**
-
-Last Modified: 2026-10-02
-
-Issue: [#4195](https://github.com/gpuweb/gpuweb/issues/4195)
+* Status: [Draft](README.md#status-draft)
+* Created: 2025-10-02
+* Issue: [#4195](https://github.com/gpuweb/gpuweb/issues/4195)
 
 Note: This proposal is largely copied from the design of the
 [Chromium experimental
@@ -120,7 +118,7 @@ Additional functionality includes:
 
 ### MSL/Metal
 
-Apple calls them simdgroup matrices and support has existed since MSL 2.3. 
+Apple calls them simdgroup matrices and support has existed since MSL 2.3.
 Not all Metal devices support it (Apple7+ in the [feature set](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf)).
 Intel-based Macs and many iPads are excluded.
 The supported devices include iPhone 12+, some newer iPads, and the M1 and later macs.  Apple7 is A14 Bionic, released in 2020.
@@ -177,18 +175,12 @@ Add new types:
 *   subgroup_matrix_left<_T_, _K_, _M_>: M rows x K columns matrix of T components.
 *   subgroup_matrix_right<_T_, _N_, _K_>: K rows x N columns matrix of T components
 *   subgroup_matrix_result<_T_, _N_, _M_>: M rows x N columns matrix of T components
-*   M, N, and K are override-expressions of positive integer values
-    *   **TODO**: Do we want to support override-expressions or just const-expressions?
+*   M, N, and K are const-expressions of positive integer values
     *   Similar to arrays, two subgroup matrices are the same if:
         *   They are the same base type
         *   They have the same component type
-        *   The have matching row counts such that:
-            *   Both are equal valued const-expressions, or
-            *   Both resolve to the same override-declaration
-        *   The have matching column counts such that:
-            *   Both are equal valued const-expressions, or
-            *   Both resolve to the same override-declaration
-        *   Note: like arrays, types cannot match if the row or column counts use an override-expression that is not equivalent to override identifier.
+        *   The have matching row counts
+        *   The have matching column counts
 *   T is the component type and must be one of the entries in the table
     *   The scalar shader type is the associated type usable in the shader code for scalar operations and data representation in memory
     *   Can be expanded in the future to support more types (e.g. bfloat16) via new enables.
@@ -204,11 +196,11 @@ Add new types:
 | i8   |              | 1                      | i32                | -128      | 127       |
 
 These types are not considered “composite” in the WGSL taxonomy, because they
-are not decomposible.
+are not decomposable.
 You can’t reference a sub-vector or a single component.
-The numeric dimensions must be override-expressions.
-These types cannot be part of any interface (i.e. they can only be instantiated
-in Function and Private address spaces).
+The numeric dimensions must be const-expressions.
+These types cannot be part of any interface; they can only be instantiated
+in the Function address space.
 They are plain types (similar to atomics) so that they can be included in
 composite types.
 An important use case is to make arrays of these matrices.
@@ -240,8 +232,8 @@ Why use a “left” and “right” matrix type, instead of a single matrix typ
 
 #### Variables
 
-A variable containing a subgroup matrix can only be instantiated in Function or
-Private address spaces.
+A variable containing a subgroup matrix can only be instantiated in Function
+address space.
 (This limitation comes from SPIR-V and Metal).
 These variables are meant to be used as very temporary scratch space.
 
@@ -273,7 +265,7 @@ Offset + Stride \* Rows\* Cols.
 
 #### Attributes
 
-Add an additional error condition to `workgroup_size`. 
+Add an additional error condition to `workgroup_size`.
 It is a pipeline-creation error if the x dimension is not a multiple of
 `GPUAdapterInfo.subgroupMaxSize` and the shader statically accesses any
 subgroup matrix.
@@ -286,7 +278,7 @@ for configurations that achieve peak performance. They suggest constraining
 the workgroup size x dimension to be a multiple of the device _minimum_ subgroup size.
 * Reply: It would be nicer to say the x dimension is a multiple of the selected
 workgroup size, but there is no way to portably constrain it that way.
-Metal can query the subgroup size of a pipline, but Vulkan and D3D cannot.
+Metal can query the subgroup size of a pipeline, but Vulkan and D3D cannot.
 Vulkan and D3D can specify a subgroup size, but Metal cannot.
 
 See https://github.com/gpuweb/gpuweb/pull/5335#discussion_r2408982867
@@ -365,7 +357,7 @@ AM is read or read_write.
 **Description**:<br>
 Load a subgroup matrix from p, offset elements from the start of the array.
 
-col_major must be an override-expression.
+col_major must be a const-expression.
 
 Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove p, offset, or stride are subgroup uniform
@@ -396,7 +388,7 @@ AM is write or read_write.
 **Description**:<br>
 Store the subgroup matrix value into p, offset elements from the start of the array.
 
-col_major must be an override-expression.
+col_major must be a const-expression.
 
 Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove p, offset, value, or stride are subgroup
@@ -663,7 +655,7 @@ WGSL pipeline-creation checks (repeated for ease of reference):
 
 | Function | SPIR-V | MSL | HLSL |
 | -------- | ------ | ---- | ---- |
-| Value constructors | OpCompositeConstruct with appropriate value<br>const-/override-expressions could use constant instructions | make_filled_simdgroup_matrix | Splat with appropriate value |
+| Value constructors | OpCompositeConstruct with appropriate value<br>const-expressions could use constant instructions | make_filled_simdgroup_matrix | Splat with appropriate value |
 | subgroupMatrixLoad | OpCooperativeMatrixLoadKHR<br>Pointer operand is a direct translation of the WGSL pointer | simdgroup_matrix_load<br>The WGSL pointer needs translated into the origin operand in MSL | Matrix::Load<br>Pointer operand is traced to variable.<br>Offset maybe combination of pointer offset and function call parameter.
 | subgroupMatrixStore | OpCooperativeMatrixStoreKHR<br>Pointer operand is a direct translation of the WGSL pointer | simdgroup_matrix_store<br>The WGSL pointer needs translated into the origin operand in MSL | Matrix::Store<br>The WGSL pointer needs translated into the origin operand in MSL | Matrix::Load<br>Pointer operand is traced to variable.<br>Offset maybe combination of pointer offset and function call parameter.
 | subgroupMatrixMultiply | OpCooperativeMatrixMulAddKHR<br>C is a zero value matrix matching the result type | simdgroup_multiply | Multiply

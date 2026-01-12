@@ -1,12 +1,8 @@
 # Subgroups
 
-Status: **Draft**
-
-Last modified: 2025-07-23
-
-Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
-
-Spec PR: [#4963](https://github.com/gpuweb/gpuweb/pulls/4963)
+* Status: [Merged](README.md#status-merged)
+* Created: 2023-11-07
+* Issue: [#4306](https://github.com/gpuweb/gpuweb/issues/4306)
 
 # Requirements
 
@@ -135,7 +131,7 @@ Unfortunately,
 indicates that behavior is not widely portable across devices.
 Even requiring that the subgroup operations only be used in uniform control
 flow (at workgroup scope) is insufficient to produce portable behavior.
-For example, compilers make aggressive opimizations that do not preserve the
+For example, compilers make aggressive optimizations that do not preserve the
 correct active invocations.
 This leaves us in an awkward situation where portability cannot be guaranteed,
 but these operations provide significant performance improvements in many
@@ -160,11 +156,11 @@ Add new diagnostic controls:
 | Filterable Triggering Rule | Default Severity | Triggering Location | Description |
 | --- | --- | --- | --- |
 | **subgroup_uniformity** | Error | Call site of a subgroup builtin function | A call to a subgroup builtin that the uniformity analysis cannot prove occurs in uniform control flow (or with uniform parameter values in some cases) |
-| ~subgroup_branching~ | Error | Call site of a subgroup builtin function | A call to a subgroup builtin that uniformity analysis cannot prove is preceeded only by uniform branches |
+| ~subgroup_branching~ | Error | Call site of a subgroup builtin function | A call to a subgroup builtin that uniformity analysis cannot prove is preceded only by uniform branches |
 
 **TODO**: Are these defaults appropriate?
 They attempt to default to the most portable behavior, but that means it would
-be an error to have a subgroup operation preceeded by divergent control flow.
+be an error to have a subgroup operation preceded by divergent control flow.
 
 Issue: after internal testing, we found subgroup_branching to be very onerous.
 Disabling subgroup_uniformity on a builtin would require also disabling subgroup_branching in
@@ -225,7 +221,7 @@ creation to ensure the subgroup size built-in value works correctly.
 Validate that workgroup size x dimension is a multiple of max subgroup size.
 For Vulkan, this would set the FULL_SUBGROUPS pipeline creation bit.
 For Metal, this would use threadExecutionWidth.
-D3D12 would have to be proven empricially.
+D3D12 would have to be proven empirically.
 
 # Appendix A: WGSL Built-in Value Mappings
 

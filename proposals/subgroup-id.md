@@ -1,8 +1,7 @@
 # Subgroup ID
 
-
-* Status: **Draft**
-* Last modified: 2025-10-22
+* Status: [Draft](README.md#status-draft)
+* Created: 2025-10-01
 * Issue: [#5365](https://github.com/gpuweb/gpuweb/issues/5365)
 
 # Overview
@@ -41,7 +40,7 @@ In this option the built-ins are exposed as a language extension under the
 It is worth noting, this would be the first language extension to an
 enable extension.
 Both Vulkan and Metal expose this built-in natively.
-`subgroup_id` is avalable as `SubgroupId` in SPIR-V and `simdgroup_index_in_threadgroup` in MSL.
+`subgroup_id` is available as `SubgroupId` in SPIR-V and `simdgroup_index_in_threadgroup` in MSL.
 `num_subgroups` is available as `NumSubgroups` in SPIR-V and `simdgroups_per_threadgroup` in MSL.
 D3D12 does not currently expose these built-ins so, instead, implementations
 would be expected to polyfill it.

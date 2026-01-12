@@ -1,10 +1,8 @@
 # Transient Attachments
 
-Last modified: 2025-12-16
-
-- Issue: https://github.com/gpuweb/gpuweb/issues/5396
-- Spec PR: https://github.com/gpuweb/gpuweb/pull/5450
-
+* Status: [Draft](README.md#status-draft)
+* Created: 2025-11-19
+* Issue: [#5396](https://github.com/gpuweb/gpuweb/issues/5396)
 
 ## Motivation
 
