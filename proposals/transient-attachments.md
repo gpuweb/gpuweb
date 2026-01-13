@@ -1,6 +1,6 @@
 # Transient Attachments
 
-* Status: [Draft](README.md#status-draft)
+* Status: [Merged](README.md#status-merged)
 * Created: 2025-11-19
 * Issue: [#5396](https://github.com/gpuweb/gpuweb/issues/5396)
 * Spec PR: [#5450](https://github.com/gpuweb/gpuweb/pull/5450)
