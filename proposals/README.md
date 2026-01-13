@@ -41,6 +41,7 @@ Always refer to the specifications as the source of truth.
 * [subgroups](subgroups.md)
 * [texture-component-swizzle](texture-component-swizzle.md)
 * [primitive-index](primitive-index.md)
+* [transient-attachments](transient-attachments.md)
 
 ### Status: Draft
 
@@ -64,7 +65,6 @@ draft implementation, for developers who want to test this proposal.
 * [fragment-depth](fragment-depth.md)
 * [bindless](bindless.md)
 * [buffer-view](buffer-view.md)
-* [transient-attachments](transient-attachments.md)
 
 ### Status: Inactive
 
