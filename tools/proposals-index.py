@@ -47,6 +47,8 @@ def main():
 
     found_invalid_header = False
     for proposal_path in proposals_dir.iterdir():
+        if not proposal_path.is_file():
+            continue
         filename = proposal_path.name
         if filename == 'README.md':
             continue
