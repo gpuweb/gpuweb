@@ -3,6 +3,7 @@
 * Status: [Draft](README.md#status-draft)
 * Created: 2024-04-29
 * Issue: [#75](https://github.com/gpuweb/gpuweb/issues/75)
+* Spec PR: [#5423](https://github.com/gpuweb/gpuweb/pull/5423)
 
 # Requirements
 

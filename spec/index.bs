@@ -3200,7 +3200,8 @@ to.
         {{GPUTextureUsage/COPY_DST}},
         {{GPUTextureUsage/TEXTURE_BINDING}},
         {{GPUTextureUsage/STORAGE_BINDING}},
-        {{GPUTextureUsage/RENDER_ATTACHMENT}}
+        {{GPUTextureUsage/RENDER_ATTACHMENT}},
+        {{GPUTextureUsage/TRANSIENT_ATTACHMENT}}
 
     <!-- As needed, compute more allowed usages based on the features enabled on the device. -->
 </div>
@@ -4424,11 +4425,12 @@ enum GPUTextureDimension {
 typedef [EnforceRange] unsigned long GPUTextureUsageFlags;
 [Exposed=(Window, Worker), SecureContext]
 namespace GPUTextureUsage {
-    const GPUFlagsConstant COPY_SRC          = 0x01;
-    const GPUFlagsConstant COPY_DST          = 0x02;
-    const GPUFlagsConstant TEXTURE_BINDING   = 0x04;
-    const GPUFlagsConstant STORAGE_BINDING   = 0x08;
-    const GPUFlagsConstant RENDER_ATTACHMENT = 0x10;
+    const GPUFlagsConstant COPY_SRC             = 0x01;
+    const GPUFlagsConstant COPY_DST             = 0x02;
+    const GPUFlagsConstant TEXTURE_BINDING      = 0x04;
+    const GPUFlagsConstant STORAGE_BINDING      = 0x08;
+    const GPUFlagsConstant RENDER_ATTACHMENT    = 0x10;
+    const GPUFlagsConstant TRANSIENT_ATTACHMENT = 0x20;
 };
 </script>
 
@@ -4463,6 +4465,11 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
         The texture can be used as a color or depth/stencil attachment in a render pass.
         (Example: as a {{GPURenderPassColorAttachment}}.{{GPURenderPassColorAttachment/view}} or
         {{GPURenderPassDepthStencilAttachment}}.{{GPURenderPassDepthStencilAttachment/view}}.)
+
+    : <dfn>TRANSIENT_ATTACHMENT</dfn>
+    ::
+        The texture is intended to be temporary (a hint for optimization), as it is only used within
+        a render pass.
 </dl>
 
 <div algorithm data-timeline=const>
@@ -4637,6 +4644,7 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
 
                     1. If |descriptor|.{{GPUTextureDescriptor/textureBindingViewDimension}} is {{GPUTextureViewDimension/"2d"}}, |this|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be 1.
                     1. if |descriptor|.{{GPUTextureDescriptor/textureBindingViewDimension}} is {{GPUTextureViewDimension/"cube"}}, |this|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be 6.
+                    1. |descriptor|.{{GPUTextureDescriptor/textureBindingViewDimension}} must not be {{GPUTextureViewDimension/"cube-array"}}.
 
                     Note: this validation only applies to a user-specified textureBindingViewDimension. If no value is provided, the texture's textureBindingViewDimension is set as described in {{GPUDevice/createTexture()}}. That algorithm cannot produce invalid values, so the above validation is not required.
                 </div>
@@ -4656,6 +4664,11 @@ The {{GPUTextureUsage}} flags determine how a {{GPUTexture}} may be used after i
             - If |descriptor|.{{GPUTextureDescriptor/usage}} includes the {{GPUTextureUsage/STORAGE_BINDING}} bit:
                 - |descriptor|.{{GPUTextureDescriptor/format}} must be listed in [[#plain-color-formats]] table
                     with {{GPUTextureUsage/STORAGE_BINDING}} capability for at least one access mode.
+            - If |descriptor|.{{GPUTextureDescriptor/usage}} includes the {{GPUTextureUsage/TRANSIENT_ATTACHMENT}} bit:
+                - |descriptor|.{{GPUTextureDescriptor/usage}} must be equal to {{GPUTextureUsage/TRANSIENT_ATTACHMENT}} | {{GPUTextureUsage/RENDER_ATTACHMENT}}.
+                - |descriptor|.{{GPUTextureDescriptor/dimension}} must be equal to {{GPUTextureDimension/"2d"}}.
+                - |descriptor|.{{GPUTextureDescriptor/mipLevelCount}} must be 1.
+                - |descriptor|.{{GPUTextureDescriptor/size}}.[=GPUExtent3D/depthOrArrayLayers=] must be 1.
             - For each |viewFormat| in |descriptor|.{{GPUTextureDescriptor/viewFormats}},
                 |descriptor|.{{GPUTextureDescriptor/format}} and |viewFormat| must be
                 [=texture view format compatible=] on device |this|.
@@ -12368,6 +12381,9 @@ dictionary GPURenderPassColorAttachment {
 
                 1. |this|.{{GPURenderPassColorAttachment/depthSlice}} |must| not [=map/exist|be provided=].
 
+            1. If |renderViewDescriptor|.{{GPUTextureViewDescriptor/usage}} includes the {{GPUTextureUsage/TRANSIENT_ATTACHMENT}} bit:
+                1. |this|.{{GPURenderPassColorAttachment/loadOp}} |must| be {{GPULoadOp/"clear"}}.
+                1. |this|.{{GPURenderPassColorAttachment/storeOp}} |must| be {{GPUStoreOp/"discard"}}.
             1. If |this|.{{GPURenderPassColorAttachment/loadOp}} is {{GPULoadOp/"clear"}}:
                 1. Converting the IDL value |this|.{{GPURenderPassColorAttachment/clearValue}}
                     [$to a texel value of texture format$] |renderViewDescriptor|.{{GPUTextureViewDescriptor/format}}
@@ -12505,35 +12521,45 @@ dictionary GPURenderPassDepthStencilAttachment {
         is read only.
 </dl>
 
-<div class=validusage dfn-for=GPURenderPassDepthStencilAttachment data-timeline=device>
+<div algorithm dfn-for=GPURenderPassDepthStencilAttachment data-timeline=device>
     <dfn abstract-op>GPURenderPassDepthStencilAttachment Valid Usage</dfn>
 
-    Given a {{GPURenderPassDepthStencilAttachment}} |this|, the following validation
-    rules apply:
+    Given a {{GPURenderPassDepthStencilAttachment}} |this|:
 
-    - |this|.{{GPURenderPassDepthStencilAttachment/view}} must have a [=depth-or-stencil format=].
-    - |this|.{{GPURenderPassDepthStencilAttachment/view}} must be a [$renderable texture view$].
-    - Let |format| be |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
-    - If |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} is {{GPULoadOp/"clear"}},
-        |this|.{{GPURenderPassDepthStencilAttachment/depthClearValue}} must [=map/exist|be provided=] and must be between 0.0 and 1.0,
-        inclusive.
-        <!-- POSTV1(unrestricted-depth): unless unrestricted depth is enabled -->
-    - If |format| has a depth aspect and |this|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} is `false`:
-        - |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} must [=map/exist|be provided=].
-        - |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} must [=map/exist|be provided=].
+    1. Let |format| be |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/format}}.
+    1. Let |usage| be |this|.{{GPURenderPassDepthStencilAttachment/view}}.{{GPUTextureView/[[descriptor]]}}.{{GPUTextureViewDescriptor/usage}}.
+    1. All of the requirements in the following steps |must| be met.
+        <div class=validusage>
+            1. |this|.{{GPURenderPassDepthStencilAttachment/view}} |must| have a [=depth-or-stencil format=].
+            1. |this|.{{GPURenderPassDepthStencilAttachment/view}} |must| be a [$renderable texture view$].
+            1. If |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} is {{GPULoadOp/"clear"}},
+                |this|.{{GPURenderPassDepthStencilAttachment/depthClearValue}} |must| [=map/exist|be provided=] and |must| be between 0.0 and 1.0,
+                inclusive.
+                <!-- POSTV1(unrestricted-depth): unless unrestricted depth is enabled -->
+            1. If |format| has a [=aspect/depth=] aspect and |this|.{{GPURenderPassDepthStencilAttachment/depthReadOnly}} is `false`:
+                1. |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} |must| [=map/exist|be provided=].
+                1. |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} |must| [=map/exist|be provided=].
 
-        Otherwise:
+                Otherwise:
 
-        - |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} must not [=map/exist|be provided=].
-        - |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} must not [=map/exist|be provided=].
-    - If |format| has a stencil aspect and |this|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}} is `false`:
-        - |this|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} must [=map/exist|be provided=].
-        - |this|.{{GPURenderPassDepthStencilAttachment/stencilStoreOp}} must [=map/exist|be provided=].
+                1. |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} |must| not [=map/exist|be provided=].
+                1. |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} |must| not [=map/exist|be provided=].
+            1. If |format| has a [=aspect/stencil=] aspect and |this|.{{GPURenderPassDepthStencilAttachment/stencilReadOnly}} is `false`:
+                1. |this|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} |must| [=map/exist|be provided=].
+                1. |this|.{{GPURenderPassDepthStencilAttachment/stencilStoreOp}} |must| [=map/exist|be provided=].
 
-        Otherwise:
+                Otherwise:
 
-        - |this|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} must not [=map/exist|be provided=].
-        - |this|.{{GPURenderPassDepthStencilAttachment/stencilStoreOp}} must not [=map/exist|be provided=].
+                1. |this|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} |must| not [=map/exist|be provided=].
+                1. |this|.{{GPURenderPassDepthStencilAttachment/stencilStoreOp}} |must| not [=map/exist|be provided=].
+            1. If |usage| includes the {{GPUTextureUsage/TRANSIENT_ATTACHMENT}} bit:
+                1. If |format| has a [=aspect/depth=] aspect:
+                    1. |this|.{{GPURenderPassDepthStencilAttachment/depthLoadOp}} |must| be {{GPULoadOp/"clear"}}.
+                    1. |this|.{{GPURenderPassDepthStencilAttachment/depthStoreOp}} |must| be {{GPUStoreOp/"discard"}}.
+                1. If |format| has a [=aspect/stencil=] aspect:
+                    1. |this|.{{GPURenderPassDepthStencilAttachment/stencilLoadOp}} |must| be {{GPULoadOp/"clear"}}.
+                    1. |this|.{{GPURenderPassDepthStencilAttachment/stencilStoreOp}} |must| be {{GPUStoreOp/"discard"}}.
+        </div>
 </div>
 
 #### Load &amp; Store Operations #### {#load-and-store-ops}
@@ -14783,6 +14809,8 @@ interface GPUCanvasContext {
                     |configuration|.{{GPUCanvasConfiguration/viewFormats}} with |device|.{{GPUObjectBase/[[device]]}}.
                 1. If [=Supported context formats=] does not [=set/contain=]
                             |configuration|.{{GPUCanvasConfiguration/format}}, throw a {{TypeError}}.
+                1. If |configuration|.{{GPUCanvasConfiguration/usage}} includes the
+                    {{GPUTextureUsage/TRANSIENT_ATTACHMENT}} bit, throw a {{TypeError}}.
                 1. Let |descriptor| be the
                     [$GPUTextureDescriptor for the canvas and configuration$](|this|.{{GPUCanvasContext/canvas}}, |configuration|).
                 1. Set |this|.{{GPUCanvasContext/[[configuration]]}} to |configuration|.
