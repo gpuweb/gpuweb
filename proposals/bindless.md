@@ -259,6 +259,10 @@ partial interface GPUDevice {
 
 The steps for `GPUDevice.createResourceTable(desc)` are:
 
+ - if `desc.size > this.limits.maxResourceTableSize` throw a `RangeError` and return.
+
+    - Note: this is done to avoid the need to create giant content-timeline arrays if `size` is huge but fails validation on the device timeline.
+
  - Let `t` be a new WebGPU object (this, GPUResourceTable, desc).
  - let `t.size` be `desc.size`.
  - On the device timeline:
@@ -266,15 +270,8 @@ The steps for `GPUDevice.createResourceTable(desc)` are:
     - If any of the following is not satified, invalidate `t`:
 
         - `"sampling-resource-table"` is enabled (explicitly or implicitly with `"heterogeneous-resource-table"`).
-        - `desc.size` must be `<= this.limits.maxResourceTableSize`.
 
     - Create the device allocation for `t`. If it fails without side-effects, generate an out-of-memory error, invalidate `t` and return.
-
- - If `t.size >= this.limits.maxResourceTableSize`:
-
-    - Call `this.destroy()`.
-    - Set `t.size` to `0`.
-    - Note: this is done to avoid the need to create giant content-timeline arrays if `size` is huge but fails validation on the device timeline.
 
  - Return `t`.
 
