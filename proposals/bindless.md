@@ -205,7 +205,7 @@ This means that **Bindings cannot be overwritten before `onSubmittedWorkDone` si
 
 #### Vulkan with `VK_EXT_descriptor_heap`
 
-The [`VK_EXT_descriptor_heap`](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_descriptor_heap.html) extension is a rework of bindless support in Vulkan to address many of the problems with the previous approaches and looks do be the recommended path for bindless on drivers that support the extension.
+The [`VK_EXT_descriptor_heap`](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_descriptor_heap.html) extension is a rework of bindless support in Vulkan to address many of the problems with the previous approaches and looks to be the recommended path for bindless on drivers that support the extension.
 It is conceptually similar to D3D12's descriptor management but gives more control to applications.
 Concretely it completely replaces the `VkDescriptorSet` state on command buffers with a combination of two descriptor heaps (one for resources, one for samplers) set on the command encoder, and at least 256 bytes of "push data" accessible immediately by shaders (that are used instead of "push constants").
 
