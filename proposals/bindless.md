@@ -259,18 +259,21 @@ partial interface GPUDevice {
 
 The steps for `GPUDevice.createResourceTable(desc)` are:
 
+ - if `desc.size > this.limits.maxResourceTableSize` throw a `RangeError` and return.
+
+    - Note: this is done to avoid the need to create giant content-timeline arrays if `size` is huge but fails validation on the device timeline.
+
  - Let `t` be a new WebGPU object (this, GPUResourceTable, desc).
- - let `t.size` be `Math.min(desc.size, this.limits.maxResourceTableSize)`. (Note: this is done to avoid the need to create giant content-timeline arrays if `size` is huge but fails validation on the device timeline) TODO: [#5465](https://github.com/gpuweb/gpuweb/issues/5465) decide if these are the client-side semantics that we want.
+ - let `t.size` be `desc.size`.
  - On the device timeline:
 
     - If any of the following is not satisfied, invalidate `t`:
 
         - `"sampling-resource-table"` is enabled (explicitly or implicitly with `"heterogeneous-resource-table"`).
-        - `desc.size` must be `<= this.limits.maxResourceTableSize`.
+
+    - Create the device allocation for `t`. If it fails without side-effects, generate an out-of-memory error, invalidate `t` and return.
 
  - Return `t`.
-
-TODO: [#5462](https://github.com/gpuweb/gpuweb/issues/5462) should we allow OOM?
 
 The steps for `GPUResourceTable.destroy()` are:
 
@@ -282,17 +285,16 @@ Additional validation rule for `queue.submit()`:
 
 #### Encoder state and pipeline compatibility
 
-The `GPUResourceTable` that shaders will access is set on the `GPUCommandEncoder` using `setResourceTable`.
-There is a single resource set on the encoder at a time and it can only be set outside of render and compute passes.
-TODO: [#5463](https://github.com/gpuweb/gpuweb/issues/5463) discuss alternatives to this.
+The `GPUResourceTable` that shaders will access is set on the `GPUBindingCommandsMixin` using `setResourceTable`.
+There is a single resource table set on encoders at a time, and the resource table can be unset by passing `null` to `setResourceTable`.
 
 ```webidl
-partial interface GPUCommandEncoder {
+partial interface GPUBindingCommandsMixin {
     void setResourceTable(GPUResourceTable? table);
 }
 ```
 
-Steps for `GPUCommandEncoder.setResourceTable(table)` are all on the device timeline:
+Steps for `GPUBindingCommandsMixin.setResourceTable(table)` are all on the device timeline:
 
  - Validate the encoder state of `this`, if it returns false, return.
  - If any of the following requirements are unmet, invalidate `this` and return.
@@ -303,7 +305,7 @@ Steps for `GPUCommandEncoder.setResourceTable(table)` are all on the device time
  - Set `this.[[resource_table]]` to `table` (it is a state initially set to `null`).
  - If `table` is not `null`, append it to `this.[[resource_tables_used]]`.
 
-Since the shaders can use new `GPUCommandEncoder` state, there needs to be new information passed in the pipelines and validated in `draw/dispatch`.
+Since the shaders can use new encoder state, there needs to be new information passed in the pipelines and validated in `draw/dispatch`.
 The use of a `GPUResourceTable` is the same in compute and render pipelines so a new compatibility state is added in `GPUPipelineLayoutDescriptor` with changes to algorithms dealing with `GPUPipelineLayout`:
 
 ```webidl
@@ -317,7 +319,9 @@ Changes to algorithms are:
  - In `createPipelineLayout` a validation error is generated (and an error object) if `usesResourceTable` is `true` but `"sampling-resource-table"` is not enabled (explicitly or implicitly with `"heterogeneous-resource-table"`).
  - In validating `GPUProgrammableStage(stage, descriptor, layout, device)` a validation error is generated if the shader uses the WGSL resource table builtins but `layout.[[desc]].usesResourceTable` is `false`, or if the types used to access the resource tables are not supported with the extensions enabled (for example storage textures when only `"sampling-resource-table"` is enabled).
  - In creating the defaulting pipeline layout, if the shader uses the WGSL resource table builtins, set `desc.usesResourceTable` to `true`.
- - In the validation for `dispatch*` and `draw*` add a check that if `pipeline.[[desc]].layout.[[desc]].usesResourceTable` is `true`, then the `GPUCommandEncoder`'s `[[resource_table]]` is not null.
+ - In the validation for `dispatch*` and `draw*` add a check that if `pipeline.[[desc]].layout.[[desc]].usesResourceTable` is `true`, then the encoder's `[[resource_table]]` is not null.
+ - In `queue.submit`, validate that none of the tables in the various encoder's `[[resource_tables_used]]` are destroyed.
+ - Similar to `GPUBindGroups`, reset `[[resource_table]]` after a call to `executeBundles`.
 
 #### Pinning of buffer and texture usages
 
