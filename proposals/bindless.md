@@ -203,6 +203,34 @@ This means that **`GPUBindGroups/GPUResourceTables` set in an encoder cannot hav
 Other constraints from (some) underlying APIs are that bindings can only be updated on the device timeline, and that updates must not race with potential uses of these bindings by the GPU.
 This means that **Bindings cannot be overwritten before `onSubmittedWorkDone` since the last time they were visible on the queue timeline**.
 
+#### Vulkan with `VK_EXT_descriptor_heap`
+
+The [`VK_EXT_descriptor_heap`](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_descriptor_heap.html) extension is a rework of bindless support in Vulkan to address many of the problems with the previous approaches and looks to be the recommended path for bindless on drivers that support the extension.
+It is conceptually similar to D3D12's descriptor management but gives more control to applications.
+Concretely it completely replaces the `VkDescriptorSet` state on command buffers with a combination of two descriptor heaps (one for resources, one for samplers) set on the command encoder, and at least 256 bytes of "push data" accessible immediately by shaders (that are used instead of "push constants").
+
+Descriptor heaps are allocated from buffers with the `VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT` and filled with descriptor data.
+During the recording of commands, the current resource and sampler heaps are set using their `VkBuffer` device address with the [`vkCmdBind[Sampler|Resource]HeapEXT`](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_descriptor_heap.html#_descriptor_heaps) functions.
+The driver exposes the size and alignment constraints of various kinds of descriptors (see [`VkPhysicalDeviceDescriptorHeapPropertiesEXT`](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_descriptor_heap.html#_device_properties)).
+Using this information, the application gets the bit representation of descriptors using [`vkWrite[Sampler|Resource]DescriptorsEXT`](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_descriptor_heap.html#_getting_descriptors) that writes them in CPU memory.
+The application then puts the descriptors in the descriptor heap memory as it chooses.
+Similarly to D3D12, the required limit on sampler descriptor heaps is very small at 4000 while at least 2^20 resources are supported.
+
+The extension has [a lot more API surface](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_descriptor_heap.html#_vkdescriptorsetlayout_mapping) to allow transitioning from a `VkDescriptorSet` model to `VK_EXT_descriptor_heap` iteratively.
+New options are added to pipeline compilation that does a SPIR-V transform from using bind points directly populated by `VkDescriptorSet` to sourcing offset into the current descriptor heap from push data. (and many other kinds of indirection to emulate push descriptors, dynamic buffer offsets, etc).
+There is also complexity around support for border colors, secondary command buffers, etc (but this doesn't affect WebGPU).
+
+Note that since the descriptor heaps are just ranges of `VkBuffers`, it is possible to do GPU-GPU copies of descriptors.
+
+#### SPIR-V with `SPV_EXT_descriptor_heap`
+
+[`SPV_EXT_descriptor_heap`](https://github.khronos.org/SPIRV-Registry/extensions/EXT/SPV_EXT_descriptor_heap.html) is necessary for shaders used with `VK_EXT_descriptor_heap`.
+It adds two new builtins, `SamplerHeapEXT` and `ResourceHeapEXT` that are declared as "untyped pointer in `UniformConstant`" address space.
+From these pointers the shaders computes explicit offsets in the resource heaps and "casts" them to the correct descriptor type.
+
+The size of resources can be retrieved using `OpConstantSizeOfEXT` which also makes the extension add a number of `[Offset|ArrayStride]IdEXT` as alternatives to `Offset/ArrayStride` that can use the result of a constant computation.
+There is no discussion in that extension of how shaders use "push data" but it's most likely reusing the existing SPIR-V support for push constants.
+
 ## Proposal
 
 ### WebGPU API
