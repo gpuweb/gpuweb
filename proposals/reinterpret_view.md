@@ -21,7 +21,7 @@ pointer reinterpretation on more pointers and dropping the new type altogether.
 ```rust
 @must_use fn reinterpret<T'>(p : ptr<AS, T, AM>) -> ptr<AS, T', AM>
 @must_use fn reinterpret<AM'>(p : ptr<AS, T, AM>) -> ptr<AS, T, AM'>
-@must_use fn reinterpret<T`, AM'>(p : ptr<AS, T, AM>) -> ptr<AS, T', AM'>
+@must_use fn reinterpret<T', AM'>(p : ptr<AS, T, AM>) -> ptr<AS, T', AM'>
 ```
 
 `AS` is the address space and could be any address space (except handle).
