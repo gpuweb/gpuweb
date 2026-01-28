@@ -2,7 +2,7 @@
 
 * Status: [Draft](README.md#status-draft)
 * Created: 2026-01-28
-* Issue: [#](https://github.com/gpuweb/gpuweb/issues/)
+* Issue: [#5545](https://github.com/gpuweb/gpuweb/issues/5545)
 
 ## Motivation
 
