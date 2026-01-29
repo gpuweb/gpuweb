@@ -16,7 +16,8 @@ The list is expected to grow (or maybe even shrink!) over time. This list repres
   Note it does not always require a direct translation to every backend and may
   require some kind of "polyfill" on top of existing native features.
 - "Core-Mode native API" means "D3D12 / Vulkan / Metal." (If implementations exist publicly on other APIs, like proprietary game console GPU APIs, the group may consider them too.)
-- "Native APIs" means all Core Mode native APIs *plus* OpenGL ES, OpenGL, and D3D11.
+- "Compatibility-Mode native API" means OpenGL ES, OpenGL, and D3D11.
+- "Native APIs" means all Core-Mode native APIs and all Compatibility-Mode native APIs.
 - "Standardization" means all/any of:
   - Putting proposals on the W3C recommendation track
   - Committing to the WebGPU Git repository
@@ -32,7 +33,7 @@ In order for a proposal for additional functionality to be standardized in the W
 1. A proposal for new *optional* functionality must be implementable on at least 2 different browser engines. Rationale: One browser engine should not be able to unilaterally add functionality to the web platform.
 2. A proposal for new *optional* functionality must be implementable on at least 2 different Core-Mode native APIs. Rationale: The web is intended to be OS-independent, and there is a high correlation between the native APIs and the OSes they primarily run on.
 3. A proposal for new *optional* functionality must be implementable on devices created (designed? manufactured?) by at least 2 different device vendors. Rationale: The web is intended to be device-independent.
-4. A proposal for new *required* functionality must be implementable on all participating browser engines on all native APIs they target.
+4. A proposal for new *required* functionality must be implementable on all participating browser engines on all native APIs they target. (Note: This includes both Core-Mode and Compatibility-Mode native APIs. New functionality that isn't implementable on Compatibility-Mode native APIs is "optional" and will be added to `"core-features-and-limits"`, if not part of another feature.)
 
 ## Non-requirements
 
