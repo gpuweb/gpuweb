@@ -65,6 +65,7 @@ draft implementation, for developers who want to test this proposal.
 * [fragment-depth](fragment-depth.md)
 * [bindless](bindless.md)
 * [buffer-view](buffer-view.md)
+* [reinterpret_view](reinterpret_view.md)
 * [subgroup-size-control](subgroup-size-control.md)
 
 ### Status: Inactive
