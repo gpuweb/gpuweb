@@ -33,7 +33,7 @@ In order for a proposal for additional functionality to be standardized in the W
 1. A proposal for new *optional* functionality must be implementable on at least 2 different browser engines. Rationale: One browser engine should not be able to unilaterally add functionality to the web platform.
 2. A proposal for new *optional* functionality must be implementable on at least 2 different Core-Mode native APIs. Rationale: The web is intended to be OS-independent, and there is a high correlation between the native APIs and the OSes they primarily run on.
 3. A proposal for new *optional* functionality must be implementable on devices created (designed? manufactured?) by at least 2 different device vendors. Rationale: The web is intended to be device-independent.
-4. A proposal for new *required* functionality must be implementable on all participating browser engines on all native APIs they target. (Note: This includes both Core-Mode and Compatibility-Mode native APIs. New functionality that isn't implementable on Compatibility-Mode native APIs is considered "optional" because it will be part of `"core-features-and-limits"` or another feature.)
+4. A proposal for new *required* functionality must be implementable on all participating browser engines on all native APIs they target. (Note: This includes both Core-Mode and Compatibility-Mode native APIs. New functionality that isn't implementable on Compatibility-Mode native APIs will be a required part of an optional feature such as `"core-features-and-limits"`.)
 
 ## Non-requirements
 
