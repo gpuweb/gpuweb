@@ -258,13 +258,8 @@ partial enum GPUFeatureName {
 
 Resource tables are sized by the developer with a value passed in `createResourceTable` so a new limit is needed to expose the underlying API limitations on the size of the bindless things.
 D3D12 has fixed limits per "resource binding tier" (with 500 000 being the base one) while Vulkan has limits per binding type that would be better to have as a single minimum limit (at least 500 000 in practice).
-The new `maxResourceTableSize` limit is added, of class "maximum" and minimum of 50'000 when either optional feature is available.
-
-```webidl
-partial dictionary GPUSupportedLimits {
-    readonly attribute unsigned long maxResourceTableSize;
-};
-```
+No new limit is added and instead a hardcoded maximum resource table size of 65536 ("64k") is used.
+A limit can be added in the future if needed.
 
 #### Resource tables creation
 
@@ -287,7 +282,7 @@ partial interface GPUDevice {
 
 The steps for `GPUDevice.createResourceTable(desc)` are:
 
- - if `desc.size > this.limits.maxResourceTableSize` throw a `RangeError` and return.
+ - if `desc.size > 65536` throw a `RangeError` and return.
 
     - Note: this is done to avoid the need to create giant content-timeline arrays if `size` is huge but fails validation on the device timeline.
 
