@@ -42,7 +42,7 @@ TODO: Decide if stricter access modes are desirable.
 `T` and `T'`must be valid for `AS`. Additionally they cannot contain any atomic type.
 `T'` is the reinterpreted type. Restrictions on `T'`:
 * Align(T') <= Align(T)
-* SizeOf(T') <= SizeOf(store type of RootIdentifier(p)) + AccumulatedOffset(p)
+* SizeOf(T') <= SizeOf(store type of RootIdentifier(p)) - AccumulatedOffset(p)
     * RootIdentifier is a function that returns the root identifier of p. Its value type is used in the size calculation.
     * AccumulatedOffset is a function that returns accumulated byte offset from the root identifier to the input pointer through various access expressions.
     * It would be a shader-creation error if the accumulated constant offset violated the above relation and a pipeline-creation error if the accumulated override offset violated it.
