@@ -107,7 +107,7 @@ If `offset % RequiredAlignOf(T, AS) != 0`, then:
 * It is a shader-creation error if `offset` is a const-expression
 * It is a pipeline-creation error if `offset` is an override-expression
 * The implementation shall use an equivalent value to: `offset &
-  ~log2(RequiredAlignOf(T))`
+  ~(RequiredAlignOf(T) - 1)`
 
 Note: this will interact with `uniform_buffer_standard_layout`.
 
