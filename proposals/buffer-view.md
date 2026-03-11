@@ -82,13 +82,16 @@ fn bufferView<T>(p : ptr<AS, buffer<N>, AM>, offset : u32) -> ptr<AS, T, AM>
 atomic type) and satisfy the address space layout constraints.
 
 Note: Address space restrictions should be updated to allow runtime-sized
-arrays in any address space, but not in a variable declaration.
+arrays in any address space, but not as the store type of a variable declaration.
 
 Note: `T` cannot be nor contain an atomic type because you cannot cast from a
 non-atomic type to an atomic type in MSL.
 
+**TODO**: Should `T` be restricted to a single level of structures as currently in
+WGSL, or should we be more permissive?
+
 This function converts a buffer pointer into a useful pointer at the given
-offset.
+offset (specified in bytes).
 The result pointer can then be used to access the underlying buffer memory in
 the same way as any normal pointer is used.
 It is effectively a pointer reinterpret cast.
@@ -136,10 +139,13 @@ Implementations would need track offsets for any subsequent calls to
 That is, `T` must be (or contain) a type with a runtime-sized array.
 
 Note: Address space restrictions should be updated to allow runtime-sized
-arrays in any address space, but not in a variable declaration.
+arrays in any address space, but not as the store type of a variable declaration.
 
 Note: `T` cannot be nor contain an atomic type because you cannot cast from a
 non-atomic type to an atomic type in MSL.
+
+**TODO**: Should `T` be restricted to a single level of structures as currently in
+WGSL, or should we be more permissive?
 
 A variant of `bufferView` that also specifies a size for the resulting type
 (which must not have a fixed-footprint).
@@ -147,6 +153,7 @@ Implementations have to track the size to return valid values for any
 subsequent call to `arrayLength`.
 This variant allows for splitting a single large buffer into multiple buffers
 that each contain a dynamically sized tail.
+Both `offset` and `size` are specified in bytes.
 
 Let `ArrayOffset` be the offset of the runtime-sized array in `T`.
 Let `ElementSize` be the size of the element type of the runtime-sized array in
