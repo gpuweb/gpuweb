@@ -27,14 +27,16 @@ pointer type).
 The type is **not** constructible and so it cannot be used in assignments.
 
 The template parameter specifies the size of the buffer in bytes.
-It is optional for storage buffer, but required for uniform buffers and
-workgroup variables.
-If included it must be an override-expression, but for storage buffer and
-uniform buffers, it must further be a const-expression.
+It is optional for storage buffer, but required for other address spaces.
+If included it must be an override-expression, but for any address space except
+workgroup, it must further be a const-expression.
 When omitted, the size is unspecified, but can be accessed via the
 `bufferLength` built-in function.
 
+**TODO**: Any address space could be allowed.
+
 **TODO**: Minimum size requirement for N?
+At least determined by the maximal size used in subsequent calls.
 
 **TODO**: Do we want any new type categories?
 Right now we can’t have pointers to buffer in a classic buffer, but if we ever
@@ -62,8 +64,7 @@ We should consider allowing the following relaxations:
 These relaxations could also be extended to let-declarations, but that seems
 not particularly necessary right now.
 
-**TODO**: Decide on relaxations.
-If we don’t want any we’ll need two overloads per built-in function.
+These relaxations should be specified as part of the automatic conversions.
 
 # bufferView
 
@@ -75,16 +76,22 @@ fn bufferView<T>(p : ptr<AS, buffer, AM>, offset : u32) -> ptr<AS, T, AM>
 fn bufferView<T>(p : ptr<AS, buffer<N>, AM>, offset : u32) -> ptr<AS, T, AM>
 ```
 
-`AS` must be storage, uniform, or workgroup.
+`AS` must be a supported address space.
 `AM` must be read or read_write (normal address space restrictions apply).
 `T` must be a host-shareable type (other than buffer or any type containing an
 atomic type) and satisfy the address space layout constraints.
 
+Note: Address space restrictions should be updated to allow runtime-sized
+arrays in any address space, but not as the store type of a variable declaration.
+
 Note: `T` cannot be nor contain an atomic type because you cannot cast from a
 non-atomic type to an atomic type in MSL.
 
+**TODO**: Should `T` be restricted to a single level of structures as currently in
+WGSL, or should we be more permissive?
+
 This function converts a buffer pointer into a useful pointer at the given
-offset.
+offset (specified in bytes).
 The result pointer can then be used to access the underlying buffer memory in
 the same way as any normal pointer is used.
 It is effectively a pointer reinterpret cast.
@@ -102,6 +109,10 @@ An invalid memory reference is returned if `SizeOf(T) + offset >
 bufferLength(p)`.
 This eliminates some possible in bounds behaviour, but is easier for
 implementations.
+* If `offset` is a const-expression, it is a shader-creation error if
+    `offset > N` (for sized buffers).
+* If `offset is an override-expression, it is a pipeline-creation error if
+    `offset > N` (for sized buffers).
 
 If `offset % RequiredAlignOf(T, AS) != 0`, then:
 * It is a shader-creation error if `offset` is a const-expression
@@ -114,6 +125,71 @@ Note: this will interact with `uniform_buffer_standard_layout`.
 Implementations would need track offsets for any subsequent calls to
 `arrayLength` to adjust the result by the offset.
 
+# bufferArrayView
+
+```rust
+@must_use fn bufferArrayView(p : ptr<AS, buffer, AM>, offset : u32, size : u32) -> ptr<AS, T, AM>
+
+@must_use fn bufferArrayView(p : ptr<AS, buffer<N>, AM>, offset : u32, size : u32) -> ptr<AS, T, AM>
+```
+
+`AS` must be a supported address space.
+`AM` must be read or read_write (normal address space restrictions apply).
+`T` must be a type that does **not** have a fixed-footprint.
+That is, `T` must be (or contain) a type with a runtime-sized array.
+
+Note: Address space restrictions should be updated to allow runtime-sized
+arrays in any address space, but not as the store type of a variable declaration.
+
+Note: `T` cannot be nor contain an atomic type because you cannot cast from a
+non-atomic type to an atomic type in MSL.
+
+**TODO**: Should `T` be restricted to a single level of structures as currently in
+WGSL, or should we be more permissive?
+
+A variant of `bufferView` that also specifies a size for the resulting type
+(which must not have a fixed-footprint).
+Implementations have to track the size to return valid values for any
+subsequent call to `arrayLength`.
+This variant allows for splitting a single large buffer into multiple buffers
+that each contain a dynamically sized tail.
+Both `offset` and `size` are specified in bytes.
+
+Let `ArrayOffset` be the offset of the runtime-sized array in `T`.
+Let `ElementSize` be the size of the element type of the runtime-sized array in
+`T`.
+An invalid memory reference is returned if `offset + size + ArrayOffset +
+ElementSize` > bufferLength(p)`.
+* If `offset` and `size` are const-expressions, it is a shader-creation error if
+    `offset + size > N` (for sized buffers).
+* If `offset` is a const-expression, it is a shader-creation error if
+    `offset > N` (for sized buffers).
+* If `size` is a const-expression, it is a shader-creation error if
+   `size > N` (for sized buffers).
+* If `offset` and `size` are override-expressions, it is a pipeline-creation error if
+    `offset + size > N` (for sized buffers).
+* If `offset` is an override-expression, it is a pipeline-creation error if
+    `offset > N` (for sized buffers).
+* If `size` is an override-expression, it is a pipeline-creation error if
+    `size > N` (for sized buffers).
+
+Note: This allows implementations to ensure the resulting runtime-sized array
+will have at least one element.
+
+If `offset % RequiredAlignOf(T, AS) != 0`, then:
+* It is a shader-creation error if `offset` is a const-expression
+* It is a pipeline-creation error if `offset` is an override-expression
+* The implementation shall use an equivalent value to: `offset &
+  ~(RequiredAlignOf(T) - 1)`
+
+If `(size - ArrayOffset) % SizeOf(ElementType) != 0`, then:
+* It is a shader-creation error if `size` is a const-expression
+* It is a pipeline-creation error if `size` is an override-expression
+* The implementation shall use an equivalent value to:
+    `roundUp(AlignOf(ElementType), size - ArrayOffset)`
+
+Note: this will interact with `uniform_buffer_standard_layout`.
+
 # bufferLength
 
 ```rust
@@ -122,31 +198,36 @@ Implementations would need track offsets for any subsequent calls to
 @must_use fn bufferLength(p : ptr<AS, buffer<N>, AM>) -> u32
 ```
 
-`AS` must be storage, uniform, or workgroup.
+`AS` must be a supported address space.
 `AM` must be read or read_write (normal address space restrictions apply).
 
 Returns the byte size of the buffer.
 If `N` is specified, return `N`.
 
-**TODO**: Should we replace this and `arrayLength` with a single `length` function?
-
 # API
 
 The main interaction with the API is for bindings and the minBindingSize.
 Propose the following (in descending priority):
-* Use the size (`N`) if provided (required for uniform)
+* Use the size (`N`) if provided (required for all but storage)
 * Search forwards (across function calls) from each unsized buffer to find all
-  the calls to `bufferView`.
-  For each call, define Offset as the offset parameter if it is a
-  const-expression and 0 otherwise.
-  Let the minBindingSize be the maximum of `SizeOf(T) + Offset` among all the
-  calls.
+  the calls to `bufferView` and `bufferArrayView`.
+  For each call:
+  * Define Offset as the offset parameter if it is a const-expression and 0 otherwise.
+  * Define `Size` as the size parameter if it is a const-expressions and 0 otherwise.
+  * Define `ArrayOffset` as the offset of the runtime-sized array in `T` and 0 otherwise.
+  * Define `ElementSize` as the size of the element type of the runtime-sized array in `T` and 0 otherwise
+* Let the minBindingSize be the maximum of the following among all the calls:
+  * `SizeOf(T) + Offset` if `T` has a fixed-footprint
+  * max(`Offset + ArrayOffset + ElementSize`, `Offset + Size`) if `T` does not have a fixed-footprint
 * Use a value of 4 bytes
 
 The goal would be to be able to statically elide as many bounds checks as
 possible.
 
 **TODO**: Decide on minimum binding size.
+It should require any runtime-sized array in the result of `bufferView` or
+`bufferArrayView` contains at least 1 element (assuming offset and size
+arguments of 0).
 
 **TODO**: Note that bindless may add additional complications since you cannot
 know the static slot.
