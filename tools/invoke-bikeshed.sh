@@ -4,7 +4,7 @@ set -euo pipefail
 if [ $# -lt 1 ] ; then
     echo "Usage: $0 output.html SOURCE_FILES..."
     echo
-    echo "Invokes the locally-installed 'bikeshed' if available, and falls back to the"
+    echo "Invokes the locally-installed 'bikeshed' if available, and falls back to"
     echo "spec-generator (www.w3.org/publications/spec-generator/) if not. One of the source files must be"
     echo "'index.bs'."
     echo
