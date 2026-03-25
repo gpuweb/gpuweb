@@ -1,9 +1,16 @@
 # WGSL Explicit Bindgroup Layout Parameters
 
-* Status: [Draft](README.md#status-draft)
+* Status: [Obsolete](README.md#status-obsolete)
 * Created: 2025-10-08
 * Issue: [#5353](https://github.com/gpuweb/gpuweb/issues/5353)
 * Authors: @kainino0x, @kangz, @dneto0, @dj2
+* ReplacedBy: [Bindless Filterability Validation](bindless-filterability-validation).md
+
+> [!CAUTION]
+> This proposal has been obsoleted. It is left here for historical purposes. For
+> bindless it is replaced by the [Bindless Filterability
+> Validation](bindless-filterability-validation.md) proposal. For enhanced
+> `auto` bind group layouts a new proposal will be introduced.
 
 In order to be able to create more pipelines with the `auto` layout in WebGPU, and to provide the
 needed information to implement bindless, we propose to add binding layout information for textures

@@ -61,12 +61,12 @@ draft implementation, for developers who want to test this proposal.
 * [atomic-64-min-max](atomic-64-min-max.md)
 * [subgroup-id](subgroup-id.md)
 * [subgroup-matrix](subgroup-matrix.md)
-* [explicit_bindgroup_layout_parameters](explicit_bindgroup_layout_parameters.md)
 * [fragment-depth](fragment-depth.md)
 * [bindless](bindless.md)
 * [buffer-view](buffer-view.md)
 * [reinterpret_view](reinterpret_view.md)
 * [subgroup-size-control](subgroup-size-control.md)
+* [bindless-filterability-validation](bindless-filterability-validation.md)
 
 ### Status: Inactive
 
@@ -76,3 +76,13 @@ They may be considered later.
 <!-- SECTION status-inactive -->
 * [pipeline-statistics-query](pipeline-statistics-query.md)
 * [timestamp-query-inside-passes](timestamp-query-inside-passes.md)
+
+
+### Status: Obsolete
+
+These are Obsolete proposals they are no longer a direction we intend to pursue
+but are kept for historical reasons.
+
+<!-- SECTION status-obsolete -->
+* [explicit_bindgroup_layout_parameters](explicit_bindgroup_layout_parameters.md)
+
