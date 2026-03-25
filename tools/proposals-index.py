@@ -13,6 +13,7 @@ STATUSES = {
     '* Status: [Merged](README.md#status-merged)': 'merged',
     '* Status: [Draft](README.md#status-draft)': 'draft',
     '* Status: [Inactive](README.md#status-inactive)': 'inactive',
+    '* Status: [Obsolete](README.md#status-obsolete)' : 'obsolete'
 }
 # Created line must be on line 4 and match this regex
 CREATED_REGEX = re.compile(r'^\* Created: (\d\d\d\d-\d\d-\d\d)$')
@@ -43,6 +44,7 @@ def main():
         'merged': [],
         'draft': [],
         'inactive': [],
+        'obsolete': [],
     }
 
     found_invalid_header = False
