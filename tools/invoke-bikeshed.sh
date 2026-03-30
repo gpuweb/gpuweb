@@ -4,8 +4,8 @@ set -euo pipefail
 if [ $# -lt 1 ] ; then
     echo "Usage: $0 output.html SOURCE_FILES..."
     echo
-    echo "Invokes the locally-installed 'bikeshed' if available, and falls back to the"
-    echo "Bikeshed API (api.csswg.org/bikeshed) if not. One of the source files must be"
+    echo "Invokes the locally-installed 'bikeshed' if available, and falls back to"
+    echo "spec-generator (www.w3.org/publications/spec-generator/) if not. One of the source files must be"
     echo "'index.bs'."
     echo
     echo 'Set the $DIE_ON environment variable to use the --die-on option, e.g.:'
@@ -43,11 +43,11 @@ elif [ -z "${BIKESHED_DISALLOW_ONLINE:=}" ] ; then
     tmp_headers=$(mktemp) # Contains response headers
     trap 'rm -f -- "$tmp_body" "$tmp_headers"' EXIT
 
-    opts=()
+    opts=("--form" "type=bikeshed-spec")
     if [ "${DIE_ON:=}" ] ; then
         opts+=("--form" "die-on=$DIE_ON")
     fi
-    tar c "$@" | curl --silent https://api.csswg.org/bikeshed/ --form "file=@-" "${opts[@]}" --output "$tmp_body" --dump-header "$tmp_headers"
+    tar c "$@" | curl --silent https://www.w3.org/publications/spec-generator/ --form "file=@-" "${opts[@]}" --output "$tmp_body" --dump-header "$tmp_headers"
 
     if head --lines=1 "$tmp_headers" | grep --quiet '\<200\>' ; then
         # If successful, write to output file
