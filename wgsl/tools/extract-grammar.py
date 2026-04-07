@@ -87,6 +87,15 @@ def read_lines_from_file(filename, exclusions):
     or files with ".syntax.bs.include" in their name.
     Skips empty lines.
     """
+    # Security: Validate path doesn't escape intended directory
+    def safe_path(base_dir, path):
+        """Validate that path is within base_dir to prevent path traversal"""
+        full = os.path.realpath(os.path.join(base_dir, path))
+        base = os.path.realpath(base_dir)
+        if not full.startswith(base):
+            raise ValueError(f"Path traversal detected: {path} resolves outside {base_dir}")
+        return full
+
     file = open(filename, "r")
     # Break up the input into lines, and skip empty lines.
     parts = [j for i in [i.split("\n") for i in file.readlines()]
@@ -97,6 +106,9 @@ def read_lines_from_file(filename, exclusions):
         m = include_re.match(line)
         if m:
             included_file = m.group(1)
+            # Security: Validate path is within expected directory
+            base_dir = os.path.dirname(filename)
+            included_file = safe_path(base_dir, included_file)
             if included_file not in exclusions:
                 result.extend(read_lines_from_file(included_file, exclusions))
                 continue
