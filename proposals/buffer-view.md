@@ -199,7 +199,7 @@ If `(MinTypeSize(T) - ArrayOffset(T)) % StrideOf(array<E>) != 0`, then:
 * It is a shader-creation error if `size` is a const-expression
 * It is a pipeline-creation error if `size` is an override-expression
 * The implementation shall use an equivalent value to:
-  `roundDown(StrideOf(array<E>), MinTypeSize(T) - ArrayOffset(T))`
+  `roundDown(StrideOf(array<E>), MinTypeSize(T) - ArrayOffset(T)) + ArrayOffset(T)`
 
 Note: this will interact with `uniform_buffer_standard_layout`.
 
