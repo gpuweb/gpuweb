@@ -33,8 +33,6 @@ workgroup, it must further be a const-expression.
 When omitted, the size is unspecified, but can be accessed via the
 `bufferLength` built-in function.
 
-**TODO**: Any address space could be allowed.
-
 **TODO**: Minimum size requirement for N?
 At least determined by the maximal size used in subsequent calls.
 
@@ -66,6 +64,18 @@ not particularly necessary right now.
 
 These relaxations should be specified as part of the automatic conversions.
 
+# Minimum Size Requirements
+
+For `bufferView` and `bufferArrayView`, the minimum required size for a given
+reinterpretation must be calculated.
+Let `MinTypeSize(T)` be:
+* If the result's store type has a fixed footprint, use `SizeOf(T)`.
+* Otherwise,
+  * If `T` is `array<E>`, use `StrideOf(T)`.
+  * Otherwise `T` must be a struct whose last element is `array<E>`, use
+    `OffsetOfMember(T, LastMember) + StrideOf(array<E>)`.
+    * Let `ArrayOffset(T)` be `OffsetOfMember(T, LastMember)` (0 for all other cases).
+
 # bufferView
 
 ```rust
@@ -76,7 +86,7 @@ fn bufferView<T>(p : ptr<AS, buffer, AM>, offset : u32) -> ptr<AS, T, AM>
 fn bufferView<T>(p : ptr<AS, buffer<N>, AM>, offset : u32) -> ptr<AS, T, AM>
 ```
 
-`AS` must be a supported address space.
+`AS` must be storage, uniform, or workgroup.
 `AM` must be read or read_write (normal address space restrictions apply).
 `T` must be a host-shareable type (other than buffer or any type containing an
 atomic type) and satisfy the address space layout constraints.
@@ -105,14 +115,20 @@ allowed in the language.
 Effectively we would always be casting from an unmodified root identifier
 (modulo let unpacking) and only casting once before a memory access.
 
-An invalid memory reference is returned if `SizeOf(T) + offset >
+An invalid memory reference is returned if `MinTypeSize(T) + offset >
 bufferLength(p)`.
 This eliminates some possible in bounds behaviour, but is easier for
 implementations.
+* It is a shader-creation error if `MinTypeSize(T) > N` (for sized buffers).
 * If `offset` is a const-expression, it is a shader-creation error if
-    `offset > N` (for sized buffers).
+    `MinTypeSize(T) + offset > N` (for sized buffers).
 * If `offset is an override-expression, it is a pipeline-creation error if
-    `offset > N` (for sized buffers).
+    `MinTypeSize(T) + offset > N` (for sized buffers).
+
+These size checks should be performed inter-procedurally to ensure user size
+reductions are respected.
+
+Note: the check can be easily adapted to calculate the minimum buffer size.
 
 If `offset % RequiredAlignOf(T, AS) != 0`, then:
 * It is a shader-creation error if `offset` is a const-expression
@@ -133,7 +149,7 @@ Implementations would need track offsets for any subsequent calls to
 @must_use fn bufferArrayView(p : ptr<AS, buffer<N>, AM>, offset : u32, size : u32) -> ptr<AS, T, AM>
 ```
 
-`AS` must be a supported address space.
+`AS` must be storage, uniform, or workgroup.
 `AM` must be read or read_write (normal address space restrictions apply).
 `T` must be a type that does **not** have a fixed-footprint.
 That is, `T` must be (or contain) a type with a runtime-sized array.
@@ -155,23 +171,20 @@ This variant allows for splitting a single large buffer into multiple buffers
 that each contain a dynamically sized tail.
 Both `offset` and `size` are specified in bytes.
 
-Let `ArrayOffset` be the offset of the runtime-sized array in `T`.
-Let `ElementSize` be the size of the element type of the runtime-sized array in
-`T`.
-An invalid memory reference is returned if `offset + size + ArrayOffset +
-ElementSize` > bufferLength(p)`.
-* If `offset` and `size` are const-expressions, it is a shader-creation error if
-    `offset + size > N` (for sized buffers).
-* If `offset` is a const-expression, it is a shader-creation error if
-    `offset > N` (for sized buffers).
-* If `size` is a const-expression, it is a shader-creation error if
-   `size > N` (for sized buffers).
-* If `offset` and `size` are override-expressions, it is a pipeline-creation error if
-    `offset + size > N` (for sized buffers).
-* If `offset` is an override-expression, it is a pipeline-creation error if
-    `offset > N` (for sized buffers).
-* If `size` is an override-expression, it is a pipeline-creation error if
-    `size > N` (for sized buffers).
+An invalid memory reference is returned if `MinTypeSize(T) + offset + size` >
+bufferLength(p)`.
+* It is a shader-creation error if `MinTypeSize(T) > N` (for sized buffers).
+* If either `offset` or `size` are const-expressions, it is a shader-creation
+    error if `MinTypeSize(T) + offset + size > N` (for sized buffers).
+    Use `0` if one of the parameters is not a const-expression.
+* If either `offset` or `size` are override-expressions, it is a pipeline-creation
+    error if `MinTypeSize(T) + offset + size > N` (for sized buffers).
+    Use `0` if one of the parameters is not an override-expression.
+
+These size checks should be performed inter-procedurally to ensure user size
+reductions are respected.
+
+Note: the check can be easily adapted to calculate the minimum buffer size.
 
 Note: This allows implementations to ensure the resulting runtime-sized array
 will have at least one element.
@@ -182,11 +195,11 @@ If `offset % RequiredAlignOf(T, AS) != 0`, then:
 * The implementation shall use an equivalent value to: `offset &
   ~(RequiredAlignOf(T) - 1)`
 
-If `(size - ArrayOffset) % SizeOf(ElementType) != 0`, then:
+If `(MinTypeSize(T) - ArrayOffset(T)) % StrideOf(array<E>) != 0`, then:
 * It is a shader-creation error if `size` is a const-expression
 * It is a pipeline-creation error if `size` is an override-expression
 * The implementation shall use an equivalent value to:
-    `roundUp(AlignOf(ElementType), size - ArrayOffset)`
+  `roundDown(StrideOf(array<E>), MinTypeSize(T) - ArrayOffset(T))`
 
 Note: this will interact with `uniform_buffer_standard_layout`.
 
@@ -198,7 +211,7 @@ Note: this will interact with `uniform_buffer_standard_layout`.
 @must_use fn bufferLength(p : ptr<AS, buffer<N>, AM>) -> u32
 ```
 
-`AS` must be a supported address space.
+`AS` must be storage, uniform, or workgroup.
 `AM` must be read or read_write (normal address space restrictions apply).
 
 Returns the byte size of the buffer.
@@ -214,12 +227,9 @@ Propose the following (in descending priority):
   For each call:
   * Define Offset as the offset parameter if it is a const-expression and 0 otherwise.
   * Define `Size` as the size parameter if it is a const-expressions and 0 otherwise.
-  * Define `ArrayOffset` as the offset of the runtime-sized array in `T` and 0 otherwise.
-  * Define `ElementSize` as the size of the element type of the runtime-sized array in `T` and 0 otherwise
 * Let the minBindingSize be the maximum of the following among all the calls:
-  * `SizeOf(T) + Offset` if `T` has a fixed-footprint
-  * max(`Offset + ArrayOffset + ElementSize`, `Offset + Size`) if `T` does not have a fixed-footprint
-* Use a value of 4 bytes
+  * `MinTypeSize(T) + Offset + Size`
+* Use 0 (the buffer is unused)
 
 The goal would be to be able to statically elide as many bounds checks as
 possible.
