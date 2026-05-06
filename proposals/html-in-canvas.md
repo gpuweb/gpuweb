@@ -32,6 +32,13 @@ partial interface GPUQueue {
         (Element or ElementImage) source,
         float sx, float sy, float swidth, float sheight,
         GPUImageCopyTextureTagged destination);
+
+    undefined copyElementImageToTexture(
+        (Element or ElementImage) source,
+        float sx, float sy, float swidth, float sheight,
+        GPUIntegerCoordinate width,
+        GPUIntegerCoordinate height,
+        GPUImageCopyTextureTagged destination);
 };
 ```
 
