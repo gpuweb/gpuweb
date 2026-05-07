@@ -46,7 +46,7 @@ single array layer per attachment view.
 
 * [`D3D12_RESOURCE_DESC`](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_resource_desc)
   covers multisampled array texture allocation
-* [`Texture2DMSArray`](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/texture2dmsarray)
+* [`Texture2DMSArray`](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/sm5-object-texture2dmsarray)
   and the broader
   [`Texture` type documentation](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-texture)
 * SRV / RTV / DSV bindings for multisampled array textures are part of the
