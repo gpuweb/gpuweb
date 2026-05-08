@@ -1,4 +1,4 @@
-# MultiView
+# View Instancing
 
 * Status: [Draft](README.md#status-draft)
 * Created: 2026-04-29
@@ -11,11 +11,11 @@ differences, such as stereo XR rendering, layered shadow rendering, or cascaded 
 Today, WebGPU applications must encode a separate render pass and duplicate draw calls for each
 view. This increases CPU overhead, command memory usage, and state management complexity.
 
-Native graphics APIs already expose multi-view or view-instancing mechanisms that let a single draw
+Native graphics APIs already expose view instancing or multiview mechanisms that let a single draw
 be broadcast to multiple render-target array layers while still giving shaders access to the
 current view index. WebGPU should expose a similarly small, portable feature.
 
-This proposal adds an opt-in multi-view feature for render passes:
+This proposal adds an opt-in view instancing feature for render passes:
 
 * A render pass can target multiple views at once.
 * Rasterization is broadcast across all views in the pass.
@@ -32,7 +32,7 @@ target is stereo and other contiguous layered rendering use cases, while keeping
   (promoted to Vulkan 1.1), exposed through
   [`VkPhysicalDeviceMultiviewFeatures::multiview`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceMultiviewFeatures.html)
 * [`VK_KHR_dynamic_rendering`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_dynamic_rendering.html)
-  for dynamic-rendering multi-view via
+  for dynamic-rendering multiview via
   [`VkRenderingInfo::viewMask`](https://docs.vulkan.org/refpages/latest/refpages/source/VkRenderingInfo.html)
 * The SPIR-V `ViewIndex` built-in
 
@@ -61,7 +61,7 @@ Add a new enable extension.
 
 | Enable | Description |
 | --- | --- |
-| `multi_view` | Adds the `view_index` built-in input for render pipelines used with multi-view render passes. |
+| `view_instancing` | Adds the `view_index` built-in input for render pipelines used with view-instanced render passes. |
 
 ### Built-in Values
 
@@ -69,12 +69,12 @@ Add a new enable extension.
 | --- | --- | --- | --- | --- |
 | `view_index` | vertex, fragment | `u32` | Input | The active view for the current invocation. Values are in `[0, viewCount)`. |
 
-`view_index` is only valid in render pipelines used with a multi-view render pass.
+`view_index` is only valid in render pipelines used with a view-instanced render pass.
 
 ### Example usage
 
 ```wgsl
-enable multi_view;
+enable view_instancing;
 
 struct VSOut {
   @builtin(position) position : vec4f,
@@ -108,7 +108,7 @@ fn fsMain(@location(0) tint : vec3f) -> @location(0) vec4f {
 
 Add a new feature name:
 
-* `"multi-view"`
+* `"view-instancing"`
 
 ### Limits
 
@@ -116,9 +116,9 @@ Add a new supported limit:
 
 | Limit name | Type | Limit class | Default |
 | --- | --- | --- | --- |
-| `maxMultiViewViewCount` | `GPUSize32` | maximum | 1 |
+| `maxViewInstanceCount` | `GPUSize32` | maximum | 1 |
 
-If `"multi-view"` is supported, `maxMultiViewViewCount` must be at least `2`.
+If `"view-instancing"` is supported, `maxViewInstanceCount` must be at least `2`.
 
 ### Render Pass Descriptor
 
@@ -133,12 +133,12 @@ partial dictionary GPURenderPassDescriptor {
 ### Behavior
 
 * `viewCount == 1` preserves existing behavior.
-* `viewCount > 1` creates a multi-view render pass and requires the `"multi-view"` feature to be
+* `viewCount > 1` creates a view-instanced render pass and requires the `"view-instancing"` feature to be
   enabled on the device.
-* `viewCount` must be less than or equal to `device.limits.maxMultiViewViewCount`.
+* `viewCount` must be less than or equal to `device.limits.maxViewInstanceCount`.
 * For view `i`, rendering targets array layer `baseArrayLayer + i` of each attachment view.
 * Rasterization and fragment processing happen once per view for each primitive in the pass.
-* A pipeline used in a multi-view render pass renders to all views even if it does not read
+* A pipeline used in a view-instanced render pass renders to all views even if it does not read
   `view_index`. `view_index` is only needed when shader behavior differs per view.
 
 ### Validation
@@ -154,7 +154,7 @@ When `viewCount > 1`:
 ### Example usage
 
 ```js
-const colorView = multiViewTexture.createView({
+const colorView = viewInstancingTexture.createView({
   dimension: "2d-array",
   baseArrayLayer: 0,
   arrayLayerCount: 2,
@@ -174,8 +174,8 @@ const pass = encoder.beginRenderPass({
 ## Open Questions
 
 * Should `@builtin(view_index)` be allowed when `viewCount == 1`, implicitly producing `0`, or
-  should it remain invalid outside multi-view passes?
-* Do render bundles need an explicit multi-view compatibility bit, or can they always inherit the
+  should it remain invalid outside view-instanced passes?
+* Do render bundles need an explicit view-instancing compatibility bit, or can they always inherit the
   enclosing render pass's `viewCount`?
 * Is `viewCount` sufficient, or is there any compelling use case that requires sparse view masks in
   the initial API surface?
