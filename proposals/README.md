@@ -65,7 +65,6 @@ draft implementation, for developers who want to test this proposal.
 * [fragment-depth](fragment-depth.md)
 * [bindless](bindless.md)
 * [buffer-view](buffer-view.md)
-* [reinterpret_view](reinterpret_view.md)
 * [subgroup-size-control](subgroup-size-control.md)
 
 ### Status: Inactive
@@ -76,3 +75,4 @@ They may be considered later.
 <!-- SECTION status-inactive -->
 * [pipeline-statistics-query](pipeline-statistics-query.md)
 * [timestamp-query-inside-passes](timestamp-query-inside-passes.md)
+* [reinterpret_view](reinterpret_view.md)
