@@ -122,7 +122,7 @@ implementations.
 * It is a shader-creation error if `MinTypeSize(T) > N` (for sized buffers).
 * If `offset` is a const-expression, it is a shader-creation error if
     `MinTypeSize(T) + offset > N` (for sized buffers).
-* If `offset is an override-expression, it is a pipeline-creation error if
+* If `offset` is an override-expression, it is a pipeline-creation error if
     `MinTypeSize(T) + offset > N` (for sized buffers).
 
 These size checks should be performed inter-procedurally to ensure user size
@@ -171,15 +171,21 @@ This variant allows for splitting a single large buffer into multiple buffers
 that each contain a dynamically sized tail.
 Both `offset` and `size` are specified in bytes.
 
-An invalid memory reference is returned if `MinTypeSize(T) + offset + size` >
-bufferLength(p)`.
-* It is a shader-creation error if `MinTypeSize(T) > N` (for sized buffers).
+An invalid memory reference is returned if `offset + size > bufferLength(p)`.
 * If either `offset` or `size` are const-expressions, it is a shader-creation
-    error if `MinTypeSize(T) + offset + size > N` (for sized buffers).
+    error if `offset + size > N` (for sized buffers).
     Use `0` if one of the parameters is not a const-expression.
 * If either `offset` or `size` are override-expressions, it is a pipeline-creation
-    error if `MinTypeSize(T) + offset + size > N` (for sized buffers).
+    error if `offset + size > N` (for sized buffers).
     Use `0` if one of the parameters is not an override-expression.
+
+An invalid memory reference is returned if `MinTypeSize(T) > size`.
+* If `size` is a const-expression, it is a shader-creation error.
+* If `size` is an override-expression, it is a pipeline-creation error.
+
+An invalid memory reference is returned if `MinTypeSize(T) + offset > bufferLength(p)`
+* If `offset` is a const-expression, it is a shader-creation error.
+* If `offset` is an override-expression, it is a pipeline-creation error.
 
 These size checks should be performed inter-procedurally to ensure user size
 reductions are respected.
