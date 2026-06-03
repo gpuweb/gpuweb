@@ -68,6 +68,7 @@ draft implementation, for developers who want to test this proposal.
 * [reinterpret_view](reinterpret_view.md)
 * [subgroup-size-control](subgroup-size-control.md)
 * [view-instancing](view-instancing.md)
+* [multisampled-array-textures](multisampled-array-textures.md)
 
 ### Status: Inactive
 

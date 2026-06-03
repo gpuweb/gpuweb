@@ -2,7 +2,7 @@
 
 * Status: [Draft](README.md#status-draft)
 * Created: 2026-04-30
-* Issue: TBD
+* Issue: [#6277](https://github.com/gpuweb/gpuweb/issues/6277)
 
 ## Motivation
 
@@ -73,6 +73,15 @@ Add a new enable extension.
 | Texture type | Description |
 | --- | --- |
 | `texture_multisampled_2d_array<T>` | Read-only multisampled 2D array texture. Matches the existing `texture_multisampled_2d<T>` semantics, with an explicit array layer in `textureLoad`. |
+
+### Builtin Functions
+
+Add overloads for:
+
+* `textureLoad(t: texture_multisampled_2d_array<ST>, coords: vec2<C>, array_index: A, sample_index: S) -> vec4<ST>`
+* `textureDimensions(t: texture_multisampled_2d_array<ST>) -> vec2<u32>`
+* `textureNumLayers(t: texture_multisampled_2d_array<ST>) -> u32`
+* `textureNumSamples(t: texture_multisampled_2d_array<ST>) -> u32`
 
 ### Example usage
 
