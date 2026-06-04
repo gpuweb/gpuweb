@@ -250,10 +250,12 @@ The builtins do two things:
     where the [0,0]’th element of the matrix is stored.
     Then
     *   For row-major:
-        *   Matrix entry [r,c] maps to the sizeof(T) bytes located at Base + Stride\*r\*sizeof(T) + sizeof(T)\*c
+        *   Matrix entry [r,c] maps to the sizeof(T) bytes located at Base + Stride\*r\*sizeof(S) + sizeof(T)\*c,
+            where S is the shader scalar type of T
         *   Stride >= number of matrix columns.
     *   For column-major:
-        *   Matrix entry [r,c] maps to the sizeof(T) bytes located at Base + Stride\*c\*sizeof(T) + sizeof(T)\*r
+        *   Matrix entry [r,c] maps to the sizeof(T) bytes located at Base + Stride\*c\*sizeof(S) + sizeof(T)\*r,
+            where S is the shader scalar type of T
         *   Stride >= number of matrix rows.
 *   Reinterpret data values between the shader scalar type and the external
     component type T, when those types differ.
@@ -387,13 +389,13 @@ values.
 
 stride counts elements of the array SA.
 
-If `stride < MinorSize(T, Majorness)`, then:
+If `stride * SizeOf(S) < MinorSize(T, Majorness) * SizeOf(T)`, then:
 * It is a shader-creation error if `stride` is a const-expression
 * It is a pipeline-creation error if `stride` is an override-expression
 * It is a dynamic error otherwise
 
 If SA is a fixed-size array with element count `N` and
-`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) < N` then:
+`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N` then:
 * It is a shader-creation error if `N` is a const-expression and
     `offset` or `stride` is a const-expression (using 0 if either is not)
 * It is a pipeline-creation error if `N` is an override-expression and
@@ -423,13 +425,13 @@ uniform values.
 
 stride counts elements of the array SA.
 
-If `stride < MinorSize(T, Majorness)`, then:
+If `stride * SizeOf(S) < MinorSize(T, Majorness) * SizeOf(T)`, then:
 * It is a shader-creation error if `stride` is a const-expression
 * It is a pipeline-creation error if `stride` is an override-expression
 * It is a dynamic error otherwise
 
 If SA is a fixed-size array with element count `N` and
-`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) < N` then:
+`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N` then:
 * It is a shader-creation error if `N` is a const-expression and
     `offset` or `stride` is a const-expression (using 0 if either is not)
 * It is a pipeline-creation error if `N` is an override-expression and
