@@ -208,6 +208,8 @@ const layer0View = texture.createView({
 * Are there backends that support multisampled array render targets but not
   multisampled array texture reads, requiring finer-grained capability
   reporting?
+* Are there any interactions with transient attachments that require additional
+  validation or API restrictions?
 * Do we need any additional validation around resolve targets when
   multisampled-array textures and multiview are both enabled?
 
