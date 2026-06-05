@@ -318,11 +318,11 @@ Add the following:
     </tr>
     <tr>
         <td rowspan=2>Majorness
-        <td>ColMajor
+        <td>col_major
         <td>
         <td rowspan=2>subgroup_matrix
     <tr>
-        <td>RowMajor
+        <td>row_major
         <td>
 </table>
 
@@ -359,12 +359,12 @@ uniformity analysis cannot prove value is a subgroup uniform value.
 See Loading and Storing above.
 
 Define `MajorSize(T, Majorness)` as:
-* The number of rows of `T` if `Majorness` is `RowMajor`
-* The number of columns of `T` if `Majorness`` is `ColMajor`
+* The number of rows of `T` if `Majorness` is `row_major`
+* The number of columns of `T` if `Majorness`` is `col_major`
 
 Define `MinorSize(T, Majorness)` as:
-* The number of columns of `T` if `Majorness` is `RowMajor`
-* The number of rows of `T` if `Majorness` is `ColMajor`
+* The number of columns of `T` if `Majorness` is `row_major`
+* The number of rows of `T` if `Majorness` is `col_major`
 
 **Overload**:
 ```rust
