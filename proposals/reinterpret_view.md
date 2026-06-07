@@ -1,6 +1,6 @@
 # Reinterpret/View
 
-* Status: [Draft](README.md#status-draft)
+* Status: [Inactive](README.md#status-inactive)
 * Created: 2026-01-21
 * Issue: [#5338](https://github.com/gpuweb/gpuweb/issues/5338)
 
