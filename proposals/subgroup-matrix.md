@@ -360,7 +360,7 @@ See Loading and Storing above.
 
 Define `MajorSize(T, Majorness)` as:
 * The number of rows of `T` if `Majorness` is `row_major`
-* The number of columns of `T` if `Majorness`` is `col_major`
+* The number of columns of `T` if `Majorness` is `col_major`
 
 Define `MinorSize(T, Majorness)` as:
 * The number of columns of `T` if `Majorness` is `row_major`
