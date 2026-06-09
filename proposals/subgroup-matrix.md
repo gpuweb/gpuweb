@@ -250,18 +250,17 @@ The builtins do two things:
     where the [0,0]’th element of the matrix is stored.
     Then
     *   For row-major:
-        *   Matrix entry [r,c] maps to the sizeof(T) bytes located at Base + Stride\*r\*sizeof(T) + sizeof(T)\*c
+        *   Matrix entry [r,c] maps to the SizeOf(T) bytes located at Base + Stride\*r\*Sizeof(S) + SizeOf(T)\*c,
+            where S is the shader scalar type of T
         *   Stride >= number of matrix columns.
     *   For column-major:
-        *   Matrix entry [r,c] maps to the sizeof(T) bytes located at Base + Stride\*c\*sizeof(T) + sizeof(T)\*r
+        *   Matrix entry [r,c] maps to the SizeOf(T) bytes located at Base + Stride\*c\*SizeOf(S) + SizeOf(T)\*r,
+            where S is the shader scalar type of T
         *   Stride >= number of matrix rows.
 *   Reinterpret data values between the shader scalar type and the external
     component type T, when those types differ.
-
-For a subgroup_matrix_left/right/result&lt;T, Cols, Rows>, loads and stores are
-out-of-bounds if the length of the array of the pointer argument is less than
-Offset + Stride \* Rows\* Cols.
-
+*   Note: `subgroupMatrixLoad` and `subgroupMatrixStore` describe Stride in terms of
+        the external memory array element type.
 
 #### Attributes
 
@@ -307,6 +306,26 @@ Possible future expansion:
 
 Pragmatically speaking, this feature depends on the `subgroup_id` feature.
 
+#### Predeclared Enumerants
+
+Add the following:
+<table>
+    <tr>
+        <th>Enumeration (cannot be spelled in WGSL)
+        <th>Predeclared enumerant
+        <th>Required language extension
+        <th>Required enable extension
+    </tr>
+    <tr>
+        <td rowspan=2>Majorness
+        <td>col_major
+        <td>
+        <td rowspan=2>subgroup_matrix
+    <tr>
+        <td>row_major
+        <td>
+</table>
+
 #### Built-in Functions
 
 Calls to these functions:
@@ -339,17 +358,24 @@ uniformity analysis cannot prove value is a subgroup uniform value.
 
 See Loading and Storing above.
 
+Define `MajorSize(T, Majorness)` as:
+* The number of rows of `T` if `Majorness` is `row_major`
+* The number of columns of `T` if `Majorness` is `col_major`
+
+Define `MinorSize(T, Majorness)` as:
+* The number of columns of `T` if `Majorness` is `row_major`
+* The number of rows of `T` if `Majorness` is `col_major`
+
 **Overload**:
 ```rust
 @must_use fn
-subgroupMatrixLoad<T>(p : ptr<AS, SA, AM>,
-                      offset : u32,
-                      col_major : bool,
-                      stride : u32) -> T
+subgroupMatrixLoad<T, Majorness>(p : ptr<AS, SA, AM>,
+                                 offset : u32,
+                                 stride : u32) -> T
 ```
 
 **Preconditions**:<br>
-T is a subgroup matrix type with shader scalar type S.<br>
+T is a subgroup matrix type with component type C and shader scalar type S.<br>
 SA is an array with type S.<br>
 AS is storage or workgroup.<br>
 AM is read or read_write.
@@ -357,30 +383,35 @@ AM is read or read_write.
 **Description**:<br>
 Load a subgroup matrix from p, offset elements from the start of the array.
 
-col_major must be a const-expression.
-
 Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove p, offset, or stride are subgroup uniform
 values.
 
-stride counts elements of the component type of T.
-Behavior is undefined if stride is less than:
+stride counts elements of the array SA.
 
-* The number of rows of T if col_major is true
-* The number of columns of T is col_major is false
+If `stride * SizeOf(S) < MinorSize(T, Majorness) * SizeOf(T)`, then:
+* It is a shader-creation error if `stride` is a const-expression
+* It is a pipeline-creation error if `stride` is an override-expression
+* It is a dynamic error otherwise
 
+If SA is a fixed-size array with element count `N` and
+`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N * SizeOf(S) / SizeOf(C)` then:
+* It is a shader-creation error if `N` is a const-expression and
+    `offset` or `stride` is a const-expression (using 0 if either is not)
+* It is a pipeline-creation error if `N` is an override-expression and
+    `offset` or `stride` is an override-expression (using 0 if either is not)
+* It is a dynamic error otherwise
 
 **Overload**:<br>
 ```rust
-fn subgroupMatrixStore(p : ptr<AS, SA, AM>,
-                       offset : u32,
-                       value : T,
-                       col_major : bool,
-                       stride : u32)
+fn subgroupMatrixStore<Majorness>(p : ptr<AS, SA, AM>,
+                                  offset : u32,
+                                  value : T,
+                                  stride : u32)
 ```
 
 **Preconditions**:<br>
-T is a subgroup matrix type whose scalar shader type is S.<br>
+T is a subgroup matrix type with component type C and scalar shader type S.<br>
 SA is an array with element type S.<br>
 AS is storage or workgroup.<br>
 AM is write or read_write.
@@ -388,17 +419,24 @@ AM is write or read_write.
 **Description**:<br>
 Store the subgroup matrix value into p, offset elements from the start of the array.
 
-col_major must be a const-expression.
-
 Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove p, offset, value, or stride are subgroup
 uniform values.
 
-stride counts elements of the component type of T.
-Behavior is undefined if stride is less than:
+stride counts elements of the array SA.
 
-* The number of rows of T if col_major is true
-* The number of columns of T is col_major is false
+If `stride * SizeOf(S) < MinorSize(T, Majorness) * SizeOf(T)`, then:
+* It is a shader-creation error if `stride` is a const-expression
+* It is a pipeline-creation error if `stride` is an override-expression
+* It is a dynamic error otherwise
+
+If SA is a fixed-size array with element count `N` and
+`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N * SizeOf(S) / SizeOf(C)` then:
+* It is a shader-creation error if `N` is a const-expression and
+    `offset` or `stride` is a const-expression (using 0 if either is not)
+* It is a pipeline-creation error if `N` is an override-expression and
+    `offset` or `stride` is an override-expression (using 0 if either is not)
+* It is a dynamic error otherwise
 
 ##### Matrix arithmetic functions
 
