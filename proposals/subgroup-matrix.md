@@ -250,11 +250,11 @@ The builtins do two things:
     where the [0,0]’th element of the matrix is stored.
     Then
     *   For row-major:
-        *   Matrix entry [r,c] maps to the sizeof(T) bytes located at Base + Stride\*r\*sizeof(S) + sizeof(T)\*c,
+        *   Matrix entry [r,c] maps to the SizeOf(T) bytes located at Base + Stride\*r\*Sizeof(S) + SizeOf(T)\*c,
             where S is the shader scalar type of T
         *   Stride >= number of matrix columns.
     *   For column-major:
-        *   Matrix entry [r,c] maps to the sizeof(T) bytes located at Base + Stride\*c\*sizeof(S) + sizeof(T)\*r,
+        *   Matrix entry [r,c] maps to the SizeOf(T) bytes located at Base + Stride\*c\*SizeOf(S) + SizeOf(T)\*r,
             where S is the shader scalar type of T
         *   Stride >= number of matrix rows.
 *   Reinterpret data values between the shader scalar type and the external
@@ -375,7 +375,7 @@ subgroupMatrixLoad<T, Majorness>(p : ptr<AS, SA, AM>,
 ```
 
 **Preconditions**:<br>
-T is a subgroup matrix type with shader scalar type S.<br>
+T is a subgroup matrix type with component type C and shader scalar type S.<br>
 SA is an array with type S.<br>
 AS is storage or workgroup.<br>
 AM is read or read_write.
@@ -395,7 +395,7 @@ If `stride * SizeOf(S) < MinorSize(T, Majorness) * SizeOf(T)`, then:
 * It is a dynamic error otherwise
 
 If SA is a fixed-size array with element count `N` and
-`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N` then:
+`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N * SizeOf(S) / SizeOf(C)` then:
 * It is a shader-creation error if `N` is a const-expression and
     `offset` or `stride` is a const-expression (using 0 if either is not)
 * It is a pipeline-creation error if `N` is an override-expression and
@@ -411,7 +411,7 @@ fn subgroupMatrixStore<Majorness>(p : ptr<AS, SA, AM>,
 ```
 
 **Preconditions**:<br>
-T is a subgroup matrix type whose scalar shader type is S.<br>
+T is a subgroup matrix type with component type C and scalar shader type S.<br>
 SA is an array with element type S.<br>
 AS is storage or workgroup.<br>
 AM is write or read_write.
@@ -431,7 +431,7 @@ If `stride * SizeOf(S) < MinorSize(T, Majorness) * SizeOf(T)`, then:
 * It is a dynamic error otherwise
 
 If SA is a fixed-size array with element count `N` and
-`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N` then:
+`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N * SizeOf(S) / SizeOf(C)` then:
 * It is a shader-creation error if `N` is a const-expression and
     `offset` or `stride` is a const-expression (using 0 if either is not)
 * It is a pipeline-creation error if `N` is an override-expression and
