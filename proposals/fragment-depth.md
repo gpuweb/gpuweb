@@ -6,7 +6,7 @@
 
 ## Motivation
 
-The ability for fragment shaders to explicitly write to the depth buffer via the `@builtin(frag_depth)`attribute is critical for many modern rendering techniques, including custom depth biasing for shadows, precise depth fog, and complex depth-based effects.
+The ability for fragment shaders to explicitly write to the depth buffer via the `@builtin(frag_depth)` attribute is critical for many modern rendering techniques, including custom depth biasing for shadows, precise depth fog, and complex depth-based effects.
 
 In the current WGSL specification, the mere act of writing to `@builtin(frag_depth)` often incurs a significant performance penalty because driver heuristics cannot guarantee that the fragment shader output will adhere to the depth written by the rasterizer's interpolated depth. Consequently, writing to `frag_depth` typically forces the GPU to disable crucial early-Z optimizations for the entire draw call.
 
@@ -59,17 +59,17 @@ providing a `depth_mode` the fragment depth is implicitly `any`.
 
 It can be either `@builtin(frag_depth)`, `@builtin(frag_depth, greater)`, or `@builtin(frag_depth, lesser)`
 
-   This applies `depth_mode` on the `frag_depth` built-in output value in a fragment shader.
+This applies `depth_mode` on the `frag_depth` built-in output value in a fragment shader.
 
 ### Example usage
 
-   ```wgsl
-   requires fragment_depth;
+```wgsl
+requires fragment_depth;
 
-   @fragment
-   fn main() -> @builtin(frag_depth, greater) f32 {
-       return 1.0f;
-   }
+@fragment
+fn main() -> @builtin(frag_depth, greater) f32 {
+    return 1.0f;
+}
 ```
 
 ### Built-in Value Mappings
