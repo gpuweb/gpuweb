@@ -27,46 +27,25 @@ This feature has not been approved by the working group yet.
 | Metal | Not Supported | According to [Metal document](https://developer.apple.com/documentation/apple-silicon/porting-your-metal-code-to-apple-silicon#Determine-the-SIMD-Group-Size-at-Runtime): <br>"The size of a SIMD group varies between different GPUs, particularly Mac GPUs. Don't assume the size of SIMD groups." |
 
 
-Note that on Vulkan we need `computeFullSubgroups == VK_TRUE` because we should set `VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT` when creating the compute pipelien to ensure the subgroup sizes must be launched with all invocations active in the compute stage.
+Note that
+* On Vulkan we need `computeFullSubgroups == VK_TRUE` because we should set `VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT` when creating the compute pipeline to ensure the subgroup sizes must be launched with all invocations active in the compute stage.
+* Metal does not natively support controlling subgroup size, but the browsers may choose to expose the feature on Metal at their own risk.
 
-TODO: Shall we support this extension on the newer Apple silicons with a single acceptable subgroup size?
+2. No additional explicit limits are exposed on `GPUAdapterInfo`.
 
-2. Three new limitations for the WGSL attribute `subgroup_size`.
+Previously, three limits were proposed (`explicitComputeSubgroupMinSize`, `explicitComputeSubgroupMaxSize`, `maxComputeWorkgroupSubgroups`) to expose the range of valid subgroup sizes and workgroup subgroup counts. The working group decided not to expose them ([#6241](https://github.com/gpuweb/gpuweb/issues/6241)). The reasons:
+ * Most users of this feature are expert developers coding for a specific architecture who already know which subgroup sizes to use.
+ * The native API limits do not always accurately represent the range of usable sizes (e.g. on Intel Gen12, `waveLaneCountMin` is 8 but the minimum requestable compute subgroup size is 16; on D3D12, `waveLaneCountMax` is not reliable).
+ * `maxComputeWorkgroupSubgroups` only exists on Vulkan and has no D3D12 equivalent.
 
-(1) `minExplicitComputeSubgroupSize` specifies the minimum value that can be used as the attribute `subgroup_size`.
-
-| Platform | Implementation |
-|----------|------|
-|Vulkan|`VkPhysicalDeviceSubgroupSizeControlPropertiesEXT::minSubgroupSize` |
-|D3D12|`D3D12_FEATURE_DATA_D3D12_OPTIONS1::waveLaneCountMin` |
-
-(2) `maxExplicitComputeSubgroupSize` specifies the maximum value that can be used as the attribute `subgroup_size`.
-
-| Platform | Implementation |
-|----------|------|
-|Vulkan|`VkPhysicalDeviceSubgroupSizeControlPropertiesEXT::maxSubgroupSize` |
-|D3D12|`D3D12_FEATURE_DATA_D3D12_OPTIONS1::waveLaneCountMax` |
-
-(3) `maxComputeWorkgroupSubgroups` limits the total workgroup size when the attribute `subgroup_size` is used.
-
-| Platform | Implementation |
-|----------|------|
-|Vulkan|`VkPhysicalDeviceSubgroupSizeControlProperties.maxComputeWorkgroupSubgroups` |
-|D3D12| Not supported |
-
-Note that we need new limitations instead of the existing `subgroupMinSize` and `subgroupMaxSize` is because:
-1. D3D12 runtime validates `[WaveSize]` with `waveLaneCountMin` and `waveLaneCountMax`
-2. On D3D12 we don't always use `waveLaneCountMin` as `subgroupMinSize` because on some Intel GPUs, it is possible to run some pixel shaders with wave lane count 8, while on that platform `waveLaneCountMin` is 16, meaning in compute shaders the wave lane count will always be at least 16.
-3. On D3D12 we don't always use `waveLaneCountMax` as `subgroupMaxSize` because in [D3D12 document](https://github.com/Microsoft/DirectXShaderCompiler/wiki/Wave-Intrinsics#:~:text=UINT%20WaveLaneCountMax) "the WaveLaneCountMax queried from D3D12 API is not reliable and the meaning is unclear.
+Instead, if the implementation cannot create a pipeline with the requested subgroup size (e.g. due to the size being outside the supported range, register pressure, or hardware-specific workgroup subgroup count limits), it results in an **uncategorized error** during pipeline creation. The implementation must support at least one power-of-two subgroup size between `subgroupMinSize` and `subgroupMaxSize` (from `GPUAdapterInfo`).
 
 
 # Behavior
  * The attribute `subgroup_size` is restricted to `compute` shaders (in HLSL `[WaveSize()]` is [only supported in compute shaders](https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_WaveSize.html#hlsl-attribute)).
  * The parameter must be a const-expression or an override-expression that resolves to an `i32` or `u32`.
  * The parameter must be must be a power-of-two (required by [D3D12](https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_WaveSize.html#allowed-wave-sizes)).
- * The parameter must be greater than or equal to the `minExplicitComputeSubgroupSize` on the current adapter (required by [D3D12](https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_WaveSize.html#runtime-validation)).
- * The parameter must be less than or equal to the `maxExplicitComputeSubgroupSize` on the current adapter (required by [D3D12](https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_WaveSize.html#runtime-validation)).
- * The total workgroup size (`workgroupSize.x * workgroupsize.y * workgroupsize.z`) must be less than or equal to the product of the attribute `subgroup_size` and `maxComputeWorkgroupSubgroups` (required by [Vulkan](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineShaderStageCreateInfo.html#VUID-VkPipelineShaderStageCreateInfo-pNext-02756)).
+ * If the implementation cannot create a pipeline with the requested subgroup size (e.g. due to the size being outside the supported range, register pressure, or hardware-specific workgroup subgroup count limits), it results in an uncategorized error during pipeline creation. The implementation must support at least one power-of-two subgroup size between `subgroupMinSize` and `subgroupMaxSize`.
  * `workgroupSize.x` must be a multiple of the attribute `subgroup_size` (required by [Vulkan](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineShaderStageCreateInfo.html#VUID-VkPipelineShaderStageCreateInfo-pNext-02757)).
 
 # WGSL Specification
