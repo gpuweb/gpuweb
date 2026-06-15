@@ -77,7 +77,6 @@ They may be considered later.
 <!-- SECTION status-inactive -->
 * [pipeline-statistics-query](pipeline-statistics-query.md)
 * [timestamp-query-inside-passes](timestamp-query-inside-passes.md)
-* [reinterpret_view](reinterpret_view.md)
 
 ### Status: Obsolete
 
@@ -86,3 +85,4 @@ but are kept for historical reasons.
 
 <!-- SECTION status-obsolete -->
 * [explicit_bindgroup_layout_parameters](explicit_bindgroup_layout_parameters.md)
+* [reinterpret_view](reinterpret_view.md)
