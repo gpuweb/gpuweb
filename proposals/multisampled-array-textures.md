@@ -21,7 +21,7 @@ These workarounds increase resource management complexity, make native API
 interop harder, and block shader patterns that are already available in Vulkan,
 D3D12, and Metal.
 
-This proposal adds an opt-in feature that allows WebGPU to:
+This proposal adds core WebGPU support that allows WebGPU to:
 
 * create multisampled 2D array textures
 * create multisampled `2d-array` texture views
@@ -60,13 +60,18 @@ single array layer per attachment view.
 
 ## WGSL
 
-### Enable Extension
+### Language Extension
 
-Add a new enable extension.
+Add a new WGSL language extension name.
 
-| Enable | Description |
+| WGSL language extension | Description |
 | --- | --- |
 | `multisampled_array_textures` | Adds the `texture_multisampled_2d_array<T>` texture type for multisampled 2D array textures. |
+
+A WGSL module may use a `requires multisampled_array_textures;` directive to
+document that it depends on this language extension. The directive does not
+enable the extension; the type is available when the implementation supports the
+language extension.
 
 ### Texture Types
 
@@ -86,7 +91,7 @@ Add overloads for:
 ### Example usage
 
 ```wgsl
-enable multisampled_array_textures;
+requires multisampled_array_textures;
 
 @group(0) @binding(0) var color_msaa : texture_multisampled_2d_array<f32>;
 
@@ -103,9 +108,9 @@ fn resolvePixel(coord : vec2<i32>, layer : i32) -> vec4f {
 
 ### Feature
 
-Add a new feature name:
-
-* `"multisampled-array-textures"`
+No new `GPUFeatureName` is added. Multisampled array textures are part of core
+WebGPU. The WGSL type is exposed through the `multisampled_array_textures` WGSL
+language extension.
 
 ### Limits
 
@@ -116,8 +121,8 @@ validation continue to apply.
 
 ### Texture Creation
 
-When `"multisampled-array-textures"` is enabled, `GPUDevice.createTexture()`
-may create a multisampled 2D texture with more than one array layer.
+`GPUDevice.createTexture()` may create a multisampled 2D texture with more than
+one array layer.
 
 No new fields are added. The change is to validation and allowed combinations:
 
@@ -126,58 +131,49 @@ No new fields are added. The change is to validation and allowed combinations:
 
 ### Texture Views
 
-When `"multisampled-array-textures"` is enabled:
-
 * a multisampled 2D array texture may create `dimension: "2d"` views selecting
   a single array layer
 * a multisampled 2D array texture may create `dimension: "2d-array"` views
 
 ### Binding Model
 
-When `"multisampled-array-textures"` is enabled:
-
 * `GPUTextureBindingLayout.multisampled == true` may be used with
   `viewDimension: "2d-array"`
-* WGSL shaders may declare `texture_multisampled_2d_array<T>`
+* WGSL shaders may declare `texture_multisampled_2d_array<T>` when the
+  implementation supports the `multisampled_array_textures` WGSL language
+  extension
 
 ### Behavior
 
-* If the feature is not enabled, current behavior is preserved.
-* If the feature is enabled, multisampled array textures become valid resources
-  for both render-target allocation and shader reads.
+* Multisampled array textures are valid resources for both render-target
+  allocation and shader reads.
 * Render attachments outside multiview still use one layer per attachment view.
 * Resolve targets remain single-sampled and follow the existing array-view
   rules of the enclosing render pass.
 * This feature composes naturally with multiview, but does not depend on it.
+* No additional validation is needed for multisampled-array textures when
+  multiview is also enabled.
+* `GPUTextureUsage.TRANSIENT_ATTACHMENT` may be used with multisampled array
+  textures. Transient attachment usage remains a hint; implementations may
+  still allocate backing storage.
 
 ### Validation
-
-Without `"multisampled-array-textures"`:
-
-* multisampled textures must continue to have exactly one array layer
-* multisampled texture views must continue to be `dimension: "2d"`
-
-With `"multisampled-array-textures"`:
 
 * multisampled textures may have `depthOrArrayLayers > 1`
 * multisampled texture views may be either `"2d"` or `"2d-array"`
 * multisampled texture bindings may use `viewDimension: "2d-array"`
-* `texture_multisampled_2d_array<T>` is valid only when the WGSL extension is
-  enabled
+* `texture_multisampled_2d_array<T>` is valid when the implementation supports
+  the `multisampled_array_textures` WGSL language extension
 
 ## Example usage
 
 ```js
-const feature = "multisampled-array-textures";
-
 const adapter = await navigator.gpu.requestAdapter();
-if (!adapter || !adapter.features.has(feature)) {
-  throw new Error("Multisampled array textures are not supported");
+if (!adapter) {
+  throw new Error("WebGPU is not supported");
 }
 
-const device = await adapter.requestDevice({
-  requiredFeatures: [feature],
-});
+const device = await adapter.requestDevice();
 
 const texture = device.createTexture({
   size: { width: 1024, height: 1024, depthOrArrayLayers: 2 },
@@ -198,20 +194,6 @@ const layer0View = texture.createView({
   arrayLayerCount: 1,
 });
 ```
-
-## Open Questions
-
-* Should `texture_multisampled_2d_array<T>` require a WGSL `enable` extension,
-  or should the device feature alone make it available?
-* Should this feature remain fully independent from multiview, or are there any
-  layered-rendering interactions that should be specified together?
-* Are there backends that support multisampled array render targets but not
-  multisampled array texture reads, requiring finer-grained capability
-  reporting?
-* Are there any interactions with transient attachments that require additional
-  validation or API restrictions?
-* Do we need any additional validation around resolve targets when
-  multisampled-array textures and multiview are both enabled?
 
 ## Resources
 
