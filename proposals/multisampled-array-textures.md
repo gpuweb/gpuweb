@@ -165,6 +165,14 @@ No new fields are added. The change is to validation and allowed combinations:
 * `texture_multisampled_2d_array<T>` is valid when the implementation supports
   the `multisampled_array_textures` WGSL language extension
 
+In compatibility mode:
+
+* `GPUDevice.createTexture()` rejects multisampled textures with
+  `depthOrArrayLayers > 1`
+* `GPUDevice.createBindGroupLayout()` rejects
+  `GPUTextureBindingLayout.multisampled == true` with
+  `viewDimension: "2d-array"`
+
 ## Example usage
 
 ```js
