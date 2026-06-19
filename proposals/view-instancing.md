@@ -175,12 +175,13 @@ const pass = encoder.beginRenderPass({
 
 * Should `@builtin(view_index)` be allowed when `viewCount == 1`, implicitly producing `0`, or
   should it remain invalid outside view-instanced passes?
-* Do render bundles need an explicit view-instancing compatibility bit, or can they always inherit the
+* Do render bundles need an explicit view-instancing compatibility bit, for example because of
+  native render pass or pipeline compatibility requirements, or can they always inherit the
   enclosing render pass's `viewCount`?
-* Is `viewCount` sufficient, or is there any compelling use case that requires sparse view masks in
-  the initial API surface?
-* Are there any extension interactions that should be explicitly disallowed in the initial version
-  of this feature?
+* How should view instancing interact with occlusion queries, indirect draw validation, and any
+  native maximum-instance limits that are affected by multiview?
+* How should view instancing interact with a future feature for selecting the render target array
+  layer or viewport from the vertex shader?
 
 ## Resources
 
