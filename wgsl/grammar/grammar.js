@@ -140,7 +140,7 @@ module.exports = grammar({
 
         type_specifier: $ => $.template_elaborated_ident,
 
-        template_elaborated_ident: $ => seq($.ident, $._disambiguate_template, optional($.template_list)),
+        template_elaborated_ident: $ => seq($.ident, optional($.template_list)),
 
         variable_or_value_statement: $ => choice($.variable_decl, seq($.variable_decl, '=', $.expression), seq('let', $.optionally_typed_ident, '=', $.expression), seq('const', $.optionally_typed_ident, '=', $.expression)),
 
@@ -172,7 +172,7 @@ module.exports = grammar({
 
         lhs_expression: $ => choice(seq($.core_lhs_expression, optional($.component_or_swizzle_specifier)), seq('*', $.lhs_expression), seq('&', $.lhs_expression)),
 
-        core_lhs_expression: $ => choice(seq($.ident, $._disambiguate_template), seq('(', $.lhs_expression, ')'), $.call_expression),
+        core_lhs_expression: $ => choice($.ident, seq('(', $.lhs_expression, ')'), $.call_expression),
 
         multiplicative_expression: $ => choice($.unary_expression, seq($.multiplicative_expression, $.multiplicative_operator, $.unary_expression)),
 
