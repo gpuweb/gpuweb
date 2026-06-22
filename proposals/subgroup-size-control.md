@@ -35,7 +35,7 @@ Note that
 
 Previously, three limits were proposed (`explicitComputeSubgroupMinSize`, `explicitComputeSubgroupMaxSize`, `maxComputeWorkgroupSubgroups`) to expose the range of valid subgroup sizes and workgroup subgroup counts. The working group decided not to expose them ([#6241](https://github.com/gpuweb/gpuweb/issues/6241)). The reasons:
  * Most users of this feature are expert developers coding for a specific architecture who already know which subgroup sizes to use.
- * The native API limits do not always accurately represent the range of usable sizes (e.g. on Intel Gen12, `waveLaneCountMin` is 8 but the minimum requestable compute subgroup size is 16; on D3D12, `waveLaneCountMax` is not reliable).
+ * The native API limits do not always accurately represent the range of usable sizes (e.g. on Intel Gen12, `waveLaneCountMin` is 8 but the minimum requestable compute subgroup size is 16).
  * `maxComputeWorkgroupSubgroups` only exists on Vulkan and has no D3D12 equivalent.
 
 Instead, if the implementation cannot create a pipeline with the requested subgroup size (e.g. due to the size being outside the supported range, register pressure, or hardware-specific workgroup subgroup count limits), it results in an **uncategorized error** during pipeline creation. The implementation must support at least one power-of-two subgroup size between `subgroupMinSize` and `subgroupMaxSize` (from `GPUAdapterInfo`).
@@ -45,7 +45,8 @@ Instead, if the implementation cannot create a pipeline with the requested subgr
  * The attribute `subgroup_size` is restricted to `compute` shaders (in HLSL `[WaveSize()]` is [only supported in compute shaders](https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_WaveSize.html#hlsl-attribute)).
  * The parameter must be a const-expression or an override-expression that resolves to an `i32` or `u32`.
  * The parameter must be must be a power-of-two (required by [D3D12](https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_WaveSize.html#allowed-wave-sizes)).
- * If the implementation cannot create a pipeline with the requested subgroup size (e.g. due to the size being outside the supported range, register pressure, or hardware-specific workgroup subgroup count limits), it results in an uncategorized error during pipeline creation. The implementation must support at least one power-of-two subgroup size between `subgroupMinSize` and `subgroupMaxSize`.
+ * The parameter must not be greater than `subgroupMaxSize` or smaller than `subgroupMinSize`. Values outside this range result in a pipeline-creation error.
+ * If the implementation cannot create a pipeline with the requested subgroup size (e.g. due to register pressure or hardware-specific workgroup subgroup count limits), it results in an uncategorized error during pipeline creation.
  * `workgroupSize.x` must be a multiple of the attribute `subgroup_size` (required by [Vulkan](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineShaderStageCreateInfo.html#VUID-VkPipelineShaderStageCreateInfo-pNext-02757)).
 
 # WGSL Specification
