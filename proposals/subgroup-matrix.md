@@ -373,10 +373,12 @@ For both load and store built-in functions the pointer `p` must encompass
 enough memory locations (i.e. point to a large enough amount of bytes) to
 access a minimally sized subgroupMatrix.
 Define `MinStorageSize(T, Majorness, offset, stride)` as
-`roundUp(SizeOf(ShaderScalarType(ElementType(T))), (offset + StrideFactor(stride, T) *
-(MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness)) *
-SizeOf(ElementType(T))`, where 0 is used for `offset` and `MinorSize(T,
-Majorness) is used for `stride` if they are not const-expressions respectively.
+`roundUp(SizeOf(ShaderScalarType(ElementType(T))), (offset *
+SizeOf(ShaderScalarType(ElementType(T))) + Stride * (MajorSize(T, Majorness) -
+1) + MinorSize(T, Majorness)) * SizeOf(ElementType(T))`, where:
+* 0 is used for `offset` if it is not a const-expression, and
+* `Stride` is `MinorSize(T, Majorness)` if `stride` is not a const-expression
+        and `StrideFactor(stride, T)` when it is a const-expression.
 This requirement translates to a minimum required variable size.
 For workgroup variables it is the size of the variable.
 For storage variables it constrains the minimum binding size.
