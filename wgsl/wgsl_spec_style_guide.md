@@ -113,6 +113,9 @@ promote interoperability between developers using different input mechanisms.
 A developer intending to contribute can automatically normalize sources by
 passing `--fix` to `check-nfkc.py` in the tools directory.
 
+When talking about a feature, use phrasing like "if the BLAH feature is supported".
+Use "supported" instead of "available".
+
 ## Tagging conventions
 
 Several tools process the specification source, extracting things for further processing.

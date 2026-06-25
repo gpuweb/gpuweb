@@ -23,11 +23,11 @@ partial namespace GPUTextureUsage {
 
 ## Validation
 
-The `GPUCanvasContext/configure(configuration)` algorithm is extended with the following change:
+In `GPUCanvasContext/configure(configuration)`:
 
 - If `configuration.usage` includes the `TRANSIENT_ATTACHMENT` bit, throw a TypeError.
 
-The `validating GPUTextureDescriptor(this, descriptor)` algorithm is extended with the following change:
+In `validating GPUTextureDescriptor(this, descriptor)`:
 
 - If `descriptor.usage` includes the `TRANSIENT_ATTACHMENT` bit:
   - `descriptor.usage` must contain only and exactly `TRANSIENT_ATTACHMENT` and `RENDER_ATTACHMENT` bits.
@@ -35,21 +35,28 @@ The `validating GPUTextureDescriptor(this, descriptor)` algorithm is extended wi
   - `descriptor.mipLevelCount` must be 1.
   - `descriptor.size.depthOrArrayLayers` must be 1.
 
-The `GPURenderPassColorAttachment Valid Usage` algorithm is extended with the following change:
+In `GPUTexture/createView()`:
+
+- If the parent texture's usage includes `TRANSIENT_ATTACHMENT`, the view must
+  have the same usages as the parent texture.
+
+In `GPURenderPassColorAttachment Valid Usage`:
 
 - If `renderViewDescriptor.usage` includes the `TRANSIENT_ATTACHMENT` bit:
   - `this.loadOp` must be `"clear"`.
   - `this.storeOp` must be `"discard".`
+- If there is a `resolveTarget`:
+  - `resolveTarget.usage` must not include `TRANSIENT_ATTACHMENT`.
 
-The `GPURenderPassDepthStencilAttachment Valid Usage` algorithm is extended with the following change:
+In `GPURenderPassDepthStencilAttachment Valid Usage`:
 
 - If `this.view.[[descriptor]].usage` includes the `TRANSIENT_ATTACHMENT` bit:
   - If format has a depth aspect:
     - `this.depthLoadOp` must be `"clear"`.
     - `this.depthStoreOp` must be `"discard".`
   - If format has a stencil aspect:
-    - `this.stencilLoadOp ` must be `"clear"`.
-    - `this.stencilStoreOp ` must be `"discard".`
+    - `this.stencilLoadOp` must be `"clear"`.
+    - `this.stencilStoreOp` must be `"discard".`
 
 ## Javascript example
 
