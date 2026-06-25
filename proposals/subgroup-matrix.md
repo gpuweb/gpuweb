@@ -366,14 +366,17 @@ Define `MinorSize(T, Majorness)` as:
 * The number of columns of `T` if `Majorness` is `row_major`
 * The number of rows of `T` if `Majorness` is `col_major`
 
+Define `StrideFactor(stride, T)` as `stride *
+Sizeof(ShaderScalarType(ElementType(T))) / SizeOf(ElementType(T))`.
+
 For both load and store built-in functions the pointer `p` must encompass
 enough memory locations (i.e. point to a large enough amount of bytes) to
 access a minimally sized subgroupMatrix.
 Define `MinStorageSize(T, Majorness, offset, stride)` as
-`roundUp(SizeOf(ShaderScalarType(ElementType(T))), (offset + stride *
+`roundUp(SizeOf(ShaderScalarType(ElementType(T))), (offset + StrideFactor(stride, T) *
 (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness)) *
-SizeOf(ElementType(T))`, where 0 is used for `offset` and `stride` if they are
-not const-expressions respectively.
+SizeOf(ElementType(T))`, where 0 is used for `offset` and `MinorSize(T,
+Majorness) is used for `stride` if they are not const-expressions respectively.
 This requirement translates to a minimum required variable size.
 For workgroup variables it is the size of the variable.
 For storage variables it constrains the minimum binding size.
