@@ -354,7 +354,7 @@ When no value is provided, use S().
 Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove value is a subgroup uniform value.
 
-##### Load/store functions
+##### Load/Store functions
 
 See Loading and Storing above.
 
@@ -365,6 +365,33 @@ Define `MajorSize(T, Majorness)` as:
 Define `MinorSize(T, Majorness)` as:
 * The number of columns of `T` if `Majorness` is `row_major`
 * The number of rows of `T` if `Majorness` is `col_major`
+
+Define `StrideFactor(stride, T)` as `stride *
+Sizeof(ShaderScalarType(ElementType(T))) / SizeOf(ElementType(T))`.
+
+For both load and store built-in functions the pointer `p` must encompass
+enough memory locations (i.e. point to a large enough amount of bytes) to
+access a minimally sized subgroupMatrix.
+Define `MinStorageSize(T, Majorness, offset, stride)` as
+`roundUp(SizeOf(ShaderScalarType(ElementType(T))), (offset *
+SizeOf(ShaderScalarType(ElementType(T))) + Stride * (MajorSize(T, Majorness) -
+1) + MinorSize(T, Majorness)) * SizeOf(ElementType(T))`, where:
+* 0 is used for `offset` if it is not a const-expression, and
+* `Stride` is `MinorSize(T, Majorness)` if `stride` is not a const-expression
+        and `StrideFactor(stride, T)` when it is a const-expression.
+This requirement translates to a minimum required variable size.
+For workgroup variables it is the size of the variable.
+For storage variables it constrains the minimum binding size.
+
+Note: This interacts with the `buffer_view` language feature.
+When `p` is the result of a `bufferView` or `bufferArrayView` built-in function
+call there are additional constraints on the size of the originating variable.
+* The offset parameter to the `buffer_view` built-in function must added to `MinStorageSize`.
+* The size parameter to `bufferArrayView` must be at least `MinStorageSize` bytes.
+    This has the additional effect of changing the `MinTypeSize` calculation for `bufferArrayView`.
+
+Note: This allows implementations to clamp parameters instead of relying on
+predicated control flow.
 
 **Overload**:
 ```rust
@@ -657,9 +684,13 @@ interface GPUSubgroupMatrixConfig {
 
 #### Validation
 
-No specific API validation is necessary; however, it is likely easier to
-implement the pipeline-creation error checks in Dawn by adding the subgroup
-matrix configurations to the shader reflection information.
+New requirements on minimum binding size.
+Any storage buffer used with `subgroupMatrixLoad` or `subgroupMatrixStore` must
+be at least `MinStorageSize` bytes (see Load/Store functions for more details).
+
+It is likely easier to implement the pipeline-creation error checks on the API
+side by adding the subgroup matrix configurations to the shader reflection
+information.
 
 WGSL pipeline-creation checks (repeated for ease of reference):
 
