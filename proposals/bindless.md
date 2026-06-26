@@ -238,6 +238,9 @@ There is no discussion in that extension of how shaders use "push data" but it's
 A new `GPUResourceTable` concept is added to WebGPU that represents a variable-size, sparse and (totally or partially) heterogenous set of bindings.
 The resource table can be set in the `GPUCommandEncoder` state and used in shaders to retrieve the resource of a given type at a given index in the currently set `GPUResourceTable`.
 Bindings in the `GPUResourceTable` can be updated over time as new resources become needed, or previous resources get no longer in use.
+To prevent data races, bindings in the `GPUResourceTable` that could be used for races with other bindings in the usage scope are hidden from the shaders.
+Each resource in the `GPUResourceTable` has a usage (readonly vs. writable vs. none) that it can be used as via the `GPUResourceTable`, this lets application keep both readonly and writable usages in the table, and express intent about which resources will be accessed.
+
 To efficiently implement the validation, memory barrier and other similar kind of tracking needed for `GPUResourceTable`, the mutable resources contained in them must be "pinned" to a certain usage which prevents other kinds of accesses to them.
 
 #### Adapter capabilities and device creation
@@ -358,49 +361,50 @@ Changes to algorithms are:
  - In `createPipelineLayout` a validation error is generated (and an error object) if `usesResourceTable` is `true` but `"sampling-resource-table"` is not enabled (explicitly or implicitly with `"heterogeneous-resource-table"`).
  - In validating `GPUProgrammableStage(stage, descriptor, layout, device)` a validation error is generated if the shader uses the WGSL resource table builtins but `layout.[[desc]].usesResourceTable` is `false`, or if the types used to access the resource tables are not supported with the extensions enabled (for example storage textures when only `"sampling-resource-table"` is enabled).
  - In creating the defaulting pipeline layout, if the shader uses the WGSL resource table builtins, set `desc.usesResourceTable` to `true`.
- - In the validation for `dispatch*` and `draw*` add a check that if `pipeline.[[desc]].layout.[[desc]].usesResourceTable` is `true`, then the encoder's `[[resource_table]]` is not null.
+ - In the validation for `dispatch*` and `draw*` (outside of bundles) add a check that if `pipeline.[[desc]].layout.[[desc]].usesResourceTable` is `true`, then the encoder's `[[resource_table]]` is not null.
+ - In bundles record `bundle.[[uses_resource_table]] = true` if any pipeline set in it has `pipenline.[[desc]].layout.[[desc]].usesResourceTable == true`.
+ - In `executeBundles`, validate that `[[resource_table]]` is not null if any bundle `[[uses_resource_table]]`.
  - In `queue.submit`, validate that none of the tables in the various encoder's `[[resource_tables_used]]` are destroyed.
- - Similar to `GPUBindGroups`, reset `[[resource_table]]` after a call to `executeBundles`.
 
 #### Visibility of resources in the tables
 
-WebGPU's guarantees that there are no data races must be uphelp when resource tables are used, without resource tables, this is done via usage scope validation.
+WebGPU's guarantees that there are no data races must be upheld when resource tables are used.
+Without resource tables, this is done via usage scope validation.
 Resource tables are a side addition to usage scopes, and their resources are made visible or hidden automatically to make the combination with the usage scope avoid data races.
-Note that to avoid the need to handle data races between resource accessed through two resource tables, only a single resource table is current at a time (see how they are set above).
+Note that to avoid the need to handle data races between resource accessed through two different resource tables, only a single resource table is current at a time (see how they are set above).
 
 This proposal contains WGSL-side validation for accesses in the resource table, which act as if they called a `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` method described below.
-Other helper methods not exposed to the IDL are also defined (`isReadable`, `isWritable`).
-However in practice shaders cannot call CPU functions and instead implementations will maintain per-slot metadata updated before each usage scope (that shaders will query for validation).
+However in practice shaders cannot call CPU functions and instead implementations will maintain per-slot metadata updated before each usage scope (metadata that shaders will query for validation).
 
-The validation prevents using a slot of the associated full resource has any subresource with a conflicting usage in the usage scope.
-This constraint could be lifted in a later update, but significantly simplifies the implementation.
+The validation prevents using a slot if the associated full resource has any subresource with a conflicting usage in the usage scope.
+This validation could be made to check conflicts at the subresources level in a later update however the per-resource validation significantly simplifies the implementation.
 
 Additional internal state is added to `GPUResourceTable`:
 
- - An `Array<GPUBindingResource?>` called `[[resource]]` of size `this.size` initially filled with `null` values.
+ - An `Array<GPUBindingResource?>` called `[[subresource]]` of size `this.size` initially filled with `null` values.
 
 Steps for `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` are:
 
  - If `slot > this.size`, return `false`.
- - Let `resource = this.[[resource]][slot]`.
- - If `resource` is `null`, return `false`.
- - If `resource` is not "compatible with" `wgslType`, return `false`.
- - Let `parent_resource` be:
+ - Let `subresource = this.[[resource]][slot]`.
+ - If `subresource` is `null`, return `false`.
+ - If `subresource` is not "compatible with" `wgslType`, return `false`.
+ - Let `resource` be:
 
-    - `resource.[[texture]]` if `resource` is a `GPUTextureView`.
-    - `resource` otherwise.
+    - `subresource.[[texture]]` if `subresource` is a `GPUTextureView`.
+    - `subresource` otherwise.
 
- - If `parent_resource.[[destroyed]]`, return `false`.
- - Switch on `this.[[resource_usage]][parent_resource]` (see section below):
+ - If `resource.[[destroyed]]`, return `false`.
+ - Switch on `this.[[resource_usage]][resource]` defaulted to `readonly` is not present (see section below):
 
    - Case `"none"`, return false.
    - Case `"readonly"`:
 
-     -If any of the subresources of `parent_resource` is writable in `usage_scope`, return `false`.
+     - If any of the subresources of `resource` is writable in `usage_scope`, return `false`.
 
-   - Case `writable`:
+   - Case `storage-read-write`:
 
-     - If any of the subresources of `parent_resource` is readable in `usage_scope`, return `false`.
+     - If any of the subresources of `resource` is readable in `usage_scope`, return `false`.
 
  - Return `true`.
 
@@ -408,19 +412,19 @@ Steps for `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` are:
 
  - The check for visibility and compatibility with `wgslType` can be done as a single enum comparision on the shader.
  - To avoid iterating over all the resources, the check for `[[destroyed]]` requires `GPUResourceTable` to be notified when `.destroy()` happen and to update the metadata for all the corresponding slots.
- - The check for `isReadable` conflicts with `usage_scope` can be done by iterating the writable resources and hiding slots using those resources (there should be few of them in practice).
- - The check for `isWritable` conflicts with `usage_scope` can be done similarly, or by iterating writable resources of the table. (these should be rare as well).
+ - The check for `readonly` conflicts with `usage_scope` can be done by iterating the writable resources and hiding slots using those resources (there should be few of them in practice).
+ - The check for `storage-read-write` conflicts with `usage_scope` can be done similarly, or by iterating writable resources of the table. (these should be rare as well).
 
 #### Resource usage state in the resource tables.
 
-Each resource used in a resource table has an additional state scoped to the resource table, describing if it's readonly, writable or inaccessible.
-The usage can be modified using `GPUCommandEncoder/GPUComputePassEncoder.setResourceUsage` on the queue timeline, or using `GPUResourceTable.setResourceUsage()` on the device timeline.
+Each resource used in a resource table has an additional state scoped to the resource table, describing if it's readonly, writable (via "storage") or inaccessible.
+The usage can be modified using `GPUCommandEncoder/GPUComputePassEncoder.setResourceUsage()` on the queue timeline, or using `GPUResourceTable.setResourceUsage()` on the device timeline.
 
 Resources can be added with both writable types and readable types in the resource table (sampled texture vs. storage write).
-So we need to prevent data races, so authors need to explicitly choose which usage is accessible through the resource table.
+So we need to prevent data races, and authors need to explicitly choose which usage is accessible through the resource table.
 
 Even if only readonly resources are in the resource table, they are useful to let the implementation know which resources are intended as accessible during an operation.
-Otherwise implementation have to assume that any resource in the resource table can be accessed, causing pessimizing synchronization and memory barriers during execution.
+Otherwise implementations have to assume that any resource in the resource table can be accessed, causing pessimizing synchronization and memory barriers during execution.
 One common example is for an application that renders a bunch of shadow-maps (using bindless for alpha testing textures) and then rendering the main view, with shadow-maps accessed via the resource table.
 
 ```js
@@ -436,6 +440,8 @@ The WebGPU implementation doesn't know which slots of the resource table are acc
 WebGPU command will be translated to a target API command stream that looks like the following, with each call to `barrierAndMakeVisible` being quite expensive on the GPU:
 
 ```js
+// NOTE: this is pseudo-code for the native API calls done by the WebGPU implementation.
+// barrierAndMakeVisible could for example be vkCmdPipelineBarrier + vkCmdCopyBuffer.
 renderShadowMapWithTable(table, shadowMaps[0]);
 table.barrierAndMakeVisible(shadowMaps[0]);
 renderShadowMapWithTable(table, shadowMaps[1]);
@@ -463,6 +469,8 @@ renderMainPassWithTable(table, shadowMaps);
 Which turns into the target API commands:
 
 ```js
+// NOTE: this is pseudo-code for the native API calls done by the WebGPU implementation.
+// barrierAndMakeVisible could for example be vkCmdPipelineBarrier + vkCmdCopyBuffer.
 table.hide(shadowMaps);
 renderShadowMapWithTable(table, shadowMaps[0]);
 renderShadowMapWithTable(table, shadowMaps[1]);
@@ -473,9 +481,14 @@ table.barrierAndMakeVisible(shadowMaps);
 renderMainPassWithTable(table, shadowMaps);
 ```
 
+The resources added to a resource table start with the `readonly` usage.
+That's because readonly resources are the most common case by far in resource tables: `sampling-resource-table` only allows readonly resources, and the most obvious use of resource tables is to stuff all the asset's textures in it.
+There is also value in users not having to remember to call an initial `setResourceUsage` when first starting to add sampled textures in the resource table, so `none` wouldn't be a good default.
+Otherwise they'd start getting the default resource and spend some time figuring out that a `setResourceUsage` call is needed.
+
 The concrete API and steps related to resource usage state are below.
 
-```
+```webidl
 enum GPUResourceTableUsage {
     "none",
     "readonly",
