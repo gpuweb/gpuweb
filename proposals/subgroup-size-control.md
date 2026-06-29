@@ -1,6 +1,6 @@
 # Subgroup Size Control
 
-* Status: [Draft](README.md#status-draft)
+* Status: [Merged](README.md#status-merged)
 * Created: 2026-01-28
 * Issue: [#5545](https://github.com/gpuweb/gpuweb/issues/5545)
 

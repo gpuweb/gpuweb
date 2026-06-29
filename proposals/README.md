@@ -39,9 +39,11 @@ Always refer to the specifications as the source of truth.
 <!-- SECTION status-merged -->
 * [compatibility-mode](compatibility-mode.md)
 * [subgroups](subgroups.md)
+* [immediate-data](immediate-data.md)
 * [texture-component-swizzle](texture-component-swizzle.md)
 * [primitive-index](primitive-index.md)
 * [transient-attachments](transient-attachments.md)
+* [subgroup-size-control](subgroup-size-control.md)
 
 ### Status: Draft
 
@@ -55,7 +57,6 @@ Note however, an implementation might provide an option (e.g. command line flag)
 draft implementation, for developers who want to test this proposal.
 
 <!-- SECTION status-draft -->
-* [immediate-data](immediate-data.md)
 * [texel-buffers](texel-buffers.md)
 * [sized-binding-arrays](sized-binding-arrays.md)
 * [atomic-64-min-max](atomic-64-min-max.md)
@@ -64,7 +65,6 @@ draft implementation, for developers who want to test this proposal.
 * [fragment-depth](fragment-depth.md)
 * [bindless](bindless.md)
 * [buffer-view](buffer-view.md)
-* [subgroup-size-control](subgroup-size-control.md)
 * [bindless-filterability-validation](bindless-filterability-validation.md)
 * [view-instancing](view-instancing.md)
 * [multisampled-array-textures](multisampled-array-textures.md)
