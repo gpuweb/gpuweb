@@ -137,7 +137,15 @@ def main():
         g.compute_first()
         g.compute_follow()
 
-        print(g.pretty_str(po))
+        # The float literal rules are a choice over patterns.
+        # There is no point repeating them in the recursive grammar,
+        # and they would be sorted in a strange-looking order.
+        # https://github.com/gpuweb/gpuweb/issues/6307
+        po2 = po.clone()
+        po2.treat_as_syntax_token.add('hex_float_literal')
+        po2.treat_as_syntax_token.add('decimal_float_literal')
+
+        print(g.pretty_str(po2))
         printed = True
 
     else:
