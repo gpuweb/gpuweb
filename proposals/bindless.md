@@ -241,8 +241,6 @@ Bindings in the `GPUResourceTable` can be updated over time as new resources bec
 To prevent data races, bindings in the `GPUResourceTable` that could be used for races with other bindings in the usage scope are hidden from the shaders.
 Each resource in the `GPUResourceTable` has a usage (readonly vs. writable vs. none) that it can be used as via the `GPUResourceTable`, this lets application keep both readonly and writable usages in the table, and express intent about which resources will be accessed.
 
-To efficiently implement the validation, memory barrier and other similar kind of tracking needed for `GPUResourceTable`, the mutable resources contained in them must be "pinned" to a certain usage which prevents other kinds of accesses to them.
-
 #### Adapter capabilities and device creation
 
 Two new optional features are added:
