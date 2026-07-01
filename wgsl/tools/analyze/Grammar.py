@@ -155,6 +155,7 @@ class PrintOption:
         self.inline_synthetic = True
         # Emit Bikeshed source
         self.bikeshed = False
+        self.treat_as_syntax_token = set()
 
         def MakeNone():
             return None
@@ -185,9 +186,10 @@ class PrintOption:
         result.print_terminals = self.print_terminals
         result.inline_synthetic = self.inline_synthetic
         result.bikeshed = self.bikeshed
-        result.replace_with_optional = self.replace_with_optional
-        result.replace_with_starred = self.replace_with_starred
-        result.replace_with_nested = self.replace_with_nested
+        result.treat_as_syntax_token = set(self.treat_as_syntax_token)
+        result.replace_with_optional = dict(self.replace_with_optional)
+        result.replace_with_starred = dict(self.replace_with_starred)
+        result.replace_with_nested = dict(self.replace_with_nested)
         result.grammar = self.grammar
         return result
 
@@ -343,7 +345,10 @@ class Rule(RegisterableObject):
                                               '_shift_right_assign']
                         if name in without_underscore:
                             name = name[1:]
-                return "[={}/{}=]".format(context,name)
+                if name in print_option.treat_as_syntax_token:
+                    return "[=syntax/{}=]".format(name)
+                else:
+                    return "[={}/{}=]".format(context,name)
             return name
         if isinstance(rule,Choice):
             parts = [i.pretty_str(print_option) for i in rule]
@@ -353,7 +358,7 @@ class Rule(RegisterableObject):
             if print_option.multi_line_choice:
                 if print_option.bikeshed:
                     nl = "\n\n"
-                    prefixer = "\n | "
+                    prefixer = "\n &nbsp; "
                 else:
                     nl = "\n"
                     prefixer = "\n   "
@@ -2014,6 +2019,8 @@ class Grammar:
         for key in sorted(self.rules):
             if key == LANGUAGE:
                 # This is synthetic, for analysis
+                continue
+            if key in po.treat_as_syntax_token:
                 continue
             rule_content = self.rules[key].pretty_str(po)
             if key in po.replace_with_optional:

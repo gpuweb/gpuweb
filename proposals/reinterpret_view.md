@@ -1,8 +1,11 @@
 # Reinterpret/View
 
-* Status: [Draft](README.md#status-draft)
+* Status: [Obsolete](README.md#status-obsolete)
 * Created: 2026-01-21
 * Issue: [#5338](https://github.com/gpuweb/gpuweb/issues/5338)
+
+> [!CAUTION]
+> This proposal has been obsoleted. See [Buffer View](buffer-view.md) instead.
 
 # Overview
 

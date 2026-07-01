@@ -118,7 +118,7 @@ Shader Model 6.6 lifts this restriction with the [dynamic resources](https://mic
 
 ### Metal / MSL
 
-Metal [argument buffer tier 2](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) supports dynamically indexing resources in arbitrarily-sized argument buffers.
+etal [argument buffer tier 2](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) supports dynamically indexing resources in arbitrarily-sized argument buffers.
 [After specific-OS releases](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) it seems that the argument buffer layout is transparent and could be used for heterogeneous descriptor but there is no indication how.
 
 #### Metal
@@ -155,7 +155,7 @@ kernel void example(constant ArgumentBufferExample & argumentBuffer [[buffer(0)]
 {
 ```
 
-Metal Shading Language Specification 3.2 section 2.14.1 "The Need for a Uniform Type" shows that Metal will scalarize non-uniform indexing in arrays of resources, but at a cost.
+etal Shading Language Specification 3.2 section 2.14.1 "The Need for a Uniform Type" shows that Metal will scalarize non-uniform indexing in arrays of resources, but at a cost.
 
 It's not immediately clear how heterogeneous bindless would be expressed in MSL.
 
@@ -413,6 +413,7 @@ Steps for `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` are:
  - To avoid iterating over all the resources, the check for `[[destroyed]]` requires `GPUResourceTable` to be notified when `.destroy()` happen and to update the metadata for all the corresponding slots.
  - The check for conflicts between resource table `readonly` usages and the bindful `usage_scope` can be done by iterating the writable resources of `usage_scope` and hiding slots using those resources (there should be few of them in practice).
  - The check for conflicts between resource table `storage-read-write` usages and the bindful `usage_scope` can be done similarly, or by iterating writable resources of the table (these should be rare as well).
+ - When resource state change (memory barriers, marked as uninitialized for lazy zero initialization, etc), they need to notify the `GPUResourceTable` so it can perform the necessary operations the next time it is used (clearing the resource, memory barrier, etc).
 
 #### Resource usage state in the resource tables.
 
