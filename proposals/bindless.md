@@ -118,7 +118,7 @@ Shader Model 6.6 lifts this restriction with the [dynamic resources](https://mic
 
 ### Metal / MSL
 
-Metal [argument buffer tier 2](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) supports dynamically indexing resources in arbitrarily-sized argument buffers.
+etal [argument buffer tier 2](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) supports dynamically indexing resources in arbitrarily-sized argument buffers.
 [After specific-OS releases](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) it seems that the argument buffer layout is transparent and could be used for heterogeneous descriptor but there is no indication how.
 
 #### Metal
@@ -155,7 +155,7 @@ kernel void example(constant ArgumentBufferExample & argumentBuffer [[buffer(0)]
 {
 ```
 
-Metal Shading Language Specification 3.2 section 2.14.1 "The Need for a Uniform Type" shows that Metal will scalarize non-uniform indexing in arrays of resources, but at a cost.
+etal Shading Language Specification 3.2 section 2.14.1 "The Need for a Uniform Type" shows that Metal will scalarize non-uniform indexing in arrays of resources, but at a cost.
 
 It's not immediately clear how heterogeneous bindless would be expressed in MSL.
 
@@ -238,7 +238,8 @@ There is no discussion in that extension of how shaders use "push data" but it's
 A new `GPUResourceTable` concept is added to WebGPU that represents a variable-size, sparse and (totally or partially) heterogenous set of bindings.
 The resource table can be set in the `GPUCommandEncoder` state and used in shaders to retrieve the resource of a given type at a given index in the currently set `GPUResourceTable`.
 Bindings in the `GPUResourceTable` can be updated over time as new resources become needed, or previous resources get no longer in use.
-To efficiently implement the validation, memory barrier and other similar kind of tracking needed for `GPUResourceTable`, the mutable resources contained in them must be "pinned" to a certain usage which prevents other kinds of accesses to them.
+To prevent data races, bindings in the `GPUResourceTable` that could be used for races with other bindings in the usage scope are hidden from the shaders.
+Each resource in the `GPUResourceTable` has a usage (readonly vs. writable vs. none) that it can be used as via the `GPUResourceTable`, this lets application keep both readonly and writable usages in the table, and express intent about which resources will be accessed.
 
 #### Adapter capabilities and device creation
 
@@ -308,20 +309,36 @@ Additional validation rule for `queue.submit()`:
 
 #### Encoder state and pipeline compatibility
 
-The `GPUResourceTable` that shaders will access is set on the `GPUBindingCommandsMixin` using `setResourceTable`.
-There is a single resource table set on encoders at a time, and the resource table can be unset by passing `null` to `setResourceTable`.
+The `GPUResourceTable` that shaders will access is set on the state using `GPURenderPassDescriptor.resourceTable` or `GPUComputePassEncoder.setResourceTable`.
 
 ```webidl
-partial interface GPUBindingCommandsMixin {
+partial dictionary GPURenderPassDescriptor {
+    GPUResourceTable resourceTable;
+}
+```
+
+Additional steps for `GPUCommandEncoder.beginRenderPass` are:
+
+ - If `descriptor.resourceTable` is provided:
+
+    - If `descriptor.resourceTable` is not valid to use with `this`, invalidate `pass` and return.
+    - Append `descriptor.resourceTable` to `this.[[resource_tables_used]]`.
+    - Set `pass.[[resource_table]]` to `descriptor.resourceTable`.
+
+There is a single resource table set on a `GPUComputePassEncoder` at a time, and the resource table can be unset by passing `null` to `setResourceTable`.
+
+```webidl
+partial interface GPUComputePassEncoder {
     void setResourceTable(GPUResourceTable? table);
 }
 ```
 
-Steps for `GPUBindingCommandsMixin.setResourceTable(table)` are all on the device timeline:
+Steps for `GPUComputePassEncoder.setResourceTable(table)` are all on the device timeline:
 
  - Validate the encoder state of `this`, if it returns false, return.
  - If any of the following requirements are unmet, invalidate `this` and return.
 
+    - `table` is valid to use with `this`.
     - `"sampling-resource-table"` is enabled (explicitly or implicitly with `"heterogeneous-resource-table"`).
     - `table` is either `null` or valid to use with `this`.
 
@@ -342,49 +359,176 @@ Changes to algorithms are:
  - In `createPipelineLayout` a validation error is generated (and an error object) if `usesResourceTable` is `true` but `"sampling-resource-table"` is not enabled (explicitly or implicitly with `"heterogeneous-resource-table"`).
  - In validating `GPUProgrammableStage(stage, descriptor, layout, device)` a validation error is generated if the shader uses the WGSL resource table builtins but `layout.[[desc]].usesResourceTable` is `false`, or if the types used to access the resource tables are not supported with the extensions enabled (for example storage textures when only `"sampling-resource-table"` is enabled).
  - In creating the defaulting pipeline layout, if the shader uses the WGSL resource table builtins, set `desc.usesResourceTable` to `true`.
- - In the validation for `dispatch*` and `draw*` add a check that if `pipeline.[[desc]].layout.[[desc]].usesResourceTable` is `true`, then the encoder's `[[resource_table]]` is not null.
+ - In the validation for `dispatch*` and `draw*` (outside of bundles) add a check that if `pipeline.[[desc]].layout.[[desc]].usesResourceTable` is `true`, then the encoder's `[[resource_table]]` is not null.
+ - In bundles record `bundle.[[uses_resource_table]] = true` if any pipeline set in it has `pipenline.[[desc]].layout.[[desc]].usesResourceTable == true`.
+ - In `executeBundles`, validate that `[[resource_table]]` is not null if any bundle `[[uses_resource_table]]`.
  - In `queue.submit`, validate that none of the tables in the various encoder's `[[resource_tables_used]]` are destroyed.
- - Similar to `GPUBindGroups`, reset `[[resource_table]]` after a call to `executeBundles`.
 
-#### Pinning of buffer and texture usages
+#### Visibility of resources in the tables
 
-Experience from wgpu-rs' prototyping of bindless is that the overhead of validating the state of resources and generating memory barriers for the resource tables is unacceptable.
-There is the need to make the resources in the resource tables be "free" for validation and memory barrier generation, instead of walking them for each usage synchronization scope.
-This proposal introduces "resource pinning" to a specific kind of usage.
-When a resource is unpinned it can be used with any usages specified at creation, but when pinned only the single pinned usage is allowed.
-This proposal contains WGSL-side validation for the accesses which is augmented to also check that resources are pinned in addition to being present and of the correct type.
-This way unpinned resources are not accessible via resource tables, ensuring that correct validation and barriers are done when resources are pinned.
+WebGPU's guarantees that there are no data races must be upheld when resource tables are used.
+Without resource tables, this is done via usage scope validation.
+Resource tables are a side addition to usage scopes, and their resources are made visible or hidden automatically to make the combination with the usage scope avoid data races.
+Note that to avoid the need to handle data races between resource accessed through two different resource tables, only a single resource table is current at a time (see how they are set above).
+
+This proposal contains WGSL-side validation for accesses in the resource table, which act as if they called a `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` method described below.
+However in practice shaders cannot call CPU functions and instead implementations will maintain per-slot metadata updated before each usage scope (metadata that shaders will query for validation).
+
+The validation prevents using a slot if the associated full resource has any subresource with a conflicting usage in the usage scope.
+This validation could be made to check conflicts at the subresources level in a later update however the per-resource validation significantly simplifies the implementation.
+
+Additional internal state is added to `GPUResourceTable`:
+
+ - An `Array<GPUBindingResource?>` called `[[resources]]` of size `this.size` initially filled with `null` values.
+ - A `Map<GPUTexture|GPUBuffer, GPUResourceTableUsage>` called `[[resource_usage]]` initially empty.
+
+Steps for `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` are:
+
+ - If `slot > this.size`, return `false`.
+ - Let `subresource = this.[[resources]][slot]`.
+ - If `subresource` is `null`, return `false`.
+ - If `subresource` is not "compatible with" `wgslType`, return `false`.
+ - Let `resource` be:
+
+    - `subresource.[[texture]]` if `subresource` is a `GPUTextureView`.
+    - `subresource` otherwise.
+
+ - If `resource.[[destroyed]]`, return `false`.
+ - Switch on `this.[[resource_usage]][resource]` defaulted to `readonly` is not present (see section below):
+
+   - Case `"none"`, return false.
+   - Case `"readonly"`:
+
+     - If any of the subresources of `resource` is writable in `usage_scope`, return `false`.
+
+   - Case `storage-read-write`:
+
+     - If any of the subresources of `resource` has any usage other than `"storage"` in `usage_scope`, return `false`.
+
+ - Return `true`.
+
+**Implementation notes** (assuming there is a metadata buffer for visibility):
+
+ - The check for visibility and compatibility with `wgslType` can be done as a single enum comparision on the shader.
+ - To avoid iterating over all the resources, the check for `[[destroyed]]` requires `GPUResourceTable` to be notified when `.destroy()` happen and to update the metadata for all the corresponding slots.
+ - The check for conflicts between resource table `readonly` usages and the bindful `usage_scope` can be done by iterating the writable resources of `usage_scope` and hiding slots using those resources (there should be few of them in practice).
+ - The check for conflicts between resource table `storage-read-write` usages and the bindful `usage_scope` can be done similarly, or by iterating writable resources of the table (these should be rare as well).
+ - When resource state change (memory barriers, marked as uninitialized for lazy zero initialization, etc), they need to notify the `GPUResourceTable` so it can perform the necessary operations the next time it is used (clearing the resource, memory barrier, etc).
+
+#### Resource usage state in the resource tables.
+
+Each resource used in a resource table has an additional state scoped to the resource table, describing if it's readonly, writable (via "storage") or inaccessible.
+The usage can be modified using `GPUCommandEncoder/GPUComputePassEncoder.setResourceUsage()` on the queue timeline, or using `GPUResourceTable.setResourceUsage()` on the device timeline.
+
+A resource can be added multiple times to a single resource table, with both writable types and readable types (sampled texture or storage-read, vs. storage-read-write).
+So we need to prevent data races, and authors need to explicitly choose which usage is accessible through the resource table.
+
+Even if only readonly resources are in the resource table, they are useful to let the implementation know which resources are intended as accessible during an operation.
+Otherwise implementations have to assume that any resource in the resource table can be accessed, causing pessimizing synchronization and memory barriers during execution.
+One common example is for an application that renders a bunch of shadow-maps (using bindless for alpha testing textures) and then rendering the main view, with shadow-maps accessed via the resource table.
+
+```js
+renderShadowMapWithTable(table, shadowMaps[0]);
+renderShadowMapWithTable(table, shadowMaps[1]);
+// ...
+renderShadowMapWithTable(table, shadowMaps[N]);
+
+renderMainPassWithTable(table, shadowMaps);
+```
+
+The WebGPU implementation doesn't know which slots of the resource table are accessed (vs. bindgroups which where static use can be checked).
+WebGPU command will be translated to a target API command stream that looks like the following, with each call to `barrierAndMakeVisible` being quite expensive on the GPU:
+
+```js
+// NOTE: this is pseudo-code for the native API calls done by the WebGPU implementation.
+// barrierAndMakeVisible could for example be vkCmdPipelineBarrier + vkCmdCopyBuffer.
+renderShadowMapWithTable(table, shadowMaps[0]);
+table.barrierAndMakeVisible(shadowMaps[0]);
+renderShadowMapWithTable(table, shadowMaps[1]);
+// ...
+table.barrierAndMakeVisible(shadowMaps[N-1]);
+renderShadowMapWithTable(table, shadowMaps[N]);
+
+table.barrierAndMakeVisible(shadowMaps[N]);
+renderMainPassWithTable(table, shadowMaps);
+```
+
+By calling `setResourceUsage`, the application can explicitly say that shadow-maps are not accessed in the resource table while they're being rendered:
+
+```js
+shadowMap.forEach(sm => encoder.setResourceUsage(table, sm, "none");};
+renderShadowMapWithTable(table, shadowMaps[0]);
+renderShadowMapWithTable(table, shadowMaps[1]);
+// ...
+renderShadowMapWithTable(table, shadowMaps[N]);
+
+shadowMap.forEach(sm => encoder.setResourceUsage(table, sm, "readonly");};
+renderMainPassWithTable(table, shadowMaps);
+```
+
+Which turns into the target API commands:
+
+```js
+// NOTE: this is pseudo-code for the native API calls done by the WebGPU implementation.
+// barrierAndMakeVisible could for example be vkCmdPipelineBarrier + vkCmdCopyBuffer.
+table.hide(shadowMaps);
+renderShadowMapWithTable(table, shadowMaps[0]);
+renderShadowMapWithTable(table, shadowMaps[1]);
+// ...
+renderShadowMapWithTable(table, shadowMaps[N]);
+
+table.barrierAndMakeVisible(shadowMaps);
+renderMainPassWithTable(table, shadowMaps);
+```
+
+When resources are added to a resource table, they start with the `readonly` usage.
+That's because readonly resources are the most common case by far in resource tables: `sampling-resource-table` only allows readonly resources, and the most obvious use of resource tables is to stuff all the assets' textures in it.
+There is also value in users not having to remember to call an initial `setResourceUsage` when first starting to add sampled textures in the resource table, so `none` wouldn't be a good default.
+Otherwise they'd start getting the default resource and spend some time figuring out that a `setResourceUsage` call is needed.
+
+The concrete API and steps related to resource usage state are below.
 
 ```webidl
-partial interface GPUTexture {
-    void pin(GPUTextureUsage usage);
-    void unpin();
+enum GPUResourceTableUsage {
+    "none",
+    "readonly",
+    "writable",
+};
+
+interface GPUCommandEncoder {
+    setResourceUsage(GPUResourceTable table, (GPUTexture | GPUBuffer) resource, GPUResourceTableUsage usage);
+};
+interface GPUComputePassEncoder {
+    setResourceUsage(GPUResourceTable table, (GPUTexture | GPUBuffer) resource, GPUResourceTableUsage usage);
+};
+
+interface GPUResourceTable {
+    setResourceUsage((GPUTexture | GPUBuffer) resource, GPUResourceTableUsage usage);
 };
 ```
 
-TODO: [#5375](https://github.com/gpuweb/gpuweb/issues/5375) Add the similar interface for `GPUBuffer`.
+Steps for `GPUCommandEncoder/GPUComputePassEncoder.setResourceUsage(table, resource, usage)` on the device timeline:
 
-TODO: [#5376](https://github.com/gpuweb/gpuweb/issues/5376) Should usages be used when they don't differentiate between read-only storage access and writeable storage access?
+ - Validate the encoder state of `this`, if it returns false, return.
+ - If any of the following requirements are unmet, invalidate `this` and return.
 
-TODO: [#5378](https://github.com/gpuweb/gpuweb/issues/5378) Pinning and unpinning add additional state to resources that makes WebGPU code less composable, are there better alternatives?
+   - Validate `table` is valid to use with `this`.
+   - Validate `resource` is valid to use with `this`.
 
-TODO: [#5381](https://github.com/gpuweb/gpuweb/issues/5381) Add a mechanism to allow unpinning locally for some sets of commands (like rendering to one of the textures in the resource table).
+ - On the queue timeline:
 
-Validation for `GPUTexture.pin(usage)`:
+   - Set `table.[[resource_usage]](resource)` to `usage`.
 
- - `"sampling-resource-table"` must be enabled on the device (explicitly or implicitly with `"heterogeneous-resource-table"`).
- - `this` must not have been destroyed.
- - `usage` must be a single shader usage.
+Steps for `GPUResourceTable.setResourceUsage(resource, usage)` are (it's just a convenience method, but it's easier to optimize than if the application did the same thing):
 
-Validation for `GPUTexture.unpin()`:
+ - If any of the following requirements are unmet, generate a validation error and return.
 
- - `"sampling-resource-table"` must be enabled on the device (explicitly or implicitly with `"heterogeneous-resource-table"`).
+   - Validate `table` is valid to use with `this`.
+   - Validate `resource` is valid to use with `this`.
 
-Note that the calls to `pin` and `unpin` don't need to be balanced.
-Pinning replaces the currently pinned usage, if any.
-
-Every check for `GPUTexture.[[destroyed]]` for use with `usage` of the texture by the GPU has an additional check that the pinned usage, if any, matches `usage`.
-In implementations this can be done with almost no additional overhead to the current validation of `[[destroyed]]` by replacing sets of used resources into maps of resources to usages, and by combining the `usage` and `[[destroyed]]` checks in a single bitmask check.
+ - Let `encoder = this.[[device]].createCommandEncoder()`.
+ - Call `encoder.setResourceUsage(this, resource, usage)`.
+ - Call `this.[[device]].queue.submit([encoder.finish()])`.
 
 #### Updates of bindings in resource tables
 
@@ -449,7 +593,7 @@ Steps for `GPUResourceTable.update(slot, resource)`:
       - `this` is valid and `destroy()` hasn't been called on it.
       - If `resource` is not possible to set in the `GPUResourceTable` (TODO [#5374](https://github.com/gpuweb/gpuweb/issues/5374), determine the compatibility rules, depending on sampling vs. heterogeneous).
 
-   - Set the entry at `slot` in the table to `resource`.
+   - Set `this.[[resources]][slot]` to `resource`.
 
 Steps for `GPUResourceTable.insertBinding(resource)`:
 
@@ -470,7 +614,7 @@ Steps for `GPUResourceTable.removeBinding(slot)`:
  - On the device timeline:
 
    - If `this` isn't valid, generate a validation error and return.
-   - Remove the entry at `slot`.
+   - Set `this.[[resources]][slot]` to `null`.
 
 ### WGSL
 To provide access to the data in the `GPUResourceTable` the concept of a resource table is added to
@@ -588,3 +732,14 @@ Discussion in [#5372](https://github.com/gpuweb/gpuweb/issues/5372) and offline 
  - Developers really like the `GPUResourceTable` equivalent in HLSL SM 6.6 ["Dynamic Resources"](https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_DynamicResources.html).
  - It is much more efficiently implementable on the Vulkan descriptor heap extension (that's the better way that heterogeneous is exposed in Vulkan).
  - It more clearly guides developers towards having only one bindless thing in shaders, supporting multiple per shader would involve implementation acrobatics.
+
+#### Resource pinning/unpinning.
+
+A previous version of the proposal had a "usage pinning" concept for `GPUTexture` and `GPUBuffer` that added per-resource state of what usage would be allowed to be visible through a `GPUResourceTable`.
+The pinned resources where not allowed to be used in other bindful usages.
+
+Discussion, mostly offline and around various proposals in [this doc](https://hackmd.io/SY-tfAzUTQeohbBHBfzS4w?view) showed that pinning had major issues that were difficult to overcome without a complete rework:
+
+ - The pinned state was global to a resource which made WebGPU application less composable (in particular feedback from Bevy was that they have plugins that are just handed resources and wouldn't know to unpin / repin them).
+ - The original proposal had pinning only on the device timeline, but for more advanced application it would be necessary to change pinning on the queue timeline (for producing, then reading a resource in the same command buffer). This proved super challenging to introduce and not implementable in wgpu (Firefox's WebGPU library).
+ - The need to manually unpin and repin would make it very challenging to integrate in engines that already have their abstraction for resource tables where they just put the resource in it, and happen to have the correct memory barriers.
