@@ -358,7 +358,7 @@ class Rule(RegisterableObject):
             if print_option.multi_line_choice:
                 if print_option.bikeshed:
                     nl = "\n\n"
-                    prefixer = "\n | "
+                    prefixer = "\n &nbsp; "
                 else:
                     nl = "\n"
                     prefixer = "\n   "
