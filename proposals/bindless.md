@@ -313,7 +313,7 @@ The `GPUResourceTable` that shaders will access is set on the state using `GPURe
 
 ```webidl
 partial dictionary GPURenderPassDescriptor {
-    GPUResourceTable? resourceTable;
+    GPUResourceTable resourceTable;
 }
 ```
 
