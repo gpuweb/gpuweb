@@ -319,7 +319,7 @@ partial dictionary GPURenderPassDescriptor {
 
 Additional steps for `GPUCommandEncoder.beginRenderPass` are:
 
- - If `descriptor.resourceTable` is not `null`:
+ - If `descriptor.resourceTable` is provided:
 
     - If `descriptor.resourceTable` is not valid to use with `this`, invalidate `pass` and return.
     - Append `descriptor.resourceTable` to `this.[[resource_tables_used]]`.
@@ -379,7 +379,7 @@ This validation could be made to check conflicts at the subresources level in a 
 
 Additional internal state is added to `GPUResourceTable`:
 
- - An `Array<GPUBindingResource?>` called `[[subresource]]` of size `this.size` initially filled with `null` values.
+ - An `Array<GPUBindingResource?>` called `[[resource]]` of size `this.size` initially filled with `null` values.
 
 Steps for `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` are:
 
@@ -402,7 +402,7 @@ Steps for `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` are:
 
    - Case `storage-read-write`:
 
-     - If any of the subresources of `resource` is readable in `usage_scope`, return `false`.
+     - If any of the subresources of `resource` has any usage other than `"storage"` in `usage_scope`, return `false`.
 
  - Return `true`.
 
@@ -410,15 +410,15 @@ Steps for `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` are:
 
  - The check for visibility and compatibility with `wgslType` can be done as a single enum comparision on the shader.
  - To avoid iterating over all the resources, the check for `[[destroyed]]` requires `GPUResourceTable` to be notified when `.destroy()` happen and to update the metadata for all the corresponding slots.
- - The check for `readonly` conflicts with `usage_scope` can be done by iterating the writable resources and hiding slots using those resources (there should be few of them in practice).
- - The check for `storage-read-write` conflicts with `usage_scope` can be done similarly, or by iterating writable resources of the table. (these should be rare as well).
+ - The check for conflicts between resource table `readonly` usages and the bindful `usage_scope` can be done by iterating the writable resources of `usage_scope` and hiding slots using those resources (there should be few of them in practice).
+ - The check for conflicts between resource table `storage-read-write` usages and the bindful `usage_scope` can be done similarly, or by iterating writable resources of the table (these should be rare as well).
 
 #### Resource usage state in the resource tables.
 
 Each resource used in a resource table has an additional state scoped to the resource table, describing if it's readonly, writable (via "storage") or inaccessible.
 The usage can be modified using `GPUCommandEncoder/GPUComputePassEncoder.setResourceUsage()` on the queue timeline, or using `GPUResourceTable.setResourceUsage()` on the device timeline.
 
-Resources can be added with both writable types and readable types in the resource table (sampled texture vs. storage write).
+A resource can be added multiple times to a single resource table, with both writable types and readable types (sampled texture or storage-read, vs. storage-read-write).
 So we need to prevent data races, and authors need to explicitly choose which usage is accessible through the resource table.
 
 Even if only readonly resources are in the resource table, they are useful to let the implementation know which resources are intended as accessible during an operation.
@@ -451,7 +451,7 @@ table.barrierAndMakeVisible(shadowMaps[N]);
 renderMainPassWithTable(table, shadowMaps);
 ```
 
-By calling using `setResourceUsage`, the application can explicitly say that shadow-maps are not accessed in the resource table when any of them are rendered:
+By calling `setResourceUsage`, the application can explicitly say that shadow-maps are not accessed in the resource table while they're being rendered:
 
 ```js
 shadowMap.forEach(sm => encoder.setResourceUsage(table, sm, "none");};
@@ -479,8 +479,8 @@ table.barrierAndMakeVisible(shadowMaps);
 renderMainPassWithTable(table, shadowMaps);
 ```
 
-The resources added to a resource table start with the `readonly` usage.
-That's because readonly resources are the most common case by far in resource tables: `sampling-resource-table` only allows readonly resources, and the most obvious use of resource tables is to stuff all the asset's textures in it.
+When resources are added to a resource table, they start with the `readonly` usage.
+That's because readonly resources are the most common case by far in resource tables: `sampling-resource-table` only allows readonly resources, and the most obvious use of resource tables is to stuff all the assets' textures in it.
 There is also value in users not having to remember to call an initial `setResourceUsage` when first starting to add sampled textures in the resource table, so `none` wouldn't be a good default.
 Otherwise they'd start getting the default resource and spend some time figuring out that a `setResourceUsage` call is needed.
 
@@ -496,7 +496,7 @@ enum GPUResourceTableUsage {
 interface GPUCommandEncoder {
     setResourceUsage(GPUResourceTable table, (GPUTexture | GPUBuffer) resource, GPUResourceTableUsage usage);
 };
-interface GPUComputerPassEncoder {
+interface GPUComputePassEncoder {
     setResourceUsage(GPUResourceTable table, (GPUTexture | GPUBuffer) resource, GPUResourceTableUsage usage);
 };
 
@@ -517,7 +517,7 @@ Steps for `GPUCommandEncoder/GPUComputePassEncoder.setResourceUsage(table, resou
 
    - Set `table.[[resource_usage]](resource)` to `usage`.
 
-Steps for `GPUResourceTable.setResourceUsage(resource, usage)` are (it's just a convenience method):
+Steps for `GPUResourceTable.setResourceUsage(resource, usage)` are (it's just a convenience method, but it's easier to optimize than if the application did the same thing):
 
  - If any of the following requirements are unmet, generate a validation error and return.
 
