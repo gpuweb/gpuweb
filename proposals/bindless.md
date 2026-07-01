@@ -379,12 +379,13 @@ This validation could be made to check conflicts at the subresources level in a 
 
 Additional internal state is added to `GPUResourceTable`:
 
- - An `Array<GPUBindingResource?>` called `[[resource]]` of size `this.size` initially filled with `null` values.
+ - An `Array<GPUBindingResource?>` called `[[resources]]` of size `this.size` initially filled with `null` values.
+ - A `Map<GPUTexture|GPUBuffer, GPUResourceTableUsage>` called `[[resource_usage]]` initially empty.
 
 Steps for `GPUResourceTable.isShaderVisible(slot, wgslType, usage_scope)` are:
 
  - If `slot > this.size`, return `false`.
- - Let `subresource = this.[[resource]][slot]`.
+ - Let `subresource = this.[[resources]][slot]`.
  - If `subresource` is `null`, return `false`.
  - If `subresource` is not "compatible with" `wgslType`, return `false`.
  - Let `resource` be:
@@ -591,7 +592,7 @@ Steps for `GPUResourceTable.update(slot, resource)`:
       - `this` is valid and `destroy()` hasn't been called on it.
       - If `resource` is not possible to set in the `GPUResourceTable` (TODO [#5374](https://github.com/gpuweb/gpuweb/issues/5374), determine the compatibility rules, depending on sampling vs. heterogeneous).
 
-   - Set `this.[[resource]][slot]` to `resource`.
+   - Set `this.[[resources]][slot]` to `resource`.
 
 Steps for `GPUResourceTable.insertBinding(resource)`:
 
@@ -612,7 +613,7 @@ Steps for `GPUResourceTable.removeBinding(slot)`:
  - On the device timeline:
 
    - If `this` isn't valid, generate a validation error and return.
-   - Set `this.[[resource]][slot]` to `null`.
+   - Set `this.[[resources]][slot]` to `null`.
 
 ### WGSL
 To provide access to the data in the `GPUResourceTable` the concept of a resource table is added to
