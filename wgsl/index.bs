@@ -429,9 +429,9 @@ WGSL provides commonly used rendering types in the form of
 These types have associated [[#texture-builtin-functions|built-in functions]]
 to expose commonly provided GPU hardware for graphics rendering.
 
-WGSL does not have implicit conversions or promotions from [=type/concrete=]
-types, but does provide implicit conversions and promotions from
-[=type/abstract=] types.
+WGSL has very limited implicit conversions and promotions.
+It only provides implicit conversions and promotions from [=type/abstract=]
+types and [=buffer=] pointers passed as arguments to [=function calls=].
 Converting a value from one [=type/concrete=] numeric or boolean type to
 another requires an explicit [[#value-constructor-builtin-function|conversion]],
 [=value constructor=], or [[#bitcast-builtin|reinterpretation of
@@ -550,6 +550,10 @@ The <dfn noexport>truncate</dfn> function is defined for [=extended real=] numbe
 The <dfn noexport>roundUp</dfn> function is defined for positive integers |k| and |n| as:
 
 * roundUp(|k|, |n|) = &lceil;|n| &div; |k|&rceil; &times; |k|
+
+The <dfn noexport>roundDown</dfn> function is defined for positive integers |k| and |n| as:
+
+* roundDown(|k|, |n|) = &lfloor;|n| &div; |k|&rfloor; &times; |k|
 
 The <dfn noexport>transpose</dfn> of an |c|-column |r|-row matrix |A| is the |r|-column |c|-row matrix
 |A|<sup>T</sup> formed by copying the rows of |A| as the columns of |A|<sup>T</sup>:
@@ -1512,6 +1516,7 @@ The [=language extension=] names are:
 * <a for=language_extension lt=texture_formats_tier1>`'texture_formats_tier1'`</a>
 * <a for=language_extension lt=linear_indexing>`'linear_indexing'`</a>
 * <a for=language_extension lt=immediate_address_space>`'immediate_address_space'`</a>
+* <a for=language_extension lt=buffer_view>`'buffer_view'`</a>
 
 ### Interpolation Type Names ### {#interpolation-type-names}
 
@@ -2017,12 +2022,18 @@ Extension names are not [=identifiers=]: they do not [=resolves|resolve=] to [=d
       <td>
       Supports the [=built-in values/global_invocation_index=] and
       [=built-in values/workgroup_index=] [=built-in values=].
-   <tr><td><dfn for="language_extension">immediate_address_space</dfn>
+  <tr><td><dfn for="language_extension">immediate_address_space</dfn>
       <td>
       Enables the [=address spaces/immediate=] address space, allowing variables
       to be declared with `var<immediate>` and bound to small amounts of frequently
       updated data passed directly from the command encoder via the WebGPU API.
+  <tr><td><dfn for="language_extension">buffer_view</dfn>
+      <td>
+      Enables the use of [=buffer=] types and the
+      [[#buffer-view-builtin-functions|buffer_view built-in functions]].
 
+      Allow the declaration of variables with an opaque store type that can be
+      reinterpreted as other [=host-shareable=] types.
 </table>
 
 Note: The intent is that, over time, WGSL will define language extensions embodying all functionality in language extensions commonly supported at that time.
@@ -2574,12 +2585,33 @@ Note: When no conversion is performed, the conversion rank is zero.
       <td>__modf_result_vecN_f16
       <td>2
       <td>
+  <tr algorithm="conversion rank for fixed-size buffer">
+      <td>ptr<|AS|, buffer<|N1|>, |AM|><br>
+          where Src is the type of an argument to a [=function call=]
+      <td>ptr<|AS|, buffer<|N2|>, |AM|><br>
+          where |N1| and |N2| are both [=const-expressions=] and Dest is the
+          type of the [=formal parameter=] for the argument in Src
+      <td>1 if |N2| < |N1|,<br>
+          infinity otherwise
+      <td>Convert a [=fixed-size buffer=] pointer argument to a smaller sized
+      pointer parameter.<sup>1</sup>
+  <tr algorithm="conversion rank to runtime-sized buffer">
+      <td>ptr<|AS|, buffer<|N|>, |AM|><br>
+          where Src is the type of an argument to a [=function call=]
+      <td>ptr<|AS|, buffer, |AM|><br>
+          where Dest is the type of the [=formal parameter=] for the argument in Src
+      <td>1
+      <td>Convert a [=fixed-size buffer=] pointer argument to a [=runtime-sized
+      buffer=] pointer parameter.<sup>1</sup>
   <tr algorithm="conversion rank for non-convertible cases">
       <td><var ignore>S</var>
       <td><var ignore>T</var><br>where above cases don't apply
       <td>infinity
       <td>There are no automatic conversions between other types.
 </table>
+
+1. These conversions require the [=language_extension/unrestricted_pointer_parameters=]
+    and [=language_extension/buffer_view=] language features.
 
 The type `T` is the <dfn noexport>concretization</dfn> of type `S` if:
 * `T` is [=type/concrete=], and
@@ -3146,6 +3178,8 @@ An array element type [=shader-creation error|must=] be one of:
 * an [=array=] type having a [=creation-fixed footprint=]
 * a [=structure=] type having a [=creation-fixed footprint=].
 
+Note: An array element type cannot be a [=buffer=] type.
+
 Note: The element type must be a [=plain type=].
 
 Two array types are the same if and only if all of the following are true:
@@ -3252,6 +3286,8 @@ A structure member type [=shader-creation error|must=] be one of:
 * a [=fixed-size array=] type with [=creation-fixed footprint=]
 * a [=runtime-sized=] array type, but only if it is the last member of the structure
 * a [=structure=] type that has a [=creation-fixed footprint=]
+
+Note: A structure member type cannot be a [=buffer=] type.
 
 Note: All user-declared structure types are [=type/concrete=].
 
@@ -3398,12 +3434,15 @@ The types with [=creation-fixed footprint=] are:
 * a [=fixed-size array=] type, when:
      * its [=element count=] is a [=const-expression=].
 * a [=structure=] type, if all its members have [=creation-fixed footprint=].
+* a [=fixed-size buffer=] type, when:
+    * its size is a [=const-expression=].
 
 Note: A [=constructible=] type has a [=creation-fixed footprint=].
 
-The [=plain types=] with [=fixed footprint=] are any of:
+The types with a [=fixed footprint=] are any of:
 * a type with [=creation-fixed footprint=]
 * a [=fixed-size array=] type (without further constraining its [=element count=])
+* a [=fixed-size buffer=] type (without further constraining its size)
 
 Note: The only valid use of a fixed-size array with an element count that is an
 [=override-expression=] that is not a [=const-expression=] is as a
@@ -3413,8 +3452,57 @@ This includes the [=store type=] of a workgroup variable.
 Note: A fixed-footprint type may contain an [=atomic type|atomic=] type, either directly or
 indirectly, while a [=constructible=] type cannot.
 
-Note: Fixed-footprint types exclude [=runtime-sized=] arrays, and any structure
-that contains a [=runtime-sized=] array.
+Note: Fixed-footprint types exclude [=runtime-sized=] arrays, runtime-sized
+buffers, and any structure that contains a runtime-sized array.
+
+## Buffer Types ## {#buffer-types}
+
+These types require the [=language_extension/buffer_view=] language feature.
+
+A <dfn>buffer</dfn> value denotes memory whose contents can be interpreted as
+another [=host-shareable=] type.
+Buffer values are otherwise [=opaque=].
+They are useful when the data in a variable needs to be accessed as multiple
+different types or the shader author wishes to sub-divide one variable into
+multiple logical variables.
+
+Buffer types are not [=constructible=] and can only be accessed after
+interpreting their data as an non-opaque, [=host-shareable=] type via the
+[[#buffer-view-builtin-functions|buffer_view built-in functions]].
+
+<table class='data'>
+  <thead>
+    <tr><th>Type<th>Description
+  </thead>
+  <tr><td algorithm="fixed-size buffer type">buffer&lt;|N|&gt;
+      <td>A <dfn>fixed-size buffer</dfn> with |N| bytes of storage.<br>
+      |N| [=shader-creation error|must=] be an [=override-expression=].
+  <tr><td>buffer
+      <td>A <dfn noexport>runtime-sized buffer</dfn>.
+</table>
+
+An [=expression=] [=shader-creation error|must not=] evaluate to a buffer type.
+
+Fixed-size buffers may only be instantiated by variables in the [=address
+spaces/storage=], [=address spaces/uniform=], and [=address spaces/workgroup=]
+address spaces.
+In the storage and uniform address spaces, the size [=shader-creation
+error|must=] be a [=const-expression=].
+Runtime-sized buffers can only be instantiated by variables in the storage
+address space.
+
+If |N| is not greater than 0:
+* It is a [=shader-creation error=] if |N| is a [=const-expression=].
+* Otherwise, It is a [=pipeline-creation error=].
+
+Two buffer types are the same if and only if any of the following conditions hold:
+* They are both runtime-sized.
+* They are both fixed-sized with a [=creation-fixed footprint=], and equal-valued
+    sizes, even if one is signed and the other is unsigned. (Signed and
+    unsigned values are comparable in this case because sizes are always
+    positive.)
+* They are both fixed-sized with sizes specified as identifiers resolving
+    to the same declaration of a [=pipeline-overridable=] constant.
 
 ## Enumeration Types ## {#enumeration-types}
 
@@ -3532,8 +3620,10 @@ A type is <dfn noexport>storable</dfn> if it is both [=type/concrete=] and one o
 * a [=structure=] type
 * a [=texture=] type
 * a [=sampler=] type
+* a [=buffer=] type
 
-Note: That is, the storable types are the [=type/concrete=] [=plain types=], texture types, and sampler types.
+Note: That is, the storable types are the [=type/concrete=] [=plain types=],
+texture types, sampler types, and buffer types.
 
 ### Host-shareable Types ### {#host-shareable-types}
 
@@ -3553,6 +3643,7 @@ A type is <dfn noexport>host-shareable</dfn> if it is both [=type/concrete=] and
 * a [=fixed-size array=] type, if it has [=creation-fixed footprint=] and its element type is host-shareable
 * a [=runtime-sized=] array type, if its element type is host-shareable
 * a [=structure=] type, if all its members are host-shareable
+* a [=buffer=] type
 
 Note: Restrictions on the types of inter-stage inputs and outputs are
 described in [[#stage-inputs-outputs]] and subsequent sections.
@@ -3609,9 +3700,10 @@ However, in WGSL *source* text:
         * [=store type=], and
         * sometimes by [=access mode=], as specified in [[#address-space]].
     * If a pointer type appears in the program source,
-        it [=shader-creation error|must=] also be valid to [=variable declaration|declare a variable=],
-        somewhere in the program,
-        with the pointer type's [=address space=], [=store type=], and [=access mode=].
+        it [=shader-creation error|must=] also be valid to [=variable
+        declaration|declare a variable=] or return that type from a
+        [=function call=], somewhere in the program, with the pointer type's
+        [=address space=], [=store type=], and [=access mode=].
 
         Note: This restriction forbids the declaration of certain [=type aliases=]
         and function [=formal parameters=] that can never be used at runtime.
@@ -3668,8 +3760,14 @@ Generally, an <dfn noexport>invalid memory reference</dfn> is formed by:
      * the [=decomposition/base=] is an invalid memory reference, or
      * the index is [=out-of-bounds index|out-of-bounds=].
 
+An <dfn noexport>invalid pointer</dfn> is formed by:
+* applying the [=address-of=] operator (unary `&`) to an [=invalid memory reference=], or
+* calling a [[#bufferview-builtin|bufferView]] or [[#bufferarrayview-builtin|bufferArrayView]]
+    built-in function when the [=memory view=] of the resulting pointer would
+    otherwise include [=memory locations=] [=out-of-bounds access|outside the bounds=]
+    of the memory view of buffer pointer argument.
+
 A <dfn noexport>valid pointer</dfn> is a pointer that corresponds to a [=valid reference=].
-An <dfn noexport>invalid pointer</dfn> is a pointer that corresponds to an [=invalid memory reference=].
 
 ### Originating Variable ### {#originating-variable-section}
 
@@ -4130,6 +4228,8 @@ A pointer value is formed in one of the following ways:
          the pointer value at the call site is [=valid pointer|valid=].
     * The [=originating variable=] of a [=valid pointer=] formal parameter (at runtime) is defined as
         the originating variable of the pointer operand at the call site.
+* The result of a [[#bufferview-builtin|bufferView]] or
+    [[#bufferarrayview-builtin|bufferArrayView]] built-in function call.
 
 In all cases, the [=access mode=] of the result is the same as the access mode of the original pointer.
 
@@ -4932,7 +5032,7 @@ effective-value-type.
 <tr><td>[=variable|var=]&lt;[=address spaces/uniform=]&gt;
     <td>Immutable
     <td>[=module scope|Module=]
-    <td>[=type/concrete|Concrete=] [=constructible=] [=host-shareable=]
+    <td>[=type/concrete|Concrete=] [=constructible=] [=host-shareable=] or [=fixed-size buffer=]
     <td>Disallowed
     <td>
     <td>Yes.<br>[=uniform buffer=]
@@ -4945,7 +5045,7 @@ effective-value-type.
     <td>
     <td>Yes.<br>[=immediate data=]
 
-<tr><td>[=variable|var=]<sup>6</sup>
+<tr><td>[=variable|var=]<sup>5</sup>
     <td>Immutable<sup>7</sup>
     <td>[=module scope|Module=]
     <td>[=texture type|Texture=]
@@ -4964,7 +5064,7 @@ effective-value-type.
 <tr><td>[=variable|var=]&lt;[=address spaces/workgroup=]&gt;<sup>6,8</sup>
     <td>Mutable
     <td>[=module scope|Module=]
-    <td>[=type/concrete|Concrete=] [=plain type=] with a [=fixed footprint=]<sup>9</sup>
+    <td>[=type/concrete|Concrete=] [=plain type=] with a [=fixed footprint=] or a [=fixed-size buffer=]<sup>9</sup>
     <td>Disallowed<sup>10</sup>
     <td>
     <td>No
@@ -5007,8 +5107,8 @@ effective-value-type.
     The variable itself cannot be modified.
 8. Variables in the [=address spaces/workgroup=] address space can only be
     [=statically accessed=] in a [=compute shader stage=].
-9. The [=element count=] of the outermost [=array=] may be an
-    [=override-expression=].
+9. The [=element count=] of the outermost [=array=] or the size of the
+    [=buffer=] may be an [=override-expression=].
 10. If there is no initializer, the variable is [=default initial value|default
     initialized=].
 
@@ -5151,6 +5251,9 @@ If the [=language_extension/texture_and_sampler_let=] feature is supported, the
 effective-value-type may also be a [=texture types|texture=] or [=sampler
 types|sampler=] type.
 
+Note: Since [=buffer=] types are not [=constructible=], only pointers to
+buffers can be let-declarations.
+
 <div class='example wgsl let-declaration at function-scope' heading='let-declared constants at function scope'>
   <xmp highlight=wgsl>
     // 'blockSize' denotes the i32 value 1024.
@@ -5218,9 +5321,9 @@ See [[#address-space]].
 
 A variable in the [=address spaces/uniform=] address space is a <dfn
 noexport>uniform buffer</dfn> variable.
-Its [=store type=] must be a [=host-shareable=] [=constructible=] type, and
-must satisfy the [[#address-space-layout-constraints|address space layout
-constraints]].
+Its [=store type=] must be a [=host-shareable=] [=constructible=] type or a
+[=fixed-size buffer=] type, and must satisfy the
+[[#address-space-layout-constraints|address space layout constraints]].
 
 A variable in the [=address spaces/storage=] address space is a <dfn
 noexport>storage buffer</dfn> variable.
@@ -5306,6 +5409,7 @@ The initial values are computed as follows:
         store type.
     * If the [=store type=] is an [=atomic type=], the [=zero value=] is that
         of the underlying type ([=type/concrete=] [=integer scalar=]).
+    * If the [=store type=] is a [=buffer=] type, the [=zero value=] is all zero bytes.
     * Otherwise, if the [=store type=] is not [=constructible=], the [=zero
         value=] is determined by recursively applying these rules to each
         [=component=] of the [=composite=] until a [=constructible=] type is
@@ -8771,6 +8875,7 @@ found as follows:
 * If |E| is of the form `(`|E2|`)`, `&`|E2|, `*`|E2|, or |E2|`[`<var ignore>Ei</var>`]` then the root identifier is the root identifier of |E2|.
 * If |E| is a [[#vector-access-expr|vector access expression]] of the form |E2|.|swiz|, where |swiz| is a [=swizzle=] name, then the root identifer is the root identifier of |E2|.
 * If |E| is a [[#struct-access-expr|structure access expression]] of the form |E2|.<var ignore>member_name</var>, then the root identifer is the root identifier of |E2|.
+* If |E| is a [[#bufferview-builtin|bufferView]] or [[#bufferarrayview-builtin|bufferArrayView]] built-in call, then the root identifier is the root identifier of the pointer argument.
     <p>
 
 #### Aliasing #### {#aliasing}
@@ -10787,7 +10892,7 @@ We will use the following notation, where
 |T| is a [=host-shareable=] or [=fixed footprint=] type,
 |S| is a host-shareable or fixed footprint structure type,
 and |A| is a host-shareable or fixed footprint array or runtime-sized array:
-* <dfn noexport>AlignOf</dfn>(|T|) is the [=alignment=] of |T|.
+* <dfn noexport>AlignOf</dfn>(|T|) is the [=alignment=] of |T|, when |T| is a not a [=buffer=].
 * <dfn noexport>AlignOfMember</dfn>(|S|, |i|) is the alignment of the |i|'th member of |S|.
 * <dfn noexport>SizeOf</dfn>(|T|) is the [=byte-size=] of |T|.
 * <dfn noexport>SizeOfMember</dfn>(|S|, |i|) is the size of the |i|'th member of |S|.
@@ -10814,7 +10919,8 @@ and |A| is a host-shareable or fixed footprint array or runtime-sized array:
 
 ### Alignment and Size ###  {#alignment-and-size}
 
-Each [=host-shareable=] or [=fixed footprint=] data type |T| has an alignment and size.
+Each [=host-shareable=] or [=fixed footprint=] data type |T| has a size.
+Except for [=buffer=] types, each host-shareable or fixed footprint type has an alignment.
 
 The <dfn>alignment</dfn> of a type is a constraint on where values of that type
 may be placed in memory, expressed as an integer:
@@ -10945,7 +11051,16 @@ following table:
       <td>[=AlignOf=](|E|)
       <td>[=NRuntime=] &times; [=roundUp=]([=AlignOf=](|E|),[=SizeOf=](|E|))<br><br>
           where NRuntime is the runtime-determined number of elements of |T|
+  <tr><td>[=buffer=]<|N|>
+      <td>*N/A*
+      <td>|N|
+  <tr><td>buffer
+      <td>*N/A*
+      <td>The size of the attached WebGPU {{GPUBuffer}}
 </table>
+
+Note: The alignment of [=buffer=] types is irrelevant since they cannot be
+contained in any other type.
 
 <div class=note id="why-is-bool-4-bytes">
 <span class=marker>Note:</span>
@@ -11108,6 +11223,9 @@ This section describes how the internals of a [=host-shareable=] value are place
 of a buffer, given an assumed placement of the overall value.
 These layouts depend on the value's type,
 and the [=attribute/align=] and [=attribute/size=] attributes on structure members.
+These rules apply to [=opaque|non-opaque=] types as described below; values of
+[=buffer=] type do not have an internal structure, and are not constrained by
+these rules.
 
 The buffer byte offset at which a value is placed [=shader-creation
 error|must=] satisfy the type alignment requirement: If a value of type |T| is
@@ -11191,7 +11309,7 @@ then:
 ### Address Space Layout Constraints ###  {#address-space-layout-constraints}
 
 The [=address spaces/storage=] and [=address spaces/uniform=] address spaces
-have different buffer layout constraints which are described in this section.
+have different layout constraints which are described in this section.
 
 All [=address spaces=] except [=address spaces/uniform=] have the same
 constraints as the [=address spaces/storage=] address space.
@@ -11240,8 +11358,11 @@ used in address space |C|.
   <tr algorithm="alignment of an runtime-sized array">
       <td>[=array=]&lt;T&gt;
       <td>[=AlignOf=](|S|)<br>
-      Disallowed if |C| is [=address spaces/uniform=]
-      <td>Disallowed
+      Disallowed if |C| is [=address spaces/uniform=] except as the result of a
+      [[#buffer-view-builtin-functions|buffer_view built-in function]]
+      <td>[=roundUp=](16, [=AlignOf=](|S|))<br>
+      Disallowed except as the result of a
+      [[#buffer-view-builtin-functions|buffer_view built-in function]]
   <tr algorithm="alignment of a structure">
       <td>[=structure|struct=] |S|
       <td>[=AlignOf=](|S|)
@@ -12629,6 +12750,18 @@ of a [=composite=] type separately.
           [=LHSValue=]: (*CF*, *e2*) => *L2*
       <td class="nowrap">*L2*
       <td class="nowrap">*L2* -> *V1*
+   <tr><td>*f*`()`<br>Function call expression without arguments
+       <td>
+       <td>Invoke [[#uniformity-function-calls|function call analysis]]:<br>
+                [=LHSValue=]: (*CF*, *f*()) => [=Result=]
+       <td>*Result*
+       <td>
+   <tr><td>*f*`(`*e1*,...,*eN*`)`<br>Function call expression with arguments
+       <td>
+       <td>Invoke [[#uniformity-function-calls|function call analysis]]:
+                [=LHSValue=]: (*CF*, *f*(*e1*,...,*eN*)) => [=Result=]
+       <td>*Result*
+       <td>
 </table>
 
 ### Annotating the Uniformity of Every Point in the Control-flow ### {#uniformity-optional-diagnosis-mode}
@@ -13974,7 +14107,7 @@ The zero values are as follows:
 * The zero value of an [=AbstractFloat=] is 0.0.
 
 Note: WGSL does not have zero built-in functions for [=atomic types=],
-[=runtime-sized=] arrays, or other types that are not [=constructible=].
+[=runtime-sized=] arrays, buffers, or other types that are not [=constructible=].
 
 <table class='data builtin'>
   <tr><td style="width:10%">Overload
@@ -15045,17 +15178,30 @@ The internal layout rules are described in [[#internal-value-layout]].
     <td style="width:10%">Overload
     <td class="nowrap">
       <xmp highlight=wgsl>
-        @must_use fn arrayLength(p: ptr<storage, array<E>, AM>) -> u32
+        @must_use fn arrayLength(p: ptr<AS, array<E>, AM>) -> u32
       </xmp>
   <tr>
     <td style="width:10%">Parameterization
-    <td>`E` is an element type for a [=runtime-sized=] array,<br>
-        [=access mode=] `AM` is [=access/read=] or [=access/read_write=]
+    <td>`E` is an element type for a [=runtime-sized=] array.<br>
+        `AS` is one of [=address spaces/storage=], [=address spaces/uniform=],
+        or [=address spaces/workgroup=].<br>
+        [=access mode=] `AM` is [=access/read=] or [=access/read_write=] and
+        [=shader-creation error|must=] be valid for `AS`.
+
+        Note: `AS` can only be [=address spaces/uniform=] or [=address
+        spaces/workgroup=] when `p` is derived from the result of a
+        [[#bufferview-builtin|bufferView]] or
+        [[#bufferarrayview-builtin|bufferArrayView]] built-in function.
   <tr>
     <td>Description
     <td>Returns [=NRuntime=], the number of elements in the [=runtime-sized=] array.
 
         See [[#buffer-binding-determines-runtime-sized-array-element-count]]
+
+        When `p` is derived from a [[#bufferview-builtin|bufferView]] or
+        [[#bufferarrayview-builtin|bufferArrayView]] built-in function,
+        [=NRuntime=] is based on the size of the [=buffer=] as determined by
+        the analysis in [[#buffer-view-builtin-functions]].
 </table>
 
 <div class='example wgsl global-scope' heading='Getting the number of elements in a runtime-sized array'>
@@ -20078,6 +20224,418 @@ Both of these scopes are larger than [=quad=].
     * IDs 0 and 2 swap.
     * IDs 1 and 3 swap.
 </table>
+
+## Buffer View Built-in Functions ## {#buffer-view-builtin-functions}
+
+These functions all require the [=language_extension/buffer_view=] language feature.
+
+These functions operate on a pointer to a [=buffer=].
+[[#bufferview-builtin|bufferView]] and
+[[#bufferarrayview-builtin|bufferArrayView]] reinterpret the opaque data in the
+buffer into another [=host-shareable=] data type.
+The resulting pointer can then be used like other pointers.
+
+Define <dfn noexport>ArrayOffset</dfn>(|T|) as:
+* [=OffsetOfMember=](|T|, <var ignore>lastMemberIndex</var>), if |T| is a [=structure=] whose
+    last member is a [=runtime-sized|runtime-sized array=] (array<|E|>)
+* 0, otherwise
+
+Define <dfn noexport>MinTypeSize</dfn>(|T|) as:
+* [=SizeOf=](|T|), if |T| has a [=fixed footprint=]
+* [=StrideOf=](|T|), if |T| is a [=runtime-sized|runtime-sized array=]
+* [=ArrayOffset=](|T|) + [=StrideOf=](array<|E|>) if
+    |T| is a [=structure=] whose last member is a [=runtime-sized|runtime-sized array=]
+
+Since buffer pointer arguments to [=function calls=] can undergo [=feasible
+automatic conversion|automatic conversion=] to the [=formal
+parameter|parameter's=] type, implementations [=behavioral requirement|will=]
+use interprocedural analysis to check for both [=invalid memory references=]
+and ensure correct results.
+The buffer size used for any buffer view built-in function is the minimum
+buffer size encountered for the particular [=originating variable=] used with
+the call.
+Because this is a dynamic concept, implementations [=behavioral
+requirement|will=] ensure that this value is correctly determined for a
+particular instance of the built-in function.
+The size will be the minimum of:
+* The size of the [=originating variable=], or
+* The minimum [=fixed-size buffer=] encountered as a [=formal parameter=] in
+    the call stack.
+
+Note: If the implementation does not support the
+[=language_extension/unrestricted_pointer_parameters=] language feature then
+the [=root identifier=] of the argument to the built-in function must be the
+[=originating variable=].
+
+Note: Buffer sizes cannot be made larger as they are passed to functions.
+
+### `bufferView` ### {#bufferview-builtin}
+
+<table class='data builtin'>
+  <tr algorithm="bufferView unsized">
+    <td style="width:10%">Overloads
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @must_use fn bufferView<T>(p : ptr<AS, buffer, AM>, offset: I) -> ptr<AS, T, AM>
+      </xmp>
+
+  <tr>
+    <td>Preconditions
+    <td>
+    `AS` is one of [=address spaces/storage=], [=address spaces/uniform=], or
+    [=address spaces/workgroup=].<br>
+    `AM` is a valid [=access mode=] for `AS`.<br>
+
+    `T` is a [=host-shareable=] type.<br>
+    `T` [=shader-creation error|must not=] be or contain an [=atomic
+    type|atomic=] or [=buffer=] type.<br>
+    `T` [=shader-creation error|must=] satisfy the
+    [[#address-space-layout-constraints|address space layout constraints]] for
+    `AS`.
+
+    `I` is [=u32=] or [=i32=].
+  <tr>
+    <td>Description
+    <td>
+    Reinterpret the [=memory view=] `offset` bytes from the start of `p` as the type `T`.
+    That is, if the [=memory locations=] associated with `p` are in the range
+    [0, `bufferLength(p)`), then the resulting [=memory locations=] associated
+    with the result are in the range [`offset`, `bufferLength(p)`) with the
+    store type `T`.
+
+    If `I` is [=i32=], then:
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=] < 0.
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=] < 0.
+    * Otherwise, an [=indeterminate value=] for `I` may be used.
+
+    An [=invalid pointer=] is returned if [=MinTypeSize=](`T`) +
+    `offset` > [[#bufferlength-builtin|bufferLength]](`p`).
+
+    If `offset` % [=RequiredAlignOf=](`T`, `AS`) != 0, then:
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=].
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=].
+    * A value of `offset` & ~([=RequiredAlignOf=](`T`, `AS`) - 1)
+        [=behavioral requirement|will=] be used for `offset`.
+
+    Note: This interacts with the
+    [=language_extension/uniform_buffer_standard_layout=] language feature.
+</table>
+
+<table class='data builtin'>
+  <tr algorithm="bufferView sized">
+    <td style="width:10%">Overloads
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @must_use fn bufferView<T>(p : ptr<AS, buffer<N>, AM>, offset: I) -> ptr<AS, T, AM>
+      </xmp>
+
+  <tr>
+    <td>Preconditions
+    <td>
+    `AS` is one of [=address spaces/storage=], [=address spaces/uniform=], or
+    [=address spaces/workgroup=].<br>
+    `AM` is a valid [=access mode=] for `AS`.<br>
+
+    `T` is a [=host-shareable=] type.<br>
+    `T` [=shader-creation error|must not=] be or contain an [=atomic
+    type|atomic=] or [=buffer=] type.<br>
+    `T` [=shader-creation error|must=] satisfy the
+    [[#address-space-layout-constraints|address space layout constraints]] for
+    `AS`.
+
+    `I` is [=u32=] or [=i32=].
+  <tr>
+    <td>Description
+    <td>
+    Reinterpret the [=memory view=] `offset` bytes from the start of `p` as the type `T`.
+    That is, if the [=memory locations=] associated with `p` are in the range
+    [0, `bufferLength(p)`), then the resulting [=memory locations=] associated
+    with the result are in the range [`offset`, `bufferLength(p)`) with the
+    store type `T`.
+
+    If `I` is [=i32=], then:
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=] < 0.
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=] < 0.
+    * Otherwise, an [=indeterminate value=] for `I` may be used.
+
+    An [=invalid memory reference=] is returned if [=MinTypeSize=](`T`) +
+    `offset` > `N`.
+    * It is a [=shader-creation error=] if [=MinTypeSize=](`T`) > `N`.
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=].
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=].
+
+    If `offset` % [=RequiredAlignOf=](`T`, `AS`) != 0, then:
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=].
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=].
+    * A value of `offset` & ~([=RequiredAlignOf=](`T`, `AS`) - 1)
+        [=behavioral requirement|will=] be used for `offset`.
+
+    Note: This interacts with the
+    [=language_extension/uniform_buffer_standard_layout=] language feature.
+</table>
+
+<div class='example wgsl' heading='WGSL bufferView usage'>
+  <xmp highlight=wgsl>
+  requires buffer_view;
+
+  @group(0) @binding(0) var<storage> in : buffer;
+  @group(0) @binding(1) var<storage, read_write> out : buffer;
+
+  struct S {
+    a : mat3x3f,
+    b : vec2f,
+  }
+
+  fn foo(offsets : array<u32, 4>) {
+    // Read and write some of the data as vec4u.
+    let p1 = bufferView<vec4u>(&in, offsets[0]);
+    *bufferView<vec4u>(&out, offsets[1]) = *p1;
+
+    // Read and write some of the other data via a structure.
+    let p2 = bufferView<array<S, 2>>(&in, offsets[2]);
+    let v = (*p2)[1].a;
+    *bufferView<mat3x3f>(&out, offsets[3]) = v;
+  }
+  </xmp>
+</div>
+
+### `bufferArrayView` ### {#bufferarrayview-builtin}
+
+<table class='data builtin'>
+  <tr algorithm="bufferArrayView unsized">
+    <td style="width:10%">Overloads
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @must_use fn bufferArrayView<T>(p : ptr<AS, buffer, AM>,
+                                        offset: OI, size: SI) -> ptr<AS, T, AM>
+      </xmp>
+
+  <tr>
+    <td>Preconditions
+    <td>
+    `AS` is one of [=address spaces/storage=], [=address spaces/uniform=], or
+    [=address spaces/workgroup=].<br>
+    `AM` is a valid [=access mode=] for `AS`.<br>
+
+    `T` is a [=host-shareable=] type without a [=fixed footprint=].<br>
+    `T` [=shader-creation error|must not=] be nor contain an [=atomic type|atomic=]
+    or [=buffer=] type.<br>
+    `T` [=shader-creation error|must=] satisfy the
+    [[#address-space-layout-constraints|address space layout constraints]] for
+    `AS`.
+
+    `OI` is [=u32=] or [=i32=].<br>
+    `SI` is [=u32=] or [=i32=].
+  <tr>
+    <td>Description
+    <td>
+    Reinterpret the [=memory view=] `offset` bytes from the start of `p` for `size`
+    bytes as the type `T`.
+    That is, if the [=memory locations=] associated with `p` are in the range
+    [0, `bufferLength(p)`), then the resulting [=memory locations=] associated
+    with the result are in the range [`offset`, `offset + size`) with the store
+    type `T`.
+
+    If `OI` is [=i32=], then:
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=] < 0.
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=] < 0.
+    * Otherwise, an [=indeterminate value=] for `OI` may be used.
+
+    If `SI` is [=i32=], then:
+    * It is a [=shader-creation error=] if `size` is a [=const-expression=] < 0.
+    * It is a [=pipeline-creation error=] if `size` is an [=override-expression=] < 0.
+    * Otherwise, an [=indeterminate value=] for `SI` may be used.
+
+    An [=invalid memory reference=] is returned if [=MinTypeSize=](`T`) > `size`.
+    * It is a [=shader-creation error=] if `size` is a [=const-expression=]
+        (using 0 for `offset` if it is not).
+    * It is a [=pipeline-creation error=] if `size` is an [=override-expression=]
+        (using 0 for `offset` if it is not).
+
+    An [=invalid memory reference=] is returned if `offset` + `size` >
+    [[#bufferlength-builtin|bufferLength]](`p`).
+
+    If `offset` % [=RequiredAlignOf=](`T`, `AS`) != 0, then:
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=].
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=].
+    * A value of `offset` & ~([=RequiredAlignOf=](`T`, `AS`) - 1)
+        [=behavioral requirement|will=] be used for `offset`.
+
+    Note: This interacts with the
+    [=language_extension/uniform_buffer_standard_layout=] language feature.
+
+    If (`size` - [=ArrayOffset=](`T`)) % [=StrideOf=](`array<E>`) != 0, then:
+    * It is a [=shader-creation error=] if `size` is a [=const-expression=].
+    * It is a [=pipeline-creation error=] if `size` is an [=override-expression=].
+    * A value of [=roundDown=]([=StrideOf=](`array<E>`), `size` - [=ArrayOffset=](`T`))
+        &plus; [=ArrayOffset=](`T`) [=behavioral requirement|will=] be used for `size`.
+
+</table>
+
+<table class='data builtin'>
+  <tr algorithm="bufferArrayView sized">
+    <td style="width:10%">Overloads
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @must_use fn bufferArrayView<T>(p : ptr<AS, buffer<N>, AM>,
+                                        offset: OI, size: SI) -> ptr<AS, T, AM>
+      </xmp>
+
+  <tr>
+    <td>Preconditions
+    <td>
+    `AS` is one of [=address spaces/storage=], [=address spaces/uniform=], or
+    [=address spaces/workgroup=].<br>
+    `AM` is a valid [=access mode=] for `AS`.<br>
+
+    `T` is a [=host-shareable=] type without a [=fixed footprint=].<br>
+    `T` [=shader-creation error|must not=] be nor contain an [=atomic type|atomic=]
+    or [=buffer=] type.<br>
+    `T` [=shader-creation error|must=] satisfy the
+    [[#address-space-layout-constraints|address space layout constraints]] for
+    `AS`.
+
+    `OI` is [=u32=] or [=i32=].<br>
+    `SI` is [=u32=] or [=i32=].
+  <tr>
+    <td>Description
+    <td>
+    Reinterpret the [=memory view=] `offset` bytes from the start of `p` for `size`
+    bytes as the type `T`.
+    That is, if the [=memory locations=] associated with `p` are in the range
+    [0, `bufferLength(p)`), then the resulting [=memory locations=] associated
+    with the result are in the range [`offset`, `offset + size`) with the store
+    type `T`.
+
+    If `OI` is [=i32=], then:
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=] < 0.
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=] < 0.
+    * Otherwise, an [=indeterminate value=] for `OI` may be used.
+
+    If `SI` is [=i32=], then:
+    * It is a [=shader-creation error=] if `size` is a [=const-expression=] < 0.
+    * It is a [=pipeline-creation error=] if `size` is an [=override-expression=] < 0.
+    * Otherwise, an [=indeterminate value=] for `SI` may be used.
+
+    An [=invalid memory reference=] is returned if [=MinTypeSize=](`T`) > `size`.
+    * It is a [=shader-creation error=] if `size` is a [=const-expression=]
+        (using 0 for `offset` if it is not).
+    * It is a [=pipeline-creation error=] if `size` is an [=override-expression=]
+        (using 0 for `offset` if it is not).
+
+    An [=invalid memory reference=] is returned if `offset` + `size` > `N`.
+    * It is a [=shader-creation error=] if either `offset` or `size` is a [=const-expression=]
+        (using 0 if a parameter is not).
+    * It is a [=pipeline-creation error=] if either `offset` or `size` is an [=override-expression=]
+        (using 0 if a parameter is not).
+
+    If [=MinTypeSize=](`T`) > `N`, then:
+    * It is a [=shader-creation error=] if `N` is a [=const-expression=].
+    * It is a [=pipeline-creation error=] if `N` is an [=override-expression=].
+
+    If `offset` % [=RequiredAlignOf=](`T`, `AS`) != 0, then:
+    * It is a [=shader-creation error=] if `offset` is a [=const-expression=].
+    * It is a [=pipeline-creation error=] if `offset` is an [=override-expression=].
+    * A value of `offset` & ~([=RequiredAlignOf=](`T`, `AS`) - 1)
+        [=behavioral requirement|will=] be used for `offset`.
+
+    Note: This interacts with the
+    [=language_extension/uniform_buffer_standard_layout=] language feature.
+
+    If (`size` - [=ArrayOffset=](`T`)) % [=StrideOf=](`array<E>`) != 0, then:
+    * It is a [=shader-creation error=] if `size` is a [=const-expression=].
+    * It is a [=pipeline-creation error=] if `size` is an [=override-expression=].
+    * A value of [=roundDown=]([=StrideOf=](`array<E>`), `size` - [=ArrayOffset=](`T`))
+        &plus; [=ArrayOffset=](`T`) [=behavioral requirement|will=] be used for `size`.
+
+</table>
+
+<div class='example wgsl' heading='WGSL bufferArrayView usage'>
+  <xmp highlight=wgsl>
+    requires buffer_view;
+
+    const stride = 32;
+    const N = 4;
+    const size = 2048;
+    const_assert stride * N < size;
+
+    struct strided_u32 {
+      @size(stride) a : u32,
+    }
+
+    @group(0) @binding(0) var<uniform> in : buffer<size>;
+    @group(0) @binding(1) var<storage, read_write> out: array<u32, N>;
+
+    fn foo(offsets : u32) {
+      // Read a strided array from in and copy it unstrided to out.
+      var tmp : array<u32, N>;
+      let view = bufferArrayView<array<strided_u32>>(&in, offset, stride * N);
+      for (var i = 0; i < N; i++) {
+        tmp[i] = (*view)[i];
+      }
+      out = tmp;
+    }
+  </xmp>
+</div>
+
+### `bufferLength` ### {#bufferlength-builtin}
+
+<table class='data builtin'>
+  <tr algorithm='bufferLength'>
+    <td style="width:10%">Overloads
+    <td>
+      <xmp highlight=wgsl>
+        @must_use fn bufferLength(p : ptr<AS, buffer,    AM>) -> u32
+        @must_use fn bufferLength(p : ptr<AS, buffer<N>, AM>) -> u32
+      </xmp>
+  <tr>
+    <td>Preconditions
+    <td>
+    `AS` is one of [=address spaces/storage=], [=address spaces/uniform=], or
+    [=address spaces/workgroup=].<br>
+    `AM` is a valid [=access mode=] for `AS`.
+  <tr>
+    <td>Description
+    <td>
+    Returns the minimum size of the [=buffer=] pointed to by `p` encountered
+    during the interprocedural analysis, or the size of the WebGPU {{GPUBuffer}}
+    if only [=runtime-sized buffers=] were encountered.
+</table>
+
+<div class='example wgsl' heading="bufferLength values">
+  <xmp highlight=wgsl>
+    requires buffer_view;
+    requires unrestricted_pointer_parameters;
+
+    @group(0) @binding(0) var<storage> b1 : buffer<2048>;
+    @group(0) @binding(0) var<storage> b2 : buffer<4096>;
+
+    fn foobar(p : ptr<storage, buffer>) -> u32 {
+      return bufferLength(p);
+    }
+    fn bar(p : ptr<storage, buffer<1024>>) -> u32 {
+      return foobar(p);
+    }
+    fn foo(p : ptr<storage, buffer<256>>) -> u32 {
+      return bufferLength(p);
+    }
+
+    @compute @workgroup_size(1)
+    fn main() {
+      let len1 = bufferLength(&b1); // 2048
+      let len2 = bufferLength(&b2); // 4096
+
+      let len3 = foo(&b1); // 256
+      let len4 = foo(&b2); // 256
+
+      let len5 = bar(&b1); // 1024
+      let len6 = bar(&b2); // 1024
+
+      let len7 = foobar(&b1); // 2048
+      let len8 = foobar(&b2); // 4096
+    }
+  </xmp>
+</div>
 
 # Grammar for Recursive Descent Parsing # {#grammar-recursive-descent}
 
