@@ -37,6 +37,7 @@ No enums in SPIR-V.
 ### Language Extension
 
 | Name    | Description |
+| ------- | ----------- |
 | `enums` | Adds the ability to declare `enum`'s and have `enum`s be a valid type identifier |
 
 ### Example Usage
