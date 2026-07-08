@@ -130,7 +130,7 @@ integer type).
 The enum values can be used in `==` and `!=` operations. The left-hand side and right-hand side of
 the operation must both be of the enum type. (i.e. you can't do `MyBitmask.a == 0x01`).
 
-An `enum`, but not `enum bitmask, would` also support the comparison operators `<`, `>`, `<=`, and
+An `enum`, but not `enum bitmask`, would also support the comparison operators `<`, `>`, `<=`, and
 `>=` comparing against the values in the entries. The `enum bitmask` does not provide these extra
 operators as the values do not provide the same meanings.
 
@@ -157,7 +157,7 @@ value are bits in the values of the enum.
 * If we know the underlying value at shader creation, it is a shader creation error if these rules
   are violated
 * For `override` conversion values it will be a pipeline creation error if the rules are violated
-* Otherwise, it's a dynamic error if the rules are violated. For a dynamic error, *an indeterminate*
+* Otherwise, it's a dynamic error if the rules are violated. For a dynamic error, an *indeterminate*
   value from the enum will be returned by the cast, it can be any value.
   * For a regular `enum` this means we'll have to do a `value == MyEnum.a || value == MyEnum.b` check
   * If the `enum` range is dense the check can be `min(maxValue, max(minValue, value))`
@@ -178,7 +178,7 @@ zeros all bits).
 * Each name in an `enum` must be unique in that enum
 * Each value in an `enum`  must be the same type as the underlying type (note, this means that
   automatic feasible conversions will occur)
-* Each `expression` used as a value must be a `const_expression`
+* Each `expression` used as a value must be a `const-expression`
 * Each value in an `enum bitmask` must be either:
   * A power of 2 value in the `enum`
   * Or, a combination of bits in the other values, no new bits may be introduced
