@@ -229,8 +229,9 @@ A switch is not required to list all entries in the enum, a `default` will cover
 ## Grammar
 
 ```ebnf
-enum_decl:
-  attribute 'enum' ident ':' type_specifier '{' enum_entries '}'
+enum_decl
+  : attribute 'enum' ident ':' type_specifier '{' enum_entries '}'
+  | attribute 'enum' 'bitmask' ident ':' type_specifier '{' enum_entries '}'
 
 enum_entries:
   enum_entry (',' enum_entry)* ','?
