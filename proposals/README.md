@@ -68,6 +68,7 @@ draft implementation, for developers who want to test this proposal.
 * [bindless-filterability-validation](bindless-filterability-validation.md)
 * [view-instancing](view-instancing.md)
 * [multisampled-array-textures](multisampled-array-textures.md)
+* [enums](enums.md)
 
 ### Status: Inactive
 
