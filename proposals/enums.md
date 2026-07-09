@@ -163,6 +163,24 @@ value are bits in the values of the enum.
   * If the `enum` range is dense the check can be `min(maxValue, max(minValue, value))`
   * For a `enum bitmask` we need to do a `value & All_Bits_From_MyEnum == value`
 
+When converting into an enum, the conversion rules for the underlying type would apply to the value
+passed into the constructor.
+
+```wgsl
+enum MyEnum : u32 {
+  Val1 = 1,
+}
+
+fn foo() {
+  let a = MyEnum(1i);      // expected to fail -- no implicit conversion from i32 to u32
+  let b = MyEnum(u32(1i)); // expected to pass -- explicit cast to u32
+  let c = MyEnum(1);       // expected to pass -- AbstractInt -> u32
+}
+```
+
+* **Q:** Is the requirement for the explicit conversion here just extra noise? Should there be some
+         kind of implicit conversion permitted in the constructors?
+
 ## Zero Initialization
 
 When an enum is used in a zero-initialized `var`, (e.g. one in `workgroup` or used without an
