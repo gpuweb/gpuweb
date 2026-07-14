@@ -42,9 +42,9 @@ Always refer to the specifications as the source of truth.
 * [immediate-data](immediate-data.md)
 * [texture-component-swizzle](texture-component-swizzle.md)
 * [primitive-index](primitive-index.md)
+* [buffer-view](buffer-view.md)
 * [transient-attachments](transient-attachments.md)
 * [subgroup-size-control](subgroup-size-control.md)
-* [buffer-view](buffer-view.md)
 
 ### Status: Draft
 
