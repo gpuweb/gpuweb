@@ -378,8 +378,8 @@ Note: This interacts with the `buffer_view` language feature.
 When `p` is the result of a `bufferView` or `bufferArrayView` built-in function
 call there are additional constraints on the size of the originating variable.
 If the store type of the result is a structure whose last member is a
-runtime-sized array, the offset to the contributes to the required size for the
-variable.
+runtime-sized array, the offset to array the contributes to the required size
+for the variable.
 
 Note: This allows implementations to clamp parameters instead of relying on
 predicated control flow.
