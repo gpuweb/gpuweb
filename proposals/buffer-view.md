@@ -1,6 +1,6 @@
 # Buffer View
 
-* Status: [Draft](README.md#status-draft)
+* Status: [Merged](README.md#status-merged)
 * Created: 2025-10-20
 * Issue: [#5338](https://github.com/gpuweb/gpuweb/issues/5338)
 
