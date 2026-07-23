@@ -722,7 +722,7 @@ const kHouseTexture = 1u;
 #### Bindless GPUBindGroups
 
 A previous version of the proposal added a "dynamic binding array" concept to `GPUBindGroup`, declared in the `GPUBindGroupLayoutDescriptor` with a starting binding and resource kind.
-The `GPUBindGroupDescriptor` had a creation argument that would decide of the size of the binding array and `GPUBindGroup` gained all the `destroy/update/insertn/remove` methods that are on `GPUResourceTable`.
+The `GPUBindGroupDescriptor` had a creation argument that would decide of the size of the binding array and `GPUBindGroup` gained all the `destroy/update/insert/remove` methods that are on `GPUResourceTable`.
 In the shader the binding array could be accessed with `@group(N) @binding(M) var resources : resource_binding`.
 
 Discussion in [#5372](https://github.com/gpuweb/gpuweb/issues/5372) and offline determined that the `GPUResourceTable` approach was preferable because:
