@@ -28,7 +28,9 @@ partitioning a variable into multiple logical variables.
 
 This example is derived from the [WebGPU Samples Wireframe](https://github.com/webgpu/webgpu-samples/pull/568).
 
-Without buffer_view, variables in WGSL have a static type that cannot be reintrepted.
+Without buffer_view, variables in WGSL have a static type that cannot be reinterpreted.
+The value stored in a WGSL variable has a single static type that cannot be
+reinterpreted before a memory access occurs.
 Additionally, WGSL can only have a single runtime-sized portion of a storage buffer.
 So let's say there was a shader with the following (partial) interface:
 ```rust
@@ -36,12 +38,12 @@ So let's say there was a shader with the following (partial) interface:
 @group(0) @binding(1) var<storage> vertices : array<f32>;
 ```
 
-These variable are difficult to combine into a single binding unless the data can be sized statically.
+These variables are difficult to combine into a single binding unless the data can be sized statically.
 That static sizing may result in inefficient memory usage because WebGPU would
 require either two GPUBuffers or a single buffer where the second binding has
 an offset satisfying `minStorageBufferOffsetAlignment` (typically 256 bytes).
 
-So in using a single GPUBuffer would look something like:
+So using a single GPUBuffer would look something like:
 ```javascript
 function RoundUp(align, value) { ... }
 
@@ -74,8 +76,8 @@ Those two bindings can be combined:
 fn foo() {
   let indices_size = *bufferView<u32>(&indices_and_vertices, 0);
 
-  let indices_ptr = bufferArrayView<array<u32>(&indices_and_vertices, 4, indices_size);
-  let vertices_ptr = bufferView<array<f32>(&indices_and_vertices, indices_size + 4);
+  let indices_ptr = bufferArrayView<array<u32>>(&indices_and_vertices, 4, indices_size);
+  let vertices_ptr = bufferView<array<f32>>(&indices_and_vertices, indices_size + 4);
 
   // Use indices_ptr and vertices_ptr like the old indices and vertices variables.
 }
