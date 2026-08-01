@@ -369,7 +369,7 @@ Define `MinorSize(T, Majorness)` as:
 For both load and store built-in functions the pointer `p` must encompass
 enough memory locations (i.e. point to a large enough amount of bytes) to
 access a minimally sized subgroupMatrix.
-For a subgroup matix with `M` rows, `N` columns, and a component type `C`, define `MinStorageSize(T)` as `M * N * Size(C)`.
+For a subgroup matix with `M` rows, `N` columns, and a component type `C`, define `MinStorageSize(T)` as `M * N * SizeOf(C)`.
 This requirement translates to a minimum required variable size.
 For workgroup variables it is the size of the variable.
 For storage variables it constrains the minimum binding size.
@@ -387,14 +387,13 @@ predicated control flow.
 **Overload**:
 ```rust
 @must_use fn
-subgroupMatrixLoad<T, Majorness>(p : ptr<AS, SA, AM>,
+subgroupMatrixLoad<T, Majorness>(p : ptr<AS, A, AM>,
                                  offset : u32,
                                  stride : u32) -> T
-```
 
 **Preconditions**:<br>
 T is a subgroup matrix type with component type C and shader scalar type S.<br>
-SA is an array with type S.<br>
+A is an array with a scalar or vector numeric type, SA.<br>
 AS is storage or workgroup.<br>
 AM is read or read_write.
 
@@ -405,24 +404,28 @@ Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove p, offset, or stride are subgroup uniform
 values.
 
-stride counts elements of the array SA.
+stride counts elements of the array A.
 
-If `stride * SizeOf(S) < MinorSize(T, Majorness) * SizeOf(T)`, then:
+If `stride * SizeOf(SA) < MinorSize(T, Majorness) * SizeOf(C)`, then:
 * It is a shader-creation error if `stride` is a const-expression
 * It is a pipeline-creation error if `stride` is an override-expression
 * It is a dynamic error otherwise
 
-If SA is a fixed-size array with element count `N` and
-`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N * SizeOf(S) / SizeOf(C)` then:
+If A is a fixed-size array with element count `N` and
+`(offset + stride * (MajorSize(T, Majorness - 1)) * SizeOf(SA) + MinorSize(T, Majorness) * SizeOf(C) > N * SizeOf(SA)`, then:
 * It is a shader-creation error if `N` is a const-expression and
-    `offset` or `stride` is a const-expression (using 0 if either is not)
+    `offset` or `stride` is a const-expression.
+    * Use 0 for `offset` if it is not a const-expression
+    * Use `RoundUp(SizeOf(SA), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not a const-expression
 * It is a pipeline-creation error if `N` is an override-expression and
-    `offset` or `stride` is an override-expression (using 0 if either is not)
+    `offset` or `stride` is an override-expression
+    * Use 0 for `offset` if it is not an override-expression
+    * Use `RoundUp(SizeOf(SA), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not an override-expression
 * It is a dynamic error otherwise
 
 **Overload**:<br>
 ```rust
-fn subgroupMatrixStore<Majorness>(p : ptr<AS, SA, AM>,
+fn subgroupMatrixStore<Majorness>(p : ptr<AS, A, AM>,
                                   offset : u32,
                                   value : T,
                                   stride : u32)
@@ -430,7 +433,7 @@ fn subgroupMatrixStore<Majorness>(p : ptr<AS, SA, AM>,
 
 **Preconditions**:<br>
 T is a subgroup matrix type with component type C and scalar shader type S.<br>
-SA is an array with element type S.<br>
+A is an array with a scalar or vector numeric type, SA.<br>
 AS is storage or workgroup.<br>
 AM is write or read_write.
 
@@ -441,19 +444,23 @@ Triggers a `subgroup_matrix_uniformity` diagnostic if
 uniformity analysis cannot prove p, offset, value, or stride are subgroup
 uniform values.
 
-stride counts elements of the array SA.
+stride counts elements of the array A.
 
-If `stride * SizeOf(S) < MinorSize(T, Majorness) * SizeOf(T)`, then:
+If `stride * SizeOf(SA) < MinorSize(T, Majorness) * SizeOf(C)`, then:
 * It is a shader-creation error if `stride` is a const-expression
 * It is a pipeline-creation error if `stride` is an override-expression
 * It is a dynamic error otherwise
 
-If SA is a fixed-size array with element count `N` and
-`offset + stride * (MajorSize(T, Majorness) - 1) + MinorSize(T, Majorness) > N * SizeOf(S) / SizeOf(C)` then:
+If A is a fixed-size array with element count `N` and
+`(offset + stride * (MajorSize(T, Majorness - 1)) * SizeOf(SA) + MinorSize(T, Majorness) * SizeOf(C) > N * SizeOf(SA)`, then:
 * It is a shader-creation error if `N` is a const-expression and
-    `offset` or `stride` is a const-expression (using 0 if either is not)
+    `offset` or `stride` is a const-expression
+    * Use 0 for `offset` if it is not a const-expression
+    * Use `RoundUp(SizeOf(SA), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not a const-expression
 * It is a pipeline-creation error if `N` is an override-expression and
-    `offset` or `stride` is an override-expression (using 0 if either is not)
+    `offset` or `stride` is an override-expression
+    * Use 0 for `offset` if it is not an override-expression
+    * Use `RoundUp(SizeOf(SA), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not an override-expression
 * It is a dynamic error otherwise
 
 ##### Matrix arithmetic functions
