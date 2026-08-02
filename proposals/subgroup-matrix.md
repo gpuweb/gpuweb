@@ -406,21 +406,21 @@ values.
 
 stride counts elements of the array A.
 
-If `stride * SizeOf(SA) < MinorSize(T, Majorness) * SizeOf(C)`, then:
+If `stride * StrideOf(A) < MinorSize(T, Majorness) * SizeOf(C)`, then:
 * It is a shader-creation error if `stride` is a const-expression
 * It is a pipeline-creation error if `stride` is an override-expression
 * It is a dynamic error otherwise
 
 If A is a fixed-size array with element count `N` and
-`(offset + stride * (MajorSize(T, Majorness - 1)) * SizeOf(SA) + MinorSize(T, Majorness) * SizeOf(C) > N * SizeOf(SA)`, then:
+`(offset + stride * (MajorSize(T, Majorness - 1)) * StrideOf(A) + MinorSize(T, Majorness) * SizeOf(C) > N * StrideOf(A)`, then:
 * It is a shader-creation error if `N` is a const-expression and
     `offset` or `stride` is a const-expression.
     * Use 0 for `offset` if it is not a const-expression
-    * Use `RoundUp(SizeOf(SA), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not a const-expression
+    * Use `RoundUp(StrideOf(A), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not a const-expression
 * It is a pipeline-creation error if `N` is an override-expression and
     `offset` or `stride` is an override-expression
     * Use 0 for `offset` if it is not an override-expression
-    * Use `RoundUp(SizeOf(SA), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not an override-expression
+    * Use `RoundUp(StrideOf(A), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not an override-expression
 * It is a dynamic error otherwise
 
 **Overload**:<br>
@@ -446,21 +446,21 @@ uniform values.
 
 stride counts elements of the array A.
 
-If `stride * SizeOf(SA) < MinorSize(T, Majorness) * SizeOf(C)`, then:
+If `stride * StrideOf(A) < MinorSize(T, Majorness) * SizeOf(C)`, then:
 * It is a shader-creation error if `stride` is a const-expression
 * It is a pipeline-creation error if `stride` is an override-expression
 * It is a dynamic error otherwise
 
 If A is a fixed-size array with element count `N` and
-`(offset + stride * (MajorSize(T, Majorness - 1)) * SizeOf(SA) + MinorSize(T, Majorness) * SizeOf(C) > N * SizeOf(SA)`, then:
+`(offset + stride * (MajorSize(T, Majorness - 1)) * StrideOf(A) + MinorSize(T, Majorness) * SizeOf(C) > N * StrideOf(A)`, then:
 * It is a shader-creation error if `N` is a const-expression and
     `offset` or `stride` is a const-expression
     * Use 0 for `offset` if it is not a const-expression
-    * Use `RoundUp(SizeOf(SA), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not a const-expression
+    * Use `RoundUp(StrideOf(A), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not a const-expression
 * It is a pipeline-creation error if `N` is an override-expression and
     `offset` or `stride` is an override-expression
     * Use 0 for `offset` if it is not an override-expression
-    * Use `RoundUp(SizeOf(SA), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not an override-expression
+    * Use `RoundUp(StrideOf(A), MinorSize(T, Majorness) * SizeOf(C))` for `stride` if is not an override-expression
 * It is a dynamic error otherwise
 
 ##### Matrix arithmetic functions
