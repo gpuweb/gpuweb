@@ -182,7 +182,7 @@ Add new types:
         *   The have matching row counts
         *   The have matching column counts
 *   T is the component type and must be one of the entries in the table
-    *   The scalar shader type is the associated type usable in the shader code for scalar operations and data representation in memory
+    *   The scalar shader type is the associated type usable in the shader code for scalar operations
     *   Can be expanded in the future to support more types (e.g. bfloat16) via new enables.
     *   The u8 and i8 cases are predeclared types that are not otherwise usable in WGSL. For layout calculations, they are of size 1 byte and have an alignment requirement of 1 byte.
 
@@ -250,17 +250,14 @@ The builtins do two things:
     where the [0,0]’th element of the matrix is stored.
     Then
     *   For row-major:
-        *   Matrix entry [r,c] maps to the SizeOf(T) bytes located at Base + Stride\*r\*Sizeof(S) + SizeOf(T)\*c,
-            where S is the shader scalar type of T
+        *   Matrix entry [r,c] maps to the SizeOf(T) bytes located at Base + Stride\*r\*StrideOf(A) + SizeOf(T)\*c,
+            where A is the array type in memory
         *   Stride >= number of matrix columns.
     *   For column-major:
-        *   Matrix entry [r,c] maps to the SizeOf(T) bytes located at Base + Stride\*c\*SizeOf(S) + SizeOf(T)\*r,
-            where S is the shader scalar type of T
+        *   Matrix entry [r,c] maps to the SizeOf(T) bytes located at Base + Stride\*c\*StrideOf(A) + SizeOf(T)\*r,
+            where A is the array type in memory
         *   Stride >= number of matrix rows.
-*   Reinterpret data values between the shader scalar type and the external
-    component type T, when those types differ.
-*   Note: `subgroupMatrixLoad` and `subgroupMatrixStore` describe Stride in terms of
-        the external memory array element type.
+*   Reinterpret data values between the matrix component type and memory array element type.
 
 #### Attributes
 
@@ -392,8 +389,9 @@ subgroupMatrixLoad<T, Majorness>(p : ptr<AS, A, AM>,
                                  stride : u32) -> T
 
 **Preconditions**:<br>
-T is a subgroup matrix type with component type C and shader scalar type S.<br>
-A is an array with a scalar or vector numeric type, SA.<br>
+T is a subgroup matrix type with component type C.<br>
+A is an array with an element type SA.<br>
+SA is scalar or vector numeric type.<br>
 AS is storage or workgroup.<br>
 AM is read or read_write.
 
@@ -432,8 +430,9 @@ fn subgroupMatrixStore<Majorness>(p : ptr<AS, A, AM>,
 ```
 
 **Preconditions**:<br>
-T is a subgroup matrix type with component type C and scalar shader type S.<br>
-A is an array with a scalar or vector numeric type, SA.<br>
+T is a subgroup matrix type with component type C.<br>
+A is an array with an element type SA.<br>
+SA is scalar or vector numeric type.<br>
 AS is storage or workgroup.<br>
 AM is write or read_write.
 
