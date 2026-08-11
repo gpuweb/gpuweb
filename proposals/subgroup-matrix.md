@@ -167,6 +167,8 @@ and limited use of some scalar types (u8 and i8).
 Implicitly depends on subgroups.
 WGSL does not require any subgroups enable, but the API does.
 
+Automatically enabled `subgroups` extension.
+
 
 #### Types
 
