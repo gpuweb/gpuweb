@@ -404,6 +404,8 @@ values.
 
 stride counts elements of the array A.
 
+`StrideOf(A)` must be greater than or equal to `SizeOf(C)`.
+
 If `stride * StrideOf(A) < MinorSize(T, Majorness) * SizeOf(C)`, then:
 * It is a shader-creation error if `stride` is a const-expression
 * It is a pipeline-creation error if `stride` is an override-expression
@@ -444,6 +446,8 @@ uniformity analysis cannot prove p, offset, value, or stride are subgroup
 uniform values.
 
 stride counts elements of the array A.
+
+`StrideOf(A)` must be greater than or equal to `SizeOf(C)`.
 
 If `stride * StrideOf(A) < MinorSize(T, Majorness) * SizeOf(C)`, then:
 * It is a shader-creation error if `stride` is a const-expression
