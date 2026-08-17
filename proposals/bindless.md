@@ -547,16 +547,16 @@ This is somewhat similar to the design constraint for buffer mapping, where owne
 ```webidl
 partial interface GPUResourceTable {
     void update(GPUIndex32 slot, GPUBindingResource resource);
-    GPUIndex32 insertBinding(GPUBindingResource resource);
-    void removeBinding(GPUIndex32 slot);
+    GPUIndex32 insert(GPUBindingResource resource);
+    void remove(GPUIndex32 slot);
 };
 ```
 
 Two ways to update the resource tables are exposed to allow both implicit and explicit allocation of resources in the resource table.
-`insertBinding` is simpler to use because it defers to the browser's tracking of which slots may be in use and returns to the user the `slot` it placed the `resource` on (or an exception on failure).
+`insert` is simpler to use because it defers to the browser's tracking of which slots may be in use and returns to the user the `slot` it placed the `resource` on (or an exception on failure).
 On the other hand `update` gives the application control of where it places binding, which may be useful to allocate contiguous ranges, for hardcoded slots, or when porting code manually allocating in D3D12/Metal/Vulkan already.
 
-`GPUQueue` is augmented to have monotonic numbers that can be used to refer to `GPUQueue.submit()` calls and the ones that have been completed for use in the validation of `GPUResourceTable.update/insertBinding/removeBinding`:
+`GPUQueue` is augmented to have monotonic numbers that can be used to refer to `GPUQueue.submit()` calls and the ones that have been completed for use in the validation of `GPUResourceTable.update/insert/remove`:
 
  - An additional state is added to `GPUQueue`:
 
@@ -570,8 +570,8 @@ On the other hand `update` gives the application control of where it places bind
    - `this.onSubmittedWorkDone().then(() => {this.[[completedSubmitIndex]] = submitIndex})`.
 
 This is necessary for resource tables to track when is the last time that a slot may have been used on the GPU.
-It is valid to overwrite a slot only when it can no longer be used on the GPU and both `GPUResourceTable.update` and `GPUResourceTable.insertBinding` use that in their internal logic.
-The user can make a slot no longer possible to use on the GPU using `removeBinding` but because some GPU work might still be in-flight, the slot will only become available later, when current GPU work is completed.
+It is valid to overwrite a slot only when it can no longer be used on the GPU and both `GPUResourceTable.update` and `GPUResourceTable.insert` use that in their internal logic.
+The user can make a slot no longer possible to use on the GPU using `remove` but because some GPU work might still be in-flight, the slot will only become available later, when current GPU work is completed.
 
 Additional internal state is added to `GPUResourceTable`:
 
@@ -595,14 +595,14 @@ Steps for `GPUResourceTable.update(slot, resource)`:
 
    - Set `this.[[resources]][slot]` to `resource`.
 
-Steps for `GPUResourceTable.insertBinding(resource)`:
+Steps for `GPUResourceTable.insert(resource)`:
 
  - Let `slot` be `this.[[availableAfterSubmit]].findIndex((e) => e <= this.[[device]].queue.[[completedSubmitIndex]])`. TODO: [#5466](https://github.com/gpuweb/gpuweb/issues/5466) returning the minimum requires O(log N) operation, returning the freed slots in the order they are freed can be O(1), decide which one to do.
  - If `slot` is `undefined`, throw an `OperationError`.
  - Call `this.update(slot, resource)`.
  - Return `slot`.
 
-Steps for `GPUResourceTable.removeBinding(slot)`:
+Steps for `GPUResourceTable.remove(slot)`:
 
  - If any of the following is not satisfied, throw an `OperationError`:
 
@@ -722,7 +722,7 @@ const kHouseTexture = 1u;
 #### Bindless GPUBindGroups
 
 A previous version of the proposal added a "dynamic binding array" concept to `GPUBindGroup`, declared in the `GPUBindGroupLayoutDescriptor` with a starting binding and resource kind.
-The `GPUBindGroupDescriptor` had a creation argument that would decide of the size of the binding array and `GPUBindGroup` gained all the `destroy/update/insertBinding/removeBinding` methods that are on `GPUResourceTable`.
+The `GPUBindGroupDescriptor` had a creation argument that would decide of the size of the binding array and `GPUBindGroup` gained all the `destroy/update/insert/remove` methods that are on `GPUResourceTable`.
 In the shader the binding array could be accessed with `@group(N) @binding(M) var resources : resource_binding`.
 
 Discussion in [#5372](https://github.com/gpuweb/gpuweb/issues/5372) and offline determined that the `GPUResourceTable` approach was preferable because:

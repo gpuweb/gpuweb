@@ -42,6 +42,7 @@ Always refer to the specifications as the source of truth.
 * [immediate-data](immediate-data.md)
 * [texture-component-swizzle](texture-component-swizzle.md)
 * [primitive-index](primitive-index.md)
+* [buffer-view](buffer-view.md)
 * [transient-attachments](transient-attachments.md)
 * [subgroup-size-control](subgroup-size-control.md)
 
@@ -64,10 +65,10 @@ draft implementation, for developers who want to test this proposal.
 * [subgroup-matrix](subgroup-matrix.md)
 * [fragment-depth](fragment-depth.md)
 * [bindless](bindless.md)
-* [buffer-view](buffer-view.md)
 * [bindless-filterability-validation](bindless-filterability-validation.md)
 * [view-instancing](view-instancing.md)
 * [multisampled-array-textures](multisampled-array-textures.md)
+* [enums](enums.md)
 
 ### Status: Inactive
 

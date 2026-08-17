@@ -1,6 +1,6 @@
 # Buffer View
 
-* Status: [Draft](README.md#status-draft)
+* Status: [Merged](README.md#status-merged)
 * Created: 2025-10-20
 * Issue: [#5338](https://github.com/gpuweb/gpuweb/issues/5338)
 
@@ -16,6 +16,101 @@ This can also serve as a solution to a similar sort of request for workgroup
 memory: [#5136](https://github.com/gpuweb/gpuweb/issues/5156).
 
 New functionality will be added under the language extension: `buffer_view`.
+
+## Motivation
+
+This feature allows the data of a uniform, storage, or workgroup variable to be
+interpreted as multiple different types.
+This has a wide range of utility from traditional type-punning usages to
+partitioning a variable into multiple logical variables.
+
+### Example
+
+This example is derived from the [WebGPU Samples Wireframe](https://github.com/webgpu/webgpu-samples/pull/568).
+
+Without buffer_view, variables in WGSL have a static type that cannot be reinterpreted.
+The value stored in a WGSL variable has a single static type that cannot be
+reinterpreted before a memory access occurs.
+Additionally, WGSL can only have a single runtime-sized portion of a storage buffer.
+So let's say there was a shader with the following (partial) interface:
+```rust
+@group(0) @binding(0) var<storage> indices : array<u32>;
+@group(0) @binding(1) var<storage> vertices : array<f32>;
+```
+
+These variables are difficult to combine into a single binding unless the data can be sized statically.
+That static sizing may result in inefficient memory usage because WebGPU would
+require either two GPUBuffers or a single buffer where the second binding has
+an offset satisfying `minStorageBufferOffsetAlignment` (typically 256 bytes).
+
+So using a single GPUBuffer would look something like:
+```javascript
+function RoundUp(align, value) { ... }
+
+const indices_size = ...;
+const vertices_size = ...;
+const total_size = RoundUp(256, indices_size) + vertices_size;
+
+const buffer = device.createBuffer({
+  size: total_size,
+  usage: GPUBufferUsage.STORAGE | ...
+});
+
+// ...
+
+const bg = device.createBindGroup(
+  pipeline.getBindGroupLayout(0),
+  entries: [
+    { binding: 0, resource: { buffer: buffer, offset: 0, size: indices_size } },
+    { binding: 1, resource: { buffer: buffer, offset: RoundUp(256, indices_size), size: vertices_size } },
+  ]
+);
+```
+
+With buffer_view, however, the shader author has more freedom with data types.
+Those two bindings can be combined:
+```rust
+// Assume a layout of: | indices size | indices | vertices |.
+@group(0) @binding(0) var<storage> indices_and_vertices : buffer;
+
+fn foo() {
+  let indices_size = *bufferView<u32>(&indices_and_vertices, 0);
+
+  let indices_ptr = bufferArrayView<array<u32>>(&indices_and_vertices, 4, indices_size);
+  let vertices_ptr = bufferView<array<f32>>(&indices_and_vertices, indices_size + 4);
+
+  // Use indices_ptr and vertices_ptr like the old indices and vertices variables.
+}
+```
+
+On the API side, the combined buffer can be tightly packed now:
+```javascript
+const indices_size = ...;
+const vertices_size = ...;
+const total = indices_size + vertices_size + 4;
+
+const buffer = device.createBuffer({
+  size: total,
+  usage: GPUBufferUsage.STORAGE | ...,
+});
+
+const backing = new ArrayBuffer(total);
+const as_u32 = new Uint32Array(backing);
+const as_f32 = new Float32Array(backing)
+as_u32[0] = indices_size;
+// fill as_u32 with indices
+// fill as_f32 with vertices starting from indices_size / 4 + 1
+
+// ...
+
+// Bind the combined buffer.
+const bg = device.createBindGroup(
+  pipeline.getBindGroupLayout(0),
+  entries: [
+    { binding: 0, resource: buffer },
+  ]
+);
+```
 
 # Buffer Type
 
