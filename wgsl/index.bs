@@ -274,6 +274,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         text: subgroups-feature; url: subgroups
         text: subgroupMinSize; url: dom-gpuadapterinfo-subgroupminsize
         text: subgroupMaxSize; url: dom-gpuadapterinfo-subgroupmaxsize
+        text: atomic-vec2u-min-max; url: dom-gpufeaturename-atomic-vec2u-min-max
         text: primitive restart value; url: primitive-restart-value
         text: texture view swizzle; url: dom-gputextureviewdescriptor-swizzle
         for: supported limits
@@ -291,6 +292,7 @@ spec: WebGPU; urlPrefix: https://gpuweb.github.io/gpuweb/#
         for: GPUFeatureName
             text: "primitive-index"; url: dom-gpufeaturename-primitive-index
             text: "subgroup-size-control"; url: dom-gpufeaturename-subgroup-size-control
+            text: "atomic-vec2u-min-max"; url: dom-gpufeaturename-atomic-vec2u-min-max
 </pre>
 
 # Introduction # {#intro}
@@ -1884,12 +1886,18 @@ The valid [=enable-extensions=] are listed in the following table.
       <td>The built-in variable [=built-in values/primitive_index=] is valid to use in the WGSL
           module. Otherwise, using [=built-in values/primitive_index=] will result in a
           [=shader-creation error=].
-    <tr><td><dfn noexport dfn-for="extension">`subgroup_size_control`</dfn>
+  <tr><td><dfn noexport dfn-for="extension">`subgroup_size_control`</dfn>
       <td>{{GPUFeatureName/"subgroup-size-control"}}
       <td>The attribute [=attribute/subgroup_size=] is valid to use in the WGSL module.
         Otherwise, using [=attribute/subgroup_size=] will result in a [=shader-creation error=].
         The [=extension/subgroups=] [=behavioral requirement|will=] be automatically enabled when
         `subgroup_size_control` is enabled.
+  <tr><td><dfn noexport dfn-for="extension">`atomic_vec2u_min_max`</dfn>
+      <td>{{GPUFeatureName/"atomic-vec2u-min-max"}}
+      <td>The built-in functions [[#atomic-store-min|atomicStoreMin]] and
+          [[#atomic-store-max|atomicStoreMax]] are valid to use on [=atomic type|atomic=]&lt;[=vector|vec2=]&lt;[=u32=]&gt;&gt;
+          types in the [=address spaces/storage=] address space. Otherwise, using these will result in a
+          [=shader-creation error=].
 </table>
 
 <div class='example wgsl using extensions expect-error' heading="Using hypothetical enable-extensions">
@@ -2066,6 +2074,12 @@ Extension names are not [=identifiers=]: they do not [=resolves|resolve=] to [=d
       If [=language_extension/pointer_composite_access=] is also supported, then
       this also works on pointers.  If `p` is a pointer to a vector of at least 3 elements, then
       `p.xz = vec2(1,2);` is shorthand for `(*p).x = 1; (*p).z = 2;`.
+  <tr><td><dfn for="language_extension">atomic_vec2u_min_max</dfn>
+      <td>
+      Supports the [[#atomic-store-min|atomicStoreMin]] and
+      [[#atomic-store-max|atomicStoreMax]] built-in functions
+      on [[#atomic-types|atomic&lt;vec2&lt;u32&gt;&gt;]] objects.
+
 </table>
 
 Note: The intent is that, over time, WGSL will define language extensions embodying all functionality in language extensions commonly supported at that time.
@@ -3138,7 +3152,7 @@ WGSL also [=predeclared|predeclares=] the following [=type aliases=]:
 
 ### Atomic Types ### {#atomic-types}
 
-An <dfn noexport>atomic type</dfn> encapsulates a [=type/concrete=] [=integer scalar=] type such that:
+An <dfn noexport>atomic type</dfn> encapsulates a [=type/concrete=] [=integer=] type such that:
 * atomic objects provide [[#memory-model|certain guarantees]] to concurrent observers, and
 * the only valid operations on atomic objects are the [[#atomic-builtin-functions|atomic builtin functions]].
 
@@ -3148,12 +3162,21 @@ An <dfn noexport>atomic type</dfn> encapsulates a [=type/concrete=] [=integer sc
   </thead>
   <tr algorithm="atomic type"><td>atomic&lt;|T|&gt;
     <td>Atomic of type |T|. |T| [=shader-creation error|must=] be either [=u32=] or [=i32=].
+  <tr algorithm="atomic type vecu"><td>atomic&lt;[=vector|vec2=]&lt;u32&gt;&gt;
+    <td>Atomic of type `vec2`&lt;`u32`&gt;.
+    A value of this type denotes an unsigned [=64-bit integer=] type, with the 32 least significant bits in vector
+    component 0, and the 32 most significant bits in vector component 1.
+
+    Enabled by the [=extension/atomic_vec2u_min_max=] extension.
 </table>
 
 An expression [=shader-creation error|must not=] evaluate to an atomic type.
 
 Atomic types may only be instantiated by variables in the [=address spaces/workgroup=]
 address space or by [=storage buffer=] variables with a [=access/read_write=] access mode.
+If the [=store type=] is or contains `atomic<vec2<u32>>` then the variable [=shader-creation error|must=]
+be in the [=address spaces/storage=] [=address space=].
+
 The [=memory scope=] of operations on the type is determined by the [=address space=]
 it is instantiated in.
 Atomic types in the [=address spaces/workgroup=] address space have a
@@ -19924,7 +19947,8 @@ Atomic built-in functions [=shader-creation error|must not=] be used in a [=vert
 The address space `AS` of the `atomic_ptr` parameter in all atomic built-in
 functions [=shader-creation error|must=] be either [=address spaces/storage=] or [=address spaces/workgroup=].
 
-|T| [=shader-creation error|must=] be either [=u32=] or [=i32=]
+Unless otherwise specified, |T| [=shader-creation error|must=] be either [=u32=] or [=i32=].
+
 
 ### `atomicLoad` ### {#atomic-load}
 
@@ -20152,14 +20176,75 @@ fn atomicCompareExchangeWeak(atomic_ptr: ptr<AS, atomic<T>, read_write>, cmp : T
   if comparison {
     *atomic_ptr = v;
   }
-  return _atomic_compare_exchange_result<T>(old, comparison);
+  return __atomic_compare_exchange_result<T>(old, comparison);
 }
   </xmp>
 </div>
 
 Note: The equality comparison may spuriously fail on some implementations. That
-is, the second component of the result vector may be `false` even if the first
-component of the result vector equals `cmp`.
+is, the `exchanged` member of the result structure may be `false` even if the
+`old_value` member equals `cmp`.
+
+### Atomic Store Min and Max Functions ### {#atomic-store-min-max}
+
+These functions all require the [=language_extension/atomic_vec2u_min_max=] language feature.
+
+The functions do not return a value.
+
+#### `atomicStoreMin` #### {#atomic-store-min}
+
+```wgsl
+fn atomicStoreMin(atomic_ptr: ptr<storage, atomic<vec2<u32>>, read_write>,
+                  v: vec2<u32>)
+```
+
+Atomically performs a 64-bit unsigned integer minimum operation on the atomic object pointed to by `atomic_ptr`
+with the value `v`.
+
+Performs the following steps atomically:
+<div algorithm="atomic-store-min-vec2u">
+1.  Load the original [=vec2u=] value |old| from the memory referenced by |atomic_ptr|.
+
+2.  Compute the 64-bit unsigned integer values:
+    * |old64| = 2<sup>32</sup> &times; |old|[1] + |old|[0]
+    * |v64| = 2<sup>32</sup> &times; |v|[1] + |v|[0]
+
+3.  Compute value |new64| as the minimum of |old64| and |v64|.
+
+4.  Compute value |new| of type vec2&lt;u32&gt;, where:
+    * |new|[0] contains the least significant 32 bits of |new64|, and
+    * |new|[1] contains the 32 most significant bits of |new64|.
+
+5.  Store |new| into the memory referenced by |atomic_ptr|.
+
+</div>
+
+#### `atomicStoreMax` #### {#atomic-store-max}
+
+```wgsl
+fn atomicStoreMax(atomic_ptr: ptr<storage, atomic<vec2<u32>>, read_write>, v: vec2<u32>)
+```
+
+Atomically performs a 64-bit unsigned integer maximum operation on the atomic object pointed to by `atomic_ptr`
+with the value `v`.
+
+Performs the following steps atomically:
+<div algorithm="atomic-store-max-vec2u">
+1.  Load the original [=vec2u=] value |old| from the memory referenced by |atomic_ptr|.
+
+2.  Compute the 64-bit unsigned integer values:
+    * |old64| = 2<sup>32</sup> &times; |old|[1] + |old|[0]
+    * |v64| = 2<sup>32</sup> &times; |v|[1] + |v|[0]
+
+3.  Compute value |new64| as the maximum of |old64| and |v64|.
+
+4.  Compute value |new| of type vec2&lt;u32&gt;, where:
+    * |new|[0] contains the least significant 32 bits of |new64|, and
+    * |new|[1] contains the 32 most significant bits of |new64|.
+
+5.  Store |new| into the memory referenced by |atomic_ptr|.
+
+</div>
 
 ## Data Packing Built-in Functions ## {#pack-builtin-functions}
 
