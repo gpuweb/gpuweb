@@ -623,6 +623,9 @@ table, it's implicitly available if a `GPUResourceTable` has been bound.
 
 In order to access the resource table two new methods are added, `getResource` and `hasResource`.
 
+The WGSL language extension (https://github.com/gpuweb/issues/5611) to eliminate aliasing
+restrictions is required for WGSL bindless support.
+
 #### New enable extension
 The bindless feature will not be available on all devices so must be guarded by an `enable` when
 used in WGSL.
