@@ -69,6 +69,7 @@ draft implementation, for developers who want to test this proposal.
 * [view-instancing](view-instancing.md)
 * [multisampled-array-textures](multisampled-array-textures.md)
 * [enums](enums.md)
+* [namespaces](namespaces.md)
 
 ### Status: Inactive
 
