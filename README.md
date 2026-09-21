@@ -1,4 +1,4 @@
-# W3C _GPU for the Web_ Community Group
+# W3C _GPU for the Web_ Community Group CI Test
 
 <img alt="WebGPU logo" src="logo/webgpu-responsive.svg" width="400">
 
