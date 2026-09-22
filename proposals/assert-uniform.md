@@ -98,7 +98,7 @@ It could also be an enum parameter (const requirement) if this depended on the
 [enums](enums.md) proposal, but that sort of goes against the decision made for
 subgroup matrix.
 
-If the attributes are added, templating would make sense for them.
+If the attributes are added, templating would not make sense for them.
 So either as part of the name (`@uniform` for full uniformity or
 `@subgroup_uniform` for subgroup uniformity) or as an optional parameter (e.g.
 `@uniform or `@uniform(subgroup)`).
