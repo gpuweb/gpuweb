@@ -706,7 +706,7 @@ WGSL pipeline-creation checks (repeated for ease of reference):
     `GPUSubgroupMatrixConfig`
 *   The x-dimension of `workgroup_size` is a multiple of
     `GPUSupportedLimits::maxSubgroupSize`
-*   If the shader specifes a `subgroup_size`, it must be in the range
+*   If the shader specifies a `subgroup_size`, it must be in the range
     [minSubgroupSize, maxSubgroupSize] of the `GPUSubgroupMatrixConfig`
 
 
