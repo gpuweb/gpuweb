@@ -75,12 +75,39 @@ The same as `assertUniform` except that the scope is of uniformity is subgroup.
 
 Requires that the `subgroup_uniformity` language feature is supported.
 
-**TODO**: Should this be two built-in functions or a single parameterized function?
-We could go the route of `subgroup_matrix` and make a templated version of the
-built-in function, but we'd have to introduce a new predeclared enum for the
-scopes.
-It is unclear whether there should be two scope or three (as described in the
-spec).
-Another alternative could be to wait for the [enums](enums.md) proposal to resolve
-and allow enums as function parameters (it would have to be a `@const` parameter).
+## Issues
+
+1. Should the proposal include attributes to facilitate library writers?
+
+Attributes (e.g. `@uniform`) could be added to be allowed in limited locations:
+* Function declarations: must be called from uniform control flow
+* Function parameters: value must be uniform
+* Function return values: return value is uniform
+
+The first two represent a contract about calling the function.
+The attribute on the return declaration is a simplification if the function has multiple return statements.
+
+2. How should uniformity scope be handled?
+
+Currently the scope is included in the name.
+It could also be encoded as a template parameter similar to subgroup matrix
+load/store, but would require a new pre-declared enum.
+It is not clear what the values of that enum would be since the larger
+uniformity scope depends on the surrounding entry point context.
+It could also be an enum parameter (const requirement) if this depended on the
+[enums](enums.md) proposal, but that sort of goes against the decision made for
+subgroup matrix.
+
+If the attributes are added, templating would make sense for them.
+So either as part of the name (`@uniform` for full uniformity or
+`@subgroup_uniform` for subgroup uniformity) or as an optional parameter (e.g.
+`@uniform or `@uniform(subgroup)`).
+
+3. Should control and value semantics be separated in the built-in functions?
+
+For use with [bindless](bindless.md) there is potential value is not requiring
+both uniform control flow and uniform values.
+Should we introduce a parameter-less version for control flow only?
+Should the parameter version only imply uniform value?
+Or, should there be a `assertUniformValue` variant for just the value?
 
