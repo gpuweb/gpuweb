@@ -97,9 +97,8 @@ as experimental.
 This experimental feature was later withdrawn.
 
 Microsoft is now targeting a new feature, linalg::Matrix, for SM6.10.
-See https://github.com/microsoft/hlsl-specs/pull/556.
-The API side will likely look similar to the WaveMatrix feature, but it is not
-included in the proposal yet.
+For HLSL, see https://github.com/microsoft/hlsl-specs/blob/main/proposals/0035-linalg-matrix.md.
+For the D3D API, see https://microsoft.github.io/DirectX-Specs/d3d/D3D12LinearAlgebraRuntimeFeatureSupport.html.
 
 The HLSL feature relies on SFINAE to provide a templated type for matrices.
 The type is templated with the following parameters:
@@ -115,6 +114,8 @@ Additional functionality includes:
 * Scope: Also supports workgroup scope matrices.
 * Conversions: A <-> B, A/B <-> Accumulator
 * Coordinates: Can access matrix coordinates when iterating over each thread's values.
+
+The API configurations are additionally limited by WaveSize.
 
 ### MSL/Metal
 
@@ -655,7 +656,7 @@ New GPUFeatureName `subgroup-matrix`
     *   Vulkan pipelines will need to be compiled with <code>VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT</code> and <code>VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT</code>, or the SPIR-V module must be version 1.6 or later
 *   Metal:
     *   Family is Apple 7+
-*   D3D: **TODO**
+*   D3D: `D3D12_LINEAR_ALGEBRA_TIER_1_0` is supported.
 
 New immutable array, <code>subgroupMatrixConfigs</code>, added to <code>GPUAdapterInfo</code>.
 
@@ -680,6 +681,8 @@ interface GPUSubgroupMatrixConfig {
   readonly attribute unsigned long M;
   readonly attribute unsigned long N;
   readonly attribute unsigned long K;
+  readonly attribute unsigned long minSubgroupSize;
+  readonly attribute unsigned long maxSubgroupSize;
 };
 ```
 
@@ -703,6 +706,8 @@ WGSL pipeline-creation checks (repeated for ease of reference):
     `GPUSubgroupMatrixConfig`
 *   The x-dimension of `workgroup_size` is a multiple of
     `GPUSupportedLimits::maxSubgroupSize`
+*   If the shader specifes a `subgroup_size`, it must be in the range
+    [minSubgroupSize, maxSubgroupSize] of the `GPUSubgroupMatrixConfig`
 
 
 ### Mapping
@@ -759,9 +764,30 @@ Filter the list returned from [vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR
 
 `VK_COMPONENT_TYPE_FLOAT16` will need to be filtered out of the device properties if the `shader-f16` feature is not requested.
 
+`minSubgroupSize` and `maxSubgroupSize` for each config can be set to the
+adapter's `subgroupMinSize` and `subgroupMaxSize`.
+
 ##### D3D12
 
-**TODO**: The feature is still under development.
+Filter the list returned from enumerating `D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_WAVE_MATRIX_MULTIPLY` operations:
+
+* MatrixAComponentType matches GPUSubgroupMatrixConfig.componentType
+* MatrixBComponentType matches GPUSubgroupMatrixConfig.componentType
+* AccumulatorComponentType matches GPUSubgroupMatrixConfig.resultComponentType
+* Shape.{M, N, K} matches GPUSubgroupMatrixConfig.{M, N, K}
+* `subgroup_size`, if specified, is in range
+* Component types match as follows (-> API enum):
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_SINT32` -> i32
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_UINT32` -> u32
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT16` -> f16
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT32` -> f32
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_SINT8` -> i8
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_UINT8` -> u8
+
+`D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT16` will need filtered out of the device properties if the `shader-f16` feature is not requested.
+
+**TODO**: confirm D3D does not require a `WaveSize` to be specified (though an
+implementation could choose a valid size).
 
 ##### Metal
 
@@ -773,6 +799,9 @@ Hardcode the following configurations if the feature is supported:
 | f16 | f16 | 8 | 8 | 8 |
 
 1. Filter out f16 from the device properties if `shader-f16` is not requested on the device.
+
+`minSubgroupSize` and `maxSubgroupSize` for each config can be set to the
+adapter's `subgroupMinSize` and `subgroupMaxSize`.
 
 **TODO**: Should we consider using performance primitives if the device supports Metal 4?
 
