@@ -118,7 +118,7 @@ Shader Model 6.6 lifts this restriction with the [dynamic resources](https://mic
 
 ### Metal / MSL
 
-etal [argument buffer tier 2](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) supports dynamically indexing resources in arbitrarily-sized argument buffers.
+Metal [argument buffer tier 2](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) supports dynamically indexing resources in arbitrarily-sized argument buffers.
 [After specific-OS releases](https://developer.apple.com/documentation/metal/buffers/improving_cpu_performance_by_using_argument_buffers?language=objc) it seems that the argument buffer layout is transparent and could be used for heterogeneous descriptor but there is no indication how.
 
 #### Metal
@@ -155,7 +155,7 @@ kernel void example(constant ArgumentBufferExample & argumentBuffer [[buffer(0)]
 {
 ```
 
-etal Shading Language Specification 3.2 section 2.14.1 "The Need for a Uniform Type" shows that Metal will scalarize non-uniform indexing in arrays of resources, but at a cost.
+Metal Shading Language Specification 3.2 section 2.14.1 "The Need for a Uniform Type" shows that Metal will scalarize non-uniform indexing in arrays of resources, but at a cost.
 
 It's not immediately clear how heterogeneous bindless would be expressed in MSL.
 
