@@ -635,6 +635,11 @@ The enable name is `resource_table`.
 #### New methods
 In order to access the resource table two new methods, `getResource` and `hasResource` are defined.
 
+There are no uniformity requirements on the index used with `getResource` or `hasResource`.
+Implementations will ensure that the correct code is generated for backends if
+they cannot prove the value is uniform (i.e. using `NonUniformResourceIndex` in
+HLSL and `NonUniform` decoration in SPIR-V).
+
 ##### `hasResource`
 Used to determine if a given `index` in the resource table contains the given `T` type of texture.
 
