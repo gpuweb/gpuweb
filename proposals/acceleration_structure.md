@@ -20,7 +20,7 @@ created with curves, but that is not supported on either Vulkan or DX12, so will
 in this proposal).
 
 Each entry in the top-level acceleration structure has an associated transformation matrix, so a
-single bottom-level acceleration element can be instanced multiple types into the top-level
+single bottom-level acceleration element can be instanced multiple times into the top-level
 structure and placed with different scaling, rotation and translation based on the transform matrix.
 
 The amount of memory required by the GPU to create an acceleration structure may not be exactly known
@@ -32,7 +32,7 @@ memory required.
 
 The building of an acceleration structure is expensive. In order to allow the acceleration structure
 to be updated a **refit** operation is provided. This refit cannot add new geometry but it can alter
-the existing geometry in the acceleration structure.&nbsp;
+the existing geometry in the acceleration structure.
 
 # Platform Support
 
@@ -48,7 +48,7 @@ the existing geometry in the acceleration structure.&nbsp;
 ### Object
 
 The created object is a
-[`VKAccelerationStructureKHR`](https://docs.vulkan.org/refpages/latest/refpages/source/VkAccelerationStructureKHR.html).
+[`VkAccelerationStructureKHR`](https://docs.vulkan.org/refpages/latest/refpages/source/VkAccelerationStructureKHR.html).
 
 ### Creation/Destruction
 
@@ -56,7 +56,7 @@ The created object is a
 [`vkDestroyAccelerationStructureKHR`](https://docs.vulkan.org/refpages/latest/refpages/source/vkDestroyAccelerationStructureKHR.html)
 to create and destroy. There is also a
 [`vkCreateAccelerationStructure2KHR`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateAccelerationStructure2KHR.html)
-which is provided by the [`VK_KHR_device_address_command`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_device_address_commands.html) extension.
+which is provided by the [`VK_KHR_device_address_commands`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_device_address_commands.html) extension.
 
 ### Building
 
@@ -66,7 +66,7 @@ Acceleration structure is created with
 * set mode to `VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR`
 * `srcAccelerationStructure` is `VK_NULL_HANDLE`
 * `dstAccelerationStructure` is the structure to build
-* `flag` set to to match the usage flags provided
+* `flag` set to match the usage flags provided
   * `VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR`
   * `VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR`
 
@@ -219,7 +219,7 @@ The `BOTTOM_LEVEL` and `TOP_LEVEL` flags are mutually exclusive, if one is appli
 **must not** be applied.
 
 If the usage includes `BOTTOM_LEVEL` then the `geometries` list **must** contain at least one
-`GPUAccelerationStructureGeometrySizingDescriptor`. The `maxInstanceCount` list **must** be `0`.
+`GPUAccelerationStructureGeometrySizingDescriptor`. The `maxInstanceCount` value **must** be `0`.
 The sizing descriptors must be greater than or equal to the number of vertices/indices which will be
 inserted during the build operation.
 
@@ -281,7 +281,7 @@ calculated by the underlying platform.
 * Metal – [`accelerationStructureSizesWithDescriptor:`](https://developer.apple.com/documentation/metal/mtldevice/accelerationstructuresizes\(descriptor:\)?language=objc)
 
 If the usage includes `TOP_LEVEL` then the `maxInstanceCount` list **must** be greater than `0`. The
-`geometries` list **must** be empty. The `maxInstanceCount` **must** be greater then, or equal to the
+`geometries` list **must** be empty. The `maxInstanceCount` **must** be greater than, or equal to the
 number of instances which will be inserted during the build operation.
 
 There are two types of `GPUAccelerationStructureGeometryDescriptor`. All of the descriptors in the
@@ -373,7 +373,7 @@ refers to. It **must** be a bottom-level acceleration structure.
 The `transform` is a 3x4 row-major transformation matrix to apply to the instance.
 
 The `mask` is a user controlled mask. It will be used to compare against a mask set in the shader
-call to allow turning off geometry programmatically. The two masks are combined with a bitwise `and
+call to allow turning off geometry programmatically. The two masks are combined with a bitwise `and`
 operation. If the result is non-zero then the intersection proceeds, otherwise the object is culled.
 
 The `id` is a user-set ID which will be provided in the ray query results.
@@ -472,7 +472,7 @@ other WGSL proposals.
 
 ```proto
 enum GPUFeatureName {
-  "acceration-structure"
+  "acceleration-structure"
 };
 
 enum GPUAccelerationStructureGeometryType {
@@ -497,7 +497,7 @@ dictionary GPUAccelerationStructureRefitDescriptor {
 
 [Exposed=(Window, Worker), SecureContext]
 interface GPUAccelerationStructure {
-  readonly attribute GPUAccelerationStructureUsage flags;
+  readonly attribute GPUAccelerationStructureUsageFlags flags;
   readonly attribute unsigned long long sizeInBytes;
 
   undefined destroy();
@@ -593,7 +593,7 @@ partial interface GPUDevice {
 
   GPUAccelerationStructure createAndBuildAccelerationStructure(
       GPUAccelerationStructureDescriptor descriptor,
-      GPUAccelerationStructureBuildDescriptor descriptor);
+      GPUAccelerationStructureBuildDescriptor buildDescriptor);
 };
 
 [Exposed=(Window,Worker), SecureContext]
