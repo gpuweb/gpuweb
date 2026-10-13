@@ -70,6 +70,7 @@ draft implementation, for developers who want to test this proposal.
 * [multisampled-array-textures](multisampled-array-textures.md)
 * [enums](enums.md)
 * [namespaces](namespaces.md)
+* [acceleration_structure](acceleration_structure.md)
 
 ### Status: Inactive
 
