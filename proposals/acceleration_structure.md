@@ -177,14 +177,26 @@ The acceleration structure is held in an opaque `GPUAccelerationStructure` objec
 partial interface GPUDevice {
   GPUAccelerationStructure createAccelerationStructure(
       GPUAccelerationStructureDescriptor descriptor);
+
+  GPUAccelerationStructure createAndBuildAccelerationStructure(
+      GPUAccelerationStructureDescriptor descriptor,
+      GPUAccelerationStructureBuildDescriptor descriptor);
 };
 ```
 
-There is a single `createAccelerationStructure` method exposed on the `GPUDevice` to create both the
+There is a `createAccelerationStructure` method exposed on the `GPUDevice` to create both the
 top and bottom level acceleration structures. The create method takes a
 `GPUAccelerationStructureDescriptor` to describe what is being created.
 
+A convenience `createAndBuildAccelerationStructure` method is provided to do both the creation
+and building in a single call.
+
 ```proto
+enum GPUAccelerationStructureType {
+  "bottom-level",
+  "top-level"
+};
+
 dictionary GPUAccelerationStructureDescriptor : GPUObjectDescriptorBase {
   required GPUAccelerationStructureType type;
   GPUAccelerationStructureUsageFlags usage;
@@ -196,8 +208,8 @@ dictionary GPUAccelerationStructureDescriptor : GPUObjectDescriptorBase {
 
 The `type` is one of:
 
-* BOTTOM\_LEVEL  – create a bottom level acceleration structure
-* TOP\_LEVEL – create a top level acceleration structure
+* "bottom-level" – create a bottom level acceleration structure
+* "top-level" – create a top level acceleration structure
 
 The `usage` flags available are:
 
@@ -577,8 +589,14 @@ dictionary GPUAccelerationStructureGeometrySizingDescriptor {
   GPUAccelerationStructureAABBSizingDescriptor aabbs;
 };
 
+enum GPUAccelerationStructureType {
+  "bottom-level",
+  "top-level"
+};
+
 dictionary GPUAccelerationStructureDescriptor : GPUObjectDescriptorBase {
-  required GPUAccelerationStructureUsageFlags usage;
+  required GPUAccelerationStructureType type;
+  GPUAccelerationStructureUsageFlags usage;
 
   sequence<GPUAccelerationStructureGeometrySizingDescriptor> geometries;
   unsigned long maxInstanceCount = 0;
