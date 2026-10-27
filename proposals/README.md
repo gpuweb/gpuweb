@@ -70,6 +70,7 @@ draft implementation, for developers who want to test this proposal.
 * [multisampled-array-textures](multisampled-array-textures.md)
 * [enums](enums.md)
 * [namespaces](namespaces.md)
+* [assert-uniform](assert-uniform.md)
 
 ### Status: Inactive
 
