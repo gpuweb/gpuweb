@@ -42,6 +42,8 @@ Always refer to the specifications as the source of truth.
 * [immediate-data](immediate-data.md)
 * [texture-component-swizzle](texture-component-swizzle.md)
 * [primitive-index](primitive-index.md)
+* [atomic-64-min-max](atomic-64-min-max.md)
+* [subgroup-id](subgroup-id.md)
 * [buffer-view](buffer-view.md)
 * [transient-attachments](transient-attachments.md)
 * [subgroup-size-control](subgroup-size-control.md)
@@ -60,8 +62,6 @@ draft implementation, for developers who want to test this proposal.
 <!-- SECTION status-draft -->
 * [texel-buffers](texel-buffers.md)
 * [sized-binding-arrays](sized-binding-arrays.md)
-* [atomic-64-min-max](atomic-64-min-max.md)
-* [subgroup-id](subgroup-id.md)
 * [subgroup-matrix](subgroup-matrix.md)
 * [fragment-depth](fragment-depth.md)
 * [bindless](bindless.md)

@@ -1,8 +1,9 @@
 # Subgroup ID
 
-* Status: [Draft](README.md#status-draft)
+* Status: [Merged](README.md#status-merged)
 * Created: 2025-10-01
 * Issue: [#5365](https://github.com/gpuweb/gpuweb/issues/5365)
+* Spec PR: [#5416](https://github.com/gpuweb/gpuweb/pull/5416)
 
 # Overview
 
