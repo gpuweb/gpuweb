@@ -164,14 +164,22 @@ SYCL has a corresponding proposal, using the terminology “joint matrix”. See
 
 Add a new enable extension, `subgroup_matrix`.
 Enables the declaration of subgroup_matrix types, related built-in functions,
-and limited use of some scalar types (u8 and i8).
-Implicitly depends on subgroups.
-WGSL does not require any subgroups enable, but the API does.
+and limited use of some scalar types (u8, i8, bf16, f8<e4m3>, and f8<e5m2>).
 
 Automatically enables `subgroups` extension.
 
-
 #### Types
+
+Limited use numeric types:
+* `u8`: unsigned 8-bit integer
+* `i8`: signed 8-bit integer
+* `bf16`: 16-bit floating point with 1 sign bit, 8 exponent bits, and 7 mantissa bits (`f32` with 16 mantissa LSBs truncated)
+* `f8<e4m3>`: 8-bit floating point with 1 sign bit, 4 exponent bits, and 3 mantissa bits
+* `f8<e5m2>`: 8-bit floating point with 1 sign bit, 5 exponent bits, and 2 mantiess bits
+
+See [OCP FP8
+formats](https://www.opencompute.org/documents/ocp-8-bit-floating-point-specification-ofp8-revision-1-0-2023-12-01-pdf-1/)
+for more information on `f8<e4m3>` and `f8<e5m2>`.
 
 Add new types:
 
@@ -189,14 +197,19 @@ Add new types:
     *   Can be expanded in the future to support more types (e.g. bfloat16) via new enables.
     *   The u8 and i8 cases are predeclared types that are not otherwise usable in WGSL. For layout calculations, they are of size 1 byte and have an alignment requirement of 1 byte.
 
-| Type | Extra Enable | Element Stride (bytes) | Shader Scalar Type | Min Value | Max Value |
-| ---- | ------------ | ---------------------- | ------------------ | --------- | --------- |
-| f32  |              | 4                      | f32                |           |           |
-| f16  | f16          | 2                      | f16                |           |           |
-| u32  |              | 4                      | u32                |           |           |
-| i32  |              | 4                      | i32                |           |           |
-| u8   |              | 1                      | u32                | 0         | 255       |
-| i8   |              | 1                      | i32                | -128      | 127       |
+| Type     | Extra Enable | Element Stride (bytes) | Shader Scalar Type | Min Value    | Max Value   |
+| -------- | ------------ | ---------------------- | ------------------ | ---------    | ---------   |
+| f32      |              | 4                      | f32                |              |             |
+| f16      | f16          | 2                      | f16                |              |             |
+| bf16     |              | 2                      | f32                | -0x1.fep+127 | 0x1.fep+127 |
+| u32      |              | 4                      | u32                |              |             |
+| i32      |              | 4                      | i32                |              |             |
+| u8       |              | 1                      | u32                | 0            | 255         |
+| i8       |              | 1                      | i32                | -128         | 127         |
+| f8<e4m3> |              | 1                      | f32                | -0x1.cap+8   | 0x1.cap+8   |
+| f8<e5m2> |              | 1                      | f32                | -0x1.cp+15   | 0x1.cp+15   |
+
+Note: WGSL does not support infinities or NaNs so conversions should clamp to min and max values.
 
 These types are not considered “composite” in the WGSL taxonomy, because they
 are not decomposable.
@@ -673,6 +686,9 @@ enum GPUSubgroupMatrixComponentType {
   "i32",
   "u8",
   "i8",
+  "bf16",
+  "f8_e4m3",
+  "f8_e5m2",
 };
 
 interface GPUSubgroupMatrixConfig {
@@ -725,7 +741,7 @@ WGSL pipeline-creation checks (repeated for ease of reference):
 2. Component type enum maps directly to SPIR-V type (e.g. i8 to OpTypeInt 8 1).
 3. MSL types use the usual mappings (e.g. f32 to float).
 4. Most types use the usual mappings.
-    Only 8-bit integers differ as they map to packed types.
+    Limited use types map differently.
 
 
 #### Functions
@@ -759,6 +775,9 @@ Filter the list returned from [vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR
     *   VK_COMPONENT_TYPE_UINT32_KHR -> u32
     *   VK_COMPONENT_TYPE_SINT8_KHR -> i8
     *   VK_COMPONENT_TYPE_UINT8_KHR -> u8
+    *   VK_COMPONENT_TYPE_BFLOAT16_KHR -> bf16 (requires VK_KHR_shader_bfloat16 with shaderBFloat16CooperativeMatrix bit)
+    *   VK_COMPONENT_TYPE_FLOAT_E4M3_EXT -> f8_e4m3 (requires VK_EXT_shader_float8 with shaderFloat8CooperativeMatrix bit)
+    *   VK_COMPONENT_TYPE_FLOAT_E5M2_EXT -> f8_e5m2 (requires VK_EXT_shader_float8 with shaderFloat8CooperativeMatrix bit)
 *   saturatingAccumulation is false
 *   Scope is `VK_SCOPE_SUBGROUP_KHR`
 
@@ -766,6 +785,8 @@ Filter the list returned from [vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR
 
 `minSubgroupSize` and `maxSubgroupSize` for each config can be set to the
 adapter's `subgroupMinSize` and `subgroupMaxSize`.
+
+Conversions in SPIR-V can use the `SaturatedToLargestFloat8NormalConversionEXT` decoration to clamp.
 
 ##### D3D12
 
@@ -783,13 +804,17 @@ Filter the list returned from enumerating `D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_W
   * `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT32` -> f32
   * `D3D12_LINEAR_ALGEBRA_DATATYPE_SINT8` -> i8
   * `D3D12_LINEAR_ALGEBRA_DATATYPE_UINT8` -> u8
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT8_E5M2` -> f8_e5m2
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT8_E4M3FN` -> f8_e4m3
 
 `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT16` will need filtered out of the device properties if the `shader-f16` feature is not requested.
+
+Note: D3D12 does not support `bf16`.
 
 **TODO**: confirm D3D does not require a `WaveSize` to be specified (though an
 implementation could choose a valid size).
 
-##### Metal
+##### Metal 3
 
 Hardcode the following configurations if the feature is supported:
 
@@ -797,13 +822,51 @@ Hardcode the following configurations if the feature is supported:
 | ------------- | ------------------- | ---- | ---- | ---- |
 | f32 | f32 | 8 | 8 | 8 |
 | f16 | f16 | 8 | 8 | 8 |
+| bfloat | bfloat | 8 | 8 | 8 |
 
 1. Filter out f16 from the device properties if `shader-f16` is not requested on the device.
 
 `minSubgroupSize` and `maxSubgroupSize` for each config can be set to the
 adapter's `subgroupMinSize` and `subgroupMaxSize`.
 
-**TODO**: Should we consider using performance primitives if the device supports Metal 4?
+##### Metal 4
+
+Metal 4 introduced tensors and performance primitives.
+Matrix multiplication can be accelerated using the `matmul2d` operation.
+Matmul2d takes tensor type operands.
+`cooperative_tensor` is the Metal equivalent of `subgroup_matrix`.
+It requires specifying the full matmul2d geometry (M x N x K).
+
+Metal does not support queries, but guarantees support based on version (though
+some configurations might not be accelerated via tensor cores).
+For cooperative tensors, M, N, and K must be a multiple of 16 and one of them must be 32.
+
+Metal supports the following format configurations:
+* Metal 4
+  * float x float = float -> f32 x f32 = f32
+  * half x half = half -> f16 x f16 = f16
+  * half x half = float -> f16 x f16 = f32
+  * char x char = int -> i8 x i8 = i32
+* Metal 4 and OS 26.1
+  * bfloat x bfloat = bfloat -> bf16 x bf16 = bf16
+  * bfloat x bfloat = float -> bf16 x bf16 = f32
+  * uchar x uchar = int -> u8 x u8 = i32
+* Metal 4.1
+  * metal_fp8_e4m3_format x metal_fp8_e4m3_format = float -> f8<e4m3> x f8<e4m3> = f32
+  * metal_fp8_e4m3_format x metal_fp8_e4m3_format = half -> f8<e4m3> x f8<e4m3> = f16
+  * metal_fp8_e5m2_format x metal_fp8_e5m2_format = float -> f8<e5m2> x f8<e5m2> = f32
+  * metal_fp8_e5m2_format x metal_fp8_e5m2_format = half -> f8<e5m2> x f8<e5m2> = f16
+
+Note: Generally Metal also supports mixing operand formats more broadly, but
+for consistency with other APIs it is suggested to not expose those
+configurations.
+
+Metal does not support majorness/transposition on load/store.
+Implementations may either transpose in place (via get/set operations) or only
+expose square configurations.
+
+Metal does not allow cooperative tensors in aggregate types.
+Implementations can instead have aggregates of pointers to cooperative tensors.
 
 ## Future Expansion
 
