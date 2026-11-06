@@ -181,6 +181,8 @@ See [OCP FP8
 formats](https://www.opencompute.org/documents/ocp-8-bit-floating-point-specification-ofp8-revision-1-0-2023-12-01-pdf-1/)
 for more information on `f8<e4m3>` and `f8<e5m2>`.
 
+TODO: Is this the preferred spelling for 8-bit floating-point types? Alternatives might be `f8_e4m3` and `f8_e5m2`.
+
 Add new types:
 
 *   subgroup_matrix_left<_T_, _K_, _M_>: M rows x K columns matrix of T components.
@@ -197,17 +199,17 @@ Add new types:
     *   Can be expanded in the future to support more types (e.g. bfloat16) via new enables.
     *   The u8 and i8 cases are predeclared types that are not otherwise usable in WGSL. For layout calculations, they are of size 1 byte and have an alignment requirement of 1 byte.
 
-| Type     | Extra Enable | Element Stride (bytes) | Shader Scalar Type | Min Value    | Max Value   |
-| -------- | ------------ | ---------------------- | ------------------ | ---------    | ---------   |
-| f32      |              | 4                      | f32                |              |             |
-| f16      | f16          | 2                      | f16                |              |             |
-| bf16     |              | 2                      | f32                | -0x1.fep+127 | 0x1.fep+127 |
-| u32      |              | 4                      | u32                |              |             |
-| i32      |              | 4                      | i32                |              |             |
-| u8       |              | 1                      | u32                | 0            | 255         |
-| i8       |              | 1                      | i32                | -128         | 127         |
-| f8<e4m3> |              | 1                      | f32                | -0x1.cap+8   | 0x1.cap+8   |
-| f8<e5m2> |              | 1                      | f32                | -0x1.cp+15   | 0x1.cp+15   |
+| Type     | Extra Enable | Element Stride (bytes) | Shader Scalar Type | Min Value             | Max Value           |
+| -------- | ------------ | ---------------------- | ------------------ | ---------             | ---------           |
+| f32      |              | 4                      | f32                |                       |                     |
+| f16      | f16          | 2                      | f16                |                       |                     |
+| bf16     |              | 2                      | f32                | -0x1.fep+127          | 0x1.fep+127         |
+| u32      |              | 4                      | u32                |                       |                     |
+| i32      |              | 4                      | i32                |                       |                     |
+| u8       |              | 1                      | u32                | 0                     | 255                 |
+| i8       |              | 1                      | i32                | -128                  | 127                 |
+| f8<e4m3> |              | 1                      | f32                | -448 (-0x1.cap+8)     | 448 (0x1.cap+8)     |
+| f8<e5m2> |              | 1                      | f32                | -57344 (-0x1.cp+15)   | 057344 (x1.cp+15)   |
 
 Note: WGSL does not support infinities or NaNs so conversions should clamp to min and max values.
 
@@ -804,12 +806,11 @@ Filter the list returned from enumerating `D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_W
   * `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT32` -> f32
   * `D3D12_LINEAR_ALGEBRA_DATATYPE_SINT8` -> i8
   * `D3D12_LINEAR_ALGEBRA_DATATYPE_UINT8` -> u8
+  * `D3D12_LINEAR_ALGEBRA_DATATYPE_BFLOAT16` -> bf16
   * `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT8_E5M2` -> f8_e5m2
   * `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT8_E4M3FN` -> f8_e4m3
 
 `D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT16` will need filtered out of the device properties if the `shader-f16` feature is not requested.
-
-Note: D3D12 does not support `bf16`.
 
 **TODO**: confirm D3D does not require a `WaveSize` to be specified (though an
 implementation could choose a valid size).
