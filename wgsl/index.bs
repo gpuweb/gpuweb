@@ -1521,6 +1521,8 @@ The [=language extension=] names are:
 * <a for=language_extension lt=fragment_depth>`'fragment_depth'`</a>
 * <a for=language_extension lt=buffer_view>`'buffer_view'`</a>
 * <a for=language_extension lt=swizzle_assignment>`'swizzle_assignment'`</a>
+* <a for=language_extension lt=atomic_vec2u_min_max>`'atomic_vec2u_min_max'`</a>
+* <a for=language_extension lt=unrestricted_aliasing>`'unrestricted_aliasing'`</a>
 
 ### Interpolation Type Names ### {#interpolation-type-names}
 
@@ -2079,6 +2081,11 @@ Extension names are not [=identifiers=]: they do not [=resolves|resolve=] to [=d
       Supports the [[#atomic-store-min|atomicStoreMin]] and
       [[#atomic-store-max|atomicStoreMax]] built-in functions
       on [[#atomic-types|atomic&lt;vec2&lt;u32&gt;&gt;]] objects.
+  <tr><td><dfn for="language_extension">unrestricted_aliasing</dfn>
+      <td>
+      Removes most [[#aliasing|aliasing]] restrictions.
+      Aliased pointer parameters are generally allowed except if one of the
+      aliases has [[#uniformity|uniformity]] dependency.
 
 </table>
 
@@ -9733,8 +9740,9 @@ For each function the analysis records the following sets:
 * Pointer parameters used as root identifiers of [=memory views=] or [=swizzle views=] that are
     [=read access|read=] in this function or in called functions.
 
-At each [=call site=] of a function, it is a [=shader-creation error=] if any
-of the following occur:
+At each [=call site=] of a function, it is a [=shader-creation error=] if the
+[=language_extension/unrestricted_aliasing=] feature is not supported and any of
+the following occur:
 * Two arguments of pointer type have the same root identifier and either
     corresponding parameter is in the written parameter set.
 * An argument of pointer type whose root identifier is a module-scope variable where:
@@ -9761,7 +9769,8 @@ of the following occur:
 
     fn f3() {
       var a : i32 = 0;
-      f2(&a, &a);  // Invalid. Cannot pass two pointer parameters
+      f2(&a, &a);  // Invalid without unrestricted_aliasing.
+                   // Cannot pass two pointer parameters
                    // with the same root identifier when one or
                    // more are written (even by a subfunction).
     }
@@ -9784,7 +9793,8 @@ of the following occur:
     }
 
     fn f8() {
-      let a = f6(&x); // Invalid. x is written as a global variable and
+      let a = f6(&x); // Invalid without unrestricted_aliasing.
+                      // x is written as a global variable and
                       // read as a parameter.
       let b = f7(&x); // Valid. x is only read as both a parameter and
                       // a variable.
@@ -13341,13 +13351,30 @@ The most complex rule is for function calls:
     - Add the members of the [=potential-trigger-set=] of the [=call site tag=] to the potential-trigger-set associated with [=RequiredToBeUniform.S=].
 - If the [=function tag=] is [=ReturnValueMayBeNonUniform=], then add an edge from [=Result=] to [=MayBeNonUniform=]
 - For each argument *i*:
+    - If the [=language_extension/unrestricted_aliasing=] feature is supported and *i* is
+        pointer in the [=address spaces/function=] address space, then:
+        - For each argument *j* that is a pointer in the [=address spaces/function=] address
+            space and where *j* is not equal to *i*:
+            - If *i* and *j* have the same [=root identifier=] and one of them is written in the function, then:
+                - Add an edge from [=arg_i=] to arg_j and vice versa.
+                - Add an edge from [=arg_i=] to [=MayBeNonUniform=].
     - If the corresponding [=parameter tag=] is [=ParameterRequiredToBeUniform.S=], then:
         - Add an edge from [=RequiredToBeUniform.S=] to [=arg_i=].
         - Add the members of the [=potential-trigger-set=] of the [=parameter tag=] to the potential-trigger-set associated with [=RequiredToBeUniform.S=].
     - If the [=parameter return tag=] is [=ParameterReturnContentsRequiredToBeUniform=], then add an edge from [=Result=] to [=arg_i=]
     - If the corresponding parameter has a [=pointer parameter tag=] of [=PointerParameterMayBeNonUniform=], then add an edge from *Vout*(*call*) to [=MayBeNonUniform=]
-    - If the parameter is a pointer in the [=address spaces/function=] address space, add an edge from *Vout*(*call*) to each corresponding [=arg_i=] for the reachable parameters recorded previously
+    - If the parameter is a pointer in the [=address spaces/function=] address space, then:
+        - add an edge from *Vout*(*call*) to each corresponding [=arg_i=] for the reachable parameters recorded previously
+        - If the [=language_extension/unrestricted_aliasing=] feature is supported, then:
+            - For each argument *j* that is a pointer in the [=address spaces/function=] address
+                space and where *j* is not equal to *i*:
+                - If *i* and *j* have the same [=root identifier=], add an edge from arg_j to [=arg_i=].
         - If the [=parameter tag=] is [=ParameterContentsRequiredToBeUniform.S=], add an edge from [=RequiredToBeUniform.S=] to *Vout*(*call*)
+
+Note: For parts of the analysis dependent on the
+[=language_extension/unrestricted_aliasing=] feature, an implementation only
+needs to consider arguments it has not yet visited in the outer argument loop.
+That is, if *i* iterates the range [0, n), then *j* only needs to iterate the range [i+1, n).
 
 Note: Refer to [[#func-var-value-analysis]] for the definition of *Vout*(*call*).
 
