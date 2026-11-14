@@ -71,6 +71,7 @@ draft implementation, for developers who want to test this proposal.
 * [enums](enums.md)
 * [namespaces](namespaces.md)
 * [assert-uniform](assert-uniform.md)
+* [shader-print](shader-print.md)
 
 ### Status: Inactive
 
