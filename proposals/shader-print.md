@@ -108,6 +108,8 @@ the buffer back on the host:
 
 - **Bikeshed name:** `print` vs `log` vs `shaderLog` vs ...
 
+- **Bikeshed string syntax:** `` `${}` `` vs `f"{}"` vs ...
+
 - **Language extension vs. optional `enable` extension:** Should `print` be exposed as a language
   extension (acting as a no-op unless activated by an implementation-specific toggle), or
   as an `enable` extension gated by a WebGPU device feature?
