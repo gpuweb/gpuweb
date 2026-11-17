@@ -1,4 +1,4 @@
-# ImmediateData
+# Immediate Data
 
 * Status: [Merged](README.md#status-merged)
 * Created: 2024-04-29
@@ -9,6 +9,9 @@
 
 No special requirements.
 
+The normative text is in the [WebGPU spec](https://gpuweb.github.io/gpuweb/#programmable-passes-immediate-data)
+and the [WGSL spec](https://gpuweb.github.io/gpuweb/wgsl/#address-spaces).
+
 # WGSL
 
 
@@ -16,19 +19,24 @@ No special requirements.
 
 | Address space | Sharing among invocations | Default access mode | Notes |
 | --- | --- | --- | --- |
-| `immediate` | Invocations in [shader stage](https://www.w3.org/TR/WGSL/#shader-stages) | [read](https://www.w3.org/TR/WGSL/#access-read) | For [uniform buffer](https://www.w3.org/TR/WGSL/#uniform-buffer) variables exclude [array types](https://www.w3.org/TR/WGSL/#array-types) variable or [structure types](https://www.w3.org/TR/WGSL/#struct-types) variable contains [array types](https://www.w3.org/TR/WGSL/#array-types) attributes |
+| `immediate` | Invocations in [shader stage](https://www.w3.org/TR/WGSL/#shader-stages) | [read](https://www.w3.org/TR/WGSL/#access-read) | Read-only data set by the command encoder. Arrays and structures containing array members are excluded. |
 
 
 ## Variable and Value Declarations
 
 | Declaration | Mutability | Scope | Effective-value-type | Initializer Support | Initializer Expression | Part of Resource Interface |
 | --- | --- | --- | --- | --- | --- | --- |
-| `var<immediate>` | Immutable | [Module](https://www.w3.org/TR/WGSL/#module-scope) | [Concrete](https://www.w3.org/TR/WGSL/#type-concrete) [constructible](https://www.w3.org/TR/WGSL/#constructible) [host-shareable](https://www.w3.org/TR/WGSL/#host-shareable) excludes [array types](https://www.w3.org/TR/WGSL/#array-types) and [structure types](https://www.w3.org/TR/WGSL/#struct-types) contains array members | Disallowed	| | Yes. [uniform buffer](https://www.w3.org/TR/WGSL/#uniform-buffer) |
+| `var<immediate>` | Immutable | [Module](https://www.w3.org/TR/WGSL/#module-scope) | [Concrete](https://www.w3.org/TR/WGSL/#type-concrete) [constructible](https://www.w3.org/TR/WGSL/#constructible) [host-shareable](https://www.w3.org/TR/WGSL/#host-shareable), excluding arrays and structures containing array members | Disallowed | | No |
+
+Immediate data variables are not resources and do not use `@group` or `@binding`
+attributes. Their range is described by `immediateSize` in the pipeline layout.
 
 NOTE: Each [entry point](https://www.w3.org/TR/WGSL/#entry-point) can statically use at most one immediate variable.
 
 Sample Code:
-```
+```wgsl
+requires immediate_address_space;
+
 struct S {
   i : i32,
 }
@@ -74,7 +82,7 @@ fn main4() {
 
 ## Limits
 
-One new limits:
+One new limit:
 
 | Limit name | Description | Type | Limit class | Default |
 | --- | --- | --- | --- | --- |
@@ -89,8 +97,8 @@ One new member in `GPUPipelineLayoutDescriptor`.
 ```javascript
 dictionary GPUPipelineLayoutDescriptor
          : GPUObjectDescriptorBase {
-    required sequence<GPUBindGroupLayout> bindGroupLayouts;
-    uint32_t immediateSize = 0;
+    required sequence<GPUBindGroupLayout?> bindGroupLayouts;
+    GPUSize32 immediateSize = 0;
 };
 ```
 
@@ -102,24 +110,27 @@ Each pipeline defines a set of **immediate slots** based on the `var<immediate>`
 - Each 32-bit word (4 bytes) in the immediate data range corresponds to one slot
 - `immediateSize` must be at least `SizeOf(the immediate variable)`, like [minimum buffer binding size](https://gpuweb.github.io/gpuweb/#minimum-buffer-binding-size)
 - For struct types, padding bytes **are included** in the size but slots corresponding to padding **are not included** in the set of slots that must be set by the API
-- Example: `var<immediate> s : struct { a : f32, b : vec4<f32> }` requires `immediateSize = 32` (4 bytes for `a` at offset 0, 12 bytes padding at offsets 4-15 to align `b` to a 16-byte boundary, 16 bytes for `b` at offsets 16-31). Only slots 0, 4, 5, 6, 7 (the 32-bit words containing actual data: word 0 for `a`, words 4-7 for `b`) need to be set via `setImmediateData()`
+- Example: given `struct S { a : f32, b : vec4<f32> }`, `var<immediate> s : S` requires `immediateSize = 32` (4 bytes for `a` at offset 0, 12 bytes padding at offsets 4-15 to align `b` to a 16-byte boundary, 16 bytes for `b` at offsets 16-31). Only slots 0, 4, 5, 6, 7 (the 32-bit words containing actual data: word 0 for `a`, words 4-7 for `b`) need to be set via `setImmediates()`
 
 **Compatibility:** Two pipeline layouts are "compatible for immediate data" if they were created with identical `immediateSize`. Immediate data values can be shared between pipelines with compatible layouts.
 
 **Out-of-bounds:** Immediate data range follows [out-of-bounds access](https://www.w3.org/TR/WGSL/#out-of-bounds-access) rules in WGSL spec.
 
-## GPUCommandEncoder
+## Binding Commands
 
-One new function in `GPUBindingCommandsMixin`.
+One new function in `GPUBindingCommandsMixin`, available on
+`GPUComputePassEncoder`, `GPURenderPassEncoder`, and `GPURenderBundleEncoder`.
+It is not a method of `GPUCommandEncoder`.
 
 ```javascript
 interface mixin GPUBindingCommandsMixin {
-        void setImmediateData(uint32_t rangeOffset, AllowSharedBufferSource data, optional dataOffset, optional size);
+    undefined setImmediates(GPUSize32 rangeOffset, AllowSharedBufferSource data,
+        optional GPUSize64 dataOffset = 0, optional GPUSize64 dataSize);
 }
 ```
 
 - `rangeOffset`: Offset in bytes into immediate data range to begin writing at. Must be a multiple of 4 bytes.
-- `dataOffset` and `size` work like in [writeBuffer](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-writebuffer): "Given in elements if data is a TypedArray and bytes otherwise." The actual byte size copied must be a multiple of 4 bytes.
+- `dataOffset` and `dataSize` work like in [writeBuffer](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-writebuffer): "Given in elements if data is a TypedArray and bytes otherwise." The actual byte size copied must be a multiple of 4 bytes.
 - The immediate data is stored in an internal slot `[[immediate data]]` in `GPUBindingCommandsMixin`, which is shared across `GPUComputePassEncoder`, `GPURenderPassEncoder`, and `GPURenderBundleEncoder`. See issue [#5117](https://github.com/gpuweb/gpuweb/issues/5117).
 
 ## Validation
@@ -138,14 +149,14 @@ Immediate values must be set before they can be used in draw or dispatch operati
 
 3. **After executeBundles():** After `executeBundles()` completes, all immediate slots are cleared (no slots are considered set).
 
-4. **Setting slots:** When `setImmediateData(rangeOffset, data, ...)` is called, the 32-bit word slots at byte offsets `[rangeOffset, rangeOffset + actualSize)` are marked as set, where `actualSize` is the actual byte size of the data being copied. Since both `rangeOffset` and `actualSize` must be multiples of 4 bytes, this marks complete 32-bit word slots as set.
+4. **Setting slots:** When `setImmediates(rangeOffset, data, ...)` is called, the 32-bit word slots at byte offsets `[rangeOffset, rangeOffset + actualSize)` are marked as set, where `actualSize` is the actual byte size of the data being copied. Since both `rangeOffset` and `actualSize` must be multiples of 4 bytes, this marks complete 32-bit word slots as set.
 
 **Example validation:**
 
 ```javascript
 // Pipeline uses slots 0-3 (16 bytes of immediate data)
 const pipeline = device.createComputePipeline({
-  layout: device.createPipelineLayout({ immediateSize: 16 }),
+  layout: device.createPipelineLayout({ bindGroupLayouts: [], immediateSize: 16 }),
   compute: { module, entryPoint: "main" } // uses var<immediate> data : vec4<f32>
 });
 
@@ -155,7 +166,7 @@ encoder.setPipeline(pipeline);
 // ERROR: Immediate slots 0-3 have not been set
 // encoder.dispatchWorkgroups(1);
 
-encoder.setImmediateData(0, new Float32Array([1, 2, 3, 4])); // Sets slots 0-3
+encoder.setImmediates(0, new Float32Array([1, 2, 3, 4])); // Sets slots 0-3
 
 // OK: All required slots are now set
 encoder.dispatchWorkgroups(1);
@@ -177,28 +188,31 @@ See issue [#5116](https://github.com/gpuweb/gpuweb/issues/5116) for detailed dis
 
 ## Render Bundle Support
 
-The `setImmediateData()` function is available in `GPURenderBundleEncoder` through `GPUBindingCommandsMixin`.
+The `setImmediates()` function is available in `GPURenderBundleEncoder` through `GPUBindingCommandsMixin`.
 
 **Behavior:**
-- When encoding a render bundle (as when encoding a render pass), calls to `setImmediateData()` snapshot the immediate data content at encoding time. The immediate values used by draw calls in a bundle cannot be changed.
+- When encoding a render bundle (as when encoding a render pass), calls to `setImmediates()` snapshot the immediate data content at encoding time. The immediate values used by draw calls in a bundle cannot be changed.
 - Immediate data is cleared/reset before and after executing each individual bundle (similar to bind group state).
 
 **Example:**
 ```javascript
 // Create bundle with immediate data
-const bundleEncoder = device.createRenderBundleEncoder(descriptor);
-bundleEncoder.setImmediateData(0, new Uint32Array([1, 2, 3, 4]));
+const bundleEncoder = device.createRenderBundleEncoder(bundleDescriptor);
+bundleEncoder.setImmediates(0, new Uint32Array([1, 2, 3, 4]));
 bundleEncoder.setPipeline(pipeline);
 bundleEncoder.draw(3);
 const bundle = bundleEncoder.finish();
 
 // Use in render pass
-const passEncoder = commandEncoder.beginRenderPass(descriptor);
-passEncoder.setImmediateData(0, new Uint32Array([5, 6, 7, 8]));
+const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+passEncoder.setPipeline(pipeline);
+passEncoder.setImmediates(0, new Uint32Array([5, 6, 7, 8]));
 passEncoder.draw(3); // Uses [5, 6, 7, 8]
 passEncoder.executeBundles([bundle]); // Uses snapshotted [1, 2, 3, 4]
-// After executeBundles, immediate data is cleared - would need to call setImmediateData again
-passEncoder.setImmediateData(0, new Uint32Array([9, 10, 11, 12]));
+// After executeBundles, immediate data is cleared - would need to call setImmediates again
+// Pipeline state is also cleared by executeBundles.
+passEncoder.setPipeline(pipeline);
+passEncoder.setImmediates(0, new Uint32Array([9, 10, 11, 12]));
 passEncoder.draw(3); // Uses [9, 10, 11, 12]
 passEncoder.end();
 ```
