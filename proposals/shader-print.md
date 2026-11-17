@@ -37,8 +37,7 @@ This proposal introduces string literals that use JavaScript-style template lite
   scalar or vector type.
 - Newlines and escape characters are permitted inside the template literal.
 
-The `string` type can only be used for expressions that are passed to the `print` built-in function,
-or as the type of a `const` declaration.
+The `string` type can only be used for expressions that are passed to the `print` built-in function.
 
 ### Examples
 
