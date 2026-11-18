@@ -623,7 +623,7 @@ table, it's implicitly available if a `GPUResourceTable` has been bound.
 
 In order to access the resource table two new methods are added, `getResource` and `hasResource`.
 
-The WGSL language extension (https://github.com/gpuweb/issues/5611) to eliminate aliasing
+The WGSL language extension (https://github.com/gpuweb/gpuweb/issues/5611) to eliminate aliasing
 restrictions is required for WGSL bindless support.
 
 #### New enable extension
@@ -679,33 +679,24 @@ Essentially, a value is always returned, it may be a synthesized default value.
 
 ###### Default Resources
 When a given index is either out of bounds, or the requested `T` type does not match what is bound
-a default resource is returned. These resources are defined as:
+a default resource is returned. Default resources are provided by the implementation; they are not
+declared in WGSL and are not part of the `GPUResourceTable`'s visible slots.
 
-TODO: [#5471](https://github.com/gpuweb/gpuweb/issues/5471) Define the default resources
-<table>
-<tr><th>Type<th>Defaults
-<tr>
-    <td>format-less storage texture
-    <td>
-<tr>
-    <td>sampled texture
-    <td>
-<tr>
-    <td>multisampled texture
-    <td>
-<tr>
-    <td>depth texture
-    <td>
-<tr>
-    <td>sampler
-    <td>
-</table>
+ - For texture types, the default resource is a view of type `T` onto a texture with a single texel
+   per layer and a single mip level. This is safe because texture builtins bounds-check or clamp
+   their coordinates, as they do for textures in bind groups.
+ - For sampler types, the default resource is a sampler of type `T`. The default `sampler` is
+   non-filtering so that it can be used with any texture.
+
+Default resources for buffers need a minimum size instead; see
+[#11059](https://github.com/gpuweb/gpuweb/issues/11059).
 
 #### Type Compatibility Rules
-The `T` types used in the `getResource` and `hasResource` methods allow some flexibility in their
-types based on the filtering settings.
-
-TODO: [#5470](https://github.com/gpuweb/gpuweb/issues/5470) define the compatibility rules when they are known.
+The `T` types used in the `getResource` and `hasResource` methods do not carry filterability
+information: there are no `filterable` / `unfilterable` or `filtering` / `non-filtering`
+annotations in WGSL. Instead, the compatibility between a texture and the sampler it is used with
+is validated dynamically where they are combined, as described in the
+[WGSL Bindless Filterability Validation](bindless-filterability-validation.md) proposal.
 
 
 #### Example usage
