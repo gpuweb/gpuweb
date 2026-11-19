@@ -682,11 +682,14 @@ When a given index is either out of bounds, or the requested `T` type does not m
 a default resource is returned. Default resources are provided by the implementation; they are not
 declared in WGSL and are not part of the `GPUResourceTable`'s visible slots.
 
- - For texture types, the default resource is a view of type `T` onto a texture with a single texel
-   per layer and a single mip level. This is safe because texture builtins bounds-check or clamp
+ - For texture types, the default resource is a view of type `T` onto a texture with the minimum
+   number of layers that is valid for `T`, a single texel per layer and a single mip level. The bit
+   representation of each texel is 0. This is safe because texture builtins bounds-check or clamp
    their coordinates, as they do for textures in bind groups.
- - For sampler types, the default resource is a sampler of type `T`. The default `sampler` is
-   non-filtering so that it can be used with any texture.
+ - For `sampler`, the default resource is a sampler created with a default `GPUSamplerDescriptor`.
+   All its filters are `"nearest"`, so it is non-filtering and can be used with any texture.
+ - For `sampler_comparison`, the default resource is a comparison sampler created with an otherwise
+   default `GPUSamplerDescriptor`.
 
 Default resources for buffers need a minimum size instead; see
 [#11059](https://github.com/gpuweb/gpuweb/issues/11059).
