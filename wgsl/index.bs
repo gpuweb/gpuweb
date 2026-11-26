@@ -14244,7 +14244,7 @@ An [[!IEEE-754|IEEE-754]] binary floating point type approximates the [=extended
     * [=Positive infinity=] and [=negative infinity=].
     * NaN values. A <dfn noexport>NaN</dfn>, short for "Not a Number", represents the result of an [=ieee754/invalid operation=].
         IEEE-754 requires both signalling and quiet NaNs, for distinguishing cases related to error reporting.
-        WGSL does not require such error reporting, and may yield [=indeterminate values=] instead of NaNs.
+        WGSL does not require such error reporting, and may yield a [=finite math violation=] instead of NaNs.
         See [[#differences-from-ieee754]].
 * The type supports operations including:
     * Basic arithmetic such as: addition (`+`), subtraction (`-`), mutiplication (`*`), and division (`/`).
@@ -14321,7 +14321,7 @@ The <dfn>domain</dfn> of a floating point operation is the set of [=extended rea
     which is then converted to a floating point result, via [=rounding=].
 * When evaluated *outside* its [=domain=],
     the default exception handling rules of IEEE-754 require an implementation to generate an [=ieee754/exception=] and yield a [=NaN=] value.
-    In contrast, WGSL does not mandate floating point exceptions, and may instead yield an [=indeterminate value=]. See [[#differences-from-ieee754]].
+    In contrast, WGSL does not mandate floating point exceptions, and may instead yield a [=finite math violation=].
 
 <dfn noexport>Rounding</dfn> maps an [=extended real=] value |x| to a value <var>x'</var> in the floating point type.
 When |x| is in the floating point type, then rounding maps |x| to itself: |x| &equals; <var>x'</var>.
@@ -14366,23 +14366,24 @@ WGSL follows the [[!IEEE-754|IEEE-754]] standard, but with the following differe
 * Signaling NaNs may not be generated.
     In an intermediate calculation, any signaling NaN may be converted to a quiet NaN.
 * <dfn noexport>Finite Math Assumption</dfn>:
-    * [=ieee754/Overflow=], infinities, and NaNs generated before [=shader execution start|shader execution=] [=behavioral requirement|will=] generate errors.
-        * [=Const-expressions=] and [=override-expressions=] over finite values
-            [=behavioral requirement|will=] generate overflow, infinities, and NaNs
-            as [=intermediate result=] values, following IEEE-754 rules.
-            * Note: This rule requires implementations to reliably detect overflow, infinities, and NaNs
-                to within accuracy limits for these kinds of expressions, so that errors can be generated consistently.
-        * A [=shader-creation error=] results if any [=const-expression=] of
-            floating-point type overflows or evaluates to NaN or infinity.
-        * A [=pipeline-creation error=] results if any [=override-expression=] of
-            floating-point type overflows or evaluates to NaN or infinity.
-    * Implementations may assume that overflow, infinities, and NaNs are not present during [=shader execution start|shader execution=].
-        * In such an implementation, if the [=intermediate result=] of evaluating a [=runtime expression=] overflows,
-            or yields an infinity or a NaN, the final result [=behavioral requirement|will=] be
-            an [=indeterminate value=] of the target type.
-        * Note: This means some functions (e.g. `min` and `max`)
-            may not return the expected result due to optimizations about the presence
-            of NaNs and infinities.
+    * [=ieee754/Overflow=], infinities, and NaNs [=behavioral requirement|will=] generate a <dfn noexport>finite math violation</dfn>:
+        * Before [=shader execution start|shader execution=]:
+            * [=Const-expressions=] and [=override-expressions=] over finite values
+                [=behavioral requirement|will=] generate overflow, infinities, and NaNs
+                as [=intermediate result=] values, following IEEE-754 rules.
+                * Note: This rule requires implementations to reliably detect overflow, infinities, and NaNs
+                    to within accuracy limits for these kinds of expressions, so that errors can be generated consistently.
+            * A [=shader-creation error=] results if any [=const-expression=] of
+                floating-point type overflows or evaluates to NaN or infinity.
+            * A [=pipeline-creation error=] results if any [=override-expression=] of
+                floating-point type overflows or evaluates to NaN or infinity.
+        * During [=shader execution start|shader execution=] implementations may assume that overflows, inifinites and NaNs will not be present:
+            * In such an implementation, if the [=intermediate result=] of evaluating a [=runtime expression=] overflows,
+                or yields an infinity or a NaN, a [=dynamic error=] occurs.
+            * Note: This means some functions (e.g. `min` and `max`)
+                may not return the expected result due to optimizations about the presence
+                of NaNs and infinities and that there may be other non-local effects in the
+                shader (e.g. branches never taken).
 * Implementations may ignore the [=ieee754/sign field=] of a floating point zero value.
     That is, a zero with a positive sign may behave like a zero a with a negative sign, and vice versa.
 * To <dfn noexport title="flushed to zero">flush to zero</dfn> is to replace a [=ieee754/subnormal=] value for a floating point type
@@ -14424,10 +14425,7 @@ From *X*, compute *X'* in *T* by rounding:
     * Note: This clause matches the IEEE-754 rule.
 
 From *X'*, compute the final value of the expression, *X''*, or detect a program error:
-* If *X'* is an infinity or NaN, then by the [=Finite Math Assumption=]:
-    * If the expression is a [=const-expression=], generate a [=shader-creation error=].
-    * If the expression is a [=override-expression=], generate a [=pipeline-creation error=].
-    * Otherwise the expression is a [=runtime expression=] and *X''* is an [=indeterminate value=].
+* If *X'* is an infinity or NaN, then a [=finite math violation=] occurs.
 * Otherwise *X''* = *X'*.
 
 
@@ -16913,7 +16911,8 @@ For example, if `e` is a very small negative number, then `fract(e)` may be 1.0.
     * When `e` is zero, the fraction is zero.
     * When `e` is non-zero and normal, `e` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
-    * Otherwise, `e` is [=ieee754/subnormal=], NaN, or infinite. The result fraction and exponent are [=indeterminate values=].
+    * When `e` is [=ieee754/subnormal=], the result fraction and exponent are [=indeterminate values=].
+    * Otherwise, `e` is NaN or infinite and yields a [=finite math violation=].
 
     Returns the `__frexp_result_f32` built-in structure, defined as follows:
     ```wgsl
@@ -16961,7 +16960,8 @@ but a value may infer the type.
     * When `e` is zero, the fraction is zero.
     * When `e` is non-zero and normal, `e` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
-    * Otherwise, `e` is [=ieee754/subnormal=], NaN, or infinite. The result fraction and exponent are [=indeterminate values=].
+    * When `e` is [=ieee754/subnormal=], the result fraction and exponent are [=indeterminate values=].
+    * Otherwise, `e` is NaN or infinite and yields a [=finite math violation=].
 
     Returns the `__frexp_result_f16` built-in structure, defined as if as follows:
     ```wgsl
@@ -17049,7 +17049,7 @@ but a value may infer the type.
     * When `ei` is zero, the fraction is zero.
     * When `ei` is non-zero and normal, `ei` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
-    * Otherwise, `ei` is NaN or infinite. The result fraction and exponent are [=indeterminate values=].
+    * Otherwise, `ei` is NaN or infinite and yields a [=finite math violation=].
 
     Returns the `__frexp_result_vecN_f32` built-in structure, defined as follows:
     ```wgsl
@@ -17086,7 +17086,7 @@ but a value may infer the type.
     * When `ei` is zero, the fraction is zero.
     * When `ei` is non-zero and normal, `ei` &equals; `fraction * 2`<sup>`exponent`</sup>, where
         the fraction is in the range [0.5, 1.0) or (-1.0, -0.5].
-    * Otherwise, `ei` is NaN or infinite. The result fraction and exponent are [=indeterminate values=].
+    * Otherwise, `ei` is NaN or infinite and yields a [=finite math violation=].
 
     Returns the `__frexp_result_vecN_f16` built-in structure, defined as if as follows:
     ```wgsl
@@ -17225,10 +17225,7 @@ but a value may infer the type.
     <td>Description
     <td>Returns `e1 * 2`<sup>`e2`</sup>, except:
     * The result may be zero if `e2` + *bias* &le; 0.
-    * If `e2` &gt; *bias* + 1
-         * It is a [=shader-creation error=] if `e2` is a [=const-expression=].
-         * It is a [=pipeline-creation error=] if `e2` is an [=override-expression=].
-         * Otherwise the result is an [=indeterminate value=] for `T`.
+    * If `e2` &gt; *bias* + 1, it is a [=finite math violation=].
 
     Here, *bias* is the exponent bias of the floating point format:
     * 15 for `f16`
@@ -17684,10 +17681,7 @@ but a value may infer the type.
         a [[!IEEE-754|IEEE-754]] [=ieee754/binary16=] value, and then converted back to a
         IEEE-754 [=ieee754/binary32=] value.
 
-        If `e` is outside the [=finite range=] of binary16, then:
-        * It is a [=shader-creation error=] if `e` is a [=const-expression=].
-        * It is a [=pipeline-creation error=] if `e` is an [=override-expression=].
-        * Otherwise the result is an [=indeterminate value=] for `T`.
+        If `e` is outside the [=finite range=] of binary16, then it is a [=finite math violation=].
 
         The intermediate binary16 value may be [=flushed to zero=], i.e. the final
         result may be zero if the intermediate binary16 value is [=ieee754/subnormal=].
@@ -17907,12 +17901,7 @@ Note: The vec2&lt;f32&gt; case is the same as `unpack2x16float(pack2x16float(e))
     * When `edge0` &gt; `edge1`, the function is 1 for `x` below `edge1`, then smoothly descends
         until `x` reaches `edge0`, and remains at 0 afterward.
 
-    If `edge0` &equals; `edge1`:
-    * It is a [=shader-creation error=] if `edge0` and `edge1` are [=const-expressions=].
-    * It is a [=pipeline-creation error=] if `edge0` and `edge1` are [=override-expressions=].
-    * Otherwise, the result is an [=indeterminate value=] for `T`.
-        In this case the computation performs a floating point [=ieee754/division by zero=],
-        and the [=Finite Math Assumption=] applies.
+    If `edge0` &equals; `edge1` it is a [=finite math violation=].
 
 </table>
 
@@ -20436,10 +20425,7 @@ Note: For packing snorm values, the normalized floating point values are in the 
         16 &times; `i` + 15 of the result.
         See [[#floating-point-conversion]].
 
-        If either `e[0]` or `e[1]` is outside the [=finite range=] of binary16 then:
-        * It is a [=shader-creation error=] if `e` is a [=const-expression=].
-        * It is a [=pipeline-creation error=] if `e` is an [=override-expression=].
-        * Otherwise the result is an [=indeterminate value=] for u32.
+        If either `e[0]` or `e[1]` is outside the [=finite range=] of binary16 it is a [=finite math violation=].
 </table>
 
 ## Data Unpacking Built-in Functions ## {#unpack-builtin-functions}
